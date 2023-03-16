@@ -25,7 +25,6 @@ pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + S
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
-        use proptest::prelude::Rng;
         use rand::seq::SliceRandom;
 
         use crate::{
@@ -37,6 +36,7 @@ mod tests {
                     secureapplyinv::secureapplyinv_multi,
                 },
             },
+            rand::Rng,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -44,7 +44,7 @@ mod tests {
         pub async fn multi() {
             const BATCHSIZE: u32 = 25;
             const NUM_MULTI_BITS: u32 = 3;
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
             let mut rng = rand::thread_rng();
 
             let mut input = Vec::with_capacity(NUM_MULTI_BITS.try_into().unwrap());

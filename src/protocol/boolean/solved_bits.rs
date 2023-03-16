@@ -7,7 +7,7 @@ use crate::{
         replicated::malicious::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
         },
-        Arithmetic as ArithmeticSecretSharing, SecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -77,7 +77,7 @@ pub async fn solved_bits<F, S, C>(
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
 {
     //
@@ -117,7 +117,7 @@ async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Resu
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
@@ -165,7 +165,7 @@ mod tests {
     where
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
                 let mut outputs = Vec::with_capacity(COUNT);
@@ -233,7 +233,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut success = 0;
 
         for _ in 0..4 {

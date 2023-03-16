@@ -1,4 +1,6 @@
 use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
     iter::{repeat, zip},
     marker::PhantomData,
 };
@@ -9,10 +11,7 @@ use futures::future::{try_join, try_join_all};
 use crate::{
     error::Error,
     ff::Field,
-    helpers::{
-        messaging::{Gateway, Mesh, TotalRecords},
-        Role,
-    },
+    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         attribution::input::MCCappedCreditsWithAggregationBit,
         basics::{
@@ -34,14 +33,14 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
     sync::Arc,
 };
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MaliciousContext<'a, F: Field> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
@@ -172,8 +171,16 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
         )
     }
 
-    fn mesh(&self) -> Mesh<'_, '_> {
-        self.inner.gateway.mesh(self.step(), self.total_records)
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner
+            .gateway
+            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_receiver(&ChannelId::new(role, self.step.clone()))
     }
 }
 
@@ -207,6 +214,12 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         ctx.step = self.step;
 
         ctx
+    }
+}
+
+impl<F: Field> Debug for MaliciousContext<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }
 }
 
@@ -323,14 +336,14 @@ impl<'a, F: Field>
     }
 }
 
-pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRowWrapper<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
     pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             mk_shares,
@@ -408,7 +421,6 @@ impl<'a, F: Field>
     }
 }
 
-#[derive(Debug)]
 struct ContextInner<'a, F: Field> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,

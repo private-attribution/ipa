@@ -108,7 +108,10 @@ impl ZeroPositions {
     pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
         #[cfg(debug_assertions)]
         {
-            use crate::helpers::Direction::Right;
+            use crate::{
+                helpers::Direction::Right, secret_sharing::replicated::ReplicatedSecretSharing,
+            };
+
             let flags = <[bool; 3]>::from(self);
             if flags[role as usize] {
                 assert_eq!(
@@ -197,7 +200,10 @@ pub(in crate::protocol) mod test {
             BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+            IntoShares,
+        },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;
@@ -366,7 +372,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {
@@ -392,7 +398,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output_malicious() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {

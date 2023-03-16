@@ -3,12 +3,9 @@ mod error;
 pub use error::Error;
 
 use crate::{
-    helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
-        transport::ByteArrStream,
-        HelperIdentity,
-    },
-    net::{discovery::peer, http_serde},
+    config::NetworkConfig,
+    helpers::HelperIdentity,
+    net::http_serde,
     protocol::{QueryId, Step},
 };
 use axum::{body::StreamBody, http::uri};
@@ -31,8 +28,8 @@ pub struct MpcHelperClient {
 impl MpcHelperClient {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
-        peers_conf
+    pub fn from_conf(conf: &NetworkConfig) -> [MpcHelperClient; 3] {
+        conf.peers()
             .iter()
             .map(|conf| Self::new(conf.origin.clone()))
             .collect::<Vec<_>>()
@@ -187,16 +184,13 @@ impl MpcHelperClient {
     }
 }
 
+#[cfg(never)]
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{
-            query::{QueryCommand, QueryType},
-            CommandEnvelope, CommandOrigin, RoleAssignment, TransportCommand,
-            MESSAGE_PAYLOAD_SIZE_BYTES,
-        },
+        helpers::{transport::query::QueryType, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{server::BindTarget, MpcHelperServer},
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,

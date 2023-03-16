@@ -8,7 +8,9 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
 };
 
 /// IKHC multiplication protocol
@@ -42,14 +44,13 @@ where
     // Shared randomness used to mask the values that are sent.
     let (s0, s1) = ctx.prss().generate_fields(record_id);
 
-    let channel = ctx.mesh();
     let mut rhs = a.right() * b.right();
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
-        channel
-            .send(role.peer(Direction::Right), record_id, right_d)
+        ctx.send_channel(role.peer(Direction::Right))
+            .send(record_id, right_d)
             .await?;
         rhs += right_d;
     } else {
@@ -65,8 +66,9 @@ where
     // Sleep until helper on the left sends us their (d_i-1) value.
     let mut lhs = a.left() * b.left();
     if need_to_recv {
-        let left_d = channel
-            .receive(role.peer(Direction::Left), record_id)
+        let left_d = ctx
+            .recv_channel(role.peer(Direction::Left))
+            .receive(record_id)
             .await?;
         lhs += left_d;
     }
@@ -92,7 +94,7 @@ mod test {
 
     #[tokio::test]
     async fn basic() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(30, multiply_sync::<Fp31>(&world, 6, 5).await);
         assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
@@ -105,7 +107,7 @@ mod test {
 
     #[tokio::test]
     pub async fn simple() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
         let a = rng.gen::<Fp31>();
@@ -129,7 +131,7 @@ mod test {
     #[tokio::test]
     pub async fn concurrent_mul() {
         const COUNT: usize = 10;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
         let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();

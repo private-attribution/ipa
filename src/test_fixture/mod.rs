@@ -3,11 +3,11 @@ mod sharing;
 mod world;
 
 pub mod circuit;
+pub mod config;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub mod net;
-pub mod transport;
+pub mod network;
 
 use crate::{
     ff::{Field, Fp31},
@@ -31,13 +31,14 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<C: Debug + Context>(contexts: &[C; 3], step: &impl Substep) -> [C; 3] {
+pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Substep) -> [C; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()
         .map(|c| c.narrow(step))
         .collect::<Vec<_>>()
         .try_into()
+        .map_err(|_| "infallible conversion failed")
         .unwrap()
 }
 

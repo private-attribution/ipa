@@ -1,9 +1,8 @@
 #![cfg(feature = "web-app")]
 
 use crate::{
-    bits::Serializable,
     cli::playbook::InputSource,
-    ff::Field,
+    ff::{Field, Serializable},
     helpers::{query::QueryInput, transport::ByteArrStream},
     net::MpcHelperClient,
     protocol::QueryId,

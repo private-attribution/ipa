@@ -13,7 +13,7 @@ use crate::{
         basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
     },
     repeat64str,
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::{try_join, try_join_all};
 
@@ -28,7 +28,7 @@ async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -63,7 +63,7 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert_eq!(stop_bits.len() + 1, uncapped_credits.len());
 
@@ -167,7 +167,7 @@ pub async fn do_the_binary_tree_thing<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let num_rows = values.len();
 

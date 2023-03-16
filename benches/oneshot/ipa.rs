@@ -1,12 +1,13 @@
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raw_ipa::{
     error::Error,
+    helpers::GatewayConfig,
     test_fixture::{
         generate_random_user_records_in_reverse_chronological_order, test_ipa,
         update_expected_output_for_user, IpaSecurityModel, TestWorld, TestWorldConfig,
     },
 };
-use std::num::NonZeroUsize;
+use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
@@ -17,8 +18,8 @@ async fn main() -> Result<(), Error> {
     const MAX_RECORDS_PER_USER: usize = 10;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-    config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
+    config.gateway_config =
+        GatewayConfig::symmetric_buffers((NUM_USERS * MAX_RECORDS_PER_USER).clamp(16, 1024));
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed}");
@@ -42,6 +43,7 @@ async fn main() -> Result<(), Error> {
     }
     let mut raw_data = random_user_records.concat();
     println!("Running test for {:?} records", raw_data.len());
+    let start = Instant::now();
 
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
@@ -53,10 +55,10 @@ async fn main() -> Result<(), Error> {
         for records_for_user in &random_user_records {
             update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
         }
-        let world = TestWorld::new_with(config).await;
+        let world = TestWorld::new_with(config.clone());
 
         test_ipa(
-            world,
+            &world,
             &raw_data,
             &expected_results,
             per_user_cap,
@@ -65,5 +67,7 @@ async fn main() -> Result<(), Error> {
         )
         .await;
     }
+    let duration = start.elapsed().as_secs_f32();
+    println!("IPA benchmark complete successfully after {duration}s");
     Ok(())
 }

@@ -1,8 +1,8 @@
 use rand::Rng;
 use raw_ipa::{
-    bits::{BitArray40, Fp2Array},
     error::Error,
-    ff::{Field, Fp32BitPrime},
+    ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
+    helpers::GatewayConfig,
     protocol::{
         context::Context,
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -12,7 +12,7 @@ use raw_ipa::{
     secret_sharing::SharedValue,
     test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
-use std::{num::NonZeroUsize, time::Instant};
+use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
@@ -20,9 +20,8 @@ async fn main() -> Result<(), Error> {
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-    config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
-    let world = TestWorld::new_with(config).await;
+    config.gateway_config = GatewayConfig::symmetric_buffers(BATCHSIZE.clamp(4, 1024));
+    let world = TestWorld::new_with(config);
     let [ctx0, ctx1, ctx2] = world.contexts();
     let mut rng = rand::thread_rng();
 
@@ -37,7 +36,7 @@ async fn main() -> Result<(), Error> {
             convert_all_bits::<Fp32BitPrime, _, _>(
                 &ctx,
                 &convert_all_bits_local(ctx.role(), match_key.into_iter()),
-                BitArray40::BITS,
+                Gf40Bit::BITS,
                 NUM_MULTI_BITS,
             )
             .await

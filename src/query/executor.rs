@@ -1,11 +1,9 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
-    ff::{Field, FieldType, Fp31},
+    ff::{Field, FieldType, Fp31, GaloisField, Serializable},
     helpers::{
-        messaging::{Gateway, TotalRecords},
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        transport::{AlignedByteArrStream, ByteArrStream},
+        AlignedByteArrStream, ByteArrStream, Gateway, TotalRecords,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -13,7 +11,9 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Arithmetic},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
+    },
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -46,7 +46,8 @@ where
     }
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> Result for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> Result
+    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
     T: Serializable,
 {
@@ -99,7 +100,7 @@ where
     results
 }
 
-async fn execute_ipa<F: Field, MK: Fp2Array, BK: Fp2Array>(
+async fn execute_ipa<F: Field, MK: GaloisField, BK: GaloisField>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
@@ -124,6 +125,7 @@ where
     .unwrap()
 }
 
+#[allow(unused)]
 pub fn start_query(
     config: QueryConfig,
     gateway: Gateway,
@@ -184,7 +186,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiply() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world
             .contexts()
             .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
@@ -256,7 +258,7 @@ mod tests {
                     .collect::<Vec<_>>()
             });
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world.contexts();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {

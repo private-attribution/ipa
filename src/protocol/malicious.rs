@@ -11,10 +11,15 @@ use crate::{
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
         semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
     sync::{Arc, Mutex, Weak},
 };
 use futures::future::try_join;
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+};
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
@@ -143,7 +148,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-#[derive(Debug)]
 pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
@@ -232,26 +236,28 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)
             .set_total_records(2);
-        let channel = propagate_ctx.mesh();
-        let helper_right = propagate_ctx.role().peer(Direction::Right);
-        let helper_left = propagate_ctx.role().peer(Direction::Left);
+        let helper_right = propagate_ctx.send_channel(propagate_ctx.role().peer(Direction::Right));
+        let helper_left = propagate_ctx.recv_channel(propagate_ctx.role().peer(Direction::Left));
         let (u_local, w_local) = {
             let state = self.u_and_w.lock().unwrap();
             (state.u, state.w)
         };
         try_join(
-            channel.send(helper_right, RECORD_0, u_local),
-            channel.send(helper_right, RECORD_1, w_local),
+            helper_right.send(RECORD_0, u_local),
+            helper_right.send(RECORD_1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F, F) = try_join(
-            channel.receive(helper_left, RECORD_0),
-            channel.receive(helper_left, RECORD_1),
-        )
-        .await?;
+        let (u_left, w_left): (F, F) =
+            try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))
+    }
+}
+
+impl<F: Field> Debug for MaliciousValidator<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }
 }
 
@@ -264,18 +270,17 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
         protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::{
                 malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                semi_honest::AdditiveShare as Replicated,
+                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
             },
             IntoShares,
         },
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -293,7 +298,7 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let context = world.contexts();
         let mut rng = thread_rng();
 
@@ -341,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -358,7 +363,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only_tweaked() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -406,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
         const COUNT: usize = 100;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let context = world.contexts();
         let mut rng = thread_rng();
 

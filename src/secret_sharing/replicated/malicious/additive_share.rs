@@ -1,6 +1,5 @@
 use crate::{
-    bits::Serializable,
-    ff::Field,
+    ff::{Field, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
@@ -11,7 +10,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
-        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+        Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
 use async_trait::async_trait;
@@ -33,7 +32,7 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
@@ -180,7 +179,7 @@ where
         <SemiHonestAdditiveShare<V> as Serializable>::Size,
     >>::Output;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) =
             buf.split_at_mut(<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE);
         self.x.serialize(GenericArray::from_mut_slice(left));
@@ -266,13 +265,15 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+            replicated::{
+                semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
+            },
+            IntoShares,
         },
         test_fixture::Reconstruct,
     };
-    use proptest::prelude::Rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]

@@ -1,11 +1,11 @@
 use crate::{
-    bits::Fp2Array,
-    ff::Field,
+    ff::{Field, GaloisField},
     protocol::boolean::RandomBitsShare,
     secret_sharing::{
         replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            ReplicatedSecretSharing,
         },
         SecretSharing,
     },
@@ -63,26 +63,26 @@ impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     }
 }
 
-impl<B: Fp2Array> Reconstruct<B> for [&XorReplicated<B>; 3] {
+impl<B: GaloisField> Reconstruct<B> for [&XorReplicated<B>; 3] {
     fn reconstruct(&self) -> B {
         let s0 = &self[0];
         let s1 = &self[1];
         let s2 = &self[2];
 
         assert_eq!(
-            s0.left() ^ s1.left() ^ s2.left(),
-            s0.right() ^ s1.right() ^ s2.right(),
+            s0.left() + s1.left() + s2.left(),
+            s0.right() + s1.right() + s2.right(),
         );
 
         assert_eq!(s0.right(), s1.left());
         assert_eq!(s1.right(), s2.left());
         assert_eq!(s2.right(), s0.left());
 
-        s0.left() ^ s1.left() ^ s2.left()
+        s0.left() + s1.left() + s2.left()
     }
 }
 
-impl<B: Fp2Array> Reconstruct<B> for [XorReplicated<B>; 3] {
+impl<B: GaloisField> Reconstruct<B> for [XorReplicated<B>; 3] {
     fn reconstruct(&self) -> B {
         [&self[0], &self[1], &self[2]].reconstruct()
     }

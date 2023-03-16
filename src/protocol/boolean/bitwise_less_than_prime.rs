@@ -5,7 +5,7 @@ use crate::{
     protocol::{
         boolean::multiply_all_shares, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join;
 use std::cmp::Ordering;
@@ -28,7 +28,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context,
-        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
         let one = S::share_known_value(&ctx, F::ONE);
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
@@ -43,7 +43,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context,
-        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -93,7 +93,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context,
-        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -150,7 +150,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context,
-        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         debug_assert!(prime & 0b111 == 0b011);
@@ -286,7 +286,7 @@ mod tests {
         F: Field + Sized,
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let bits = get_bits::<F>(a, num_bits);
         let result = world
             .semi_honest(bits.clone(), |ctx, x_share| async move {

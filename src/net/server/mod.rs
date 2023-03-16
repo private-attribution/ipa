@@ -2,22 +2,33 @@ mod error;
 mod handlers;
 
 pub use error::Error;
+use hyper::{server::conn::AddrStream, Request};
 
 use crate::{
-    helpers::CommandEnvelope,
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
-use axum::Router;
-use axum_server::{tls_rustls::RustlsConfig, Handle};
+use axum::{routing::IntoMakeService, Router};
+use axum_server::{
+    accept::Accept,
+    service::{MakeServiceRef, SendService},
+    tls_rustls::RustlsConfig,
+    Handle, Server,
+};
 use metrics::increment_counter;
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, TcpListener},
+};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-use ::tokio::sync::mpsc;
+use ::tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::mpsc,
+};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -26,6 +37,7 @@ use shuttle::future as tokio;
 pub enum BindTarget {
     Http(SocketAddr),
     Https(SocketAddr, RustlsConfig),
+    HttpListener(TcpListener),
 }
 
 /// Contains all of the state needed to start the MPC server.
@@ -55,6 +67,37 @@ impl MpcHelperServer {
     /// Starts a new instance of MPC helper and binds it to a given target.
     /// Returns a socket it is listening to and the join handle of the web server running.
     pub async fn bind(&self, target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+        async fn serve<A>(
+            server: Server<A>,
+            handle: Handle,
+            svc: IntoMakeService<Router>,
+        ) -> JoinHandle<()>
+        where
+            A: Accept<
+                    AddrStream,
+                    <IntoMakeService<Router> as MakeServiceRef<
+                        AddrStream,
+                        hyper::Request<hyper::Body>,
+                    >>::Service,
+                > + Clone
+                + Send
+                + Sync
+                + 'static,
+            A::Stream: AsyncRead + AsyncWrite + Unpin + Send,
+            A::Service: SendService<Request<hyper::Body>> + Send,
+            A::Future: Send,
+        {
+            tokio::spawn({
+                async move {
+                    server
+                        .handle(handle)
+                        .serve(svc)
+                        .await
+                        .expect("Failed to serve");
+                }
+            })
+        }
+
         let svc = self
             .router()
             .layer(TraceLayer::new_for_http().on_request(
@@ -67,26 +110,18 @@ impl MpcHelperServer {
         let handle = Handle::new();
 
         let task_handle = match target {
-            BindTarget::Http(addr) => tokio::spawn({
-                let handle = handle.clone();
-                async move {
-                    axum_server::bind(addr)
-                        .handle(handle)
-                        .serve(svc)
-                        .await
-                        .expect("Failed to serve");
-                }
-            }),
-            BindTarget::Https(addr, tls_config) => tokio::spawn({
-                let handle = handle.clone();
-                async move {
-                    axum_server::bind_rustls(addr, tls_config)
-                        .handle(handle)
-                        .serve(svc)
-                        .await
-                        .expect("Failed to serve");
-                }
-            }),
+            BindTarget::Http(addr) => serve(axum_server::bind(addr), handle.clone(), svc).await,
+            BindTarget::HttpListener(listener) => {
+                serve(axum_server::from_tcp(listener), handle.clone(), svc).await
+            }
+            BindTarget::Https(addr, tls_config) => {
+                serve(
+                    axum_server::bind_rustls(addr, tls_config),
+                    handle.clone(),
+                    svc,
+                )
+                .await
+            }
         };
 
         let bound_addr = handle

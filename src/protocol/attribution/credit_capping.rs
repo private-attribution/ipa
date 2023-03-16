@@ -8,14 +8,11 @@ use crate::{
     ff::Field,
     protocol::{
         basics::SecureMul,
-        boolean::{
-            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
-            BitDecomposition, RandomBits,
-        },
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
         BasicProtocols, RecordId, Substep,
     },
-    secret_sharing::Arithmetic,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -33,7 +30,7 @@ pub async fn credit_capping<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -110,7 +107,7 @@ async fn credit_capping_max_one<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let input_len = input.len();
 
@@ -178,7 +175,7 @@ async fn mask_source_credits<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     try_join_all(
         input
@@ -205,7 +202,7 @@ async fn credit_prefix_sum<'a, F, C, T, I>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + SecureMul<C> + 'a,
+    T: LinearSecretSharing<F> + SecureMul<C> + 'a,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -229,11 +226,10 @@ async fn is_credit_larger_than_cap<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
-        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
     try_join_all(
@@ -245,27 +241,13 @@ where
             ))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
-                // The buffer inside the generator is `Arc`, so these clones
-                // just increment the reference.
-                async move {
-                    let credit_bits = BitDecomposition::execute(
-                        ctx.narrow(&Step::BitDecomposeCurrentContribution),
-                        RecordId::from(i),
-                        rbg,
-                        credit,
-                    )
-                    .await?;
-
-                    // compare_bit = current_contribution > cap
-                    let compare_bit = bitwise_greater_than_constant(
-                        ctx.narrow(&Step::IsCapLessThanCurrentContribution),
-                        RecordId::from(i),
-                        &credit_bits,
-                        cap.into(),
-                    )
-                    .await?;
-                    Ok::<_, Error>(compare_bit)
-                }
+                greater_than_constant(
+                    ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+                    RecordId::from(i),
+                    rbg,
+                    credit,
+                    cap.into(),
+                )
             }),
     )
     .await
@@ -282,7 +264,7 @@ async fn compute_final_credits<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
     let cap = T::share_known_value(&ctx, F::from(cap.into()));
@@ -347,8 +329,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     MaskSourceCredits,
-    BitDecomposeCurrentContribution,
-    RandomBitsForBitDecomposition,
+    RandomBitsForComparison,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
@@ -362,8 +343,7 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::MaskSourceCredits => "mask_source_credits",
-            Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
-            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
+            Self::RandomBitsForComparison => "random_bits_for_comparison",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
@@ -423,7 +403,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result = world
             .semi_honest(
                 input,

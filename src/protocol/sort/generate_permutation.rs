@@ -165,7 +165,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::{
-        bits::Fp2Array,
+        ff::GaloisField,
         protocol::{
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
@@ -185,7 +185,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
         const NUM_MULTI_BITS: u32 = 3;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -225,7 +225,7 @@ mod tests {
         let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
         permutation.shuffle(&mut rng);
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let [ctx0, ctx1, ctx2] = world.contexts();
         let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 

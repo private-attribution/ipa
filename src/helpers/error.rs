@@ -1,15 +1,10 @@
 use crate::{
     error::BoxError,
-    helpers::{
-        messaging::{Message, ReceiveRequest, SendRequest},
-        network::{ChannelId, MessageChunks},
-        HelperIdentity, Role, TransportError,
-    },
+    helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
     protocol::{RecordId, Step},
 };
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-use tokio_util::sync::PollSendError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -50,11 +45,12 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
-    #[cfg(feature = "web-app")]
-    #[error("identity had invalid format: {0}")]
-    InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to send command on the transport: {0}")]
-    TransportError(#[from] TransportError),
+    #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]
+    TooManyRecords {
+        record_id: RecordId,
+        channel_id: ChannelId,
+        total_records: TotalRecords,
+    },
 }
 
 impl Error {
@@ -92,38 +88,10 @@ impl Error {
     }
 }
 
-impl From<SendError<ReceiveRequest>> for Error {
-    fn from(source: SendError<ReceiveRequest>) -> Self {
-        Self::SendError {
-            channel: source.0.channel_id,
-            inner: "channel closed".into(),
-        }
-    }
-}
-
 impl<M: Message> From<SendError<(usize, M)>> for Error {
     fn from(_: SendError<(usize, M)>) -> Self {
         Self::OrderedChannelError {
             inner: "ordered string".into(),
-        }
-    }
-}
-
-impl From<SendError<SendRequest>> for Error {
-    fn from(source: SendError<SendRequest>) -> Self {
-        Self::SendError {
-            channel: source.0 .0,
-            inner: "channel closed".into(),
-        }
-    }
-}
-
-impl From<PollSendError<MessageChunks>> for Error {
-    fn from(source: PollSendError<MessageChunks>) -> Self {
-        let inner = source.to_string().into();
-        match source.into_inner() {
-            Some((channel, _)) => Self::SendError { channel, inner },
-            None => Self::PollSendError { inner },
         }
     }
 }

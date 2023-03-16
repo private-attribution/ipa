@@ -1,9 +1,6 @@
 use crate::{
-    bits::Serializable,
-    helpers::{
-        messaging::{Gateway, Message},
-        Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
-    },
+    ff::Serializable,
+    helpers::{Direction, Error, Gateway, Message, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::{prss, RecordId, Step, Substep},
 };
 use futures_util::future::try_join4;
@@ -36,10 +33,16 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
 ) -> Result<prss::Endpoint, Error> {
     // setup protocol to exchange prss public keys
     let step = step.narrow(&PrssExchangeStep);
-    let channel = gateway.mesh(&step, PUBLIC_KEY_CHUNK_COUNT.into());
+    let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), step.clone());
+    let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
+    // let channel = gateway.mesh(&step, PUBLIC_KEY_CHUNK_COUNT.into());
 
-    let left_peer = gateway.role().peer(Direction::Left);
-    let right_peer = gateway.role().peer(Direction::Right);
+    let left_sender =
+        gateway.get_sender::<PublicKeyChunk>(&left_channel, PUBLIC_KEY_CHUNK_COUNT.into());
+    let right_sender =
+        gateway.get_sender::<PublicKeyChunk>(&right_channel, PUBLIC_KEY_CHUNK_COUNT.into());
+    let left_receiver = gateway.get_receiver::<PublicKeyChunk>(&left_channel);
+    let right_receiver = gateway.get_receiver::<PublicKeyChunk>(&right_channel);
 
     // setup local prss endpoint
     let ep_setup = prss::Endpoint::prepare(rng);
@@ -58,10 +61,10 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
         zip(send_left_pk_chunks, send_right_pk_chunks).enumerate()
     {
         let record_id = RecordId::from(i);
-        let send_to_left = channel.send(left_peer, record_id, send_left_chunk);
-        let send_to_right = channel.send(right_peer, record_id, send_right_chunk);
-        let recv_from_left = channel.receive::<PublicKeyChunk>(left_peer, record_id);
-        let recv_from_right = channel.receive::<PublicKeyChunk>(right_peer, record_id);
+        let send_to_left = left_sender.send(record_id, send_left_chunk);
+        let send_to_right = right_sender.send(record_id, send_right_chunk);
+        let recv_from_left = left_receiver.receive(record_id);
+        let recv_from_right = right_receiver.receive(record_id);
         let (_, _, recv_left_key_chunk, recv_right_key_chunk) =
             try_join4(send_to_left, send_to_right, recv_from_left, recv_from_right).await?;
         recv_left_pk_builder.append_chunk(recv_left_key_chunk);
@@ -118,12 +121,12 @@ impl PublicKeyChunk {
     }
 }
 
-use crate::helpers::MessagePayloadArrayLen;
+use crate::helpers::{ChannelId, MessagePayloadArrayLen};
 
 impl Serializable for PublicKeyChunk {
     type Size = MessagePayloadArrayLen;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(&self.0);
     }
 

@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{basics::SecureMul, context::Context, BasicProtocols, BitOpStep, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
@@ -48,7 +48,7 @@ pub async fn add_constant<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -130,7 +130,7 @@ pub async fn maybe_add_constant_mod2l<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
     assert!(a.len() >= el);
@@ -287,7 +287,7 @@ mod tests {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add(&world, zero, 1).await);
         assert_eq!(vec![1, 0, 0, 0, 0], maybe_add(&world, zero, 1, one).await);
@@ -317,7 +317,7 @@ mod tests {
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         // 0 + 0
         assert_eq!(

@@ -16,7 +16,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
-    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
+    secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 use futures::future::try_join_all;
 
@@ -163,7 +163,7 @@ pub async fn check_everything<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_bits = record.len();
     let precomputed_combinations =

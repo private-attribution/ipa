@@ -44,8 +44,7 @@ where
 mod tests {
     use crate::{
         accumulation_test_input,
-        bits::Fp2Array,
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
@@ -68,7 +67,7 @@ mod tests {
         const COUNT: usize = 5;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);

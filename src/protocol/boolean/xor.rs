@@ -6,7 +6,7 @@ use crate::{
         context::Context,
         RecordId,
     },
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
@@ -17,7 +17,7 @@ pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     xor_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
 }
@@ -35,7 +35,7 @@ pub async fn xor_sparse<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let ab = a.multiply_sparse(b, ctx, record_id, zeros_at).await?;
     Ok(-(ab * F::from(2)) + a + b)
@@ -101,7 +101,7 @@ mod tests {
     pub async fn all_combinations() {
         type F = Fp32BitPrime;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);
         assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);
@@ -152,7 +152,7 @@ mod tests {
     /// Run all XOR operations with all combinations of sparse inputs.
     #[tokio::test]
     pub async fn all_sparse() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         for &a in ZeroPositions::all() {
             for &b in ZeroPositions::all() {

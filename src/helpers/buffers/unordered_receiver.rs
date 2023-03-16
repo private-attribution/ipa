@@ -1,6 +1,7 @@
 use crate::{
-    helpers::{messaging::Message, Error},
+    helpers::{Error, Message},
     protocol::RecordId,
+    sync::{Arc, Mutex},
 };
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
@@ -9,7 +10,6 @@ use std::{
     mem::take,
     num::NonZeroUsize,
     pin::Pin,
-    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 use typenum::Unsigned;
@@ -17,7 +17,7 @@ use typenum::Unsigned;
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
 where
-    S: Stream<Item = C>,
+    S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
     M: Message,
 {
@@ -28,7 +28,7 @@ where
 
 impl<S, C, M> Future for Receiver<S, C, M>
 where
-    S: Stream<Item = C>,
+    S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
     M: Message,
 {
@@ -147,7 +147,7 @@ where
 
 impl<S, C> OperatingState<S, C>
 where
-    S: Stream<Item = C>,
+    S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
 {
     /// Determine whether `i` is the next record that we expect to receive.
@@ -166,7 +166,7 @@ where
     fn add_waker(&mut self, i: usize, waker: Waker) {
         assert!(
             i > self.next,
-            "Awaiting a read that has already been fulfilled"
+            "Awaiting a read (record = {i}) that has already been fulfilled. Read cursor is currently at {}", self.next
         );
         // We don't save a waker at `self.next`, so `>` and not `>=`.
         if i > self.next + self.wakers.len() {
@@ -241,7 +241,7 @@ where
 #[allow(dead_code)]
 impl<S, C> UnorderedReceiver<S, C>
 where
-    S: Stream<Item = C>,
+    S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
 {
     /// Wrap a stream for unordered reading.
@@ -288,7 +288,7 @@ where
 
 impl<S, C> Clone for UnorderedReceiver<S, C>
 where
-    S: Stream<Item = C>,
+    S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
 {
     fn clone(&self) -> Self {
@@ -301,14 +301,13 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        bits::Serializable,
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, Serializable},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
     };
     use futures::{
         future::{try_join, try_join_all},
         stream::iter,
-        Future, FutureExt, Stream,
+        Future, Stream,
     };
     use generic_array::GenericArray;
     use rand::Rng;
@@ -322,6 +321,7 @@ mod test {
     fn receiver<I, T>(it: I) -> UnorderedReceiver<impl Stream<Item = T>, T>
     where
         I: IntoIterator<Item = T> + 'static,
+        I::IntoIter: Send,
         T: AsRef<[u8]> + 'static,
     {
         // Use a small capacity so that we can overflow it easily.
@@ -467,7 +467,13 @@ mod test {
     /// Demonstrate that throwing out a future (as `now_or_never` does)
     /// is safe.
     #[test]
+    // UnorderedReceiver uses Mutex that gets replaced with Shuttle version of it.
+    // The problem here is that this test does not use any async engine, so Shuttle cannot really
+    // inject its runtime and this test panics. There is no reason to use Shuttle here.
+    #[cfg(not(feature = "shuttle"))]
     fn synchronous() {
+        use futures::FutureExt;
+
         const DATA: &[u8] = &[18, 12];
         let recv = receiver(&[DATA]);
         assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());

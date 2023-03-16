@@ -7,7 +7,9 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
 };
 
 /// Sum of product protocol developed using IKHC multiplication protocol
@@ -33,8 +35,6 @@ where
     assert_eq!(a.len(), b.len());
     let vec_len = a.len();
 
-    let channel = ctx.mesh();
-
     // generate shared randomness.
     let prss = ctx.prss();
     let (s0, s1): (F, F) = prss.generate_fields(record_id);
@@ -48,13 +48,14 @@ where
     }
 
     // notify helper on the right that we've computed our value
-    channel
-        .send(role.peer(Direction::Right), record_id, right_sops)
+    ctx.send_channel(role.peer(Direction::Right))
+        .send(record_id, right_sops)
         .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let left_sops: F = channel
-        .receive(role.peer(Direction::Left), record_id)
+    let left_sops: F = ctx
+        .recv_channel(role.peer(Direction::Left))
+        .receive(record_id)
         .await?;
 
     // now we are ready to construct the result - 2/3 secret shares of a * b.
@@ -81,7 +82,7 @@ mod test {
 
     #[tokio::test]
     async fn basic() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         assert_eq!(11, sop_sync::<Fp31>(&world, &[7], &[6]).await);
         assert_eq!(3, sop_sync::<Fp31>(&world, &[6, 2], &[5, 2]).await);
         assert_eq!(28, sop_sync::<Fp31>(&world, &[5, 3], &[5, 1]).await);
@@ -99,7 +100,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const MULTI_BIT_LEN: usize = 10;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
 

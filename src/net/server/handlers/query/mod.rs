@@ -5,7 +5,6 @@ mod results;
 mod step;
 
 use crate::{
-    helpers::CommandEnvelope,
     protocol::QueryId,
     sync::{Arc, Mutex},
 };

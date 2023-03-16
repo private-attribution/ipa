@@ -1,7 +1,6 @@
 use crate::{
-    bits::Fp2Array,
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},
@@ -10,8 +9,11 @@ use crate::{
         IpaProtocolStep, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-        Arithmetic as ArithmeticSecretSharing,
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            ReplicatedSecretSharing,
+        },
+        Linear as LinearSecretSharing,
     },
 };
 use futures::future::try_join_all;
@@ -63,7 +65,7 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
 ///
 #[must_use]
-pub fn convert_bit_local<F: Field, B: Fp2Array>(
+pub fn convert_bit_local<F: Field, B: GaloisField>(
     helper_role: Role,
     bit_index: u32,
     input: &XorReplicated<B>,
@@ -90,7 +92,7 @@ pub fn convert_bit_local<F: Field, B: Fp2Array>(
 }
 
 #[must_use]
-pub fn convert_all_bits_local<F: Field, B: Fp2Array>(
+pub fn convert_all_bits_local<F: Field, B: GaloisField>(
     helper_role: Role,
     input: impl Iterator<Item = XorReplicated<B>>,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
@@ -114,7 +116,7 @@ pub async fn convert_bit<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let (sh0, sh1, sh2) = (
         &locally_converted_bits.0[0],
@@ -144,7 +146,7 @@ pub async fn convert_all_bits<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
@@ -180,7 +182,7 @@ pub async fn convert_bit_list<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
@@ -209,18 +211,19 @@ mod tests {
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             MatchKey, RecordId,
         },
-        rand::thread_rng,
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        rand::{thread_rng, Rng},
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use proptest::prelude::Rng;
 
     #[tokio::test]
     pub async fn one_bit() {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
@@ -238,7 +241,7 @@ mod tests {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
@@ -295,7 +298,7 @@ mod tests {
         const BITNUM: u32 = 4;
 
         let mut rng = thread_rng();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         for tweak in TWEAKS {
             let match_key = rng.gen::<MatchKey>();
             world

@@ -115,13 +115,14 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            bits::Fp2Array,
+            ff::GaloisField,
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
                 modulus_conversion::{convert_all_bits, convert_all_bits_local},
                 BreakdownKey, MatchKey,
             },
             rand::{thread_rng, Rng},
+            secret_sharing::replicated::ReplicatedSecretSharing,
         };
 
         use crate::{
@@ -145,7 +146,7 @@ mod tests {
         async fn shuffle_attribution_input_row() {
             const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
             let mut rng = thread_rng();
 
             let mut input: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
@@ -258,7 +259,7 @@ mod tests {
             ];
             let some_numbers_as_bits =
                 some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             let result = world
                 .semi_honest(

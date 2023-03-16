@@ -1,8 +1,7 @@
 use rand::Rng;
 
 use crate::{
-    bits::Fp2Array,
-    ff::{Field, Fp32BitPrime},
+    ff::{Field, Fp32BitPrime, GaloisField},
     ipa_test_input,
     protocol::{
         ipa::{ipa, ipa_malicious},
@@ -98,7 +97,7 @@ pub fn update_expected_output_for_user(
 /// # Panics
 /// If any of the IPA protocol modules panic
 pub async fn test_ipa(
-    world: TestWorld,
+    world: &TestWorld,
     records: &[TestRawDataRecord],
     expected_results: &[u32],
     per_user_cap: u32,

@@ -1,7 +1,4 @@
-use crate::{
-    helpers::{query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin},
-    net::{http_serde, server::Error},
-};
+use crate::net::{http_serde, server::Error};
 use axum::{routing::get, Extension, Router};
 use tokio::sync::{mpsc, oneshot};
 
@@ -40,7 +37,9 @@ mod tests {
         net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
         query::ProtocolResult,
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
     };
     use axum::http::Request;
     use futures::pin_mut;

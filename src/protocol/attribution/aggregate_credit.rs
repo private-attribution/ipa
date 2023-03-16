@@ -1,9 +1,8 @@
 use futures::future::try_join_all;
 
 use crate::{
-    bits::{Fp2Array, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     protocol::{
         attribution::{
             do_the_binary_tree_thing,
@@ -30,7 +29,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -53,7 +52,7 @@ pub async fn aggregate_credit<F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
@@ -150,7 +149,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
 >
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
     let m_ctx = malicious_validator.context();
@@ -244,8 +243,8 @@ async fn simple_aggregate_credit<F, C, T, BK>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F> + Serializable,
-    BK: Fp2Array,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable,
+    BK: GaloisField,
 {
     let mut sums = vec![T::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
@@ -324,8 +323,8 @@ fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
-    BK: Fp2Array,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    BK: GaloisField,
 {
     let zero = T::ZERO;
     let one = T::share_known_value(ctx, F::ONE);
@@ -544,8 +543,7 @@ mod tests {
     use super::aggregate_credit;
     use crate::{
         aggregation_test_input,
-        bits::Fp2Array,
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
             context::Context,
@@ -598,7 +596,7 @@ mod tests {
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
                 input,

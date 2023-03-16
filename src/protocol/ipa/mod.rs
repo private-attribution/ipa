@@ -1,7 +1,6 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -26,7 +25,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -81,14 +80,14 @@ impl AsRef<str> for IPAInputRowResharableStep {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct IPAInputRow<F: Field, MK: Fp2Array, BK: Fp2Array> {
+pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
     pub mk_shares: XorReplicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: XorReplicated<BK>,
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field, MK: Fp2Array, BK: Fp2Array> Serializable for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: GaloisField, BK: GaloisField> Serializable for IPAInputRow<F, MK, BK>
 where
     XorReplicated<BK>: Serializable,
     XorReplicated<MK>: Serializable,
@@ -123,7 +122,7 @@ where
         >>::Output,
     >>::Output;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
@@ -162,7 +161,7 @@ where
     }
 }
 
-impl<F: Field, MK: Fp2Array, BK: Fp2Array> IPAInputRow<F, MK, BK>
+impl<F: Field, MK: GaloisField, BK: GaloisField> IPAInputRow<F, MK, BK>
 where
     IPAInputRow<F, MK, BK>: Serializable,
 {
@@ -183,7 +182,7 @@ where
     }
 }
 
-pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
@@ -191,7 +190,7 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
     pub fn new(
         mk_shares: Vec<T>,
         is_trigger_bit: T,
@@ -212,7 +211,7 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
 impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
 where
     F: Field,
-    T: Arithmetic<F> + Reshare<C, RecordId>,
+    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
     C: Context,
 {
     async fn reshare<'fut>(
@@ -274,8 +273,8 @@ pub async fn ipa<F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    MK: Fp2Array,
-    BK: Fp2Array,
+    MK: GaloisField,
+    BK: GaloisField,
     Replicated<F>: Serializable,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -363,8 +362,8 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    MK: Fp2Array,
-    BK: Fp2Array,
+    MK: GaloisField,
+    BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
     Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
@@ -466,12 +465,10 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use std::num::NonZeroUsize;
-
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
-        bits::{Fp2Array, Serializable},
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
+        helpers::GatewayConfig,
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
@@ -512,7 +509,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -561,7 +558,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -608,7 +605,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -716,6 +713,12 @@ pub mod tests {
         // Sort the records in chronological order
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig::symmetric_buffers(raw_data.len().clamp(4, 1024)),
+            ..Default::default()
+        };
+
+        let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {
             let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
@@ -728,14 +731,8 @@ pub mod tests {
                 );
             }
 
-            let mut config = TestWorldConfig::default();
-            config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-            config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
-
-            let world = TestWorld::new_with(config).await;
-
             test_ipa(
-                world,
+                &world,
                 &raw_data,
                 &expected_results,
                 per_user_cap,
@@ -766,10 +763,10 @@ pub mod tests {
 
         let mut buf =
             vec![0u8; 2 * <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
-        a.clone().serialize(GenericArray::from_mut_slice(
+        a.serialize(GenericArray::from_mut_slice(
             &mut buf[..<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
         ));
-        b.clone().serialize(GenericArray::from_mut_slice(
+        b.serialize(GenericArray::from_mut_slice(
             &mut buf[<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
         ));
 
@@ -797,11 +794,11 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
+        /// empirical value as of Mar 8, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15453;
 
-        /// empirical value as of Feb 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
+        /// empirical value as of Mar 8, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38400;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
@@ -825,7 +822,7 @@ pub mod tests {
         );
 
         for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
@@ -857,7 +854,7 @@ pub mod tests {
                                 Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
             let _ = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
