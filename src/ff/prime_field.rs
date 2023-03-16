@@ -1,5 +1,8 @@
 use super::Field;
-use crate::{ff::Serializable, secret_sharing::SharedValue};
+use crate::{
+    ff::Serializable,
+    secret_sharing::{Block, SharedValue},
+};
 use generic_array::GenericArray;
 
 pub trait PrimeField: Field {
@@ -9,7 +12,7 @@ pub trait PrimeField: Field {
 }
 
 impl<F: PrimeField> Serializable for F {
-    type Size = <F as Field>::Size;
+    type Size = <F::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw = &self.as_u128().to_le_bytes()[..buf.len()];
@@ -25,32 +28,31 @@ impl<F: PrimeField> Serializable for F {
 }
 
 macro_rules! field_impl {
-    ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
+    ( $field:ident, $store:ty, $prime:expr ) => {
         use super::*;
         use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq)]
-        pub struct $field(<Self as Field>::Integer);
+        pub struct $field(<Self as SharedValue>::Storage);
+
+        impl SharedValue for $field {
+            type Storage = $store;
+            const BITS: u32 = <$store as Block>::VALID_BIT_LENGTH;
+            const ZERO: Self = $field(0);
+        }
 
         impl Field for $field {
-            type Integer = $int;
-            type Size = $arraylen;
             const ONE: Self = $field(1);
 
             fn as_u128(&self) -> u128 {
-                let int: Self::Integer = (*self).into();
+                let int: Self::Storage = (*self).into();
                 int.into()
             }
         }
 
         impl PrimeField for $field {
-            type PrimeInteger = Self::Integer;
+            type PrimeInteger = <Self as SharedValue>::Storage;
             const PRIME: Self::PrimeInteger = $prime;
-        }
-
-        impl SharedValue for $field {
-            const BITS: u32 = <Self as Field>::Integer::BITS;
-            const ZERO: Self = $field(0);
         }
 
         impl std::ops::Add for $field {
@@ -59,7 +61,7 @@ macro_rules! field_impl {
             fn add(self, rhs: Self) -> Self::Output {
                 let c = u64::from;
                 debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
-                Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
+                Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
         }
 
@@ -87,7 +89,7 @@ macro_rules! field_impl {
                 // TODO(mt) - constant time?
                 Self(
                     ((c(Self::PRIME) + c(self.0) - c(rhs.0)) % c(Self::PRIME))
-                        as <Self as Field>::Integer,
+                        as <Self as SharedValue>::Storage,
                 )
             }
         }
@@ -107,7 +109,7 @@ macro_rules! field_impl {
                 let c = u64::from;
                 // TODO(mt) - constant time?
                 #[allow(clippy::cast_possible_truncation)]
-                Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
+                Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
         }
 
@@ -127,11 +129,11 @@ macro_rules! field_impl {
         impl<T: Into<u128>> From<T> for $field {
             fn from(v: T) -> Self {
                 #[allow(clippy::cast_possible_truncation)]
-                Self((v.into() % u128::from(Self::PRIME)) as <Self as Field>::Integer)
+                Self((v.into() % u128::from(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
         }
 
-        impl From<$field> for $int {
+        impl From<$field> for $store {
             fn from(v: $field) -> Self {
                 v.0
             }
@@ -199,8 +201,7 @@ macro_rules! field_impl {
 }
 
 mod fp31 {
-    use typenum::U1;
-    field_impl! { Fp31, u8, 31, U1 }
+    field_impl! { Fp31, u8, 31 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {
@@ -223,8 +224,7 @@ mod fp31 {
 }
 
 mod fp32bit {
-    use typenum::U4;
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U4 }
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {

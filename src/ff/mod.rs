@@ -6,13 +6,13 @@ mod field;
 mod galois_field;
 mod prime_field;
 
-pub use field::{Field, FieldType, Int};
-pub use galois_field::{Gf40Bit, Gf8Bit};
+pub use field::{Field, FieldType};
+pub use galois_field::{GaloisField, Gf40Bit, Gf8Bit};
 pub use prime_field::{Fp31, Fp32BitPrime, PrimeField};
 
 use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};
-use std::ops::{Add, AddAssign, Index, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -64,23 +64,6 @@ where
         + Mul<V, Output = Self>,
     V: SharedValue,
 {
-}
-
-/// Trait for data types storing arbitrary number of bits.
-// TODO: Implement `Message`
-pub trait GaloisField:
-    SharedValue + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
-{
-    const POLYNOMIAL: u128;
-
-    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
-    /// into this data type. This conversion is lossy. Callers are encouraged
-    /// to use `try_from` if the input is not known in advance.
-    fn truncate_from<T: Into<u128>>(v: T) -> Self;
-
-    fn as_u128(self) -> u128 {
-        <Self as Into<u128>>::into(self)
-    }
 }
 
 /// Trait for items that have fixed-byte length representation.
