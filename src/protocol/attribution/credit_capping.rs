@@ -268,7 +268,6 @@ where
 {
     let num_rows = input.len();
     let cap = T::share_known_value(&ctx, F::from(cap.into()));
-    let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
     //
@@ -286,44 +285,50 @@ where
     //     current_credit
     //   }
 
-    for i in 0..(num_rows - 1) {
-        let record_id = RecordId::from(i);
+    try_join_all(
+        (0..num_rows)
+            .zip(repeat((ctx, cap)))
+            .map(|(i, (ctx, cap))| async move {
+                if i == num_rows - 1 {
+                    return Ok(original_credits[i].clone());
+                }
+                let record_id = RecordId::from(i);
 
-        let original_credit = &original_credits[i];
-        let next_prefix_summed_credit = &prefix_summed_credits[i + 1];
-        let current_prefix_summed_credit_exceeds_cap = &exceeds_cap_bits[i];
-        let next_credit_exceeds_cap = &exceeds_cap_bits[i + 1];
-        let next_event_has_same_match_key = &input[i + 1].helper_bit;
+                let original_credit = &original_credits[i];
+                let next_prefix_summed_credit = &prefix_summed_credits[i + 1];
+                let current_prefix_summed_credit_exceeds_cap = &exceeds_cap_bits[i];
+                let next_credit_exceeds_cap = &exceeds_cap_bits[i + 1];
+                let next_event_has_same_match_key = &input[i + 1].helper_bit;
 
-        let remaining_budget = if_else(
-            ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
-            record_id,
-            next_event_has_same_match_key,
-            &if_else(
-                ctx.narrow(&Step::IfNextExceedsCapOrElse),
-                record_id,
-                next_credit_exceeds_cap,
-                &T::ZERO,
-                &(cap.clone() - next_prefix_summed_credit),
-            )
-            .await?,
-            &cap,
-        )
-        .await?;
+                let remaining_budget = if_else(
+                    ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
+                    record_id,
+                    next_event_has_same_match_key,
+                    &if_else(
+                        ctx.narrow(&Step::IfNextExceedsCapOrElse),
+                        record_id,
+                        next_credit_exceeds_cap,
+                        &T::ZERO,
+                        &(cap.clone() - next_prefix_summed_credit),
+                    )
+                    .await?,
+                    &cap,
+                )
+                .await?;
 
-        let capped_credit = if_else(
-            ctx.narrow(&Step::IfCurrentExceedsCapOrElse),
-            record_id,
-            current_prefix_summed_credit_exceeds_cap,
-            &remaining_budget,
-            original_credit,
-        )
-        .await?;
+                let capped_credit = if_else(
+                    ctx.narrow(&Step::IfCurrentExceedsCapOrElse),
+                    record_id,
+                    current_prefix_summed_credit_exceeds_cap,
+                    &remaining_budget,
+                    original_credit,
+                )
+                .await?;
 
-        final_credits[i] = capped_credit;
-    }
-
-    Ok(final_credits)
+                Ok::<_, Error>(capped_credit)
+            }),
+    )
+    .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
