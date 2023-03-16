@@ -29,7 +29,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing, SharedValue,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -300,7 +300,7 @@ where
         .map(|(i, sum)| {
             let breakdown_key = u128::try_from(i).unwrap();
             let bk_bits = BK::truncate_from(breakdown_key);
-            let converted_bk = (0..<BK as SharedValue>::BITS)
+            let converted_bk = (0..BK::BITS)
                 .map(|i| {
                     if bk_bits[i] {
                         one.clone()

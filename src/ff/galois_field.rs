@@ -218,16 +218,16 @@ macro_rules! bit_array_impl {
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    debug_assert!(2 * <Self as SharedValue>::BITS < u128::BITS);
+                    debug_assert!(2 * Self::BITS < u128::BITS);
                     let a = <Self as GaloisField>::as_u128(self);
                     let mut product = 0;
-                    for i in 0..<Self as SharedValue>::BITS {
+                    for i in 0..Self::BITS {
                         let bit = u128::from(rhs[i]);
                         product ^= bit * (a << i);
                     }
 
                     let poly = <Self as GaloisField>::POLYNOMIAL;
-                    while (u128::BITS - product.leading_zeros()) > <Self as SharedValue>::BITS {
+                    while (u128::BITS - product.leading_zeros()) > Self::BITS {
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
                         product ^= (poly << bits_to_shift);
                     }
@@ -262,7 +262,7 @@ macro_rules! bit_array_impl {
                 /// less than or equal to `2^Self::BITS`. Should be long enough for our use
                 /// case.
                 fn into(self) -> u128 {
-                    debug_assert!(<$name as SharedValue>::BITS <= 128);
+                    debug_assert!(<$name>::BITS <= 128);
                     self
                         .0
                         .iter()
@@ -325,19 +325,19 @@ macro_rules! bit_array_impl {
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
                 use rand::{thread_rng, Rng};
 
-                const MASK: u128 = u128::MAX >> (u128::BITS - <$name as SharedValue>::BITS);
+                const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
 
                 #[test]
                 pub fn basic() {
-                    let zero = bitarr!(u8, Lsb0; 0; <$name as SharedValue>::BITS as usize);
-                    let mut one = bitarr!(u8, Lsb0; 0; <$name as SharedValue>::BITS as usize);
+                    let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
+                    let mut one = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     *one.first_mut().unwrap() = true;
 
                     assert_eq!($name::ZERO.0, zero);
                     assert_eq!($name::ONE.0, one);
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
-                    let max_plus_one = (1_u128 << <$name as SharedValue>::BITS) + 1;
+                    let max_plus_one = (1_u128 << <$name>::BITS) + 1;
                     // TODO (taikiy): Uncomment this line once TryFrom is back
                     // assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!(
@@ -352,7 +352,7 @@ macro_rules! bit_array_impl {
                 pub fn index() {
                     let s = $name::try_from(1_u128).unwrap();
                     assert_eq!(s[0_usize], true);
-                    assert_eq!(s[(<$name as SharedValue>::BITS - 1) as u32], false);
+                    assert_eq!(s[(<$name>::BITS - 1) as u32], false);
                 }
 
                 #[test]
@@ -360,7 +360,7 @@ macro_rules! bit_array_impl {
                 pub fn out_of_count_index() {
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic
-                    assert_eq!(s[<$name as SharedValue>::BITS as usize], false);
+                    assert_eq!(s[<$name>::BITS as usize], false);
                 }
 
                 #[test]
