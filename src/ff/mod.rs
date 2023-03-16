@@ -8,7 +8,7 @@ mod prime_field;
 
 pub use field::{Field, FieldType, Int};
 pub use galois_field::{Gf40Bit, Gf8Bit};
-pub use prime_field::{Fp31, Fp32BitPrime};
+pub use prime_field::{Fp31, Fp32BitPrime, PrimeField};
 
 use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};

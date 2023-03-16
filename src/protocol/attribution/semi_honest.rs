@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable},
+    ff::{GaloisField, PrimeField, Serializable},
     protocol::{
         boolean::bitwise_equal::bitwise_equal,
         context::{Context, SemiHonestContext},
@@ -30,7 +30,7 @@ pub async fn secure_attribution<F, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     BK: GaloisField,
     AdditiveShare<F>: Serializable,
 {

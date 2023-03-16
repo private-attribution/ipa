@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::Field,
+    ff::PrimeField,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -34,7 +34,7 @@ impl BitDecomposition {
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
-        F: Field,
+        F: PrimeField,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
         C: Context + RandomBits<F, Share = S>,
     {
@@ -100,7 +100,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitDecomposition;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, PrimeField},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
@@ -120,7 +120,7 @@ mod tests {
 
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
-        F: Field + Sized,
+        F: PrimeField + Sized,
         Standard: Distribution<F>,
     {
         let result = world

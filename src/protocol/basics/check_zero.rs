@@ -77,7 +77,7 @@ pub async fn check_zero<F: Field>(
 mod tests {
     use crate::{
         error::Error,
-        ff::{Field, Fp31},
+        ff::{Fp31, PrimeField},
         protocol::{basics::check_zero, context::Context, RecordId},
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},

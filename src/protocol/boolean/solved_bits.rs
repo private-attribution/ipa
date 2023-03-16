@@ -1,7 +1,7 @@
 use super::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits};
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::{
         replicated::malicious::{
@@ -76,7 +76,7 @@ pub async fn solved_bits<F, S, C>(
     record_id: RecordId,
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
 {
@@ -115,7 +115,7 @@ where
 
 async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
 where
-    F: Field,
+    F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
@@ -150,7 +150,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
         secret_sharing::SharedValue,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
@@ -161,7 +161,7 @@ mod tests {
     /// Execute `solved_bits` `COUNT` times for `F`. The count should be chosen
     /// such that the probability of that many consecutive failures in `F` is
     /// negligible (less than 2^-100).
-    async fn random_bits<F: Field, const COUNT: usize>()
+    async fn random_bits<F: PrimeField, const COUNT: usize>()
     where
         Standard: Distribution<F>,
     {

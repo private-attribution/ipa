@@ -1,9 +1,9 @@
-use crate::{ff::Serializable, secret_sharing::SharedValue};
-use generic_array::{ArrayLength, GenericArray};
+use crate::secret_sharing::SharedValue;
+use generic_array::ArrayLength;
 use std::fmt::Debug;
 
 // Trait for primitive integer types used to represent the underlying type for field values
-pub trait Int: Sized + Copy + Debug + Into<u128> {
+pub trait Int: Sized + Copy + Debug {
     const BITS: u32;
 }
 
@@ -19,32 +19,12 @@ pub trait Field: SharedValue + From<u128> + Into<Self::Integer> {
     type Integer: Int;
     type Size: ArrayLength<u8>;
 
-    const PRIME: Self::Integer;
     /// Multiplicative identity element
     const ONE: Self;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
-    fn as_u128(&self) -> u128 {
-        let int: Self::Integer = (*self).into();
-        int.into()
-    }
-}
-
-impl<F: Field> Serializable for F {
-    type Size = <F as Field>::Size;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.as_u128().to_le_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mut buf_to = [0u8; 16];
-        buf_to[..buf.len()].copy_from_slice(buf);
-
-        Self::from(u128::from_le_bytes(buf_to))
-    }
+    fn as_u128(&self) -> u128;
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
