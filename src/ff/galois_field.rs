@@ -1,15 +1,47 @@
 use crate::{
-    ff::{GaloisField, Serializable},
-    secret_sharing::SharedValue,
+    ff::{Field, Serializable},
+    secret_sharing::{Block, SharedValue},
 };
-use bitvec::prelude::{BitArr, Lsb0};
+use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
+use std::ops::Index;
 use typenum::{Unsigned, U1, U4, U5};
+
+/// Trait for data types storing arbitrary number of bits.
+pub trait GaloisField:
+    Field + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
+{
+    const POLYNOMIAL: u128;
+
+    fn as_u128(self) -> u128 {
+        <Self as Into<u128>>::into(self)
+    }
+
+    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
+    /// into this data type. This conversion is lossy. Callers are encouraged
+    /// to use `try_from` if the input is not known in advance.
+    fn truncate_from<T: Into<u128>>(v: T) -> Self;
+}
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
 type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
+
+impl Block for U8_1 {
+    type Size = U1;
+    const VALID_BIT_LENGTH: u32 = 8;
+}
+
+impl Block for U8_4 {
+    type Size = U4;
+    const VALID_BIT_LENGTH: u32 = 32;
+}
+
+impl Block for U8_5 {
+    type Size = U5;
+    const VALID_BIT_LENGTH: u32 = 40;
+}
 
 /// The implementation below cannot be constrained without breaking Rust's
 /// macro processor.  This noop ensures that the instance of `GenericArray` used
@@ -19,7 +51,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -34,8 +66,17 @@ macro_rules! bit_array_impl {
             pub struct $name($store);
 
             impl SharedValue for $name {
-                const BITS: u32 = $bits;
+                type Storage = $store;
+                const BITS: u32 = <$store as Block>::VALID_BIT_LENGTH;
                 const ZERO: Self = Self(<$store>::ZERO);
+            }
+
+            impl Field for $name {
+                const ONE: Self = Self($one);
+
+                fn as_u128(&self) -> u128 {
+                    (*self).into()
+                }
             }
 
             impl GaloisField for $name {
@@ -44,6 +85,13 @@ macro_rules! bit_array_impl {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+            // TODO (taikiy): Remove this infallible conversion and bring back to TryFrom
+            impl From<u128> for $name {
+                fn from(v: u128) -> Self {
+                    Self::truncate_from(v)
                 }
             }
 
@@ -170,7 +218,7 @@ macro_rules! bit_array_impl {
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    debug_assert!(2 * $bits < u128::BITS);
+                    debug_assert!(2 * Self::BITS < u128::BITS);
                     let a = <Self as GaloisField>::as_u128(self);
                     let mut product = 0;
                     for i in 0..Self::BITS {
@@ -179,7 +227,7 @@ macro_rules! bit_array_impl {
                     }
 
                     let poly = <Self as GaloisField>::POLYNOMIAL;
-                    while (u128::BITS - product.leading_zeros()) > $bits {
+                    while (u128::BITS - product.leading_zeros()) > Self::BITS {
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
                         product ^= (poly << bits_to_shift);
                     }
@@ -201,22 +249,9 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl TryFrom<u128> for $name {
-                type Error = String;
-
-                /// Fallible conversion from `u128` to this data type. The input value must
-                /// be at most `Self::BITS` long. That is, the integer value must be less than
-                /// or equal to `2^Self::BITS`, or it will return an error.
-                fn try_from(v: u128) -> Result<Self, Self::Error> {
-                    if u128::BITS - v.leading_zeros() <= Self::BITS {
-                        Ok(Self::truncate_from(v))
-                    } else {
-                        Err(format!(
-                            "Bit array size {} is too small to hold the value {}.",
-                            Self::BITS,
-                            v
-                        ))
-                    }
+            impl From<$name> for $store {
+                fn from(v: $name) -> Self {
+                    v.0
                 }
             }
 
@@ -273,7 +308,7 @@ macro_rules! bit_array_impl {
             }
 
             impl Serializable for $name {
-                type Size = $arraylen;
+                type Size = <$store as Block>::Size;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
@@ -288,22 +323,23 @@ macro_rules! bit_array_impl {
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
-                use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
-                const MASK: u128 = u128::MAX >> (u128::BITS - $name::BITS);
+                const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
 
                 #[test]
                 pub fn basic() {
-                    let zero = bitarr!(u8, Lsb0; 0; $bits);
-                    let mut one = bitarr!(u8, Lsb0; 0; $bits);
+                    let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
+                    let mut one = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     *one.first_mut().unwrap() = true;
 
                     assert_eq!($name::ZERO.0, zero);
-                    assert_eq!($name::try_from(1_u128).unwrap().0, one);
+                    assert_eq!($name::ONE.0, one);
+                    assert_eq!($name::truncate_from(1_u128).0, one);
 
-                    let max_plus_one = (1_u128 << $name::BITS) + 1;
-                    assert!($name::try_from(max_plus_one).is_err());
+                    let max_plus_one = (1_u128 << <$name>::BITS) + 1;
+                    // TODO (taikiy): Uncomment this line once TryFrom is back
+                    // assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!(
                         $name::try_from(max_plus_one & MASK).unwrap().0,
                         one
@@ -316,7 +352,7 @@ macro_rules! bit_array_impl {
                 pub fn index() {
                     let s = $name::try_from(1_u128).unwrap();
                     assert_eq!(s[0_usize], true);
-                    assert_eq!(s[($bits - 1) as u32], false);
+                    assert_eq!(s[(<$name>::BITS - 1) as u32], false);
                 }
 
                 #[test]
@@ -324,7 +360,7 @@ macro_rules! bit_array_impl {
                 pub fn out_of_count_index() {
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic
-                    assert_eq!(s[$bits as usize], false);
+                    assert_eq!(s[<$name>::BITS as usize], false);
                 }
 
                 #[test]
@@ -422,8 +458,7 @@ bit_array_impl!(
     bit_array_40,
     Gf40Bit,
     U8_5,
-    40,
-    U5,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
 );
@@ -432,8 +467,7 @@ bit_array_impl!(
     bit_array_32,
     Gf32Bit,
     U8_4,
-    32,
-    U4,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
 );
@@ -442,8 +476,7 @@ bit_array_impl!(
     bit_array_8,
     Gf8Bit,
     U8_1,
-    8,
-    U1,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
 );

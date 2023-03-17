@@ -244,7 +244,7 @@ mod tests {
         let mut match_keys = Vec::with_capacity(COUNT);
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
-        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(Field::as_u128).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let result = world
@@ -281,7 +281,7 @@ mod tests {
         let mut match_keys = Vec::with_capacity(COUNT);
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
-        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(Field::as_u128).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
