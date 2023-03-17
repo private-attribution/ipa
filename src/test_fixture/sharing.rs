@@ -25,7 +25,7 @@ pub fn into_bits<F: PrimeField>(v: F) -> Vec<F> {
 #[must_use]
 pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
     (0..num_bits.try_into().unwrap())
-        .map(|i| F::try_from(((x >> i) & 1).into()).unwrap())
+        .map(|i| F::truncate_from((x >> i) & 1))
         .collect::<Vec<_>>()
 }
 

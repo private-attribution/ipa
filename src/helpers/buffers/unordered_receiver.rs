@@ -301,7 +301,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        ff::{Fp31, Fp32BitPrime, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, Serializable},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
     };
     use futures::{
@@ -388,7 +388,7 @@ mod test {
                 let recv = recv.clone();
                 async move {
                     let f: Fp32BitPrime = recv.recv(1_usize).await.unwrap();
-                    assert_eq!(f, Fp32BitPrime::try_from(0x0100_020c).unwrap());
+                    assert_eq!(f, Fp32BitPrime::truncate_from(0x0100_020c_u128));
                 }
             }),
         )

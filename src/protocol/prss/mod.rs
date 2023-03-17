@@ -269,6 +269,7 @@ pub mod test {
         ff::{Field, Fp31},
         protocol::{prss::SharedRandomness, Step},
         rand::{thread_rng, Rng},
+        secret_sharing::SharedValue,
         test_fixture::make_participants,
     };
     use rand::prelude::SliceRandom;
@@ -416,7 +417,7 @@ pub mod test {
         let z2: Fp31 = p2.indexed(&step).zero(IDX);
         let z3: Fp31 = p3.indexed(&step).zero(IDX);
 
-        assert_eq!(Fp31::truncate_from(0_u8), z1 + z2 + z3);
+        assert_eq!(<Fp31 as SharedValue>::ZERO, z1 + z2 + z3);
     }
 
     #[test]
