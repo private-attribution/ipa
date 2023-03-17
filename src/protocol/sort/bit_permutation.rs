@@ -77,7 +77,7 @@ pub async fn bit_permutation<
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         protocol::sort::bit_permutation::bit_permutation,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -91,7 +91,7 @@ mod tests {
     pub async fn semi_honest() {
         let world = TestWorld::default();
 
-        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::truncate_from(*x)).collect();
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
@@ -105,7 +105,7 @@ mod tests {
     pub async fn malicious() {
         let world = TestWorld::default();
 
-        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::truncate_from(*x)).collect();
         let result = world
             .malicious(input, |ctx, m_shares| async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()

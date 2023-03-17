@@ -363,7 +363,7 @@ mod test {
                         let recv = recv.clone();
                         async move {
                             let f: Fp31 = recv.recv(i).await.unwrap();
-                            assert_eq!(f, Fp31::from(u128::from(v)));
+                            assert_eq!(f, Fp31::try_from(u128::from(v)).unwrap());
                         }
                     })
                 }))
@@ -381,14 +381,14 @@ mod test {
                 let recv = recv.clone();
                 async move {
                     let f: Fp31 = recv.recv(0_usize).await.unwrap();
-                    assert_eq!(f, Fp31::from(18_u128));
+                    assert_eq!(f, Fp31::try_from(18).unwrap());
                 }
             }),
             spawn({
                 let recv = recv.clone();
                 async move {
                     let f: Fp32BitPrime = recv.recv(1_usize).await.unwrap();
-                    assert_eq!(f, Fp32BitPrime::from(0x0100_020c_u128));
+                    assert_eq!(f, Fp32BitPrime::try_from(0x0100_020c).unwrap());
                 }
             }),
         )
@@ -480,7 +480,7 @@ mod test {
         assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());
         for (i, &v) in DATA.iter().enumerate() {
             let f: Fp31 = recv.recv(i).now_or_never().unwrap().unwrap();
-            assert_eq!(f, Fp31::from(u128::from(v)));
+            assert_eq!(f, Fp31::try_from(u128::from(v)).unwrap());
         }
     }
 
@@ -498,7 +498,7 @@ mod test {
                         let recv = recv.clone();
                         async move {
                             let f: Fp31 = recv.recv(i).await.unwrap();
-                            assert_eq!(f, Fp31::from(u128::from(v)));
+                            assert_eq!(f, Fp31::try_from(u128::from(v)).unwrap());
                         }
                     })
                 }))

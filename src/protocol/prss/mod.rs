@@ -266,7 +266,7 @@ impl EndpointSetup {
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         protocol::{prss::SharedRandomness, Step},
         rand::{thread_rng, Rng},
         test_fixture::make_participants,
@@ -416,7 +416,7 @@ pub mod test {
         let z2: Fp31 = p2.indexed(&step).zero(IDX);
         let z3: Fp31 = p3.indexed(&step).zero(IDX);
 
-        assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
+        assert_eq!(Fp31::truncate_from(0_u8), z1 + z2 + z3);
     }
 
     #[test]
@@ -437,7 +437,7 @@ pub mod test {
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
         // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
-        let mut v2 = Fp31::from(0_u8);
+        let mut v2 = Fp31::truncate_from(0_u8);
         for i in IDX2..(IDX2 + 21) {
             let r1: Fp31 = s1.random(i);
             let r2 = s2.random(i);

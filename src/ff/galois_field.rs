@@ -16,11 +16,6 @@ pub trait GaloisField:
     fn as_u128(self) -> u128 {
         <Self as Into<u128>>::into(self)
     }
-
-    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
-    /// into this data type. This conversion is lossy. Callers are encouraged
-    /// to use `try_from` if the input is not known in advance.
-    fn truncate_from<T: Into<u128>>(v: T) -> Self;
 }
 
 // Bit store type definitions
@@ -77,10 +72,6 @@ macro_rules! bit_array_impl {
                 fn as_u128(&self) -> u128 {
                     (*self).into()
                 }
-            }
-
-            impl GaloisField for $name {
-                const POLYNOMIAL: u128 = $polynomial;
 
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
@@ -88,11 +79,8 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            // TODO (taikiy): Remove this infallible conversion and bring back to TryFrom
-            impl From<u128> for $name {
-                fn from(v: u128) -> Self {
-                    Self::truncate_from(v)
-                }
+            impl GaloisField for $name {
+                const POLYNOMIAL: u128 = $polynomial;
             }
 
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
@@ -232,7 +220,7 @@ macro_rules! bit_array_impl {
                         product ^= (poly << bits_to_shift);
                     }
 
-                    <Self as GaloisField>::truncate_from(product)
+                    Self::try_from(product).unwrap()
                 }
             }
 
@@ -246,6 +234,25 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn neg(self) -> Self::Output {
                     Self(self.0)
+                }
+            }
+
+            impl TryFrom<u128> for $name {
+                type Error = crate::error::Error;
+
+                /// Fallible conversion from `u128` to this data type. The input value must
+                /// be at most `Self::BITS` long. That is, the integer value must be less than
+                /// or equal to `2^Self::BITS`, or it will return an error.
+                fn try_from(v: u128) -> Result<Self, Self::Error> {
+                    if u128::BITS - v.leading_zeros() <= Self::BITS {
+                        Ok(Self::truncate_from(v))
+                    } else {
+                        Err(crate::error::Error::FieldValueTruncation(format!(
+                            "Bit array size {} is too small to hold the value {}.",
+                            Self::BITS,
+                            v
+                        )))
+                    }
                 }
             }
 
@@ -338,13 +345,7 @@ macro_rules! bit_array_impl {
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    // TODO (taikiy): Uncomment this line once TryFrom is back
-                    // assert!($name::try_from(max_plus_one).is_err());
-                    assert_eq!(
-                        $name::try_from(max_plus_one & MASK).unwrap().0,
-                        one
-                    );
-
+                    assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 

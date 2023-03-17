@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf40Bit, PrimeField},
+    ff::{Field, Gf40Bit, PrimeField},
     protocol::{
         basics::SecureMul,
         context::Context,

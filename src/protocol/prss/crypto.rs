@@ -24,7 +24,7 @@ pub trait SharedRandomness {
     #[must_use]
     fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
         let (l, r) = self.generate_values(index);
-        (F::from(l), F::from(r))
+        (F::truncate_from(l), F::truncate_from(r))
     }
 
     /// Generate two sequences of random Fp2 bits.

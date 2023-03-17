@@ -151,7 +151,7 @@ mod tests {
     #[tokio::test]
     async fn semi_honest_metrics() {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-        let input = (0..10u128).map(Fp31::from).collect::<Vec<_>>();
+        let input = (0..10u128).map(Fp31::truncate_from).collect::<Vec<_>>();
         let input_len = input.len();
 
         let result = world
@@ -205,7 +205,7 @@ mod tests {
     #[tokio::test]
     async fn malicious_metrics() {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-        let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
+        let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let input_len = input.len();
 
         let _result = world
