@@ -86,18 +86,21 @@ where
     let prss = ctx.prss();
     let duplicate_prss = duplicate_multiply_ctx.prss();
     let (s0, s1): (F, F) = prss.generate_fields(record_id);
-    let (s0_m, s1_m): (F, F) = duplicate_prss.generate_fields(record_id);
+    let (s0_m, s1_m): (F::LargeFieldType, F::LargeFieldType) = duplicate_prss.generate_fields(record_id);
     let role = ctx.role();
 
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = s1 - s0;
-    let mut right_sops_m: F = s1_m - s0_m;
+    let mut right_sops_m: F::LargeFieldType = s1_m - s0_m;
 
     for i in 0..vec_len {
         let ax = a[i].x().access_without_downgrade();
         let bx = b[i].x().access_without_downgrade();
         let arx = a[i].rx();
-        let bx_induced = b[i].get_induced_share().access_without_downgrade();
+        let bx_induced = Replicated::new(
+            bx.left().get_induced_value(),
+            bx.right().get_induced_value(),
+        );
         right_sops += ax.right() * bx.right() + ax.left() * bx.right() + ax.right() * bx.left();
         right_sops_m +=
             arx.right() * bx_induced.right() + arx.left() * bx_induced.right() + arx.right() * bx_induced.left();
@@ -114,7 +117,7 @@ where
     .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let (left_sops, left_sops_m): (F, F) = try_join(
+    let (left_sops, left_sops_m): (F, F::LargeFieldType) = try_join(
         ctx.recv_channel(role.peer(Direction::Left))
             .receive(record_id),
         duplicate_multiply_ctx

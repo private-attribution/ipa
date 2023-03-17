@@ -54,7 +54,7 @@ impl<'a> SemiHonestContext<'a> {
         malicious_step: &S,
         upgrade_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: Replicated<F::LargeFieldType>,
     ) -> MaliciousContext<'a, F> {
         let upgrade_ctx = self.narrow(upgrade_step);
         MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)

@@ -106,19 +106,35 @@ impl AsRef<str> for ValidateStep {
 /// and the parties wish to validate the circuit. This makes for a very memory efficient implementation.
 ///
 #[derive(Clone, Copy, Debug)]
-struct AccumulatorState<F: Field + ExtendableField> {
-    u: F::LargeFieldType,
-    w: F::LargeFieldType,
+struct AccumulatorState<T: Field> {
+    u: T,
+    w: T,
+}
+
+impl<T: Field> AccumulatorState<T> {
+    pub fn new(u: T, w: T) -> Self {
+        Self {
+            u,
+            w,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
-    inner: Weak<Mutex<AccumulatorState<F>>>,
+    inner: Weak<Mutex<AccumulatorState<F::LargeFieldType>>>,
 }
 
 impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
     fn compute_dot_product_contribution(a: &Replicated<F::LargeFieldType>, b: &Replicated<F::LargeFieldType>) -> F::LargeFieldType {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
+    }
+
+    fn get_induced_share(x: &Replicated<F>) -> Replicated<F::LargeFieldType> {
+        Replicated::new(
+            x.left().get_induced_value(),
+            x.right().get_induced_value(),
+        )
     }
 
     /// ## Panics
@@ -135,7 +151,7 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
         let u_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(
             &random_constant,
-            input.x().access_without_downgrade().get_induced_value(),
+            &Self::get_induced_share(input.x().access_without_downgrade()),
         );
 
         let arc_mutex = self.inner.upgrade().unwrap();
@@ -149,8 +165,8 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
 }
 
 pub struct MaliciousValidator<'a, F: Field + ExtendableField> {
-    r_share: Replicated<F>,
-    u_and_w: Arc<Mutex<AccumulatorState<F>>>,
+    r_share: Replicated<F::LargeFieldType>,
+    u_and_w: Arc<Mutex<AccumulatorState<F::LargeFieldType>>>,
     protocol_ctx: MaliciousContext<'a, F>,
     validate_ctx: SemiHonestContext<'a>,
 }
@@ -160,15 +176,14 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share = ctx.prss().generate_replicated(RECORD_0);
+        let r_share: Replicated<F::LargeFieldType> = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
-        let state = AccumulatorState {
-            u: prss.zero(RECORD_1),
-            w: prss.zero(RECORD_2),
-        };
+        let u: F::LargeFieldType = prss.zero(RECORD_1);
+        let w: F::LargeFieldType = prss.zero(RECORD_2);
+        let state = AccumulatorState::new(u, w);
 
         let u_and_w = Arc::new(Mutex::new(state));
-        let accumulator = MaliciousValidatorAccumulator {
+        let accumulator = MaliciousValidatorAccumulator::<F> {
             inner: Arc::downgrade(&u_and_w),
         };
         let validate_ctx = ctx.narrow(&Step::Validate);
@@ -186,7 +201,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
         }
     }
 
-    pub fn r_share(&self) -> &Replicated<F> {
+    pub fn r_share(&self) -> &Replicated<F::LargeFieldType> {
         &self.r_share
     }
 
@@ -231,7 +246,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     }
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
-    async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
+    async fn propagate_u_and_w(&self) -> Result<(Replicated<F::LargeFieldType>, Replicated<F::LargeFieldType>), Error> {
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)
@@ -247,7 +262,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
             helper_right.send(RECORD_1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F, F) =
+        let (u_left, w_left): (F::LargeFieldType, F::LargeFieldType) =
             try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);

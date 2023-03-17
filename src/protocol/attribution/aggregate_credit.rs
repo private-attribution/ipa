@@ -401,7 +401,7 @@ async fn sort_by_breakdown_key<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_breakdown_key<F: Field>(
+async fn malicious_sort_by_breakdown_key<F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u32,
@@ -470,7 +470,7 @@ async fn sort_by_aggregation_bit<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
+async fn malicious_sort_by_aggregation_bit<'a, F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<

@@ -199,11 +199,8 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
 impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,
-    <SemiHonestAdditiveShare<V> as Serializable>::Size:
-        Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
-    <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V> as Serializable>::Size,
-    >>::Output: ArrayLength<u8>,
+    <SemiHonestAdditiveShare<V> as Serializable>::Size: Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
+    <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V> as Serializable>::Size,
@@ -254,7 +251,7 @@ where
 }
 
 #[async_trait]
-impl<'a, Field> Downgrade
+impl<'a, F: Field + ExtendableField> Downgrade
     for ShuffledPermutationWrapper<AdditiveShare<F>, MaliciousContext<'a, F>>
 {
     type Target = Vec<u32>;

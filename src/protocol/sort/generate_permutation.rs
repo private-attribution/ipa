@@ -141,7 +141,7 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
-pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
+pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field + ExtendableField>(
     sh_ctx: SemiHonestContext<'_>,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {

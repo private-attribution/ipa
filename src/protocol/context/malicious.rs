@@ -60,7 +60,7 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
         malicious_step: &S,
         upgrade_ctx: SemiHonestContext<'a>,
         acc: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: Replicated<F::LargeFieldType>,
     ) -> Self {
         Self {
             inner: ContextInner::new(upgrade_ctx, acc, r_share),
@@ -118,7 +118,7 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
     pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().semi_honest_context(), value),
-            self.inner.r_share.clone() * Self::get_induced_field_value(value),
+            self.inner.r_share.clone() * value.get_induced_value(),
         )
     }
 }

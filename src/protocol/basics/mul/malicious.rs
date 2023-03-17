@@ -6,7 +6,10 @@ use crate::{
         context::{Context, MaliciousContext},
         RecordId,
     },
-    secret_sharing::replicated::malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+    secret_sharing::replicated::{
+        semi_honest::{AdditiveShare as Replicated},
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, ReplicatedSecretSharing,
+    },
 };
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -76,15 +79,20 @@ where
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let b_x = b.x().access_without_downgrade();
+    let b_induced_share = Replicated::new(
+        b_x.left().get_induced_value(),
+        b_x.right().get_induced_value(),
+    );
     let (ab, rab) = try_join(
         a.x().access_without_downgrade().multiply_sparse(
-            b.x().access_without_downgrade(),
+            b_x,
             ctx.semi_honest_context(),
             record_id,
             zeros_at,
         ),
         a.rx().multiply_sparse(
-            b.get_induced_share().access_without_downgrade(),
+            &b_induced_share,
             duplicate_multiply_ctx.semi_honest_context(),
             record_id,
             (ZeroPositions::Pvvv, zeros_at.1),
