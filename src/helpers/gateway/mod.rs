@@ -113,7 +113,7 @@ impl GatewayConfig {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         helpers::Role,
         protocol::{context::Context, RecordId},
         test_fixture::{TestWorld, TestWorldConfig},
@@ -137,11 +137,11 @@ mod tests {
         tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
             channel
-                .send(RecordId::from(1), Fp31::from(1_u128))
+                .send(RecordId::from(1), Fp31::truncate_from(1_u128))
                 .await
                 .unwrap();
             channel
-                .send(RecordId::from(0), Fp31::from(0_u128))
+                .send(RecordId::from(0), Fp31::truncate_from(0_u128))
                 .await
                 .unwrap();
         });
@@ -154,6 +154,9 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!((Fp31::from(1u128), Fp31::from(0u128)), result);
+        assert_eq!(
+            (Fp31::truncate_from(1u128), Fp31::truncate_from(0u128)),
+            result
+        );
     }
 }

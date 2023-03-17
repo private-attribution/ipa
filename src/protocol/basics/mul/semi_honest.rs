@@ -162,8 +162,8 @@ mod test {
         (F, F): Sized,
         Standard: Distribution<F>,
     {
-        let a = F::from(a);
-        let b = F::from(b);
+        let a = F::try_from(a).unwrap();
+        let b = F::try_from(b).unwrap();
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {

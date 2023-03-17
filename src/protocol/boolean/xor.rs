@@ -38,7 +38,7 @@ where
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let ab = a.multiply_sparse(b, ctx, record_id, zeros_at).await?;
-    Ok(-(ab * F::from(2)) + a + b)
+    Ok(-(ab * F::truncate_from(2_u128)) + a + b)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -112,8 +112,8 @@ mod tests {
     async fn run_sparse(world: &TestWorld, a: bool, b: bool, zeros: MultiplyZeroPositions) -> bool {
         type F = Fp31;
 
-        let a = SparseField::<F>::new(F::from(u128::from(a)), zeros.0);
-        let b = SparseField::<F>::new(F::from(u128::from(b)), zeros.1);
+        let a = SparseField::<F>::new(F::truncate_from(u128::from(a)), zeros.0);
+        let b = SparseField::<F>::new(F::truncate_from(u128::from(b)), zeros.1);
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
                 xor_sparse(

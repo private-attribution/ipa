@@ -200,7 +200,7 @@ mod tests {
 
     mod semi_honest {
         use crate::{
-            ff::Fp31,
+            ff::{Field, Fp31},
             protocol::{
                 context::Context,
                 sort::shuffle::{
@@ -221,7 +221,11 @@ mod tests {
 
             let result = world
                 .semi_honest(
-                    input.clone().into_iter().map(u128::from).map(Fp31::from),
+                    input
+                        .clone()
+                        .into_iter()
+                        .map(u128::from)
+                        .map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
@@ -259,7 +263,7 @@ mod tests {
 
             let result = world
                 .semi_honest(
-                    input.clone().into_iter().map(Fp31::from),
+                    input.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),
@@ -290,7 +294,7 @@ mod tests {
 
     mod malicious {
         use crate::{
-            ff::Fp31,
+            ff::{Field, Fp31},
             protocol::{
                 context::Context,
                 sort::shuffle::{
@@ -313,7 +317,7 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input_u128.clone().into_iter().map(Fp31::from),
+                    input_u128.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
@@ -351,7 +355,7 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input.clone().into_iter().map(Fp31::from),
+                    input.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),

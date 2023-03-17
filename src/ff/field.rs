@@ -1,4 +1,7 @@
-use crate::secret_sharing::{Block, SharedValue};
+use crate::{
+    error,
+    secret_sharing::{Block, SharedValue},
+};
 use std::fmt::Debug;
 use typenum::{U1, U4};
 
@@ -12,9 +15,14 @@ impl Block for u32 {
     const VALID_BIT_LENGTH: u32 = u32::BITS;
 }
 
-pub trait Field: SharedValue + From<u128> + Into<Self::Storage> {
+pub trait Field: SharedValue + TryFrom<u128, Error = error::Error> + Into<Self::Storage> {
     /// Multiplicative identity element
     const ONE: Self;
+
+    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
+    /// into this data type. This conversion is lossy. Callers are encouraged
+    /// to use `try_from` if the input is not known in advance.
+    fn truncate_from<T: Into<u128>>(v: T) -> Self;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`

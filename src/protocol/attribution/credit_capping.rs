@@ -267,7 +267,7 @@ where
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
-    let cap = T::share_known_value(&ctx, F::from(cap.into()));
+    let cap = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
 
     // This method implements the logic below:
     //

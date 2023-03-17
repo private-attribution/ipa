@@ -51,7 +51,7 @@ pub async fn compose<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>, C: Co
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         protocol::{
             context::Context,
             sort::{
@@ -83,8 +83,8 @@ mod tests {
         let result = world
             .semi_honest(
                 (
-                    sigma.into_iter().map(u128::from).map(Fp31::from),
-                    rho.into_iter().map(Fp31::from),
+                    sigma.into_iter().map(u128::from).map(Fp31::truncate_from),
+                    rho.into_iter().map(Fp31::truncate_from),
                 ),
                 |ctx, (m_sigma_shares, m_rho_shares)| async move {
                     let sigma_and_randoms = shuffle_and_reveal_permutation(

@@ -15,7 +15,7 @@ use std::{borrow::Borrow, iter::zip};
 /// Deconstructs a field value into N values, one for each bit.
 pub fn into_bits<F: PrimeField>(v: F) -> Vec<F> {
     (0..(u128::BITS - F::PRIME.into().leading_zeros()))
-        .map(|i| F::from((v.as_u128() >> i) & 1))
+        .map(|i| F::truncate_from((v.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
 
@@ -25,7 +25,7 @@ pub fn into_bits<F: PrimeField>(v: F) -> Vec<F> {
 #[must_use]
 pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
     (0..num_bits.try_into().unwrap())
-        .map(|i| F::from(((x >> i) & 1).into()))
+        .map(|i| F::truncate_from((x >> i) & 1))
         .collect::<Vec<_>>()
 }
 
@@ -137,7 +137,7 @@ where
             zip(self[1].b_b.iter(), self[2].b_b.iter()),
         )
         .enumerate()
-        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::from(1 << i))
+        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::try_from(1 << i).unwrap())
         .fold(F::ZERO, |a, b| a + b);
         let value = [&self[0].b_p, &self[1].b_p, &self[2].b_p].reconstruct();
         assert_eq!(bits, value);

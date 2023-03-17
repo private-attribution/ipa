@@ -122,7 +122,7 @@ mod tests {
 
         let input: Vec<Vec<_>> = INPUT
             .into_iter()
-            .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
+            .map(|v| v.iter().map(|x| Fp31::truncate_from(*x)).collect())
             .collect();
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
@@ -139,7 +139,7 @@ mod tests {
 
         let input: Vec<Vec<_>> = INPUT
             .into_iter()
-            .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
+            .map(|v| v.iter().map(|x| Fp31::truncate_from(*x)).collect())
             .collect();
 
         let num_records = INPUT.len();

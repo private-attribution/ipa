@@ -165,7 +165,10 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::AdditiveShare;
-    use crate::{ff::Fp31, secret_sharing::replicated::ReplicatedSecretSharing};
+    use crate::{
+        ff::{Field, Fp31},
+        secret_sharing::replicated::ReplicatedSecretSharing,
+    };
 
     fn secret_share(
         a: u8,
@@ -177,9 +180,9 @@ mod tests {
         AdditiveShare<Fp31>,
     ) {
         (
-            AdditiveShare::new(Fp31::from(a), Fp31::from(b)),
-            AdditiveShare::new(Fp31::from(b), Fp31::from(c)),
-            AdditiveShare::new(Fp31::from(c), Fp31::from(a)),
+            AdditiveShare::new(Fp31::truncate_from(a), Fp31::truncate_from(b)),
+            AdditiveShare::new(Fp31::truncate_from(b), Fp31::truncate_from(c)),
+            AdditiveShare::new(Fp31::truncate_from(c), Fp31::truncate_from(a)),
         )
     }
 
@@ -199,8 +202,8 @@ mod tests {
         a3: &AdditiveShare<Fp31>,
         expected_value: u128,
     ) {
-        assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));
-        assert_eq!(a1.1 + a2.1 + a3.1, Fp31::from(expected_value));
+        assert_eq!(a1.0 + a2.0 + a3.0, Fp31::truncate_from(expected_value));
+        assert_eq!(a1.1 + a2.1 + a3.1, Fp31::truncate_from(expected_value));
     }
 
     fn addition_test_case(a: (u8, u8, u8), b: (u8, u8, u8), expected_output: u128) {
@@ -286,9 +289,9 @@ mod tests {
     fn mult_by_constant_test_case(a: (u8, u8, u8), c: u8, expected_output: u128) {
         let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
 
-        let res1 = a1 * Fp31::from(c);
-        let res2 = a2 * Fp31::from(c);
-        let res3 = a3 * Fp31::from(c);
+        let res1 = a1 * Fp31::truncate_from(c);
+        let res2 = a2 * Fp31::truncate_from(c);
+        let res3 = a3 * Fp31::truncate_from(c);
 
         assert_valid_secret_sharing(&res1, &res2, &res3);
         assert_secret_shared_value(&res1, &res2, &res3, expected_output);

@@ -156,7 +156,7 @@ where
 mod tests {
     use super::XorShare;
     use crate::{
-        ff::{GaloisField, Gf40Bit, Serializable},
+        ff::{Field, Gf40Bit, Serializable},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
 

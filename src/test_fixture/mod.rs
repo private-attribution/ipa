@@ -63,7 +63,10 @@ pub fn make_participants() -> [PrssEndpoint; 3] {
 
 pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
 
-// Generate vector shares from vector of inputs for three participant
+/// Generate vector shares from vector of inputs for three participant
+///
+/// # Panics
+/// If the input cannot be converted into the given field `F` without truncation.
 #[must_use]
 pub fn generate_shares<F: Field>(input: &[u128]) -> ReplicatedShares<F>
 where
@@ -77,7 +80,7 @@ where
     let mut shares2 = Vec::with_capacity(len);
 
     for i in input {
-        let [s0, s1, s2] = F::from(*i).share_with(&mut rand);
+        let [s0, s1, s2] = F::try_from(*i).unwrap().share_with(&mut rand);
         shares0.push(s0);
         shares1.push(s1);
         shares2.push(s2);
@@ -140,6 +143,9 @@ pub fn bits_to_value<F: Field>(x: &[F]) -> u128 {
 }
 
 /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
+///
+/// # Panics
+/// If the input cannot be converted into the given field `F` without truncation.
 pub fn bits_to_field<F: Field>(x: &[F]) -> F {
-    F::from(bits_to_value(x))
+    F::try_from(bits_to_value(x)).unwrap()
 }
