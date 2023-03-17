@@ -69,7 +69,11 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Direction,
-        protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
+        protocol::{
+            malicious::{MaliciousValidator, Step::MaliciousProtocol},
+            prss::SharedRandomness,
+            RecordId,
+        },
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
@@ -269,5 +273,24 @@ mod tests {
             indexed_prss_assert.per_helper(role, prss_factor(input_size));
             seq_prss_assert.per_helper(role, 4 * input_size);
         }
+    }
+
+    /// validates that malicious upgrade can be called more than once on contexts narrowed down
+    /// to unique steps
+    #[tokio::test]
+    async fn malicious_upgrade() {
+        let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
+        let world = TestWorld::default();
+
+        world
+            .semi_honest(input, |ctx, shares| async move {
+                // upgrade shares two times using different contexts
+                let v = MaliciousValidator::new(ctx);
+                let ctx = v.context().narrow("step1");
+                ctx.upgrade(shares.clone()).await.unwrap();
+                let ctx = v.context().narrow("step2");
+                ctx.upgrade(shares).await.unwrap();
+            })
+            .await;
     }
 }

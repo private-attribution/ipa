@@ -130,7 +130,13 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            inner: Arc::clone(&self.inner),
+            // todo: it is inefficient, we only need to change the context, but end up
+            // cloning everything from inner
+            inner: ContextInner::new(
+                self.inner.upgrade_ctx.narrow(step),
+                self.inner.accumulator.clone(),
+                self.inner.r_share.clone(),
+            ),
             step: self.step.narrow(step),
             total_records: self.total_records,
         }
