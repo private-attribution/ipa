@@ -6,7 +6,7 @@ use crate::{
         context::{Context, MaliciousContext},
         RecordId,
     },
-    secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated,
+    secret_sharing::replicated::malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
 };
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -67,7 +67,7 @@ pub async fn multiply<F>(
     zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
-    F: Field,
+    F: Field + ExtendableField,
 {
     use crate::{
         protocol::context::SpecialAccessToMaliciousContext,
@@ -84,7 +84,7 @@ where
             zeros_at,
         ),
         a.rx().multiply_sparse(
-            b.x().access_without_downgrade(),
+            b.get_induced_share().access_without_downgrade(),
             duplicate_multiply_ctx.semi_honest_context(),
             record_id,
             (ZeroPositions::Pvvv, zeros_at.1),

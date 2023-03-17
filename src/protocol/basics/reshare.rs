@@ -13,7 +13,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
             ReplicatedSecretSharing,
         },
@@ -138,7 +138,7 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<'a, F: Field> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
     async fn reshare<'fut>(
         &self,
         ctx: MaliciousContext<'a, F>,
@@ -187,27 +187,6 @@ impl<'a, B: GaloisField> Reshare<SemiHonestContext<'a>, RecordId> for XorReplica
     {
         let r = ctx.prss().generate_bit_arrays(record_id);
         semi_honest_reshare(ctx, record_id, to_helper, self, r).await
-    }
-}
-
-#[async_trait]
-/// Malicious version of xor resharing is executed in semi-honest context.
-///
-/// As of March 2023, we aren't sure what is a proper way of doing reshare in malicious context.
-/// We believe that, even though an additive attack is possible, a malicious helper can ONLY
-/// corrupt the protocol output, but cannot learn any private info.
-impl<'a, F: Field, B: GaloisField> Reshare<MaliciousContext<'a, F>, RecordId> for XorReplicated<B> {
-    #[allow(clippy::missing_panics_doc)]
-    async fn reshare<'fut>(
-        &self,
-        _ctx: MaliciousContext<'a, F>,
-        _record_id: RecordId,
-        _to_helper: Role,
-    ) -> Result<Self, Error>
-    where
-        MaliciousContext<'a, F>: 'fut,
-    {
-        panic!("we don't know how to do this");
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
         Step, Substep,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::{semi_honest::AdditiveShare as Replicated, malicious::ExtendableField},
     sync::Arc,
 };
 use std::fmt::{Debug, Formatter};
@@ -49,7 +49,7 @@ impl<'a> SemiHonestContext<'a> {
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
-    pub fn upgrade<S: Substep + ?Sized, F: Field>(
+    pub fn upgrade<S: Substep + ?Sized, F: Field + ExtendableField>(
         self,
         malicious_step: &S,
         upgrade_step: &S,

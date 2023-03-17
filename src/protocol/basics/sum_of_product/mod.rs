@@ -6,7 +6,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, semi_honest::AdditiveShare as Replicated,
     },
 };
 use async_trait::async_trait;
@@ -42,7 +42,7 @@ impl<'a, F: Field> SumOfProducts<SemiHonestContext<'a>> for Replicated<F> {
 }
 
 #[async_trait]
-impl<'a, F: Field> SumOfProducts<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> SumOfProducts<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
     async fn sum_of_products<'fut>(
         ctx: MaliciousContext<'a, F>,
         record_id: RecordId,

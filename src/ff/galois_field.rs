@@ -19,6 +19,7 @@ pub trait GaloisField:
 }
 
 // Bit store type definitions
+type U8_0 = BitArr!(for 1, in u8, Lsb0);
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
 type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
@@ -480,4 +481,13 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
+);
+
+bit_array_impl!(
+    bit_array_1,
+    Gf2,
+    U8_0,
+    bitarr!(const u8, Lsb0; 1, 0),
+    // x
+    0b10_u128
 );

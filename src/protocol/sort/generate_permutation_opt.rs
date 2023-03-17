@@ -16,7 +16,7 @@ use crate::{
         IpaProtocolStep::Sort,
     },
     secret_sharing::replicated::{
-        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, semi_honest::AdditiveShare as Replicated,
     },
 };
 use embed_doc_image::embed_doc_image;
@@ -146,7 +146,7 @@ pub async fn malicious_generate_permutation_opt<'a, F, I>(
     sort_keys: I,
 ) -> Result<(MaliciousValidator<'_, F>, Vec<MaliciousReplicated<F>>), Error>
 where
-    F: Field,
+    F: Field + ExtendableField,
     I: IntoIterator<Item = &'a Vec<Vec<Replicated<F>>>>,
 {
     let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());

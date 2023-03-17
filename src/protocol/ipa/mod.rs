@@ -22,7 +22,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         },
         Linear as LinearSecretSharing,
@@ -361,7 +361,7 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: PrimeField,
+    F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,

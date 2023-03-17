@@ -26,7 +26,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
@@ -148,7 +148,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
     Error,
 >
 where
-    F: Field,
+    F: Field + ExtendableField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {

@@ -9,7 +9,7 @@ use crate::{
         RecordId, RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
@@ -106,18 +106,18 @@ impl AsRef<str> for ValidateStep {
 /// and the parties wish to validate the circuit. This makes for a very memory efficient implementation.
 ///
 #[derive(Clone, Copy, Debug)]
-struct AccumulatorState<F> {
-    u: F,
-    w: F,
+struct AccumulatorState<F: Field + ExtendableField> {
+    u: F::LargeFieldType,
+    w: F::LargeFieldType,
 }
 
 #[derive(Clone, Debug)]
-pub struct MaliciousValidatorAccumulator<F> {
+pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
     inner: Weak<Mutex<AccumulatorState<F>>>,
 }
 
-impl<F: Field> MaliciousValidatorAccumulator<F> {
-    fn compute_dot_product_contribution(a: &Replicated<F>, b: &Replicated<F>) -> F {
+impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
+    fn compute_dot_product_contribution(a: &Replicated<F::LargeFieldType>, b: &Replicated<F::LargeFieldType>) -> F::LargeFieldType {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
     }
 
@@ -132,10 +132,10 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
-        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
-        let w_contribution = Self::compute_dot_product_contribution(
+        let u_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let w_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(
             &random_constant,
-            input.x().access_without_downgrade(),
+            input.x().access_without_downgrade().get_induced_value(),
         );
 
         let arc_mutex = self.inner.upgrade().unwrap();
@@ -148,14 +148,14 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-pub struct MaliciousValidator<'a, F: Field> {
+pub struct MaliciousValidator<'a, F: Field + ExtendableField> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
     protocol_ctx: MaliciousContext<'a, F>,
     validate_ctx: SemiHonestContext<'a>,
 }
 
-impl<'a, F: Field> MaliciousValidator<'a, F> {
+impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
@@ -255,7 +255,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 }
 
-impl<F: Field> Debug for MaliciousValidator<'_, F> {
+impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }

@@ -8,7 +8,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
 };
@@ -70,7 +70,7 @@ pub async fn sum_of_products<F>(
     b: &[MaliciousReplicated<F>],
 ) -> Result<MaliciousReplicated<F>, Error>
 where
-    F: Field,
+    F: Field + ExtendableField,
 {
     use crate::{
         protocol::context::SpecialAccessToMaliciousContext,
@@ -97,9 +97,10 @@ where
         let ax = a[i].x().access_without_downgrade();
         let bx = b[i].x().access_without_downgrade();
         let arx = a[i].rx();
+        let bx_induced = b[i].get_induced_share().access_without_downgrade();
         right_sops += ax.right() * bx.right() + ax.left() * bx.right() + ax.right() * bx.left();
         right_sops_m +=
-            arx.right() * bx.right() + arx.left() * bx.right() + arx.right() * bx.left();
+            arx.right() * bx_induced.right() + arx.left() * bx_induced.right() + arx.right() * bx_induced.left();
     }
 
     // notify helper on the right that we've computed our value
