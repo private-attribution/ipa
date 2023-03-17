@@ -6,17 +6,15 @@ use crate::{
     error::Error,
     ff::PrimeField,
     helpers::TotalRecords,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId, Substep},
     secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
-use crate::protocol::Substep;
 
-
-/// A struct that pre-generates and buffers random sharings of bits from the
+/// A struct that generates random sharings of bits from the
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
 /// one by calling `generate()`.
 ///
@@ -55,15 +53,12 @@ enum RBGStep {
 impl AsRef<str> for RBGStep {
     fn as_ref(&self) -> &str {
         match self {
-            RBGStep::FallbackChannel =>  &"fallback"
+            RBGStep::FallbackChannel => "fallback",
         }
     }
 }
 
-impl Substep for RBGStep {
-
-}
-
+impl Substep for RBGStep {}
 
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
@@ -73,11 +68,18 @@ where
 {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
-    pub fn new(ctx: C) -> Self {
+    pub fn new<I: Into<TotalRecords>>(ctx: C, total_records: I) -> Self {
+        drop(total_records); // todo: temporarily, until new infra is in place
+                             // todo: remove and use capacity for the default generator
         debug_assert!(ctx.is_total_records_unspecified());
         Self {
-            default_generator: CountingGenerator::new(ctx.set_total_records(TotalRecords::Indeterminate)),
-            fallback_generator: CountingGenerator::new(ctx.narrow(&RBGStep::FallbackChannel).set_total_records(TotalRecords::Indeterminate)),
+            default_generator: CountingGenerator::new(
+                ctx.set_total_records(TotalRecords::Indeterminate),
+            ),
+            fallback_generator: CountingGenerator::new(
+                ctx.narrow(&RBGStep::FallbackChannel)
+                    .set_total_records(TotalRecords::Indeterminate),
+            ),
             abort_count: AtomicUsize::new(0),
         }
     }
@@ -96,7 +98,7 @@ where
             loop {
                 self.abort_count.fetch_add(1, Ordering::AcqRel);
                 if let Some(v) = self.fallback_generator.next().await? {
-                    break Ok(v)
+                    break Ok(v);
                 }
             }
         }
@@ -110,16 +112,16 @@ where
 }
 
 impl<F, S, C> CountingGenerator<F, S, C>
-    where
-        F: PrimeField,
-        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-        C: Context + RandomBits<F, Share = S> {
-
+where
+    F: PrimeField,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context + RandomBits<F, Share = S>,
+{
     fn new(ctx: C) -> Self {
         Self {
             counter: AtomicU32::new(0),
             ctx,
-            _marker: PhantomData
+            _marker: PhantomData,
         }
     }
 
@@ -131,28 +133,26 @@ impl<F, S, C> CountingGenerator<F, S, C>
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::iter::zip;
-    use std::sync::atomic::Ordering;
+    use std::{iter::zip, sync::atomic::Ordering};
 
     use futures::future::try_join_all;
 
     use super::RandomBitsGenerator;
     use crate::{
         ff::Fp31,
-        protocol::malicious::MaliciousValidator,
-        test_fixture::{join3, Reconstruct, TestWorld},
+        helpers::TotalRecords,
+        protocol::{boolean::RandomBitsShare, malicious::MaliciousValidator},
+        test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
-    use crate::protocol::boolean::RandomBitsShare;
-    use crate::test_fixture::Runner;
 
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::default();
         let [c0, c1, c2] = world.contexts();
 
-        let rbg0 = RandomBitsGenerator::new(c0);
-        let rbg1 = RandomBitsGenerator::new(c1);
-        let rbg2 = RandomBitsGenerator::new(c2);
+        let rbg0 = RandomBitsGenerator::new(c0, 1);
+        let rbg1 = RandomBitsGenerator::new(c1, 1);
+        let rbg2 = RandomBitsGenerator::new(c2, 1);
 
         let result = join3(rbg0.generate(), rbg1.generate(), rbg2.generate()).await;
         assert_eq!(rbg0.aborts(), rbg1.aborts());
@@ -164,12 +164,14 @@ mod tests {
     pub async fn uses_fallback_channel() {
         let world = TestWorld::default();
 
-        world.semi_honest((), |ctx, _| async move {
-            let rbg = RandomBitsGenerator::new(ctx);
-            while rbg.abort_count.load(Ordering::Acquire) == 0 {
-                let _: RandomBitsShare<Fp31, _> = rbg.generate().await.unwrap();
-            }
-        }).await;
+        world
+            .semi_honest((), |ctx, _| async move {
+                let rbg = RandomBitsGenerator::new(ctx, TotalRecords::Indeterminate);
+                while rbg.abort_count.load(Ordering::Acquire) == 0 {
+                    let _: RandomBitsShare<Fp31, _> = rbg.generate().await.unwrap();
+                }
+            })
+            .await;
     }
 
     #[tokio::test]
@@ -180,7 +182,7 @@ mod tests {
         let validators = contexts.map(MaliciousValidator::<Fp31>::new);
         let rbg = validators
             .iter()
-            .map(|v| RandomBitsGenerator::new(v.context()))
+            .map(|v| RandomBitsGenerator::new(v.context(), 1))
             .collect::<Vec<_>>();
 
         let m_result = join3(rbg[0].generate(), rbg[1].generate(), rbg[2].generate()).await;

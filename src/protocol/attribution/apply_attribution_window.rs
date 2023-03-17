@@ -139,8 +139,10 @@ where
     let cmp_ctx = c.narrow(&Step::TimeDeltaLessThanCap);
     let mul_ctx = c.narrow(&Step::CompareBitTimesTriggerValue);
 
-    let random_bits_generator =
-        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let random_bits_generator = RandomBitsGenerator::new(
+        ctx.narrow(&Step::RandomBitsForBitDecomposition),
+        input.len(),
+    );
     let rbg = &random_bits_generator;
 
     try_join_all(

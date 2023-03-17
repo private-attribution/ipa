@@ -413,7 +413,7 @@ mod tests {
                 greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
-                    &RandomBitsGenerator::new(ctx),
+                    &RandomBitsGenerator::new(ctx, 1),
                     &lhs,
                     rhs,
                 )
@@ -428,7 +428,7 @@ mod tests {
                 greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
-                    &RandomBitsGenerator::new(ctx),
+                    &RandomBitsGenerator::new(ctx, 1),
                     &lhs,
                     rhs,
                 )

@@ -228,8 +228,10 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let random_bits_generator =
-        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
+    let random_bits_generator = RandomBitsGenerator::new(
+        ctx.narrow(&Step::RandomBitsForComparison),
+        prefix_summed_credits.len(),
+    );
     let rbg = &random_bits_generator;
 
     try_join_all(

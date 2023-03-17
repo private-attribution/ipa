@@ -125,7 +125,7 @@ mod tests {
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
+                let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits), 1);
 
                 BitDecomposition::execute(ctx.set_total_records(1), RecordId::from(0), &rbg, &a_p)
                     .await
