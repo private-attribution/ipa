@@ -30,7 +30,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::Step,
+    protocol::{RecordId, Step},
     secret_sharing::SharedValue,
 };
 use std::ops::{Index, IndexMut};
@@ -413,6 +413,16 @@ impl TotalRecords {
     #[must_use]
     pub fn is_indeterminate(&self) -> bool {
         matches!(self, &TotalRecords::Indeterminate)
+    }
+
+    /// Returns true iff the total number of records is specified and the given record is the final
+    /// one to process.
+    #[must_use]
+    pub fn last<I: Into<RecordId>>(&self, record_id: I) -> bool {
+        match self {
+            Self::Unspecified | Self::Indeterminate => false,
+            Self::Specified(v) => usize::from(record_id.into()) == v.get() - 1,
+        }
     }
 }
 

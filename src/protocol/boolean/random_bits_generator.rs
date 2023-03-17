@@ -22,6 +22,8 @@ use std::{
 /// to manage concurrent accesses.
 #[derive(Debug)]
 pub struct RandomBitsGenerator<F, S, C> {
+    /// How many records this generator is expected to process
+    total_records: TotalRecords,
     /// Happy path touches this generator only. With the right field size, the probability of this
     /// generator failing is very low. For [`Fp32BitPrime`] it fails with $5/2^{32}$ ~ $1^{10^-9}$
     ///
@@ -69,13 +71,12 @@ where
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
     pub fn new<I: Into<TotalRecords>>(ctx: C, total_records: I) -> Self {
-        drop(total_records); // todo: temporarily, until new infra is in place
-                             // todo: remove and use capacity for the default generator
+        // todo: remove and use capacity for the default generator
         debug_assert!(ctx.is_total_records_unspecified());
+        let total_records = total_records.into();
         Self {
-            default_generator: CountingGenerator::new(
-                ctx.set_total_records(TotalRecords::Indeterminate),
-            ),
+            total_records,
+            default_generator: CountingGenerator::new(ctx.set_total_records(total_records)),
             fallback_generator: CountingGenerator::new(
                 ctx.narrow(&RBGStep::FallbackChannel)
                     .set_total_records(TotalRecords::Indeterminate),
@@ -91,17 +92,23 @@ where
     /// This method may fail for number of reasons. Errors include locking the
     /// inner members multiple times, I/O errors while executing MPC protocols,
     /// read from an empty buffer, etc.
-    pub async fn generate(&self) -> Result<RandomBitsShare<F, S>, Error> {
-        if let Some(v) = self.default_generator.next().await? {
-            Ok(v)
+    pub async fn generate(&self, record_id: RecordId) -> Result<RandomBitsShare<F, S>, Error> {
+        let share = if let Some(v) = self.default_generator.next(Some(record_id)).await? {
+            v
         } else {
             loop {
                 self.abort_count.fetch_add(1, Ordering::AcqRel);
-                if let Some(v) = self.fallback_generator.next().await? {
-                    break Ok(v);
+                if let Some(v) = self.fallback_generator.next(None).await? {
+                    break v;
                 }
             }
+        };
+
+        if self.total_records.last(record_id) {
+            self.fallback_generator.close().await;
         }
+
+        Ok(share)
     }
 
     /// Get the number of aborts for this instance.
@@ -125,9 +132,18 @@ where
         }
     }
 
-    async fn next(&self) -> Result<Option<RandomBitsShare<F, S>>, Error> {
-        let i = self.counter.fetch_add(1, Ordering::AcqRel);
-        solved_bits(self.ctx.clone(), RecordId::from(i)).await
+    async fn next(
+        &self,
+        record_id: Option<RecordId>,
+    ) -> Result<Option<RandomBitsShare<F, S>>, Error> {
+        let i = record_id
+            .unwrap_or_else(|| RecordId::from(self.counter.fetch_add(1, Ordering::AcqRel)));
+        solved_bits(self.ctx.clone(), i).await
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn close(&self) {
+        // no-op for now
     }
 }
 
@@ -141,7 +157,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         helpers::TotalRecords,
-        protocol::{boolean::RandomBitsShare, malicious::MaliciousValidator},
+        protocol::{boolean::RandomBitsShare, malicious::MaliciousValidator, RecordId},
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
 
@@ -149,12 +165,18 @@ mod tests {
     pub async fn semi_honest() {
         let world = TestWorld::default();
         let [c0, c1, c2] = world.contexts();
+        let record_id = RecordId::from(0);
 
         let rbg0 = RandomBitsGenerator::new(c0, 1);
         let rbg1 = RandomBitsGenerator::new(c1, 1);
         let rbg2 = RandomBitsGenerator::new(c2, 1);
 
-        let result = join3(rbg0.generate(), rbg1.generate(), rbg2.generate()).await;
+        let result = join3(
+            rbg0.generate(record_id),
+            rbg1.generate(record_id),
+            rbg2.generate(record_id),
+        )
+        .await;
         assert_eq!(rbg0.aborts(), rbg1.aborts());
         assert_eq!(rbg0.aborts(), rbg2.aborts());
         let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
@@ -167,8 +189,11 @@ mod tests {
         world
             .semi_honest((), |ctx, _| async move {
                 let rbg = RandomBitsGenerator::new(ctx, TotalRecords::Indeterminate);
+                let mut i = 0;
                 while rbg.abort_count.load(Ordering::Acquire) == 0 {
-                    let _: RandomBitsShare<Fp31, _> = rbg.generate().await.unwrap();
+                    let _: RandomBitsShare<Fp31, _> =
+                        rbg.generate(RecordId::from(i)).await.unwrap();
+                    i += 1;
                 }
             })
             .await;
@@ -184,8 +209,14 @@ mod tests {
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context(), 1))
             .collect::<Vec<_>>();
+        let record_id = RecordId::from(0);
 
-        let m_result = join3(rbg[0].generate(), rbg[1].generate(), rbg[2].generate()).await;
+        let m_result = join3(
+            rbg[0].generate(record_id),
+            rbg[1].generate(record_id),
+            rbg[2].generate(record_id),
+        )
+        .await;
         assert_eq!(rbg[0].aborts(), rbg[1].aborts());
         assert_eq!(rbg[0].aborts(), rbg[2].aborts());
 

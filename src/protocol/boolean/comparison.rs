@@ -75,7 +75,7 @@ where
 
     assert!(c < F::PRIME.into());
 
-    let r = rbg.generate().await?;
+    let r = rbg.generate(record_id).await?;
 
     // Mask `a` with random `r` and reveal.
     let b = (r.b_p.clone() + a)
