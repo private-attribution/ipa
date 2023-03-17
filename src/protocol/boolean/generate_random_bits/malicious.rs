@@ -6,7 +6,9 @@ use crate::{
         context::{Context, MaliciousContext},
         BitOpStep, RecordId,
     },
-    secret_sharing::replicated::malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+    secret_sharing::replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, ExtendableField,
+    },
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;

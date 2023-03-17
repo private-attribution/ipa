@@ -6,7 +6,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
     },
 };
 use async_trait::async_trait;

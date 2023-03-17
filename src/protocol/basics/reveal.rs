@@ -78,7 +78,9 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<'a, F: Field + ExtendableField> Reveal<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> Reveal<MaliciousContext<'a, F>, RecordId>
+    for MaliciousReplicated<F>
+{
     type Output = F;
 
     async fn reveal<'fut>(

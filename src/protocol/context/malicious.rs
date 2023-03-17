@@ -31,7 +31,8 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         Linear as LinearSecretSharing,
     },
@@ -111,10 +112,6 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
             .await
     }
 
-    fn get_induced_field_value(x: F) -> F {
-        x.clone()
-    }
-
     pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().semi_honest_context(), value),
@@ -192,7 +189,9 @@ impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
-impl<'a, F: Field + ExtendableField> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
+impl<'a, F: Field + ExtendableField> SpecialAccessToMaliciousContext<'a, F>
+    for MaliciousContext<'a, F>
+{
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
         self.inner
             .accumulator
@@ -448,13 +447,6 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
         })
     }
 
-    fn get_induced_share(x: &Replicated<F>) -> Replicated<F::LargeFieldType> {
-        Replicated::new(
-            x.left().get_induced_value(),
-            x.right().get_induced_value(),
-        )
-    }
-
     async fn upgrade_one(
         &self,
         ctx: SemiHonestContext<'a>,
@@ -462,7 +454,10 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = Self::get_induced_share(&x)
+        let induced_share =
+            Replicated::new(x.left().get_induced_value(), x.right().get_induced_value());
+
+        let rx = induced_share
             .multiply_sparse(
                 &self.r_share,
                 ctx.clone(),

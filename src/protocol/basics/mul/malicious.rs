@@ -7,8 +7,9 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        semi_honest::{AdditiveShare as Replicated},
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, ReplicatedSecretSharing,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
 };
 use futures::future::try_join;

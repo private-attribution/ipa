@@ -36,7 +36,9 @@ impl<'a, V: GaloisField> ShareKnownValue<SemiHonestContext<'a>, V> for XorShare<
     }
 }
 
-impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F>
+    for MaliciousReplicated<F>
+{
     fn share_known_value(ctx: &MaliciousContext<'a, F>, value: F) -> Self {
         ctx.share_known_value(value)
     }

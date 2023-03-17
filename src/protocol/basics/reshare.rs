@@ -138,7 +138,9 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId>
+    for MaliciousReplicated<F>
+{
     async fn reshare<'fut>(
         &self,
         ctx: MaliciousContext<'a, F>,

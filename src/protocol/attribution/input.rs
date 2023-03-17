@@ -6,8 +6,8 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::{
-                AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper, ExtendableField,
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
             },
             semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
         },
@@ -125,7 +125,9 @@ impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
 }
 
 #[async_trait]
-impl<F: Field + ExtendableField> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>> {
+impl<F: Field + ExtendableField> DowngradeMalicious
+    for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>
+{
     type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {

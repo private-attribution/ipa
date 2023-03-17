@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, Serializable, Fp32BitPrime, Gf40Bit, Gf2, Gf32Bit, GaloisField},
+    ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf32Bit, Gf40Bit, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
@@ -32,7 +32,7 @@ pub trait ExtendableField {
     type LargeFieldType: Field;
     fn get_induced_value(&self) -> Self::LargeFieldType;
 }
-    
+
 impl ExtendableField for Fp32BitPrime {
     type LargeFieldType = Fp32BitPrime;
 
@@ -93,21 +93,15 @@ impl<V: SharedValue + ExtendableField> Default for AdditiveShare<V> {
 
 impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
     #[must_use]
-    pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V::LargeFieldType>) -> Self {
+    pub fn new(
+        x: SemiHonestAdditiveShare<V>,
+        rx: SemiHonestAdditiveShare<V::LargeFieldType>,
+    ) -> Self {
         Self { x, rx }
     }
 
     pub fn x(&self) -> UnauthorizedDowngradeWrapper<&SemiHonestAdditiveShare<V>> {
         UnauthorizedDowngradeWrapper(&self.x)
-    }
-
-    pub fn get_induced_share(&self) -> UnauthorizedDowngradeWrapper<&SemiHonestAdditiveShare<V>> {
-        // TODO: change x from the base field to the extension field (if using an extension field)
-        UnauthorizedDowngradeWrapper(&self.x)
-    }
-
-    pub fn get_induced_field_value(x: V) -> V::LargeFieldType {
-        x.get_induced_value()
     }
 
     pub fn rx(&self) -> &SemiHonestAdditiveShare<V::LargeFieldType> {
@@ -190,7 +184,7 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
     fn mul(self, rhs: V) -> Self::Output {
         Self {
             x: self.x * rhs,
-            rx: self.rx * Self::get_induced_field_value(rhs),
+            rx: self.rx * rhs.get_induced_value(),
         }
     }
 }
@@ -199,8 +193,11 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
 impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,
-    <SemiHonestAdditiveShare<V> as Serializable>::Size: Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
-    <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>>::Output: ArrayLength<u8>,
+    <SemiHonestAdditiveShare<V> as Serializable>::Size:
+        Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
+    <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
+        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+    >>::Output: ArrayLength<u8>,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V> as Serializable>::Size,
@@ -218,10 +215,11 @@ where
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
             ));
-        let rx =
-            <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::deserialize(GenericArray::from_slice(
+        let rx = <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::deserialize(
+            GenericArray::from_slice(
                 &buf[<SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size::USIZE..],
-            ));
+            ),
+        );
         Self { x, rx }
     }
 }

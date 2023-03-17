@@ -10,7 +10,9 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
         Step, Substep,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare as Replicated, malicious::ExtendableField},
+    secret_sharing::replicated::{
+        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+    },
     sync::Arc,
 };
 use std::fmt::{Debug, Formatter};

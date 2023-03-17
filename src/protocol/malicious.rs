@@ -113,10 +113,7 @@ struct AccumulatorState<T: Field> {
 
 impl<T: Field> AccumulatorState<T> {
     pub fn new(u: T, w: T) -> Self {
-        Self {
-            u,
-            w,
-        }
+        Self { u, w }
     }
 }
 
@@ -126,15 +123,11 @@ pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
 }
 
 impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
-    fn compute_dot_product_contribution(a: &Replicated<F::LargeFieldType>, b: &Replicated<F::LargeFieldType>) -> F::LargeFieldType {
+    fn compute_dot_product_contribution(
+        a: &Replicated<F::LargeFieldType>,
+        b: &Replicated<F::LargeFieldType>,
+    ) -> F::LargeFieldType {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
-    }
-
-    fn get_induced_share(x: &Replicated<F>) -> Replicated<F::LargeFieldType> {
-        Replicated::new(
-            x.left().get_induced_value(),
-            x.right().get_induced_value(),
-        )
     }
 
     /// ## Panics
@@ -147,12 +140,15 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
     ) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
+        let x = input.x().access_without_downgrade();
+        let induced_share =
+            Replicated::new(x.left().get_induced_value(), x.right().get_induced_value());
+
         let random_constant = prss.generate_replicated(record_id);
-        let u_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(&random_constant, input.rx());
-        let w_contribution: F::LargeFieldType = Self::compute_dot_product_contribution(
-            &random_constant,
-            &Self::get_induced_share(input.x().access_without_downgrade()),
-        );
+        let u_contribution: F::LargeFieldType =
+            Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let w_contribution: F::LargeFieldType =
+            Self::compute_dot_product_contribution(&random_constant, &induced_share);
 
         let arc_mutex = self.inner.upgrade().unwrap();
         // LOCK BEGIN
@@ -246,7 +242,9 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     }
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
-    async fn propagate_u_and_w(&self) -> Result<(Replicated<F::LargeFieldType>, Replicated<F::LargeFieldType>), Error> {
+    async fn propagate_u_and_w(
+        &self,
+    ) -> Result<(Replicated<F::LargeFieldType>, Replicated<F::LargeFieldType>), Error> {
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)

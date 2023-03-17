@@ -8,7 +8,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField}, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
 };
@@ -86,7 +87,8 @@ where
     let prss = ctx.prss();
     let duplicate_prss = duplicate_multiply_ctx.prss();
     let (s0, s1): (F, F) = prss.generate_fields(record_id);
-    let (s0_m, s1_m): (F::LargeFieldType, F::LargeFieldType) = duplicate_prss.generate_fields(record_id);
+    let (s0_m, s1_m): (F::LargeFieldType, F::LargeFieldType) =
+        duplicate_prss.generate_fields(record_id);
     let role = ctx.role();
 
     // compute the value (d_i) we want to send to the right helper (i+1)
@@ -102,8 +104,9 @@ where
             bx.right().get_induced_value(),
         );
         right_sops += ax.right() * bx.right() + ax.left() * bx.right() + ax.right() * bx.left();
-        right_sops_m +=
-            arx.right() * bx_induced.right() + arx.left() * bx_induced.right() + arx.right() * bx_induced.left();
+        right_sops_m += arx.right() * bx_induced.right()
+            + arx.left() * bx_induced.right()
+            + arx.right() * bx_induced.left();
     }
 
     // notify helper on the right that we've computed our value

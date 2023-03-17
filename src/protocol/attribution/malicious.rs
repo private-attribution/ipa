@@ -15,7 +15,8 @@ use crate::{
         RecordId, Substep,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare, ExtendableField}, semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+        malicious::{AdditiveShare, ExtendableField},
+        semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
 };
 use futures::future::try_join_all;

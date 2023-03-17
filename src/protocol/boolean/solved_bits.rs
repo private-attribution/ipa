@@ -5,7 +5,8 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::{
         replicated::malicious::{
-            AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper, ExtendableField,
+            AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+            UnauthorizedDowngradeWrapper,
         },
         Linear as LinearSecretSharing, SecretSharing,
     },
