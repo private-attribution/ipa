@@ -106,7 +106,7 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
+    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::LargeFieldType> for MaliciousReplicated<F> {
         fn l(&self) -> F::LargeFieldType {
             (self as &MaliciousReplicated<F>).rx().left()
         }
@@ -208,7 +208,7 @@ mod tests {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = vec![
             Fp32BitPrime::truncate_from(0u128),
-            Fp31::truncate_from(1u128),
+            Fp32BitPrime::truncate_from(1u128),
         ];
         let input_len = input.len();
 
