@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf32Bit, Gf40Bit, Serializable},
+    ff::{Field, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
@@ -193,14 +193,15 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
 impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,
+    SemiHonestAdditiveShare<V::LargeFieldType>: Serializable,
     <SemiHonestAdditiveShare<V> as Serializable>::Size:
-        Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
+        Add<<SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size>,
     <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size,
     >>::Output: ArrayLength<u8>,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
@@ -288,7 +289,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 mod tests {
     use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
         rand::{thread_rng, Rng},
         secret_sharing::{
@@ -305,16 +306,16 @@ mod tests {
     fn test_local_operations() {
         let mut rng = rand::thread_rng();
 
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-        let c = rng.gen::<Fp31>();
-        let d = rng.gen::<Fp31>();
-        let e = rng.gen::<Fp31>();
-        let f = rng.gen::<Fp31>();
+        let a = rng.gen::<Fp32BitPrime>();
+        let b = rng.gen::<Fp32BitPrime>();
+        let c = rng.gen::<Fp32BitPrime>();
+        let d = rng.gen::<Fp32BitPrime>();
+        let e = rng.gen::<Fp32BitPrime>();
+        let f = rng.gen::<Fp32BitPrime>();
         // Randomization constant
-        let r = rng.gen::<Fp31>();
+        let r = rng.gen::<Fp32BitPrime>();
 
-        let one_shared = Fp31::ONE.share_with(&mut rng);
+        let one_shared = Fp32BitPrime::ONE.share_with(&mut rng);
         let a_shared = a.share_with(&mut rng);
         let b_shared = b.share_with(&mut rng);
         let c_shared = c.share_with(&mut rng);
@@ -353,15 +354,16 @@ mod tests {
             let malicious_a_plus_b = malicious_a + &malicious_b;
             let malicious_c_minus_d = malicious_c - &malicious_d;
             let malicious_1_minus_e = malicious_one - &malicious_e;
-            let malicious_2f = malicious_f * Fp31::truncate_from(2_u128);
+            let malicious_2f = malicious_f * Fp32BitPrime::truncate_from(2_u128);
 
             let mut temp = -malicious_a_plus_b - &malicious_c_minus_d - &malicious_1_minus_e;
-            temp = temp * Fp31::truncate_from(6_u128);
+            temp = temp * Fp32BitPrime::truncate_from(6_u128);
             results.push(temp + &malicious_2f);
         }
 
-        let correct = (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::truncate_from(6_u128)
-            + Fp31::truncate_from(2_u128) * f;
+        let correct = (-(a + b) - (c - d) - (Fp32BitPrime::ONE - e))
+            * Fp32BitPrime::truncate_from(6_u128)
+            + Fp32BitPrime::truncate_from(2_u128) * f;
 
         assert_eq!(
             [
@@ -381,8 +383,8 @@ mod tests {
     #[tokio::test]
     async fn downgrade() {
         let mut rng = thread_rng();
-        let x = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
-        let y = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
+        let x = SemiHonestAdditiveShare::new(rng.gen::<Fp32BitPrime>(), rng.gen());
+        let y = SemiHonestAdditiveShare::new(rng.gen::<Fp32BitPrime>(), rng.gen());
         let m = AdditiveShare::new(x.clone(), y);
         assert_eq!(x, m.downgrade().await.access_without_downgrade());
     }

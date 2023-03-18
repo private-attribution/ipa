@@ -388,8 +388,9 @@ mod tests {
             },
             rand::{thread_rng, Rng},
             secret_sharing::replicated::{
-                malicious::AdditiveShare as MaliciousReplicated,
-                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+                malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+                semi_honest::AdditiveShare as Replicated,
+                ReplicatedSecretSharing,
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
@@ -459,12 +460,13 @@ mod tests {
             }
         }
 
-        async fn reshare_malicious_with_additive_attack<F: Field>(
+        async fn reshare_malicious_with_additive_attack<F: Field + ExtendableField>(
             ctx: MaliciousContext<'_, F>,
             input: &MaliciousReplicated<F>,
             record_id: RecordId,
             to_helper: Role,
-            additive_error: F,
+            small_field_additive_error: F,
+            large_field_additive_error: F::LargeFieldType,
         ) -> Result<MaliciousReplicated<F>, Error> {
             use crate::{
                 protocol::context::SpecialAccessToMaliciousContext,
@@ -478,14 +480,14 @@ mod tests {
                     input.rx(),
                     record_id,
                     to_helper,
-                    additive_error,
+                    large_field_additive_error,
                 ),
                 reshare_with_additive_attack(
                     ctx.semi_honest_context(),
                     input.x().access_without_downgrade(),
                     record_id,
                     to_helper,
-                    additive_error,
+                    small_field_additive_error,
                 ),
             )
             .await?;
@@ -518,6 +520,7 @@ mod tests {
                                 &m_a,
                                 record_id,
                                 to_helper,
+                                Fp32BitPrime::ONE,
                                 Fp32BitPrime::ONE,
                             )
                             .await

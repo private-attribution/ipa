@@ -315,8 +315,8 @@ mod tests {
         let context = world.contexts();
         let mut rng = thread_rng();
 
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.gen::<Fp32BitPrime>();
+        let b = rng.gen::<Fp32BitPrime>();
 
         let a_shares = a.share_with(&mut rng);
         let b_shares = b.share_with(&mut rng);
@@ -430,16 +430,19 @@ mod tests {
 
         let mut original_inputs = Vec::with_capacity(COUNT);
         for _ in 0..COUNT {
-            let x = rng.gen::<Fp31>();
+            let x = rng.gen::<Fp32BitPrime>();
             original_inputs.push(x);
         }
-        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+        let shared_inputs: Vec<[Replicated<Fp32BitPrime>; 3]> = original_inputs
             .iter()
             .map(|x| x.share_with(&mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
+        let h1_shares: Vec<Replicated<Fp32BitPrime>> =
+            shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<Replicated<Fp32BitPrime>> =
+            shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<Replicated<Fp32BitPrime>> =
+            shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         let futures = context
             .into_iter()

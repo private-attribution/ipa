@@ -67,12 +67,13 @@ pub trait Context: Clone + Send + Sync {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime},
         helpers::Direction,
         protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -105,12 +106,12 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
-        fn l(&self) -> F {
+    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
+        fn l(&self) -> F::LargeFieldType {
             (self as &MaliciousReplicated<F>).rx().left()
         }
 
-        fn r(&self) -> F {
+        fn r(&self) -> F::LargeFieldType {
             (self as &MaliciousReplicated<F>).rx().right()
         }
     }
@@ -205,7 +206,10 @@ mod tests {
     #[tokio::test]
     async fn malicious_metrics() {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-        let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
+        let input = vec![
+            Fp32BitPrime::truncate_from(0u128),
+            Fp31::truncate_from(1u128),
+        ];
         let input_len = input.len();
 
         let _result = world

@@ -48,7 +48,7 @@ impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F>
 mod tests {
     use super::ShareKnownValue;
     use crate::{
-        ff::Fp31,
+        ff::{Fp31, Fp32BitPrime},
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
@@ -78,11 +78,11 @@ mod tests {
         let world = TestWorld::default();
 
         let mut rng = rand::thread_rng();
-        let a = rng.gen::<Fp31>();
+        let a = rng.gen::<Fp32BitPrime>();
 
         let result = world
             .malicious((), |ctx, ()| async move {
-                MaliciousReplicated::<Fp31>::share_known_value(&ctx, a)
+                MaliciousReplicated::<Fp32BitPrime>::share_known_value(&ctx, a)
             })
             .await
             .reconstruct();

@@ -157,7 +157,9 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
+        ff::Fp32BitPrime,
         rand::{thread_rng, Rng},
+        secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::Runner,
     };
     use futures::future::{try_join, try_join3};
@@ -218,7 +220,7 @@ mod tests {
             .unwrap();
 
         let record_id = RecordId::from(0);
-        let input: Fp31 = rng.gen();
+        let input: Fp32BitPrime = rng.gen();
 
         let m_shares = join3v(
             zip(m_ctx.iter(), input.share_with(&mut rng))
@@ -253,7 +255,7 @@ mod tests {
             .unwrap();
 
         let record_id = RecordId::from(0);
-        let input: Fp31 = rng.gen();
+        let input: Fp32BitPrime = rng.gen();
 
         let m_shares = join3v(
             zip(m_ctx.iter(), input.share_with(&mut rng))
@@ -263,7 +265,12 @@ mod tests {
         let result = try_join3(
             m_shares[0].reveal(m_ctx[0].clone(), record_id),
             m_shares[1].reveal(m_ctx[1].clone(), record_id),
-            reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], Fp31::ONE),
+            reveal_with_additive_attack(
+                m_ctx[2].clone(),
+                record_id,
+                &m_shares[2],
+                Fp32BitPrime::ONE,
+            ),
         )
         .await;
 
@@ -272,7 +279,7 @@ mod tests {
         Ok(())
     }
 
-    pub async fn reveal_with_additive_attack<F: Field>(
+    pub async fn reveal_with_additive_attack<F: Field + ExtendableField>(
         ctx: MaliciousContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,

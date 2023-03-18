@@ -209,7 +209,7 @@ mod tests {
             context::Context,
             RecordId,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
     use bitvec::macros::internal::funty::Fundamental;
@@ -243,13 +243,14 @@ mod tests {
         result
     }
 
-    async fn maybe_add<F: PrimeField>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
+    async fn maybe_add<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
     where
+        F: PrimeField,
         Standard: Distribution<F>,
     {
         let input = (into_bits(a), maybe);
-        let result = world
-            .semi_honest(input.clone(), |ctx, (a_share, maybe_share)| async move {
+        world
+            .semi_honest(input, |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -261,9 +262,15 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct();
+            .reconstruct()
+    }
 
-        let m_result = world
+    async fn maybe_add_malicious<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
+    where
+        F: PrimeField + ExtendableField,
+        Standard: Distribution<F>,
+    {
+        world
             .malicious(input, |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
                     ctx.set_total_records(1),
@@ -276,11 +283,7 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct();
-
-        assert_eq!(result, m_result);
-
-        result
+            .reconstruct()
     }
 
     #[tokio::test]

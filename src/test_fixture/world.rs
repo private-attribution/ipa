@@ -1,4 +1,4 @@
-use crate::rand::thread_rng;
+use crate::{rand::thread_rng, secret_sharing::replicated::malicious::ExtendableField};
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
@@ -178,7 +178,7 @@ pub trait Runner {
 
     async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        F: Field,
+        F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
@@ -221,7 +221,7 @@ impl Runner for TestWorld {
 
     async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        F: Field,
+        F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,

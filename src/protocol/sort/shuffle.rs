@@ -294,7 +294,7 @@ mod tests {
 
     mod malicious {
         use crate::{
-            ff::{Field, Fp31},
+            ff::{Field, Fp31, Fp32BitPrime},
             protocol::{
                 context::Context,
                 sort::shuffle::{
@@ -317,7 +317,10 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input_u128.clone().into_iter().map(Fp31::truncate_from),
+                    input_u128
+                        .clone()
+                        .into_iter()
+                        .map(Fp32BitPrime::truncate_from),
                     |ctx, m_shares| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
@@ -335,8 +338,8 @@ mod tests {
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
             for val in result.reconstruct() {
-                output_secret.push(u8::from(val));
-                hashed_output_secret.insert(u8::from(val));
+                output_secret.push(u8::try_from(val.as_u128()).unwrap());
+                hashed_output_secret.insert(u8::try_from(val.as_u128()).unwrap());
             }
 
             // Secrets should be shuffled
@@ -355,7 +358,7 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input.clone().into_iter().map(Fp31::truncate_from),
+                    input.clone().into_iter().map(Fp32BitPrime::truncate_from),
                     |ctx, m_shares| async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),

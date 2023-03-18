@@ -3,7 +3,7 @@ use crate::{
     protocol::boolean::RandomBitsShare,
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
             ReplicatedSecretSharing,
         },
@@ -151,7 +151,7 @@ pub trait ValidateMalicious<F> {
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
@@ -167,11 +167,11 @@ where
             self[1].borrow().rx(),
             self[2].borrow().rx(),
         ];
-        assert_eq!(x.reconstruct() * r, rx.reconstruct());
+        assert_eq!((x.reconstruct() * r).get_induced_value(), rx.reconstruct(),);
     }
 }
 
-impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     fn validate(&self, r: F) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
@@ -182,7 +182,9 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     }
 }
 
-impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
+impl<F: Field + ExtendableField> ValidateMalicious<F>
+    for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3]
+{
     fn validate(&self, r: F) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
