@@ -115,7 +115,7 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::default();
-        let [c0, c1, c2] = world.contexts();
+        let [c0, c1, c2] = world.contexts().map(|ctx| ctx.set_total_records(1));
         let record_id = RecordId::from(0);
 
         let rbg0 = RandomBitsGenerator::new(c0);
@@ -145,6 +145,7 @@ mod tests {
         for _ in 0..OUTER {
             let v = world
                 .semi_honest((), |ctx, _| async move {
+                    let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
                         try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))

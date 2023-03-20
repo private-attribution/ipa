@@ -67,9 +67,9 @@ impl Gateway {
         channel_id: &ChannelId,
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
-        let (tx, maybe_recv) = self
-            .senders
-            .get_or_create(channel_id, self.config.send_outstanding);
+        let (tx, maybe_recv) =
+            self.senders
+                .get_or_create(channel_id, self.config.send_outstanding, total_records);
         if let Some(recv) = maybe_recv {
             tokio::spawn({
                 let channel_id = channel_id.clone();

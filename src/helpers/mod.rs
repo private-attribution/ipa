@@ -398,9 +398,9 @@ pub enum TotalRecords {
     /// depends on the number of failures.
     ///
     /// The purpose of this is to waive the warning that there is a known
-    /// number of records when creating a channel. If the warning is firing
-    /// and the total number of records is knowable, prefer to specify it
-    /// rather than use this to waive the warning.
+    /// number of records when creating a channel.
+    ///
+    /// Using this is very inefficient, so avoid it.
     Indeterminate,
 }
 
@@ -425,16 +425,19 @@ impl TotalRecords {
         }
     }
 
-    /// Overwrite this value.  This is only valid if either this or the new value is unspecified.
-    /// In debug builds it will panic if it isn't.
+    /// Overwrite this value.
+    /// # Panics
+    /// This panics if the transition is invalid.
+    /// Any new value is OK if the current value is unspecified.
+    /// Otherwise the new value can be indeterminate if the old value is specified.
     #[must_use]
     pub fn overwrite<T: Into<TotalRecords>>(&self, value: T) -> TotalRecords {
-        let value = value.into();
-        debug_assert!(
-            self.is_unspecified() || value.is_indeterminate(),
-            "impermissible transition for TotalRecords {self:?} -> {value:?}",
-        );
-        value
+        match (self, value.into()) {
+            (Self::Unspecified, v) => v,
+            (_, Self::Unspecified) => panic!("TotalRecords needs a specific value for overwriting"),
+            (Self::Specified(_), Self::Indeterminate) => Self::Indeterminate,
+            (old, new) => panic!("TotalRecords bad transition: {old:?} -> {new:?}"),
+        }
     }
 }
 

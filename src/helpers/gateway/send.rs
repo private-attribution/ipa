@@ -85,10 +85,12 @@ impl GatewaySenders {
         &self,
         channel_id: &ChannelId,
         capacity: NonZeroUsize,
+        total_records: TotalRecords, // TODO track children for indeterminate senders
     ) -> (
         OrderingMpscSender<Wrapper>,
         Option<OrderingMpscReceiver<Wrapper>>,
     ) {
+        assert!(!total_records.is_unspecified());
         let senders = &self.inner;
         if let Some(sender) = senders.get(channel_id) {
             (sender.clone(), None)

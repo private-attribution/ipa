@@ -102,6 +102,23 @@ impl Step {
             id: self.id.clone() + "/" + step.as_ref(),
         }
     }
+
+    /// Determine if this step is "narrower" than the `other` step.
+    ///
+    /// ```
+    /// # use raw_ipa::protocol::Step;
+    /// let s1 = Step::from("one");
+    /// let s2 = s1.narrow("two");
+    /// assert!(s2.is_narrower_than(&s1));
+    /// assert!(!s2.is_narrower_than(&s2));
+    /// assert!(!s1.is_narrower_than(&s2));
+    /// ```
+    #[must_use]
+    pub fn is_narrower_than(&self, other: &Self) -> bool {
+        self.id.starts_with(&other.id)
+            && self.id.len() > other.id.len()
+            && char::from(self.id.as_bytes()[other.id.as_bytes().len()]) == '/'
+    }
 }
 
 impl Default for Step {
