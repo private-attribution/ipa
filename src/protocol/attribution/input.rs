@@ -9,7 +9,7 @@ use crate::{
                 AdditiveShare as MaliciousReplicated, DowngradeMalicious,
                 ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
             },
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
         },
         Linear as LinearSecretSharing,
     },
@@ -28,7 +28,7 @@ pub struct ApplyAttributionWindowInputRow<F: Field, BK: GaloisField> {
     pub timestamp: AdditiveShare<F>,
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
-    pub breakdown_key: XorShare<BK>,
+    pub breakdown_key: AdditiveShare<BK>,
     pub trigger_value: AdditiveShare<F>,
 }
 
@@ -70,7 +70,7 @@ pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F,
 pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
-    pub breakdown_key: XorShare<BK>,
+    pub breakdown_key: AdditiveShare<BK>,
     pub trigger_value: AdditiveShare<F>,
 }
 
@@ -166,7 +166,7 @@ where
 
 #[derive(Debug)]
 pub struct AggregateCreditInputRow<F: Field, BK: GaloisField> {
-    pub breakdown_key: XorShare<BK>,
+    pub breakdown_key: AdditiveShare<BK>,
     pub credit: AdditiveShare<F>,
 }
 

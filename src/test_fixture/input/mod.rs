@@ -1,6 +1,6 @@
 use crate::{
     ff::{Field, GaloisField},
-    secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
+    secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 
 pub mod sharing;
@@ -8,11 +8,11 @@ pub mod sharing;
 // Struct that holds all possible fields of the input to IPA. Used for tests only.
 #[derive(Debug)]
 pub struct GenericReportShare<F: Field, MK: GaloisField, BK: GaloisField> {
-    pub match_key: Option<XorShare<MK>>,
+    pub match_key: Option<AdditiveShare<MK>>,
     pub attribution_constraint_id: Option<AdditiveShare<F>>,
     pub timestamp: Option<AdditiveShare<F>>,
     pub is_trigger_report: Option<AdditiveShare<F>>,
-    pub breakdown_key: XorShare<BK>,
+    pub breakdown_key: AdditiveShare<BK>,
     pub trigger_value: AdditiveShare<F>,
     pub helper_bit: Option<AdditiveShare<F>>,
     pub aggregation_bit: Option<AdditiveShare<F>>,
