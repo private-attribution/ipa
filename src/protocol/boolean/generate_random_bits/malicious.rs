@@ -24,7 +24,8 @@ impl<F: PrimeField> RandomBits<F> for MaliciousContext<'_, F> {
         let ctx = &c;
         let malicious_triples =
             try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
-                ctx.upgrade_for_record_with(&BitOpStep::from(i), record_id, t)
+                ctx.narrow(&BitOpStep::from(i))
+                    .upgrade_for(record_id, t)
                     .await
             }))
             .await?;
