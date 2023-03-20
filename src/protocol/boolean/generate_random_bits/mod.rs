@@ -9,10 +9,7 @@ use crate::{
         BitOpStep, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
@@ -46,7 +43,7 @@ where
     let (b_bits_left, b_bits_right) = ctx.prss().generate_values(record_id);
 
     // Same here. For now, 256-bit is enough for our F_p
-    let xor_share = XorReplicated::new(
+    let xor_share = Replicated::new(
         Gf40Bit::truncate_from(b_bits_left),
         Gf40Bit::truncate_from(b_bits_right),
     );
