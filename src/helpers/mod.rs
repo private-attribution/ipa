@@ -419,7 +419,7 @@ impl TotalRecords {
     pub fn count(&self) -> Option<usize> {
         match self {
             TotalRecords::Specified(v) => Some(v.get()),
-            TotalRecords::Indeterminate | TotalRecords::Unspecified => None
+            TotalRecords::Indeterminate | TotalRecords::Unspecified => None,
         }
     }
 

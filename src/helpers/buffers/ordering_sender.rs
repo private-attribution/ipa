@@ -1,20 +1,28 @@
 #![allow(dead_code)] // TODO remove
 
-use crate::helpers::Message;
+use crate::{
+    helpers::Message,
+    sync::{
+        atomic::{
+            AtomicUsize,
+            Ordering::{AcqRel, Acquire},
+        },
+        Mutex, MutexGuard,
+    },
+};
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
 use std::{
+    borrow::Borrow,
     cmp::Ordering,
     collections::VecDeque,
     mem::drop,
     num::NonZeroUsize,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
-use std::borrow::Borrow;
-use std::sync::Arc;
 use typenum::Unsigned;
-use crate::sync::{Mutex, MutexGuard, atomic::{AtomicUsize, Ordering::{AcqRel, Acquire}}};
 
 /// The operating state for an `OrderingSender`.
 struct State {
@@ -59,7 +67,12 @@ impl State {
     }
 
     fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
-        assert!(M::Size::USIZE < self.spare.get(), "expect message size {:?} to be less than spare {:?}", M::Size::USIZE, self.spare.get());
+        assert!(
+            M::Size::USIZE < self.spare.get(),
+            "expect message size {:?} to be less than spare {:?}",
+            M::Size::USIZE,
+            self.spare.get()
+        );
         let b = &mut self.buf[self.written..];
         if M::Size::USIZE <= b.len() {
             self.written += M::Size::USIZE;
@@ -362,7 +375,7 @@ pub struct OrderedStream<B: Borrow<OrderingSender>> {
     sender: B,
 }
 
-impl <B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
+impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -389,7 +402,10 @@ mod test {
     use typenum::Unsigned;
 
     fn sender() -> Arc<OrderingSender> {
-        Arc::new(OrderingSender::new(NonZeroUsize::new(6).unwrap(), NonZeroUsize::new(5).unwrap()))
+        Arc::new(OrderingSender::new(
+            NonZeroUsize::new(6).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        ))
     }
 
     #[cfg(not(feature = "shuttle"))]
