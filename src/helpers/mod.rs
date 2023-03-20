@@ -415,6 +415,14 @@ impl TotalRecords {
         matches!(self, &TotalRecords::Indeterminate)
     }
 
+    #[must_use]
+    pub fn count(&self) -> Option<usize> {
+        match self {
+            TotalRecords::Specified(v) => Some(v.get()),
+            TotalRecords::Indeterminate | TotalRecords::Unspecified => None
+        }
+    }
+
     /// Returns true iff the total number of records is specified and the given record is the final
     /// one to process.
     #[must_use]

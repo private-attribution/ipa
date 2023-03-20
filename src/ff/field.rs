@@ -1,24 +1,18 @@
-use crate::secret_sharing::SharedValue;
-use generic_array::ArrayLength;
+use crate::secret_sharing::{Block, SharedValue};
 use std::fmt::Debug;
+use typenum::{U1, U4};
 
-// Trait for primitive integer types used to represent the underlying type for field values
-pub trait Int: Sized + Copy + Debug {
-    const BITS: u32;
+impl Block for u8 {
+    type Size = U1;
+    const VALID_BIT_LENGTH: u32 = u8::BITS;
 }
 
-impl Int for u8 {
-    const BITS: u32 = u8::BITS;
+impl Block for u32 {
+    type Size = U4;
+    const VALID_BIT_LENGTH: u32 = u32::BITS;
 }
 
-impl Int for u32 {
-    const BITS: u32 = u32::BITS;
-}
-
-pub trait Field: SharedValue + From<u128> + Into<Self::Integer> {
-    type Integer: Int;
-    type Size: ArrayLength<u8>;
-
+pub trait Field: SharedValue + From<u128> + Into<Self::Storage> {
     /// Multiplicative identity element
     const ONE: Self;
 

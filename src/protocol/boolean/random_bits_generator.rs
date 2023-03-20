@@ -137,7 +137,7 @@ mod tests {
     pub async fn uses_fallback_channel() {
         /// The odds of needing a fallback on a field of size 31 is 1/32.
         /// 100 iterations will have a fallback with probability of 1-(1-31/32)^100.
-        /// Repeating that 100 times should make the odds of failure negligible.
+        /// Repeating that 20 times should make the odds of failure negligible.
         const OUTER: u32 = 20;
         const INNER: u32 = 100;
         let world = TestWorld::default();
@@ -154,7 +154,7 @@ mod tests {
                     );
                     // Pass the number of fallbacks out as a share in Fp31.
                     // It will reconstruct as Fp31(3) or Fp31(0), which will let the outer
-                    // code to know when to stop.
+                    // code to know when to stop.  Reconstruction also ensures that helpers agree.
                     let f = Fp31::from(rbg.fallbacks() > 0);
                     AdditiveShare::new(f, f)
                 })

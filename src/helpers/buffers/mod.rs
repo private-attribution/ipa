@@ -4,6 +4,7 @@ mod unordered_receiver;
 
 pub use ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender};
 pub use unordered_receiver::UnorderedReceiver;
+pub use ordering_sender::{OrderingSender, OrderedStream};
 
 #[cfg(debug_assertions)]
 #[allow(unused)] // todo(alex): make test world print the state again
