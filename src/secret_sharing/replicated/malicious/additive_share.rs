@@ -289,7 +289,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 mod tests {
     use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime},
         helpers::Role,
         rand::{thread_rng, Rng},
         secret_sharing::{

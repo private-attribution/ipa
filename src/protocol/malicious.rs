@@ -280,7 +280,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime},
         helpers::Role,
         protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
         rand::{thread_rng, Rng},

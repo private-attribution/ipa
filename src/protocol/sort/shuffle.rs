@@ -294,7 +294,7 @@ mod tests {
 
     mod malicious {
         use crate::{
-            ff::{Field, Fp31, Fp32BitPrime},
+            ff::{Field, Fp32BitPrime},
             protocol::{
                 context::Context,
                 sort::shuffle::{

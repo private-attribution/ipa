@@ -110,7 +110,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use crate::{
-        ff::Fp31,
+        ff::Fp32BitPrime,
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -121,8 +121,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.gen::<Fp32BitPrime>();
+        let b = rng.gen::<Fp32BitPrime>();
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {

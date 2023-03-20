@@ -78,7 +78,7 @@ mod tests {
 
     use super::RandomBitsGenerator;
     use crate::{
-        ff::Fp31,
+        ff::{Fp31, Fp32BitPrime},
         protocol::malicious::MaliciousValidator,
         test_fixture::{join3, Reconstruct, TestWorld},
     };
@@ -103,7 +103,7 @@ mod tests {
         let world = TestWorld::default();
         let contexts = world.contexts();
 
-        let validators = contexts.map(MaliciousValidator::<Fp31>::new);
+        let validators = contexts.map(MaliciousValidator::<Fp32BitPrime>::new);
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context()))
@@ -119,6 +119,6 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
+        let _: Fp32BitPrime = result.reconstruct(); // reconstruct() will validate the value.
     }
 }

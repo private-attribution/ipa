@@ -569,7 +569,7 @@ pub mod tests {
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
-            (Fp31, MatchKey, BreakdownKey)
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
@@ -628,7 +628,7 @@ pub mod tests {
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
 
             ];
-            (Fp31, MatchKey, BreakdownKey)
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world

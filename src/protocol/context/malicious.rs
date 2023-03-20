@@ -535,26 +535,26 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 ///
 /// ```no_run
 /// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::ff::Fp32BitPrime;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, RecordId> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Replicated<Fp32BitPrime>, Replicated<Fp32BitPrime>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp32BitPrime>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp32BitPrime>>, Vec<Replicated<Fp32BitPrime>>), _>>::upgrade;
 /// ```
 ///
 /// ```compile_fail
 /// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::ff::Fp32BitPrime;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // This can't be upgraded with a record-bound context because the record ID
 /// // is used internally for vector indexing.
-/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp32BitPrime>>, _>>::upgrade;
 /// ```
 pub struct UpgradeContext<'a, F: Field + ExtendableField, B: RecordBinding = NoRecord> {
     upgrade_ctx: SemiHonestContext<'a>,

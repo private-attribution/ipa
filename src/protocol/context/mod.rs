@@ -106,7 +106,9 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::LargeFieldType> for MaliciousReplicated<F> {
+    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::LargeFieldType>
+        for MaliciousReplicated<F>
+    {
         fn l(&self) -> F::LargeFieldType {
             (self as &MaliciousReplicated<F>).rx().left()
         }

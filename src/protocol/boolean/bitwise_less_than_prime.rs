@@ -203,7 +203,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{context::Context, RecordId},
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -235,27 +235,27 @@ mod tests {
 
         assert_eq!(
             zero,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME, 32).await
         );
         assert_eq!(
             zero,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME + 1, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME + 1, 32).await
         );
         assert_eq!(
             zero,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME + 2, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME + 2, 32).await
         );
         assert_eq!(
             zero,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME + 3, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME + 3, 32).await
         );
         assert_eq!(
             zero,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME + 4, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME + 4, 32).await
         );
         assert_eq!(
             one,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME - 1, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME - 1, 32).await
         );
         assert_eq!(
             one,
@@ -263,21 +263,27 @@ mod tests {
         );
         assert_eq!(
             one,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME - 3, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME - 3, 32).await
         );
         assert_eq!(
             one,
-            bitwise_less_than_prime::<Fp32BitPrime>(Fp32BitPrime::PRIME - 4, 32).await
-        );
-        assert_eq!(one, bitwise_less_than_prime::<Fp32BitPrime>(0, 32).await);
-        assert_eq!(one, bitwise_less_than_prime::<Fp32BitPrime>(1, 32).await);
-        assert_eq!(
-            one,
-            bitwise_less_than_prime::<Fp32BitPrime>(65_536_u32, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(Fp32BitPrime::PRIME - 4, 32).await
         );
         assert_eq!(
             one,
-            bitwise_less_than_prime::<Fp32BitPrime>(65_535_u32, 32).await
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(0, 32).await
+        );
+        assert_eq!(
+            one,
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(1, 32).await
+        );
+        assert_eq!(
+            one,
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(65_536_u32, 32).await
+        );
+        assert_eq!(
+            one,
+            bitwise_less_than_prime_malicious::<Fp32BitPrime>(65_535_u32, 32).await
         );
     }
 
@@ -288,7 +294,7 @@ mod tests {
     {
         let world = TestWorld::default();
         let bits = get_bits::<F>(a, num_bits);
-        let result = world
+        world
             .semi_honest(bits.clone(), |ctx, x_share| async move {
                 BitwiseLessThanPrime::less_than_prime(
                     ctx.set_total_records(1),
@@ -299,9 +305,18 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct();
+            .reconstruct()
+    }
 
-        let m_result = world
+    async fn bitwise_less_than_prime_malicious<F>(a: u32, num_bits: u32) -> F
+    where
+        F: PrimeField + ExtendableField + Sized,
+        Standard: Distribution<F>,
+    {
+        let world = TestWorld::default();
+        let bits = get_bits::<F>(a, num_bits);
+
+        world
             .malicious(bits, |ctx, x_share| async move {
                 BitwiseLessThanPrime::less_than_prime(
                     ctx.set_total_records(1),
@@ -312,10 +327,6 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct();
-
-        assert_eq!(result, m_result);
-
-        result
+            .reconstruct()
     }
 }

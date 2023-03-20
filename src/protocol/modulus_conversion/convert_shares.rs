@@ -246,9 +246,10 @@ mod tests {
 
         let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
-        let result: [Replicated<Fp31>; 3] = world
+        let result: [Replicated<Fp32BitPrime>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
+                let triple =
+                    convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context().set_total_records(1);
@@ -259,7 +260,10 @@ mod tests {
                 v.validate(m_bit).await.unwrap()
             })
             .await;
-        assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
+        assert_eq!(
+            Fp32BitPrime::truncate_from(match_key[BITNUM]),
+            result.reconstruct()
+        );
     }
 
     #[tokio::test]

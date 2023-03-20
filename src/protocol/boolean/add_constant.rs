@@ -215,32 +215,36 @@ mod tests {
     use bitvec::macros::internal::funty::Fundamental;
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn add<F: PrimeField>(world: &TestWorld, a: F, b: u128) -> Vec<F>
+    async fn add<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
     where
+        F: PrimeField,
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
-        let result = world
+        world
             .semi_honest(input.clone(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct();
+            .reconstruct()
+    }
 
-        let m_result = world
+    async fn add_malicious<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
+    where
+        F: PrimeField + ExtendableField,
+        Standard: Distribution<F>,
+    {
+        let input = into_bits(a);
+        world
             .malicious(input, |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct();
-
-        assert_eq!(result, m_result);
-
-        result
+            .reconstruct()
     }
 
     async fn maybe_add<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
@@ -270,6 +274,7 @@ mod tests {
         F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
+        let input = (into_bits(a), maybe);
         world
             .malicious(input, |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
@@ -330,7 +335,7 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0
             ],
-            add(&world, zero, 0).await
+            add_malicious(&world, zero, 0).await
         );
 
         // Prime - 1 + 6
@@ -339,7 +344,7 @@ mod tests {
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add(
+            add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7
@@ -351,7 +356,7 @@ mod tests {
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0
             ],
-            maybe_add(
+            maybe_add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7,
@@ -364,7 +369,7 @@ mod tests {
                 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1
             ],
-            maybe_add(
+            maybe_add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7,
@@ -379,7 +384,7 @@ mod tests {
                 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
-            add(
+            add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891
@@ -391,7 +396,7 @@ mod tests {
                 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0
             ],
-            maybe_add(
+            maybe_add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
@@ -404,7 +409,7 @@ mod tests {
                 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0,
                 0, 0, 0, 0
             ],
-            maybe_add(
+            maybe_add_malicious(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
@@ -421,21 +426,21 @@ mod tests {
                 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0, 0
             ],
-            add(&world, some_random_number, x).await
+            add_malicious(&world, some_random_number, x).await
         );
         assert_eq!(
             vec![
                 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0
             ],
-            maybe_add(&world, some_random_number, x, one).await
+            maybe_add_malicious(&world, some_random_number, x, one).await
         );
         assert_eq!(
             vec![
                 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0
             ],
-            maybe_add(&world, some_random_number, x, zero).await
+            maybe_add_malicious(&world, some_random_number, x, zero).await
         );
     }
 }

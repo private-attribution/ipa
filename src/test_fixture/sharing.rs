@@ -145,8 +145,8 @@ where
     }
 }
 
-pub trait ValidateMalicious<F> {
-    fn validate(&self, r: F);
+pub trait ValidateMalicious<F: Field + ExtendableField> {
+    fn validate(&self, r: F::LargeFieldType);
 }
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
@@ -154,7 +154,7 @@ where
     F: Field + ExtendableField,
     T: Borrow<MaliciousReplicated<F>>,
 {
-    fn validate(&self, r: F) {
+    fn validate(&self, r: F::LargeFieldType) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = [
@@ -167,12 +167,12 @@ where
             self[1].borrow().rx(),
             self[2].borrow().rx(),
         ];
-        assert_eq!((x.reconstruct() * r).get_induced_value(), rx.reconstruct(),);
+        assert_eq!(x.reconstruct().get_induced_value() * r, rx.reconstruct(),);
     }
 }
 
 impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
-    fn validate(&self, r: F) {
+    fn validate(&self, r: F::LargeFieldType) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
 
@@ -185,7 +185,7 @@ impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicat
 impl<F: Field + ExtendableField> ValidateMalicious<F>
     for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3]
 {
-    fn validate(&self, r: F) {
+    fn validate(&self, r: F::LargeFieldType) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
 

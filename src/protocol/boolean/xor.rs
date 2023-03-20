@@ -45,21 +45,21 @@ where
 mod tests {
     use super::xor;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime},
         protocol::{
             basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
             context::Context,
             RecordId,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::distributions::{Distribution, Standard};
 
     async fn run<F>(world: &TestWorld, a: F, b: F) -> F
     where
-        F: Field,
+        F: Field + ExtendableField,
         Standard: Distribution<F>,
     {
         let result = world
@@ -110,7 +110,7 @@ mod tests {
     }
 
     async fn run_sparse(world: &TestWorld, a: bool, b: bool, zeros: MultiplyZeroPositions) -> bool {
-        type F = Fp31;
+        type F = Fp32BitPrime;
 
         let a = SparseField::<F>::new(F::truncate_from(u128::from(a)), zeros.0);
         let b = SparseField::<F>::new(F::truncate_from(u128::from(b)), zeros.1);
