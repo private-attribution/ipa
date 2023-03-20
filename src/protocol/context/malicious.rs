@@ -39,7 +39,7 @@ use crate::{
 };
 
 /// This step is not used at the same place.
-/// Upgrades
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct UpgradeStep;
 
