@@ -28,22 +28,18 @@ pub struct RandomBitsGenerator<F, S, C> {
     _marker: PhantomData<(F, S)>,
 }
 
-enum RBGStep {
-    /// Special context that is used when values generated using the standard method are larger
-    /// than the prime for the field. It is grossly inefficient to use, because communications
-    /// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
-    Fallback,
-}
+/// Special context that is used when values generated using the standard method are larger
+/// than the prime for the field. It is grossly inefficient to use, because communications
+/// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
+struct FallbackStep;
 
-impl AsRef<str> for RBGStep {
+impl AsRef<str> for FallbackStep {
     fn as_ref(&self) -> &str {
-        match self {
-            RBGStep::Fallback => "fallback",
-        }
+        "fallback"
     }
 }
 
-impl Substep for RBGStep {}
+impl Substep for FallbackStep {}
 
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
@@ -54,7 +50,7 @@ where
     #[must_use]
     pub fn new(ctx: C) -> Self {
         let fallback_ctx = ctx
-            .narrow(&RBGStep::Fallback)
+            .narrow(&FallbackStep)
             .set_total_records(TotalRecords::Indeterminate);
         Self {
             ctx,
