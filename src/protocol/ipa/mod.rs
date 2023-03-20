@@ -42,7 +42,6 @@ pub enum Step {
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
     AfterConvertAllBits,
-    Debug,
 }
 
 impl Substep for Step {}
@@ -55,7 +54,6 @@ impl AsRef<str> for Step {
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::AfterConvertAllBits => "after_convert_all_bits",
-            Self::Debug => "debug",
         }
     }
 }
@@ -680,7 +678,7 @@ pub mod tests {
                 ]
             );
         }
-        /*
+
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa_malicious::<_, MatchKey, BreakdownKey>(
@@ -707,7 +705,6 @@ pub mod tests {
                 ]
             );
         }
-        */
     }
 
     #[tokio::test]

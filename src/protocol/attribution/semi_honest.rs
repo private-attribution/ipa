@@ -96,7 +96,6 @@ pub enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
-    Debug,
 }
 
 impl Substep for Step {}
@@ -108,7 +107,6 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
-            Self::Debug => "debug",
         }
     }
 }
