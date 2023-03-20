@@ -6,10 +6,7 @@ use crate::{
     helpers::{query::QueryInput, transport::ByteArrStream},
     net::MpcHelperClient,
     protocol::{attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
-    secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-        IntoShares,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::input::GenericReportTestInput,
 };
 use futures_util::future::try_join_all;

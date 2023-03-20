@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join, try_join3, try_join_all};
 
 use crate::{
     error::Error,
@@ -130,7 +130,13 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            inner: Arc::clone(&self.inner),
+            // todo: it is inefficient, we only need to change the context, but end up
+            // cloning everything from inner
+            inner: ContextInner::new(
+                self.inner.upgrade_ctx.narrow(step),
+                self.inner.accumulator.clone(),
+                self.inner.r_share.clone(),
+            ),
             step: self.step.narrow(step),
             total_records: self.total_records,
         }
@@ -242,7 +248,7 @@ impl AsRef<str> for UpgradeTripleStep {
 }
 
 enum UpgradeModConvStep {
-    V0(usize),
+    V0,
     V1,
     V2,
 }
@@ -251,10 +257,8 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
-        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
-
         match self {
-            Self::V0(i) => UPGRADE_MOD_CONV0[*i],
+            Self::V0 => "upgrade_mod_conv0",
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
         }
@@ -294,40 +298,28 @@ impl<'a, F: Field>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.upgrade_ctx;
-        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
-            |(idx, mk_share)| async move {
-                self.inner
-                    .upgrade_one(
-                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
-                        self.record_binding,
-                        mk_share,
-                        ZeroPositions::Pvvv,
-                    )
-                    .await
-            },
-        ))
-        .await?;
-
-        let is_trigger_bit = self
-            .inner
-            .upgrade_one(
+        let (mk_shares, is_trigger_bit, trigger_value) = try_join3(
+            self.inner.upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V0),
+                self.record_binding,
+                input.mk_shares,
+                ZeroPositions::Pvvv,
+            ),
+            self.inner.upgrade_one(
                 self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
                 self.record_binding,
                 input.is_trigger_bit,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let trigger_value = self
-            .inner
-            .upgrade_one(
+            ),
+            self.inner.upgrade_one(
                 self.upgrade_ctx.narrow(&UpgradeModConvStep::V2),
                 self.record_binding,
                 input.trigger_value,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
+            ),
+        )
+        .await?;
+
         Ok(IPAModulusConvertedInputRowWrapper::new(
             mk_shares,
             is_trigger_bit,
@@ -337,14 +329,14 @@ impl<'a, F: Field>
 }
 
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
-    pub mk_shares: Vec<T>,
+    pub mk_shares: T,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
-    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
+    pub fn new(mk_shares: T, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             mk_shares,
             is_trigger_bit,

@@ -8,7 +8,7 @@ use crate::{
     error::Error,
     ff::{GaloisField, PrimeField, Serializable},
     protocol::{
-        boolean::bitwise_equal::bitwise_equal,
+        boolean::{equality_test, random_bits_generator::RandomBitsGenerator},
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
         RecordId, Substep,
@@ -16,7 +16,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 use futures::future::try_join_all;
-use std::iter::{repeat, zip};
+use std::iter::zip;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -34,19 +34,24 @@ where
     BK: GaloisField,
     AdditiveShare<F>: Serializable,
 {
-    let futures = zip(
-        repeat(
-            ctx.narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_rows.len() - 1),
-        ),
-        sorted_rows.iter(),
-    )
-    .zip(sorted_rows.iter().skip(1))
-    .enumerate()
-    .map(|(i, ((ctx, row), next_row))| {
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
-    });
+    let eq_test_ctx = ctx
+        .narrow(&Step::ComputeHelperBits)
+        .set_total_records(sorted_rows.len() - 1);
+
+    let rbg = RandomBitsGenerator::new(ctx.clone());
+
+    let futures = sorted_rows
+        .iter()
+        .zip(sorted_rows.iter().skip(1))
+        .enumerate()
+        .map(|(i, (row, next_row))| {
+            let record_id = RecordId::from(i);
+            let c = eq_test_ctx.clone();
+            let rbg_ref = &rbg;
+            async move {
+                equality_test(c, record_id, rbg_ref, &row.mk_shares, &next_row.mk_shares).await
+            }
+        });
     let helper_bits = Some(AdditiveShare::ZERO)
         .into_iter()
         .chain(try_join_all(futures).await?);
@@ -91,6 +96,7 @@ pub enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    Debug,
 }
 
 impl Substep for Step {}
@@ -102,6 +108,7 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::Debug => "debug",
         }
     }
 }
