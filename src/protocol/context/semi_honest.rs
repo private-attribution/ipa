@@ -8,7 +8,7 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        Step, Substep,
+        RecordId, Step, Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
@@ -78,20 +78,16 @@ impl<'a> Context for SemiHonestContext<'a> {
         }
     }
 
-    fn is_total_records_unspecified(&self) -> bool {
-        self.total_records.is_unspecified()
-    }
-
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        debug_assert!(
-            self.is_total_records_unspecified(),
-            "attempt to set total_records more than once"
-        );
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
-            total_records: total_records.into(),
+            total_records: self.total_records.overwrite(total_records),
         }
+    }
+
+    fn is_last_record<I: Into<RecordId>>(&self, record_id: I) -> bool {
+        self.total_records.is_last(record_id)
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness {

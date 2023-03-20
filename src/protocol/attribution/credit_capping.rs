@@ -228,19 +228,15 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let random_bits_generator = RandomBitsGenerator::new(
-        ctx.narrow(&Step::RandomBitsForComparison),
-        prefix_summed_credits.len(),
-    );
+    let ctx = ctx.set_total_records(prefix_summed_credits.len());
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
     try_join_all(
         prefix_summed_credits
             .iter()
-            .zip(zip(
-                repeat(ctx.set_total_records(prefix_summed_credits.len())),
-                repeat(cap),
-            ))
+            .zip(zip(repeat(ctx), repeat(cap)))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
                 greater_than_constant(

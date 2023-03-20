@@ -410,10 +410,11 @@ mod tests {
     {
         let result = world
             .semi_honest(lhs, |ctx, lhs| async move {
+                let ctx = ctx.set_total_records(1);
                 greater_than_constant(
-                    ctx.set_total_records(1),
+                    ctx.clone(),
                     RecordId::from(0),
-                    &RandomBitsGenerator::new(ctx, 1),
+                    &RandomBitsGenerator::new(ctx),
                     &lhs,
                     rhs,
                 )
@@ -425,10 +426,11 @@ mod tests {
 
         let m_result = world
             .malicious(lhs, |ctx, lhs| async move {
+                let ctx = ctx.set_total_records(1);
                 greater_than_constant(
-                    ctx.set_total_records(1),
+                    ctx.clone(),
                     RecordId::from(0),
-                    &RandomBitsGenerator::new(ctx, 1),
+                    &RandomBitsGenerator::new(ctx),
                     &lhs,
                     rhs,
                 )

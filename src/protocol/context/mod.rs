@@ -1,13 +1,11 @@
-use crate::{
-    helpers::{Role, TotalRecords},
-    protocol::{Step, Substep},
-};
-
 pub mod malicious;
 mod prss;
 mod semi_honest;
 
-use crate::helpers::{Message, ReceivingEnd, SendingEnd};
+use crate::{
+    helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
+    protocol::{RecordId, Step, Substep},
+};
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -28,14 +26,14 @@ pub trait Context: Clone + Send + Sync {
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
-    /// Returns true if the context does not have a total record count set (regardless
-    /// of whether that total is known or indeterminate).
-    fn is_total_records_unspecified(&self) -> bool;
-
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
     #[must_use]
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
+
+    /// Returns true if this is the last record.
+    #[must_use]
+    fn is_last_record<T: Into<RecordId>>(&self, record_id: T) -> bool;
 
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.

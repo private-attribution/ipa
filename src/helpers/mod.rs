@@ -418,11 +418,23 @@ impl TotalRecords {
     /// Returns true iff the total number of records is specified and the given record is the final
     /// one to process.
     #[must_use]
-    pub fn last<I: Into<RecordId>>(&self, record_id: I) -> bool {
+    pub fn is_last<I: Into<RecordId>>(&self, record_id: I) -> bool {
         match self {
             Self::Unspecified | Self::Indeterminate => false,
             Self::Specified(v) => usize::from(record_id.into()) == v.get() - 1,
         }
+    }
+
+    /// Overwrite this value.  This is only valid if either this or the new value is unspecified.
+    /// In debug builds it will panic if it isn't.
+    #[must_use]
+    pub fn overwrite<T: Into<TotalRecords>>(&self, value: T) -> TotalRecords {
+        let value = value.into();
+        debug_assert!(
+            self.is_unspecified() || value.is_indeterminate(),
+            "impermissible transition for TotalRecords {self:?} -> {value:?}",
+        );
+        value
     }
 }
 
