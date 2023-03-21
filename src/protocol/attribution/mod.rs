@@ -8,7 +8,7 @@ pub mod semi_honest;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     protocol::{
         basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
     },
@@ -16,6 +16,11 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::{try_join, try_join_all};
+
+use super::{
+    boolean::{equality_test, random_bits_generator::RandomBitsGenerator, RandomBits},
+    ipa::IPAModulusConvertedInputRow,
+};
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(
@@ -231,12 +236,45 @@ where
     Ok(())
 }
 
+async fn generate_helper_bits<F, C, S>(
+    ctx: C,
+    sorted_rows: &[IPAModulusConvertedInputRow<F, S>],
+) -> Result<impl Iterator<Item = S>, Error>
+where
+    F: PrimeField,
+    C: Context + RandomBits<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+{
+    let eq_test_ctx = ctx
+        .narrow(&Step::ComputeHelperBits)
+        .set_total_records(sorted_rows.len() - 1);
+
+    let rbg = RandomBitsGenerator::new(ctx);
+    let rbg_ref = &rbg;
+
+    let futures = sorted_rows
+        .iter()
+        .zip(sorted_rows.iter().skip(1))
+        .enumerate()
+        .map(|(i, (row, next_row))| {
+            let record_id = RecordId::from(i);
+            let c = eq_test_ctx.clone();
+            async move {
+                equality_test(c, record_id, rbg_ref, &row.mk_shares, &next_row.mk_shares).await
+            }
+        });
+    Ok(Some(S::ZERO)
+        .into_iter()
+        .chain(try_join_all(futures).await?))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
 enum Step {
     CurrentStopBitTimesSuccessorCredit,
     CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
+    ComputeHelperBits,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -249,6 +287,7 @@ impl AsRef<str> for Step {
                 "current_stop_bit_times_successor_stop_bit"
             }
             Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
+            Self::ComputeHelperBits => "compute_helper_bits",
         }
     }
 }
