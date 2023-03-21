@@ -346,21 +346,17 @@ impl<'a, F: Field>
             try_join_all(input.mk_shares.into_iter().enumerate().map(
                 |(idx, mk_share)| async move {
                     ctx_ref
-                    .narrow(&UpgradeModConvStep::V0(idx))
-                    .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
-                    .await
-            },
-        )),
-            self.ctx
-            .narrow(&UpgradeModConvStep::V1)
-            .upgrade_one(
+                        .narrow(&UpgradeModConvStep::V0(idx))
+                        .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
+                        .await
+                },
+            )),
+            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
                 ZeroPositions::Pvvv,
             ),
-            self.ctx
-            .narrow(&UpgradeModConvStep::V2)
-            .upgrade_one(
+            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
                 self.record_binding,
                 input.trigger_value,
                 ZeroPositions::Pvvv,
