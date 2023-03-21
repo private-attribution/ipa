@@ -6,7 +6,7 @@ pub mod input;
 pub mod malicious;
 pub mod semi_honest;
 
-use futures::future::try_join;
+use futures::{future::try_join, Future};
 
 use crate::{
     error::Error,
@@ -18,6 +18,12 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_futures::seq_try_join_all,
 };
+
+fn assert_send<'a, O>(fut: impl Future<Output = O> + Send + 'a)
+  -> impl Future<Output = O> + Send + 'a
+{
+    fut
+}
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(
@@ -128,8 +134,8 @@ where
         }
 
         let (stop_bit_updates, credit_updates) = try_join(
-            seq_try_join_all(stop_bit_futures),
-            seq_try_join_all(credit_update_futures),
+            assert_send(seq_try_join_all(stop_bit_futures)),
+            assert_send(seq_try_join_all(credit_update_futures)),
         )
         .await?;
 
@@ -212,8 +218,8 @@ where
         }
 
         let (stop_bit_updates, value_updates) = try_join(
-            seq_try_join_all(stop_bit_futures),
-            seq_try_join_all(value_update_futures),
+            assert_send(seq_try_join_all(stop_bit_futures)),
+            assert_send(seq_try_join_all(value_update_futures)),
         )
         .await?;
 

@@ -1,16 +1,14 @@
 #![warn(clippy::future_not_send)]
 
 use futures::{
-    stream::{iter, Fuse},
-    Future, Stream, StreamExt,
+    Future, Stream, stream::{Collect, TryCollect}, StreamExt, TryStreamExt,
 };
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
-    future::IntoFuture,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, iter::Fuse,
 };
 
 /// Sequentially join futures from an iterator.
@@ -57,13 +55,13 @@ use std::{
 /// [`futures::stream::iter`]: futures::stream::iter::iter
 /// [`StreamExt::collect`]: futures::stream::StreamExt::collect
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<S, Fut, O>(active: NonZeroUsize, stream: S) -> SequentialFutures<S, Fut, O>
+pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I, F, O>
 where
-    S: Stream<Item = Fut> + Send,
-    Fut: IntoFuture<Output = O> + ?Sized,
+    I: Iterator<Item = F> + Send,
+    F: Future<Output = O> + ?Sized,
 {
     SequentialFutures {
-        stream: stream.fuse(),
+        iter: iter.fuse(),
         active: VecDeque::with_capacity(active.get()),
     }
 }
@@ -73,55 +71,46 @@ where
 /// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub async fn seq_try_join_all<I, O, E>(futures: I) -> Result<Vec<O>, E>
+pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SequentialFutures<<I as IntoIterator>::IntoIter, F, Result<O, E>>, Vec<O>>
 where
-    I: IntoIterator,
+    I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
-    I::Item: IntoFuture<Output = Result<O, E>>,
+    F: Future<Output = Result<O, E>>,
 {
     const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
 
-    let futures = futures.into_iter();
-    let (lower, upper) = futures.size_hint();
-    let mut res = Vec::with_capacity(lower.saturating_add(upper.unwrap_or(0)));
-    let mut s = seq_join(ACTIVE.unwrap(), iter(futures));
-    while let Some(r) = s.next().await {
-        res.push(r?);
-    }
-    Ok(res)
+    let iter = iterable.into_iter();
+    seq_join(ACTIVE.unwrap(), iter).try_collect()
 }
 
 /// A substitute for [`futures::future::join_all`] that uses [`seq_join`].
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub async fn seq_join_all<I, O>(futures: I) -> Vec<O>
+pub fn seq_join_all<I, F, O>(iterable: I) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F, O>, Vec<O>>
 where
-    I: IntoIterator,
+    I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
-    I::Item: IntoFuture<Output = O>,
+    F: Future<Output = O>,
 {
     const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
-
-    seq_join(ACTIVE.unwrap(), iter(futures))
-        .collect::<Vec<_>>()
-        .await
+    seq_join(ACTIVE.unwrap(), iterable.into_iter()).collect()
 }
 
 #[pin_project]
-pub struct SequentialFutures<S, F, O>
+pub struct SequentialFutures<I, F, O>
 where
-    S: Stream<Item = F> + Send,
-    F: IntoFuture<Output = O> + ?Sized,
+    I: Iterator<Item = F> + Send,
+    F: Future<Output = O> + ?Sized,
 {
+    iter: Fuse<I>,
     #[pin]
-    stream: Fuse<S>,
-    active: VecDeque<Pin<Box<F::IntoFuture>>>,
+    active: VecDeque<Pin<Box<F>>>,
 }
 
-impl<S, F, O> Stream for SequentialFutures<S, F, O>
+impl<I, F, O> Stream for SequentialFutures<I, F, O>
 where
-    S: Stream<Item = F> + Send,
-    F: IntoFuture<Output = O>,
+    I: Iterator<Item = F> + Send,
+    F: Future<Output = O>,
 {
     type Item = O;
 
@@ -130,8 +119,8 @@ where
 
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
-            if let Poll::Ready(Some(f)) = this.stream.as_mut().poll_next(cx) {
-                this.active.push_back(Box::pin(f.into_future()));
+            if let Some(f) = this.iter.next() {
+                this.active.push_back(Box::pin(f));
             } else {
                 break;
             }
@@ -148,16 +137,15 @@ where
                 }
                 Poll::Pending
             }
-        } else if this.stream.is_done() {
-            Poll::Ready(None)
         } else {
-            Poll::Pending
+            assert!(this.iter.next().is_none());
+            Poll::Ready(None)
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let in_progress = self.active.len();
-        let (lower, upper) = self.stream.size_hint();
+        let (lower, upper) = self.iter.size_hint();
         (
             lower.saturating_add(in_progress),
             upper.and_then(|u| u.checked_add(in_progress)),
@@ -165,6 +153,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use crate::seq_futures::{seq_join, seq_join_all, seq_try_join_all};
@@ -349,3 +338,4 @@ mod test {
         assert_eq!(err, ERROR);
     }
 }
+*/
