@@ -13,9 +13,9 @@ use std::time::Instant;
 async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
-    const MAX_QUERY_SIZE: usize = 100000;
-    const NUM_USERS: usize = 300000;
-    const MAX_RECORDS_PER_USER: usize = 1000;
+    const MAX_QUERY_SIZE: usize = 1000;
+    const NUM_USERS: usize = 300;
+    const MAX_RECORDS_PER_USER: usize = 10;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config =
