@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join, try_join3, try_join4, try_join_all};
 
 use crate::{
     error::Error,
@@ -342,35 +342,32 @@ impl<'a, F: Field>
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
         let ctx_ref = &self.ctx;
-        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
-            |(idx, mk_share)| async move {
-                ctx_ref
+        let (mk_shares, is_trigger_bit, trigger_value) = try_join3(
+            try_join_all(input.mk_shares.into_iter().enumerate().map(
+                |(idx, mk_share)| async move {
+                    ctx_ref
                     .narrow(&UpgradeModConvStep::V0(idx))
                     .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
                     .await
             },
-        ))
-        .await?;
-
-        let is_trigger_bit = self
-            .ctx
+        )),
+            self.ctx
             .narrow(&UpgradeModConvStep::V1)
             .upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let trigger_value = self
-            .ctx
+            ),
+            self.ctx
             .narrow(&UpgradeModConvStep::V2)
             .upgrade_one(
                 self.record_binding,
                 input.trigger_value,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
+            ),
+        )
+        .await?;
+
         Ok(IPAModulusConvertedInputRowWrapper::new(
             mk_shares,
             is_trigger_bit,

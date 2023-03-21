@@ -28,7 +28,7 @@ impl<F: PrimeField> Serializable for F {
 }
 
 macro_rules! field_impl {
-    ( $field:ident, $store:ty, $prime:expr ) => {
+    ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
         use super::*;
         use crate::ff::FieldType;
 
@@ -37,7 +37,7 @@ macro_rules! field_impl {
 
         impl SharedValue for $field {
             type Storage = $store;
-            const BITS: u32 = <$store as Block>::VALID_BIT_LENGTH;
+            const BITS: u32 = $bits;
             const ZERO: Self = $field(0);
         }
 
@@ -222,7 +222,7 @@ macro_rules! field_impl {
 }
 
 mod fp31 {
-    field_impl! { Fp31, u8, 31 }
+    field_impl! { Fp31, u8, 8, 31 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {
@@ -245,7 +245,7 @@ mod fp31 {
 }
 
 mod fp32bit {
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291 }
+    field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {
