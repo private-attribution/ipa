@@ -117,7 +117,7 @@ mod tests {
         (F, F): Sized,
         Standard: Distribution<F>,
     {
-        world
+        let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
                 equality_test(
                     ctx.set_total_records(1),
@@ -130,15 +130,9 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn eq_malicious<F: PrimeField>(world: &TestWorld, a: F, b: F) -> F
-    where
-        (F, F): Sized,
-        Standard: Distribution<F>,
-    {
-        world
+        let m_result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
                 equality_test(
                     ctx.set_total_records(1),
@@ -151,37 +145,41 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     #[tokio::test]
     pub async fn eq_fp31() {
         let c = Fp31::truncate_from::<u8>;
-        let zero = Fp31::ZERO;
-        let one = Fp31::ONE;
+        const ZERO: Fp31 = Fp31::ZERO;
+        const ONE: Fp31= Fp31::ONE;
         let world = TestWorld::default();
 
-        assert_eq!(one, eq(&world, zero, zero).await);
-        assert_eq!(zero, eq(&world, zero, one).await);
-        assert_eq!(zero, eq(&world, one, zero).await);
-        assert_eq!(one, eq(&world, one, one).await);
+        assert_eq!(ONE, eq(&world, ZERO, ZERO).await);
+        assert_eq!(ZERO, eq(&world, ZERO, ONE).await);
+        assert_eq!(ZERO, eq(&world, ONE, ZERO).await);
+        assert_eq!(ONE, eq(&world, ONE, ONE).await);
 
-        assert_eq!(zero, eq(&world, c(3), c(7)).await);
-        assert_eq!(one, eq(&world, c(7), c(7)).await);
-        assert_eq!(zero, eq(&world, c(21), c(20)).await);
-        assert_eq!(one, eq(&world, c(21), c(21)).await);
+        assert_eq!(ZERO, eq(&world, c(3), c(7)).await);
+        assert_eq!(ONE, eq(&world, c(7), c(7)).await);
+        assert_eq!(ZERO, eq(&world, c(21), c(20)).await);
+        assert_eq!(ONE, eq(&world, c(21), c(21)).await);
 
-        assert_eq!(zero, eq(&world, zero, c(Fp31::PRIME - 1)).await);
+        assert_eq!(ZERO, eq(&world, ZERO, c(Fp31::PRIME - 1)).await);
         assert_eq!(
-            one,
+            ONE,
             eq(&world, c(Fp31::PRIME - 1), c(Fp31::PRIME - 1)).await
         );
         assert_eq!(
-            zero,
+            ZERO,
             eq(&world, c(Fp31::PRIME - 2), c(Fp31::PRIME - 1)).await
         );
         assert_eq!(
-            zero,
+            ZERO,
             eq(&world, c(Fp31::PRIME - 1), c(Fp31::PRIME - 2)).await
         );
     }
@@ -189,42 +187,42 @@ mod tests {
     #[tokio::test]
     pub async fn eq_fp32bit_prime() {
         let c = Fp32BitPrime::truncate_from::<u32>;
-        let zero = Fp32BitPrime::ZERO;
-        let one = Fp32BitPrime::ONE;
+        const ZERO: Fp32BitPrime = Fp32BitPrime::ZERO;
+        const ONE: Fp32BitPrime= Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
         let world = TestWorld::default();
 
-        assert_eq!(one, eq_malicious(&world, zero, zero).await);
-        assert_eq!(zero, eq_malicious(&world, zero, one).await);
-        assert_eq!(zero, eq_malicious(&world, one, zero).await);
-        assert_eq!(one, eq_malicious(&world, one, one).await);
+        assert_eq!(ONE, eq(&world, ZERO, ZERO).await);
+        assert_eq!(ZERO, eq(&world, ZERO, ONE).await);
+        assert_eq!(ZERO, eq(&world, ONE, ZERO).await);
+        assert_eq!(ONE, eq(&world, ONE, ONE).await);
 
-        assert_eq!(zero, eq_malicious(&world, c(3), c(7)).await);
-        assert_eq!(one, eq_malicious(&world, c(7), c(7)).await);
-        assert_eq!(zero, eq_malicious(&world, c(21), c(20)).await);
-        assert_eq!(one, eq_malicious(&world, c(21), c(21)).await);
-
-        assert_eq!(
-            one,
-            eq_malicious(&world, c(u16_max - 1), c(u16_max - 1)).await
-        );
-        assert_eq!(zero, eq_malicious(&world, c(u16_max - 1), c(u16_max)).await);
-        assert_eq!(zero, eq_malicious(&world, c(u16_max), c(u16_max - 1)).await);
-        assert_eq!(one, eq_malicious(&world, c(u16_max), c(u16_max)).await);
-        assert_eq!(zero, eq_malicious(&world, c(u16_max + 1), c(u16_max)).await);
-        assert_eq!(zero, eq_malicious(&world, c(u16_max), c(u16_max + 1)).await);
-        assert_eq!(
-            one,
-            eq_malicious(&world, c(u16_max + 1), c(u16_max + 1)).await
-        );
+        assert_eq!(ZERO, eq(&world, c(3), c(7)).await);
+        assert_eq!(ONE, eq(&world, c(7), c(7)).await);
+        assert_eq!(ZERO, eq(&world, c(21), c(20)).await);
+        assert_eq!(ONE, eq(&world, c(21), c(21)).await);
 
         assert_eq!(
-            zero,
-            eq_malicious(&world, zero, c(Fp32BitPrime::PRIME - 1)).await
+            ONE,
+            eq(&world, c(u16_max - 1), c(u16_max - 1)).await
+        );
+        assert_eq!(ZERO, eq(&world, c(u16_max - 1), c(u16_max)).await);
+        assert_eq!(ZERO, eq(&world, c(u16_max), c(u16_max - 1)).await);
+        assert_eq!(ONE, eq(&world, c(u16_max), c(u16_max)).await);
+        assert_eq!(ZERO, eq(&world, c(u16_max + 1), c(u16_max)).await);
+        assert_eq!(ZERO, eq(&world, c(u16_max), c(u16_max + 1)).await);
+        assert_eq!(
+            ONE,
+            eq(&world, c(u16_max + 1), c(u16_max + 1)).await
+        );
+
+        assert_eq!(
+            ZERO,
+            eq(&world, ZERO, c(Fp32BitPrime::PRIME - 1)).await
         );
         assert_eq!(
-            one,
-            eq_malicious(
+            ONE,
+            eq(
                 &world,
                 c(Fp32BitPrime::PRIME - 1),
                 c(Fp32BitPrime::PRIME - 1)
@@ -232,8 +230,8 @@ mod tests {
             .await
         );
         assert_eq!(
-            zero,
-            eq_malicious(
+            ZERO,
+            eq(
                 &world,
                 c(Fp32BitPrime::PRIME - 2),
                 c(Fp32BitPrime::PRIME - 1)
@@ -241,8 +239,8 @@ mod tests {
             .await
         );
         assert_eq!(
-            zero,
-            eq_malicious(
+            ZERO,
+            eq(
                 &world,
                 c(Fp32BitPrime::PRIME - 1),
                 c(Fp32BitPrime::PRIME - 2)
