@@ -3,8 +3,8 @@ use crate::{
     ff::Field,
     protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 use std::iter::repeat;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
@@ -44,7 +44,7 @@ pub async fn multi_bit_permutation<
 
     let share_of_one = S::share_known_value(&ctx, F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
-    let equality_checks = try_join_all(
+    let equality_checks = seq_try_join_all(
         input
             .iter()
             .zip(repeat(ctx.set_total_records(num_records)))
@@ -67,7 +67,7 @@ pub async fn multi_bit_permutation<
     }
 
     // Take sum of products of output of equality check and accumulated sum
-    let mut one_off_permutation = try_join_all(
+    let mut one_off_permutation = seq_try_join_all(
         equality_checks
             .into_iter()
             .zip(prefix_sum.into_iter())
@@ -94,7 +94,7 @@ pub async fn multi_bit_permutation<
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use futures::future::try_join_all;
+    use crate::seq_futures::seq_try_join_all;
 
     use super::multi_bit_permutation;
     use crate::{
@@ -151,7 +151,7 @@ mod tests {
                     let ctx = ctx.set_total_records(num_records);
                     equality_check_futures.push(check_everything(ctx, i, record));
                 }
-                try_join_all(equality_check_futures).await.unwrap()
+                seq_try_join_all(equality_check_futures).await.unwrap()
             })
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();

@@ -7,9 +7,9 @@ use crate::{
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
+    seq_futures::try_join_all,
     test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
-use futures_util::future::{try_join, try_join_all};
 
 #[test]
 fn send_receive_sequential() {

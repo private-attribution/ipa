@@ -13,8 +13,8 @@ use crate::{
         BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Linear as LinearSecretSharing,
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
@@ -126,7 +126,7 @@ where
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
     let ever_any_subsequent_credit =
-        try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+        seq_try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
@@ -138,7 +138,7 @@ where
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
         .set_total_records(input.len() - 1);
-    let capped_credits = try_join_all(
+    let capped_credits = seq_try_join_all(
         uncapped_credits
             .iter()
             .zip(ever_any_subsequent_credit.iter())
@@ -177,7 +177,7 @@ where
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    try_join_all(
+    seq_try_join_all(
         input
             .iter()
             .zip(zip(
@@ -233,7 +233,7 @@ where
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
-    try_join_all(
+    seq_try_join_all(
         prefix_summed_credits
             .iter()
             .zip(zip(repeat(ctx), repeat(cap)))
@@ -284,7 +284,7 @@ where
     //     current_credit
     //   }
 
-    try_join_all(
+    seq_try_join_all(
         (0..num_rows)
             .zip(repeat((ctx, cap)))
             .map(|(i, (ctx, cap))| async move {

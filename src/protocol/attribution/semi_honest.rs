@@ -14,8 +14,8 @@ use crate::{
         RecordId, Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 /// Performs a set of attribution protocols on the sorted IPA input.
@@ -49,7 +49,7 @@ where
     });
     let helper_bits = Some(AdditiveShare::ZERO)
         .into_iter()
-        .chain(try_join_all(futures).await?);
+        .chain(seq_try_join_all(futures).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {

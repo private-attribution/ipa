@@ -12,9 +12,9 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
+    seq_futures::seq_try_join_all,
 };
 use async_trait::async_trait;
-use futures::future::try_join_all;
 
 mod malicious;
 mod semi_honest;
@@ -69,7 +69,7 @@ where
         async move { convert_bit(c, record_id, t).await }
     });
 
-    try_join_all(futures).await
+    seq_try_join_all(futures).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

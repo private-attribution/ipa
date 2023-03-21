@@ -1,3 +1,5 @@
+use futures::future::try_join_all;
+
 use super::xor;
 use crate::{
     error::Error,
@@ -7,7 +9,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use futures::future::try_join_all;
 use std::iter::zip;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
@@ -80,6 +81,7 @@ where
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { xor(c, record_id, a_bit, b_bit).await }
     });
+    /* seq_try_join_all doesn't compile */
     try_join_all(xor).await
 }
 
@@ -169,16 +171,19 @@ mod tests {
         let b_fp31 = get_bits::<Fp31>(b, num_bits);
 
         let answer_fp31 = world
-            .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| async move {
-                bitwise_equal(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_bits,
-                    &b_bits,
-                )
-                .await
-                .unwrap()
-            })
+            .semi_honest(
+                (a_fp31, b_fp31),
+                |ctx, (a_bits, b_bits): (Vec<_>, Vec<_>)| async move {
+                    bitwise_equal(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_bits,
+                        &b_bits,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 

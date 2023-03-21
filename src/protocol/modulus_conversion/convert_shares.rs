@@ -1,3 +1,5 @@
+use futures::future::try_join_all;
+
 use crate::{
     error::Error,
     ff::{Field, GaloisField},
@@ -12,8 +14,8 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
@@ -155,7 +157,7 @@ where
         try_join_all(
             zip(locally_converted_bits, repeat(ctx.clone()))
                 .enumerate()
-                .map(|(idx, (record, ctx))| async move {
+                .map(move |(idx, (record, ctx))| async move {
                     convert_bit_list(
                         ctx.narrow(&IpaProtocolStep::ModulusConversion(
                             chunk[0].try_into().unwrap(),
@@ -184,7 +186,7 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    try_join_all(
+    seq_try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()
             .map(|(i, (ctx, bit))| async move {

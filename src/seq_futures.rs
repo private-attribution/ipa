@@ -1,3 +1,5 @@
+#![warn(clippy::future_not_send)]
+
 use futures::{
     stream::{iter, Fuse},
     Future, Stream, StreamExt,
@@ -5,6 +7,7 @@ use futures::{
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
+    future::IntoFuture,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -56,8 +59,8 @@ use std::{
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
 pub fn seq_join<S, Fut, O>(active: NonZeroUsize, stream: S) -> SequentialFutures<S, Fut, O>
 where
-    S: Stream<Item = Fut>,
-    Fut: Future<Output = O>,
+    S: Stream<Item = Fut> + Send,
+    Fut: IntoFuture<Output = O> + ?Sized,
 {
     SequentialFutures {
         stream: stream.fuse(),
@@ -70,10 +73,11 @@ where
 /// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub async fn try_join_all<I, O, E>(futures: I) -> Result<Vec<O>, E>
+pub async fn seq_try_join_all<I, O, E>(futures: I) -> Result<Vec<O>, E>
 where
     I: IntoIterator,
-    I::Item: Future<Output = Result<O, E>>,
+    I::IntoIter: Send,
+    I::Item: IntoFuture<Output = Result<O, E>>,
 {
     const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
 
@@ -90,10 +94,11 @@ where
 /// A substitute for [`futures::future::join_all`] that uses [`seq_join`].
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub async fn join_all<I, O>(futures: I) -> Vec<O>
+pub async fn seq_join_all<I, O>(futures: I) -> Vec<O>
 where
     I: IntoIterator,
-    I::Item: Future<Output = O>,
+    I::IntoIter: Send,
+    I::Item: IntoFuture<Output = O>,
 {
     const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
 
@@ -103,20 +108,20 @@ where
 }
 
 #[pin_project]
-pub struct SequentialFutures<S, Fut, O>
+pub struct SequentialFutures<S, F, O>
 where
-    S: Stream<Item = Fut>,
-    Fut: Future<Output = O>,
+    S: Stream<Item = F> + Send,
+    F: IntoFuture<Output = O> + ?Sized,
 {
     #[pin]
     stream: Fuse<S>,
-    active: VecDeque<Pin<Box<Fut>>>,
+    active: VecDeque<Pin<Box<F::IntoFuture>>>,
 }
 
-impl<S, Fut, O> Stream for SequentialFutures<S, Fut, O>
+impl<S, F, O> Stream for SequentialFutures<S, F, O>
 where
-    S: Stream<Item = Fut>,
-    Fut: Future<Output = O>,
+    S: Stream<Item = F> + Send,
+    F: IntoFuture<Output = O>,
 {
     type Item = O;
 
@@ -126,7 +131,7 @@ where
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
             if let Poll::Ready(Some(f)) = this.stream.as_mut().poll_next(cx) {
-                this.active.push_back(Box::pin(f));
+                this.active.push_back(Box::pin(f.into_future()));
             } else {
                 break;
             }
@@ -162,7 +167,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::helpers::buffers::seq_futures::{join_all, seq_join, try_join_all};
+    use crate::seq_futures::{seq_join, seq_join_all, seq_try_join_all};
     use futures::{
         future::{lazy, pending, BoxFuture},
         stream::{iter, poll_fn, repeat_with},
@@ -317,18 +322,20 @@ mod test {
 
     #[tokio::test]
     async fn join_success() {
-        fn ok(v: u32) -> impl Future<Output = Result<u32, Infallible>> {
-            lazy(move |_| Ok(v))
+        fn fut<T>(v: T) -> impl Future<Output = T> {
+            lazy(move |_| v)
         }
 
-        let res = try_join_all([ok(1), ok(2), ok(3)]).await.unwrap();
+        let res = seq_try_join_all([fut::<Result<_, Infallible>>(Ok(1)), fut(Ok(2)), fut(Ok(3))])
+            .await
+            .unwrap();
         assert_eq!(vec![1, 2, 3], res);
-        let res = join_all([1, 2, 3]).await;
+        let res = seq_join_all([fut(1), fut(2), fut(3)]).await;
         assert_eq!(vec![1, 2, 3], res);
     }
 
     #[tokio::test]
-    async fn join_early_abort() {
+    async fn try_join_early_abort() {
         const ERROR: &str = "error message";
         fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
             lazy(move |_| match i {
@@ -338,7 +345,7 @@ mod test {
             })
         }
 
-        let err = try_join_all([f(1), f(2), f(3)]).await.unwrap_err();
+        let err = seq_try_join_all([f(1), f(2), f(3)]).await.unwrap_err();
         assert_eq!(err, ERROR);
     }
 }

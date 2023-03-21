@@ -1,38 +1,29 @@
-use crate::rand::thread_rng;
-use async_trait::async_trait;
-use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution};
-
+use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     ff::Field,
-    helpers::{Gateway, GatewayConfig, Role},
+    helpers::{Gateway, GatewayConfig, Role, RoleAssignment, TransportImpl},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
         },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
+        QueryId, Substep,
     },
-    secret_sharing::replicated::malicious::DowngradeMalicious,
-    sync::atomic::{AtomicUsize, Ordering},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle},
-};
-
-use std::io::stdout;
-
-use std::{fmt::Debug, iter::zip, num::NonZeroUsize};
-
-use crate::{
-    helpers::{RoleAssignment, TransportImpl},
-    protocol::{QueryId, Substep},
-    secret_sharing::IntoShares,
-    sync::Arc,
+    rand::thread_rng,
+    secret_sharing::{replicated::malicious::DowngradeMalicious, IntoShares},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::network::InMemoryNetwork,
+    test_fixture::{logging, make_participants, metrics::MetricsHandle, network::InMemoryNetwork},
 };
+use async_trait::async_trait;
+use futures::{future::join_all, Future};
+use rand::{distributions::Standard, prelude::Distribution};
+use std::{fmt::Debug, io::stdout, iter::zip, num::NonZeroUsize};
 use tracing::Level;
-
-use super::{sharing::ValidateMalicious, Reconstruct};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -209,11 +200,7 @@ impl Runner for TestWorld {
         R: Future<Output = O> + Send,
     {
         let contexts = self.contexts();
-        let input_shares = {
-            let mut rng = thread_rng();
-            input.share_with(&mut rng)
-        };
-
+        let input_shares = input.share_with(&mut thread_rng());
         let output =
             join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
         <[_; 3]>::try_from(output).unwrap()

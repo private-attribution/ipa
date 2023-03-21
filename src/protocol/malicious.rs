@@ -270,9 +270,9 @@ mod tests {
             },
             IntoShares,
         },
+        seq_futures::seq_try_join_all,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -429,7 +429,7 @@ mod tests {
 
                 let m_input = m_ctx.upgrade(input_shares).await.unwrap();
 
-                let m_results = try_join_all(
+                let m_results = seq_try_join_all(
                     zip(
                         repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
                         zip(m_input.iter(), m_input.iter().skip(1)),

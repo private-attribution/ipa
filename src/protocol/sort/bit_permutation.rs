@@ -7,8 +7,8 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
 };
 
+use crate::seq_futures::seq_try_join_all;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
@@ -59,7 +59,7 @@ pub async fn bit_permutation<
                 let record_id = RecordId::from(i);
                 x.multiply(&sum, ctx, record_id).await
             });
-    let mut mult_output = try_join_all(async_multiply).await?;
+    let mut mult_output = seq_try_join_all(async_multiply).await?;
 
     debug_assert!(mult_output.len() == input.len() * 2);
     // Generate permutation location

@@ -100,7 +100,6 @@ where
     // step 6
     //
     // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
-    #[allow(clippy::cast_possible_truncation)]
     let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
         acc + &(x.clone() * F::try_from(1 << i).unwrap())
     });
@@ -154,7 +153,6 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
-    use futures_util::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution};
     use std::iter::{repeat, zip};
 
@@ -165,13 +163,20 @@ mod tests {
     where
         Standard: Distribution<F>,
     {
+        // TODO - remove this and it will compile!
+        // fn annotate<T: Send>(v: T) -> T {
+        //     v
+        // }
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
                 let ctx = ctx.set_total_records(COUNT);
-                try_join_all(
-                    (0..COUNT)
-                        .zip(repeat(ctx))
+                futures::future::try_join_all(
+                    // TODO - switch to this and it will fail to compile again
+                    // crate::seq_futures::seq_try_join_all(
+                    repeat(ctx)
+                        .take(COUNT)
+                        .enumerate()
                         .map(|(i, ctx)| solved_bits(ctx, RecordId::from(i))),
                 )
                 .await

@@ -103,9 +103,9 @@ mod tests {
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
+        seq_futures::seq_try_join_all,
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
     use std::iter::zip;
 
     #[tokio::test]
@@ -144,7 +144,7 @@ mod tests {
                     let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
-                        try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
+                        seq_try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
                             .await
                             .unwrap(),
                     );
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(rbg[0].fallbacks(), rbg[2].fallbacks());
 
         let result = <[_; 3]>::try_from(
-            try_join_all(zip(validators, m_result).map(|(v, m)| v.validate(m)))
+            seq_try_join_all(zip(validators, m_result).map(|(v, m)| v.validate(m)))
                 .await
                 .unwrap(),
         )

@@ -17,8 +17,8 @@ use crate::{
     ff::Field,
     protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
@@ -264,7 +264,7 @@ where
     for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =
-            try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
+            seq_try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
                 |(j, precomputed_combination)| {
                     let child_idx = j + step;
                     precomputed_combination.multiply(

@@ -1,4 +1,4 @@
-use futures::future::try_join_all;
+use crate::seq_futures::seq_try_join_all;
 
 use crate::{
     error::Error,
@@ -266,13 +266,13 @@ where
         .narrow(&Step::CheckTimesCredit)
         .set_total_records(inputs.len());
 
-    let increments = try_join_all(inputs.iter().enumerate().map(
+    let increments = seq_try_join_all(inputs.iter().enumerate().map(
         |(i, (credit, breakdown_key_bits))| {
             let c1 = equality_check_context.clone();
             let c2 = check_times_credit_context.clone();
             async move {
                 let equality_checks = check_everything(c1.clone(), i, breakdown_key_bits).await?;
-                try_join_all(equality_checks.iter().take(to_take).enumerate().map(
+                seq_try_join_all(equality_checks.iter().take(to_take).enumerate().map(
                     |(check_idx, check)| {
                         let step = BitOpStep::from(check_idx);
                         let c = c2.narrow(&step);

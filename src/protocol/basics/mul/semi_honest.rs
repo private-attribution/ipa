@@ -86,9 +86,9 @@ mod test {
         ff::{Field, Fp31},
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
+        seq_futures::seq_try_join_all,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
     use std::iter::{repeat, zip};
 
@@ -139,7 +139,7 @@ mod test {
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(
+                seq_try_join_all(
                     zip(
                         repeat(ctx.set_total_records(COUNT)),
                         zip(a_shares, b_shares),

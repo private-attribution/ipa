@@ -7,8 +7,8 @@ use crate::{
     net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    seq_futures::try_join_all,
 };
-use futures_util::future::try_join_all;
 use generic_array::{ArrayLength, GenericArray};
 use std::{fmt::Debug, ops::Add};
 use typenum::Unsigned;

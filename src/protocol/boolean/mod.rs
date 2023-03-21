@@ -1,10 +1,9 @@
-use futures::future::try_join_all;
-
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{basics::SecureMul, BasicProtocols},
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
+    seq_futures::seq_try_join_all,
 };
 use std::iter::repeat;
 
@@ -72,7 +71,7 @@ where
             ));
             mult_count += 1;
         }
-        let mut results = try_join_all(multiplications).await?;
+        let mut results = seq_try_join_all(multiplications).await?;
         if shares_to_multiply.len() % 2 == 1 {
             results.push(shares_to_multiply.pop().unwrap());
         }

@@ -11,8 +11,8 @@ use crate::{
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
@@ -71,7 +71,7 @@ where
         .set_total_records(num_rows - 1);
     // `empty().chain()` keeps `try_join_all().await?` as iterator. Is there a better way of doing this?
     let stop_bits = std::iter::empty().chain(
-        try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+        seq_try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = stop_bit_context.clone();
             let record_id = RecordId::from(i);
             async move {
@@ -91,7 +91,7 @@ where
         .set_total_records(num_rows - 1);
     let mut t_delta = std::iter::once(T::ZERO)
         .chain(
-            try_join_all(
+            seq_try_join_all(
                 zip(input.iter(), input.iter().skip(1))
                     .zip(stop_bits.clone())
                     .enumerate()
@@ -142,7 +142,7 @@ where
 
     // Compare the accumulated timestamp deltas with the specified attribution window
     // cap value, and zero-out trigger event values that exceed the cap.
-    try_join_all(
+    seq_try_join_all(
         zip(input, time_delta)
             .zip(repeat(T::share_known_value(&ctx, F::ONE)))
             .enumerate()

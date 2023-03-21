@@ -16,10 +16,11 @@ use crate::{
         },
         SecretSharing,
     },
+    seq_futures::seq_try_join_all,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -137,7 +138,7 @@ where
     async fn reveal<'fut>(&self, ctx: C, _: NoRecord) -> Result<Vec<u32>, Error> {
         let ctx = ctx.set_total_records(self.perm.len());
         let revealed_permutation =
-            try_join_all(zip(repeat(ctx), self.perm.iter()).enumerate().map(
+            seq_try_join_all(zip(repeat(ctx), self.perm.iter()).enumerate().map(
                 |(index, (ctx, value))| async move {
                     let reveal_value = value.reveal(ctx, RecordId::from(index)).await;
 

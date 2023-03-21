@@ -7,8 +7,8 @@ use crate::{
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
+    seq_futures::seq_try_join_all,
 };
-use futures::future::try_join_all;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -51,7 +51,7 @@ where
     let memoize_context = ctx
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+    let credits = seq_try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
         async move {
@@ -109,7 +109,7 @@ where
     let memoize_context = ctx
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let helper_bits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+    let helper_bits = seq_try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
         let is_trigger_bit = &x.is_trigger_report;
