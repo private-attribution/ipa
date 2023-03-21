@@ -127,9 +127,9 @@ impl GatewaySenders {
             // Any send will wake the stream reader then, effectively disabling buffering.
             // This mode is clearly inefficient, so avoid using this mode.
             let write_size = if total_records.is_indeterminate() {
-                capacity
-            } else {
                 NonZeroUsize::new(1).unwrap()
+            } else {
+                capacity
             };
 
             let sender = Arc::new(GatewaySender::new(
