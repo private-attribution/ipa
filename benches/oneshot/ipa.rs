@@ -13,13 +13,12 @@ use std::time::Instant;
 async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
-    const MAX_QUERY_SIZE: usize = 100;
+    const QUERY_SIZE: usize = 100;
     const NUM_USERS: usize = 30;
     const MAX_RECORDS_PER_USER: usize = 10;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config =
-        GatewayConfig::symmetric_buffers((NUM_USERS * MAX_RECORDS_PER_USER).clamp(16, 1024));
+    config.gateway_config = GatewayConfig::symmetric_buffers(QUERY_SIZE.clamp(16, 1024));
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed}");
@@ -28,21 +27,20 @@ async fn main() -> Result<(), Error> {
     let mut total_count = 0;
 
     let mut random_user_records = Vec::with_capacity(NUM_USERS);
-    while random_user_records.len() < NUM_USERS && total_count < MAX_QUERY_SIZE {
+    while total_count < QUERY_SIZE {
         let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
             &mut rng,
             MAX_RECORDS_PER_USER,
             MAX_BREAKDOWN_KEY,
             MAX_TRIGGER_VALUE,
         );
-        if records_for_user.len() > MAX_QUERY_SIZE - total_count {
-            records_for_user.truncate(MAX_QUERY_SIZE - total_count);
+        if records_for_user.len() > QUERY_SIZE - total_count {
+            records_for_user.truncate(QUERY_SIZE - total_count);
         }
         total_count += records_for_user.len();
         random_user_records.push(records_for_user);
     }
     let mut raw_data = random_user_records.concat();
-    println!("Running test for {:?} records", raw_data.len());
     let start = Instant::now();
 
     // Sort the records in chronological order
@@ -68,6 +66,6 @@ async fn main() -> Result<(), Error> {
         .await;
     }
     let duration = start.elapsed().as_secs_f32();
-    println!("IPA benchmark complete successfully after {duration}s");
+    println!("IPA benchmark for QUERY_SIZE {QUERY_SIZE} complete successfully after {duration}s");
     Ok(())
 }
