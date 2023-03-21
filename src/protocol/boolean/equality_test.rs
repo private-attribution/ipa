@@ -156,7 +156,7 @@ mod tests {
     pub async fn eq_fp31() {
         let c = Fp31::truncate_from::<u8>;
         const ZERO: Fp31 = Fp31::ZERO;
-        const ONE: Fp31= Fp31::ONE;
+        const ONE: Fp31 = Fp31::ONE;
         let world = TestWorld::default();
 
         assert_eq!(ONE, eq(&world, ZERO, ZERO).await);
@@ -188,7 +188,7 @@ mod tests {
     pub async fn eq_fp32bit_prime() {
         let c = Fp32BitPrime::truncate_from::<u32>;
         const ZERO: Fp32BitPrime = Fp32BitPrime::ZERO;
-        const ONE: Fp32BitPrime= Fp32BitPrime::ONE;
+        const ONE: Fp32BitPrime = Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
         let world = TestWorld::default();
 
@@ -202,24 +202,15 @@ mod tests {
         assert_eq!(ZERO, eq(&world, c(21), c(20)).await);
         assert_eq!(ONE, eq(&world, c(21), c(21)).await);
 
-        assert_eq!(
-            ONE,
-            eq(&world, c(u16_max - 1), c(u16_max - 1)).await
-        );
+        assert_eq!(ONE, eq(&world, c(u16_max - 1), c(u16_max - 1)).await);
         assert_eq!(ZERO, eq(&world, c(u16_max - 1), c(u16_max)).await);
         assert_eq!(ZERO, eq(&world, c(u16_max), c(u16_max - 1)).await);
         assert_eq!(ONE, eq(&world, c(u16_max), c(u16_max)).await);
         assert_eq!(ZERO, eq(&world, c(u16_max + 1), c(u16_max)).await);
         assert_eq!(ZERO, eq(&world, c(u16_max), c(u16_max + 1)).await);
-        assert_eq!(
-            ONE,
-            eq(&world, c(u16_max + 1), c(u16_max + 1)).await
-        );
+        assert_eq!(ONE, eq(&world, c(u16_max + 1), c(u16_max + 1)).await);
 
-        assert_eq!(
-            ZERO,
-            eq(&world, ZERO, c(Fp32BitPrime::PRIME - 1)).await
-        );
+        assert_eq!(ZERO, eq(&world, ZERO, c(Fp32BitPrime::PRIME - 1)).await);
         assert_eq!(
             ONE,
             eq(

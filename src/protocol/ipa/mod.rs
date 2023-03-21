@@ -191,7 +191,12 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
+    pub fn new(
+        mk_shares: Vec<T>,
+        is_trigger_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
         Self {
             mk_shares,
             is_trigger_bit,
@@ -545,9 +550,9 @@ pub mod tests {
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -594,9 +599,9 @@ pub mod tests {
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -641,20 +646,20 @@ pub mod tests {
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
                 { match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
                 { match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
                 { match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
                 { match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
                 { match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
 
             ];
             (Fp31, MatchKey, BreakdownKey)
@@ -840,13 +845,13 @@ pub mod tests {
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68363, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { match_key: 68363, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );

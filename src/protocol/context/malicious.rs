@@ -258,7 +258,7 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
         const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
-        
+
         match self {
             Self::V0(i) => UPGRADE_MOD_CONV0[*i],
             Self::V1 => "upgrade_mod_conv1",
