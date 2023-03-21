@@ -1,5 +1,3 @@
-#![cfg(never)]
-
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
@@ -15,35 +13,39 @@ use crate::{
 use futures::StreamExt;
 use futures_util::future::try_join;
 use pin_project::pin_project;
-use std::{
-    collections::hash_map::Entry,
-    fmt::{Debug, Formatter},
-};
+use std::{collections::hash_map::Entry, fmt::{Debug, Formatter}, io};
 use tokio::sync::oneshot;
+use crate::helpers::{Transport, TransportImpl};
 
-#[pin_project]
-pub struct Processor<T: Transport> {
-    /// Input stream of commands this processor is attached to. It is not being actively listened
-    /// by this instance. Instead, commands are being consumed on demand when an external entity
-    /// drives it by calling `handle_next` function.
-    #[pin]
-    command_stream: T::CommandStream,
-    transport: T,
+/// `Processor` accepts and tracks requests to initiate new queries on this helper party
+/// network. It makes sure queries are coordinated and each party starts processing it when
+/// it has all the information required.
+///
+/// Query processing consists of multiple steps:
+/// - A new request to initiate a query arrives from an external party (report collector) to any of the
+/// helpers.
+/// - Upon receiving that request, helper chooses a unique [`QueryId`] and assigns [`Role`] to every
+/// helper. It informs other parties about it and awaits their response.
+/// - If all parties accept the proposed query, they negotiate shared randomness and signal that
+/// - they're ready to receive inputs.
+/// - Each party, upon receiving the input as a set of [`AdditiveShare`], immediately starts executing
+/// IPA protocol.
+/// - When helper party is done, it holds onto the results of the computation until the external party
+/// that initiated this request asks for them.
+///
+/// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
+pub struct Processor {
+    transport: TransportImpl,
     queries: RunningQueries,
 }
 
-impl<T: Transport> Debug for Processor<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "query_processor")
-    }
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum NewQueryError {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] TransportError),
+    Transport(#[from] io::Error),
     #[error(transparent)]
     OneshotRecv(#[from] oneshot::error::RecvError),
 }
@@ -83,18 +85,20 @@ pub enum QueryCompletionError {
     },
 }
 
-#[cfg(never)]
-impl<T: Transport + Clone> Processor<T> {
-    pub async fn new(transport: T) -> Self {
-        Self {
-            command_stream: transport.subscribe(SubscriptionType::QueryManagement).await,
-            transport,
-            queries: RunningQueries::default(),
-        }
-    }
+#[inline(always)]
+fn ensure_sync<T: Sync>(thing: T) -> T {
+    thing
+}
 
-    fn identity(&self) -> HelperIdentity {
-        self.transport.identity()
+impl Debug for Processor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QueryProcessor[{:?}]", self.queries)
+    }
+}
+
+impl Processor {
+    fn new(transport: TransportImpl) -> Self {
+        ensure_sync(Self { transport, queries: RunningQueries::default() })
     }
 
     /// Upon receiving a new query request:
@@ -114,37 +118,37 @@ impl<T: Transport + Clone> Processor<T> {
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        let id = self.identity();
+        let id = self.transport.identity();
         let [right, left] = id.others();
 
         let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
             .unwrap();
 
-        let network = Network::new(self.transport.clone(), query_id, roles.clone());
-
         let prepare_request = PrepareQuery {
             query_id,
             config: req,
-            roles,
+            roles: roles.clone(),
         };
 
-        let (left_tx, left_rx) = oneshot::channel();
-        let (right_tx, right_rx) = oneshot::channel();
-        try_join(
-            self.transport.send(
-                left,
-                QueryCommand::Prepare(prepare_request.clone(), left_tx),
-            ),
-            self.transport.send(
-                right,
-                QueryCommand::Prepare(prepare_request.clone(), right_tx),
-            ),
-        )
-        .await?;
-        // await responses from prepare commands
-        try_join(left_rx, right_rx).await?;
 
-        let gateway = Gateway::new(Role::H1, network, GatewayConfig::default()).await;
+
+        // let (left_tx, left_rx) = oneshot::channel();
+        // let (right_tx, right_rx) = oneshot::channel();
+        // try_join(
+        //     self.transport.send(
+        //         left,
+        //         QueryCommand::Prepare(prepare_request.clone(), left_tx),
+        //     ),
+        //     self.transport.send(
+        //         right,
+        //         QueryCommand::Prepare(prepare_request.clone(), right_tx),
+        //     ),
+        // )
+        // .await?;
+        // // await responses from prepare commands
+        // try_join(left_rx, right_rx).await?;
+
+        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles, self.transport.clone());
 
         handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
@@ -159,6 +163,7 @@ impl<T: Transport + Clone> Processor<T> {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
+    #[cfg(never)]
     pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(self.transport.identity());
 
@@ -185,6 +190,7 @@ impl<T: Transport + Clone> Processor<T> {
     ///
     /// ## Panics
     /// If failed to obtain an exclusive access to the query collection.
+    #[cfg(never)]
     pub fn receive_inputs(&self, input: QueryInput) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
         match queries.entry(input.query_id) {
@@ -221,6 +227,7 @@ impl<T: Transport + Clone> Processor<T> {
     ///
     /// ## Panics
     /// if command is not a query command or if the command stream is closed
+    #[cfg(never)]
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
             tracing::trace!("new command: {:?}", command);

@@ -1,6 +1,3 @@
-#![allow(unused)]
-#![cfg(never)]
-
 use crate::{
     helpers::{query::QueryConfig, Gateway},
     protocol::QueryId,
@@ -9,6 +6,7 @@ use crate::{
     task::JoinHandle,
 };
 use std::collections::{hash_map::Entry, HashMap};
+use std::fmt::{Debug, Formatter};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -77,14 +75,20 @@ pub enum StateError {
 
 /// Keeps track of queries running on this helper.
 pub struct RunningQueries {
-    pub inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
+    pub inner: Mutex<HashMap<QueryId, QueryState>>,
 }
 
 impl Default for RunningQueries {
     fn default() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HashMap::default())),
+            inner: Mutex::new(HashMap::default()),
         }
+    }
+}
+
+impl Debug for RunningQueries {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RunningQueries[{}]", self.inner.lock().unwrap().len())
     }
 }
 

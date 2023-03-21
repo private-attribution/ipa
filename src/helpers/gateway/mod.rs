@@ -98,6 +98,20 @@ impl Gateway {
     }
 }
 
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            /// send buffer capacity, in bytes
+            send_outstanding: NonZeroUsize::new(4096).unwrap(),
+            // receive buffer capacity in total messages it can hold.
+            /// set to match send buffer capacity / [`Fp32`] size
+            ///
+            /// [`Fp32`]: crate::ff::Fp32BitPrime
+            recv_outstanding: NonZeroUsize::new(1024).unwrap(),
+        }
+    }
+}
+
 impl GatewayConfig {
     /// Config for symmetric send and receive buffers. Capacity must not be zero.
     /// ## Panics
