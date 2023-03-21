@@ -66,6 +66,8 @@ where
 }
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
+/// This awaits all the provided futures in order,
+/// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
 pub async fn try_join_all<I, O, E>(futures: I) -> Result<Vec<O>, E>
@@ -83,6 +85,21 @@ where
         res.push(r?);
     }
     Ok(res)
+}
+
+/// A substitute for [`futures::future::join_all`] that uses [`seq_join`].
+///
+/// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
+pub async fn join_all<I, O>(futures: I) -> Vec<O>
+where
+    I: IntoIterator,
+    I::Item: Future<Output = O>,
+{
+    const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
+
+    seq_join(ACTIVE.unwrap(), iter(futures))
+        .collect::<Vec<_>>()
+        .await
 }
 
 #[pin_project]
@@ -145,7 +162,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::helpers::buffers::seq_futures::{seq_join, try_join_all};
+    use crate::helpers::buffers::seq_futures::{join_all, seq_join, try_join_all};
     use futures::{
         future::{lazy, pending, BoxFuture},
         stream::{iter, poll_fn, repeat_with},
@@ -305,6 +322,8 @@ mod test {
         }
 
         let res = try_join_all([ok(1), ok(2), ok(3)]).await.unwrap();
+        assert_eq!(vec![1, 2, 3], res);
+        let res = join_all([1, 2, 3]).await;
         assert_eq!(vec![1, 2, 3], res);
     }
 
