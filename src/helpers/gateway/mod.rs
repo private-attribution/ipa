@@ -1,7 +1,6 @@
 mod receive;
 mod send;
 mod transport;
-mod wrapper;
 
 pub use receive::ReceivingEnd;
 pub use send::SendingEnd;
@@ -67,23 +66,25 @@ impl Gateway {
         channel_id: &ChannelId,
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
-        let (tx, maybe_recv) = self
-            .senders
-            .get_or_create(channel_id, self.config.send_outstanding);
-        if let Some(recv) = maybe_recv {
+        let (tx, maybe_stream) = self.senders.get_or_create::<M>(
+            channel_id,
+            self.config.send_outstanding,
+            total_records,
+        );
+        if let Some(stream) = maybe_stream {
             tokio::spawn({
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
                 async move {
                     transport
-                        .send(&channel_id, recv)
+                        .send(&channel_id, stream)
                         .await
                         .expect("{channel_id:?} receiving end should be accepted by transport");
                 }
             });
         }
 
-        SendingEnd::new(channel_id.clone(), self.role(), tx, total_records)
+        SendingEnd::new(tx, self.role(), channel_id)
     }
 
     #[must_use]
@@ -136,14 +137,12 @@ mod tests {
         // sent (same batch or different does not matter here)
         tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
-            channel
-                .send(RecordId::from(1), Fp31::truncate_from(1_u128))
-                .await
-                .unwrap();
-            channel
-                .send(RecordId::from(0), Fp31::truncate_from(0_u128))
-                .await
-                .unwrap();
+            try_join(
+                channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
+                channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)),
+            )
+            .await
+            .unwrap();
         });
 
         let recv_channel = recv_ctx.recv_channel::<Fp31>(Role::H1);

@@ -25,8 +25,6 @@ use std::{
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
-    /// For upgrading all inputs from `Replicated` to `MaliciousReplicated`
-    UpgradeInput,
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
     /// The final validation steps.
@@ -38,7 +36,6 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::UpgradeInput => "upgrade_input",
             Self::MaliciousProtocol => "malicious_protocol",
             Self::Validate => "validate",
         }
@@ -172,12 +169,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             inner: Arc::downgrade(&u_and_w),
         };
         let validate_ctx = ctx.narrow(&Step::Validate);
-        let protocol_ctx = ctx.upgrade(
-            &Step::MaliciousProtocol,
-            &Step::UpgradeInput,
-            accumulator,
-            r_share.clone(),
-        );
+        let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
         MaliciousValidator {
             r_share,
             u_and_w,

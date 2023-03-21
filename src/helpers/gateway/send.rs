@@ -1,12 +1,15 @@
+use crate::sync::Arc;
 use dashmap::DashMap;
-use std::{marker::PhantomData, num::NonZeroUsize};
+use futures::Stream;
+use std::{
+    marker::PhantomData,
+    num::NonZeroUsize,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{
-    helpers::{
-        buffers::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender},
-        gateway::wrapper::Wrapper,
-        ChannelId, Error, Message, Role, TotalRecords,
-    },
+    helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
@@ -16,31 +19,70 @@ use crate::{
 
 /// Sending end of the gateway channel.
 pub struct SendingEnd<M: Message> {
+    sender_role: Role,
     channel_id: ChannelId,
-    my_role: Role,
-    ordering_tx: OrderingMpscSender<Wrapper>,
-    total_records: TotalRecords,
+    inner: Arc<GatewaySender>,
     _phantom: PhantomData<M>,
 }
 
 /// Sending channels, indexed by (role, step).
 #[derive(Default)]
 pub(super) struct GatewaySenders {
-    inner: DashMap<ChannelId, OrderingMpscSender<Wrapper>>,
+    inner: DashMap<ChannelId, Arc<GatewaySender>>,
+}
+
+pub(super) struct GatewaySender {
+    channel_id: ChannelId,
+    ordering_tx: OrderingSender,
+    total_records: TotalRecords,
+}
+
+pub(super) struct GatewaySendStream {
+    inner: Arc<GatewaySender>,
+}
+
+impl GatewaySender {
+    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
+        Self {
+            channel_id,
+            ordering_tx: tx,
+            total_records,
+        }
+    }
+
+    pub async fn send<M: Message>(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
+        debug_assert!(
+            !self.total_records.is_unspecified(),
+            "total_records cannot be unspecified when sending"
+        );
+        if let TotalRecords::Specified(count) = self.total_records {
+            if usize::from(record_id) >= count.get() {
+                return Err(Error::TooManyRecords {
+                    record_id,
+                    channel_id: self.channel_id.clone(),
+                    total_records: self.total_records,
+                });
+            }
+        }
+
+        // TODO: make OrderingSender::send fallible
+        // TODO: test channel close
+        let i = usize::from(record_id);
+        self.ordering_tx.send(i, msg).await;
+        if self.total_records.is_last(record_id) {
+            self.ordering_tx.close(i + 1).await;
+        }
+
+        Ok(())
+    }
 }
 
 impl<M: Message> SendingEnd<M> {
-    pub(super) fn new(
-        channel_id: ChannelId,
-        my_role: Role,
-        tx: OrderingMpscSender<Wrapper>,
-        total_records: TotalRecords,
-    ) -> Self {
+    pub(super) fn new(sender: Arc<GatewaySender>, role: Role, channel_id: &ChannelId) -> Self {
         Self {
-            channel_id,
-            my_role,
-            ordering_tx: tx,
-            total_records,
+            sender_role: role,
+            channel_id: channel_id.clone(),
+            inner: sender,
             _phantom: PhantomData,
         }
     }
@@ -55,25 +97,13 @@ impl<M: Message> SendingEnd<M> {
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
-        if let TotalRecords::Specified(count) = self.total_records {
-            if usize::from(record_id) >= count.get() {
-                return Err(Error::TooManyRecords {
-                    record_id,
-                    channel_id: self.channel_id.clone(),
-                    total_records: self.total_records,
-                });
-            }
-        }
-
+        let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
             STEP => self.channel_id.step.as_ref().to_string(),
-            ROLE => self.my_role.as_static_str()
+            ROLE => self.sender_role.as_static_str()
         );
 
-        self.ordering_tx
-            .send(record_id.into(), Wrapper::wrap(&msg))
-            .await
-            .map_err(|e| Error::send_error(self.channel_id.clone(), e))
+        r
     }
 }
 
@@ -81,21 +111,50 @@ impl GatewaySenders {
     /// Returns or creates a new communication channel. In case if channel is newly created,
     /// returns the receiving end of it as well. It must be send over to the receiver in order for
     /// messages to get through.
-    pub(crate) fn get_or_create(
+    pub(crate) fn get_or_create<M: Message>(
         &self,
         channel_id: &ChannelId,
         capacity: NonZeroUsize,
-    ) -> (
-        OrderingMpscSender<Wrapper>,
-        Option<OrderingMpscReceiver<Wrapper>>,
-    ) {
+        total_records: TotalRecords, // TODO track children for indeterminate senders
+    ) -> (Arc<GatewaySender>, Option<GatewaySendStream>) {
+        assert!(!total_records.is_unspecified());
         let senders = &self.inner;
         if let Some(sender) = senders.get(channel_id) {
-            (sender.clone(), None)
+            (Arc::clone(&sender), None)
         } else {
-            let (tx, rx) = ordering_mpsc::<Wrapper, _>(format!("{channel_id:?}"), capacity);
-            senders.insert(channel_id.clone(), tx.clone());
-            (tx, Some(rx))
+            const SPARE: Option<NonZeroUsize> = NonZeroUsize::new(64);
+            // a little trick - if number of records is indeterminate, set the capacity to 1.
+            // Any send will wake the stream reader then, effectively disabling buffering.
+            // This mode is clearly inefficient, so avoid using this mode.
+            let write_size = if total_records.is_indeterminate() {
+                NonZeroUsize::new(1).unwrap()
+            } else {
+                capacity
+            };
+
+            let sender = Arc::new(GatewaySender::new(
+                channel_id.clone(),
+                OrderingSender::new(write_size, SPARE.unwrap()),
+                total_records,
+            ));
+            if senders
+                .insert(channel_id.clone(), Arc::clone(&sender))
+                .is_some()
+            {
+                panic!("TODO - make sender creation contention less dangerous");
+            }
+            let stream = GatewaySendStream {
+                inner: Arc::clone(&sender),
+            };
+            (sender, Some(stream))
         }
+    }
+}
+
+impl Stream for GatewaySendStream {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::get_mut(self).inner.ordering_tx.take_next(cx)
     }
 }

@@ -342,7 +342,8 @@ macro_rules! bit_array_impl {
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    assert!($name::try_from(max_plus_one).is_err());
+                    // TODO (taikiy): Uncomment this line once TryFrom is back
+                    // assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 

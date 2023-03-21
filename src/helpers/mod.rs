@@ -30,7 +30,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::Step,
+    protocol::{RecordId, Step},
     secret_sharing::SharedValue,
 };
 use std::ops::{Index, IndexMut};
@@ -398,9 +398,9 @@ pub enum TotalRecords {
     /// depends on the number of failures.
     ///
     /// The purpose of this is to waive the warning that there is a known
-    /// number of records when creating a channel. If the warning is firing
-    /// and the total number of records is knowable, prefer to specify it
-    /// rather than use this to waive the warning.
+    /// number of records when creating a channel.
+    ///
+    /// Using this is very inefficient, so avoid it.
     Indeterminate,
 }
 
@@ -413,6 +413,39 @@ impl TotalRecords {
     #[must_use]
     pub fn is_indeterminate(&self) -> bool {
         matches!(self, &TotalRecords::Indeterminate)
+    }
+
+    #[must_use]
+    pub fn count(&self) -> Option<usize> {
+        match self {
+            TotalRecords::Specified(v) => Some(v.get()),
+            TotalRecords::Indeterminate | TotalRecords::Unspecified => None,
+        }
+    }
+
+    /// Returns true iff the total number of records is specified and the given record is the final
+    /// one to process.
+    #[must_use]
+    pub fn is_last<I: Into<RecordId>>(&self, record_id: I) -> bool {
+        match self {
+            Self::Unspecified | Self::Indeterminate => false,
+            Self::Specified(v) => usize::from(record_id.into()) == v.get() - 1,
+        }
+    }
+
+    /// Overwrite this value.
+    /// # Panics
+    /// This panics if the transition is invalid.
+    /// Any new value is OK if the current value is unspecified.
+    /// Otherwise the new value can be indeterminate if the old value is specified.
+    #[must_use]
+    pub fn overwrite<T: Into<TotalRecords>>(&self, value: T) -> TotalRecords {
+        match (self, value.into()) {
+            (Self::Unspecified, v) => v,
+            (_, Self::Unspecified) => panic!("TotalRecords needs a specific value for overwriting"),
+            (Self::Specified(_), Self::Indeterminate) => Self::Indeterminate,
+            (old, new) => panic!("TotalRecords bad transition: {old:?} -> {new:?}"),
+        }
     }
 }
 

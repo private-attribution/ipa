@@ -6,15 +6,15 @@ use crate::{
     error::Error,
     ff::PrimeField,
     helpers::TotalRecords,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId, Substep},
     secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{
     marker::PhantomData,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
-/// A struct that pre-generates and buffers random sharings of bits from the
+/// A struct that generates random sharings of bits from the
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
 /// one by calling `generate()`.
 ///
@@ -23,25 +23,39 @@ use std::{
 #[derive(Debug)]
 pub struct RandomBitsGenerator<F, S, C> {
     ctx: C,
-    record_id: AtomicU32,
-    abort_count: AtomicUsize,
+    fallback_ctx: C,
+    fallback_count: AtomicU32,
     _marker: PhantomData<(F, S)>,
 }
 
+/// Special context that is used when values generated using the standard method are larger
+/// than the prime for the field. It is grossly inefficient to use, because communications
+/// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
+struct FallbackStep;
+
+impl AsRef<str> for FallbackStep {
+    fn as_ref(&self) -> &str {
+        "fallback"
+    }
+}
+
+impl Substep for FallbackStep {}
+
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
+    C: Context + RandomBits<F, Share = S>,
     F: PrimeField,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: Context + RandomBits<F, Share = S>,
 {
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
     pub fn new(ctx: C) -> Self {
-        debug_assert!(ctx.is_total_records_unspecified());
+        let fallback_ctx = ctx
+            .narrow(&FallbackStep)
+            .set_total_records(TotalRecords::Indeterminate);
         Self {
-            ctx: ctx.set_total_records(TotalRecords::Indeterminate),
-            record_id: AtomicU32::new(0),
-            abort_count: AtomicUsize::new(0),
+            ctx,
+            fallback_ctx,
+            fallback_count: AtomicU32::new(0),
             _marker: PhantomData,
         }
     }
@@ -53,49 +67,103 @@ where
     /// This method may fail for number of reasons. Errors include locking the
     /// inner members multiple times, I/O errors while executing MPC protocols,
     /// read from an empty buffer, etc.
-    pub async fn generate(&self) -> Result<RandomBitsShare<F, S>, Error> {
-        loop {
-            let i = self.record_id.fetch_add(1, Ordering::Relaxed);
-            if let Some(v) = solved_bits(self.ctx.clone(), RecordId::from(i)).await? {
-                return Ok(v);
+    pub async fn generate(&self, record_id: RecordId) -> Result<RandomBitsShare<F, S>, Error> {
+        let share = if let Some(v) = solved_bits(self.ctx.clone(), record_id).await? {
+            v
+        } else {
+            loop {
+                let i = self.fallback_count.fetch_add(1, Ordering::AcqRel);
+                if let Some(v) = solved_bits(self.fallback_ctx.clone(), RecordId::from(i)).await? {
+                    break v;
+                }
             }
-            self.abort_count.fetch_add(1, Ordering::Release);
+        };
+
+        if self.ctx.is_last_record(record_id) {
+            // TODO: close indeterminate channels
         }
+
+        Ok(share)
     }
 
     /// Get the number of aborts for this instance.
     #[allow(dead_code)]
-    pub fn aborts(&self) -> usize {
-        self.abort_count.load(Ordering::Acquire)
+    pub fn fallbacks(&self) -> u32 {
+        self.fallback_count.load(Ordering::Acquire)
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::iter::zip;
-
-    use futures::future::try_join_all;
-
     use super::RandomBitsGenerator;
     use crate::{
-        ff::Fp31,
-        protocol::malicious::MaliciousValidator,
-        test_fixture::{join3, Reconstruct, TestWorld},
+        ff::{Field, Fp31},
+        protocol::{context::Context, malicious::MaliciousValidator, RecordId},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
+        test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
+    use futures::future::try_join_all;
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::default();
-        let [c0, c1, c2] = world.contexts();
+        let [c0, c1, c2] = world.contexts().map(|ctx| ctx.set_total_records(1));
+        let record_id = RecordId::from(0);
 
         let rbg0 = RandomBitsGenerator::new(c0);
         let rbg1 = RandomBitsGenerator::new(c1);
         let rbg2 = RandomBitsGenerator::new(c2);
 
-        let result = join3(rbg0.generate(), rbg1.generate(), rbg2.generate()).await;
-        assert_eq!(rbg0.aborts(), rbg1.aborts());
-        assert_eq!(rbg0.aborts(), rbg2.aborts());
+        let result = join3(
+            rbg0.generate(record_id),
+            rbg1.generate(record_id),
+            rbg2.generate(record_id),
+        )
+        .await;
+        assert_eq!(rbg0.fallbacks(), rbg1.fallbacks());
+        assert_eq!(rbg0.fallbacks(), rbg2.fallbacks());
         let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
+    }
+
+    #[tokio::test]
+    pub async fn uses_fallback_channel() {
+        /// The odds of needing a fallback on a field of size 31 is 1/32.
+        /// 100 iterations will have a fallback with probability of 1-(1-31/32)^100.
+        /// Repeating that 20 times should make the odds of failure negligible.
+        const OUTER: u32 = 20;
+        const INNER: u32 = 100;
+        let world = TestWorld::default();
+
+        for _ in 0..OUTER {
+            let v = world
+                .semi_honest((), |ctx, _| async move {
+                    let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
+                    let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
+                    drop(
+                        try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
+                            .await
+                            .unwrap(),
+                    );
+                    // Pass the number of fallbacks out as a share in Fp31.
+                    // It will reconstruct as Fp31(3) or Fp31(0), which will let the outer
+                    // code to know when to stop.  Reconstruction also ensures that helpers agree.
+                    let f = Fp31::truncate_from(rbg.fallbacks() > 0);
+                    AdditiveShare::new(f, f)
+                })
+                .await
+                .reconstruct();
+            if v != Fp31::ZERO {
+                return;
+            }
+        }
+        panic!(
+            "{i} iterations failed to result in a fallback",
+            i = OUTER * INNER
+        );
     }
 
     #[tokio::test]
@@ -106,12 +174,18 @@ mod tests {
         let validators = contexts.map(MaliciousValidator::<Fp31>::new);
         let rbg = validators
             .iter()
-            .map(|v| RandomBitsGenerator::new(v.context()))
+            .map(|v| RandomBitsGenerator::new(v.context().set_total_records(1)))
             .collect::<Vec<_>>();
+        let record_id = RecordId::from(0);
 
-        let m_result = join3(rbg[0].generate(), rbg[1].generate(), rbg[2].generate()).await;
-        assert_eq!(rbg[0].aborts(), rbg[1].aborts());
-        assert_eq!(rbg[0].aborts(), rbg[2].aborts());
+        let m_result = join3(
+            rbg[0].generate(record_id),
+            rbg[1].generate(record_id),
+            rbg[2].generate(record_id),
+        )
+        .await;
+        assert_eq!(rbg[0].fallbacks(), rbg[1].fallbacks());
+        assert_eq!(rbg[0].fallbacks(), rbg[2].fallbacks());
 
         let result = <[_; 3]>::try_from(
             try_join_all(zip(validators, m_result).map(|(v, m)| v.validate(m)))
