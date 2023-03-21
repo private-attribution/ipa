@@ -81,8 +81,14 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         }
     }
 
-    /// TODO: This is not fast, but we can't just `reinterpret_cast` here.
     fn as_semi_honest(&self) -> SemiHonestContext<'a> {
+        // TODO: This is not fast, but we can't just `reinterpret_cast` here.
+        // This could be more efficient by impersonating malicious context as semi-honest, but
+        // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400.
+        // While we could wrap a reference to the malicious context and implement `Context`,
+        // implementing addition traits like `SecureMul` and `Reveal` is not easy.
+        // For the same reason, it is not possible to implement `Context<F, Share = Replicated<F>>`
+        // for `MaliciousContext`. Deep clone is the only option.
         SemiHonestContext::new_complete(
             self.inner.prss,
             self.inner.gateway,
@@ -246,21 +252,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     /// context, so it will be tied up to the same step and prss.
     #[must_use]
     fn semi_honest_context(self) -> SemiHonestContext<'a> {
-        // TODO: it can be made more efficient by impersonating malicious context as semi-honest
-        // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400
-        // while it is possible to define a struct that wraps a reference to malicious context
-        // and implement `Context` trait for it, implementing SecureMul and Reveal for Context
-        // is not
-        // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
-        // for `MaliciousContext`. Deep clone is the only option
-        let mut ctx = SemiHonestContext::new_with_total_records(
-            self.inner.prss,
-            self.inner.gateway,
-            self.total_records,
-        );
-        ctx.step = self.step;
-
-        ctx
+        self.as_semi_honest()
     }
 }
 

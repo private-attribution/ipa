@@ -132,8 +132,8 @@ mod tests {
     #[tokio::test]
     pub async fn uses_fallback_channel() {
         /// The odds of needing a fallback on a field of size 31 is 1/32.
-        /// 100 iterations will have a fallback with probability of 1-(1-31/32)^100.
-        /// Repeating that 100 times should make the odds of failure negligible.
+        /// 100 iterations will have a fallback with probability of 1-(31/32)^100.
+        /// Repeating that 20 times should make the odds of failure negligible.
         const OUTER: u32 = 20;
         const INNER: u32 = 100;
         let world = TestWorld::default();
