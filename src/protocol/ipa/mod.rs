@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, PrimeField, Serializable, Fp32BitPrime, Fp31},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -25,7 +25,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing, SharedValue,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -467,24 +467,22 @@ where
     S: LinearSecretSharing<F>,
     I: Iterator<Item = Vec<S>>,
 {
-    println!("Fp31::BITS => {}", Fp31::BITS);
-    println!("Fp32BitPrime::BITS => {}", Fp32BitPrime::BITS);
     converted_mk_shares
         .map(|bitwise_shares| {
             bitwise_shares
                 .into_iter()
                 .enumerate()
-                .fold(vec![S::ZERO], |acc, (i, bit)| {
+                .fold(vec![S::ZERO], |mut acc, (i, bit)| {
                     let mut idx = u32::try_from(i).unwrap();
-                    let storage_block = 0;
+                    let mut storage_block = 0;
                     while idx > (F::BITS - 1) {
                         storage_block += 1;
+                        idx -= F::BITS - 1;
                     }
 
                     let multiple = F::try_from(1_u128 << idx).unwrap();
                     if acc.len() <= storage_block {
-                        let last = multiple;
-                        acc.push(S::ZERO);
+                        acc.push(bit * multiple);
                     } else {
                         let last = acc.pop().unwrap();
                         acc.push(last + &(bit * multiple));
@@ -827,16 +825,16 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Mar 20, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 13755;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 16137;
 
         /// empirical value as of Mar 20, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 35743;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 42326;
 
         /// empirical value as of Mar 20, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10086;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 12468;
 
         /// empirical value as of Mar 20, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 26389;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 32972;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [

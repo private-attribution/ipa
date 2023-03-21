@@ -259,6 +259,7 @@ where
         .map(|(i, (row, next_row))| {
             let record_id = RecordId::from(i);
             let c = eq_test_ctx.clone();
+            println!("How many shares? {}", row.mk_shares.len());
             async move {
                 let futures = row.mk_shares
                     .iter()
