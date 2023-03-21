@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable, Fp32BitPrime, Fp31},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -25,7 +25,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing, SharedValue,
     },
 };
 
@@ -183,7 +183,7 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub mk_shares: T,
+    pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
@@ -191,7 +191,7 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(mk_shares: T, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
+    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
         Self {
             mk_shares,
             is_trigger_bit,
@@ -308,20 +308,8 @@ where
     .await
     .unwrap();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
-    let arithmetic_mk_shares: Vec<Replicated<F>> = converted_mk_shares
-        .map(|bitwise_shares| {
-            bitwise_shares
-                .into_iter()
-                .enumerate()
-                .fold(Replicated::ZERO, |acc, (i, bit)| {
-                    // TODO: use try_from to ensure the code fatals if we are trying to use too small of a field
-                    // to hold the match key. This requires an even larger prime field than is currently defined
-                    let multiple = F::truncate_from(1_u128 << i);
-                    acc + &(bit * multiple)
-                })
-        })
-        .collect::<Vec<_>>();
+    let arithmetic_mk_shares =
+        generate_arithmetic_match_key_shares(combine_slices(&converted_mk_shares, MK::BITS));
 
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(arithmetic_mk_shares, converted_bk_shares)
@@ -408,20 +396,8 @@ where
     let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
-    let arithmetic_mk_shares: Vec<Replicated<F>> = converted_mk_shares
-        .map(|bitwise_shares| {
-            bitwise_shares
-                .into_iter()
-                .enumerate()
-                .fold(Replicated::ZERO, |acc, (i, bit)| {
-                    // TODO: use try_from to ensure the code fatals if we are trying to use too small of a field
-                    // to hold the match key. This requires an even larger prime field than is currently defined
-                    let multiple = F::truncate_from(1_u128 << i);
-                    acc + &(bit * multiple)
-                })
-        })
-        .collect::<Vec<_>>();
+    let arithmetic_mk_shares =
+        generate_arithmetic_match_key_shares(combine_slices(&converted_mk_shares, MK::BITS));
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
@@ -483,6 +459,40 @@ where
         num_multi_bits,
     )
     .await
+}
+
+fn generate_arithmetic_match_key_shares<F, S, I>(converted_mk_shares: I) -> Vec<Vec<S>>
+where
+    F: PrimeField,
+    S: LinearSecretSharing<F>,
+    I: Iterator<Item = Vec<S>>,
+{
+    println!("Fp31::BITS => {}", Fp31::BITS);
+    println!("Fp32BitPrime::BITS => {}", Fp32BitPrime::BITS);
+    converted_mk_shares
+        .map(|bitwise_shares| {
+            bitwise_shares
+                .into_iter()
+                .enumerate()
+                .fold(vec![S::ZERO], |acc, (i, bit)| {
+                    let mut idx = u32::try_from(i).unwrap();
+                    let storage_block = 0;
+                    while idx > (F::BITS - 1) {
+                        storage_block += 1;
+                    }
+
+                    let multiple = F::try_from(1_u128 << idx).unwrap();
+                    if acc.len() <= storage_block {
+                        let last = multiple;
+                        acc.push(S::ZERO);
+                    } else {
+                        let last = acc.pop().unwrap();
+                        acc.push(last + &(bit * multiple));
+                    }
+                    acc
+                })
+        })
+        .collect::<Vec<_>>()
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

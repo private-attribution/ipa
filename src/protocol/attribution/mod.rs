@@ -18,8 +18,8 @@ use crate::{
 use futures::future::{try_join, try_join_all};
 
 use super::{
-    boolean::{equality_test, random_bits_generator::RandomBitsGenerator, RandomBits},
-    ipa::IPAModulusConvertedInputRow,
+    boolean::{equality_test, random_bits_generator::RandomBitsGenerator, RandomBits, multiply_all_shares},
+    ipa::IPAModulusConvertedInputRow, BitOpStep,
 };
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
@@ -260,7 +260,19 @@ where
             let record_id = RecordId::from(i);
             let c = eq_test_ctx.clone();
             async move {
-                equality_test(c, record_id, rbg_ref, &row.mk_shares, &next_row.mk_shares).await
+                let futures = row.mk_shares
+                    .iter()
+                    .zip(next_row.mk_shares.iter())
+                    .enumerate()
+                    .map(|(j, (x, y))| {
+                        let ctx_for_check = c.narrow(&BitOpStep::from(j));
+                        async move {
+                            equality_test(ctx_for_check, record_id, rbg_ref, x, &y).await
+                        }
+                    });
+                
+                let chunked_checks = try_join_all(futures).await?;
+                multiply_all_shares(c, record_id, &chunked_checks).await
             }
         });
     Ok(Some(S::ZERO)
