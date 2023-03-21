@@ -387,7 +387,7 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
 mod test {
     use super::OrderingSender;
     use crate::{
-        ff::{Fp31, Fp32BitPrime, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, Serializable},
         rand::thread_rng,
         sync::Arc,
     };
@@ -434,7 +434,7 @@ mod test {
     #[test]
     fn send_recv() {
         run(|| async {
-            let input = Fp31::from(7_u128);
+            let input = Fp31::truncate_from(7_u128);
             let sender = sender();
             sender.send(0, input).await;
             assert!(sender.as_stream().next().now_or_never().is_none());
@@ -445,7 +445,7 @@ mod test {
     #[test]
     fn send_close_recv() {
         run(|| async {
-            let input = Fp31::from(7_u128);
+            let input = Fp31::truncate_from(7_u128);
             let sender = sender();
             let send = sender.send(0, input);
             let stream = sender.as_stream();
@@ -462,7 +462,7 @@ mod test {
     #[test]
     fn close_send_recv() {
         run(|| async {
-            let input = Fp31::from(7_u128);
+            let input = Fp31::truncate_from(7_u128);
             let sender = sender();
             let close = sender.close(1);
             let send = sender.send(0, input);
@@ -479,8 +479,9 @@ mod test {
     fn double_send() {
         run(|| async {
             let sender = sender();
-            let send_many = join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::from(i))));
-            let send_again = sender.send(2, Fp31::from(2_u128));
+            let send_many =
+                join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::truncate_from(i))));
+            let send_again = sender.send(2, Fp31::truncate_from(2_u128));
             join(send_many, send_again).await;
         });
     }
@@ -490,7 +491,8 @@ mod test {
     fn close_over_send() {
         run(|| async {
             let sender = sender();
-            let send_many = join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::from(i))));
+            let send_many =
+                join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::truncate_from(i))));
             let close_it = sender.close(2);
             join(send_many, close_it).await;
         });
@@ -504,7 +506,7 @@ mod test {
             // We can't use `join()` here because the close task won't bother to
             // wake the send task if the send is polled first.
             sender.close(0).await;
-            sender.send(1, Fp31::from(1_u128)).await;
+            sender.send(1, Fp31::truncate_from(1_u128)).await;
         });
     }
 
@@ -512,8 +514,8 @@ mod test {
     #[test]
     fn mixed_size() {
         run(|| async {
-            let small = Fp31::from(7_u128);
-            let large = Fp32BitPrime::from(5_108_u128);
+            let small = Fp31::truncate_from(7_u128);
+            let large = Fp32BitPrime::truncate_from(5_108_u128);
             let sender = sender();
             let send_small = sender.send(0, small);
             let send_large = sender.send(1, large);

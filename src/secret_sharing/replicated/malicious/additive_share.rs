@@ -328,15 +328,15 @@ mod tests {
             let malicious_a_plus_b = malicious_a + &malicious_b;
             let malicious_c_minus_d = malicious_c - &malicious_d;
             let malicious_1_minus_e = malicious_one - &malicious_e;
-            let malicious_2f = malicious_f * Fp31::from(2_u128);
+            let malicious_2f = malicious_f * Fp31::truncate_from(2_u128);
 
             let mut temp = -malicious_a_plus_b - &malicious_c_minus_d - &malicious_1_minus_e;
-            temp = temp * Fp31::from(6_u128);
+            temp = temp * Fp31::truncate_from(6_u128);
             results.push(temp + &malicious_2f);
         }
 
-        let correct =
-            (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
+        let correct = (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::truncate_from(6_u128)
+            + Fp31::truncate_from(2_u128) * f;
 
         assert_eq!(
             [

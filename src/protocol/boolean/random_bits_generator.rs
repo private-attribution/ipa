@@ -97,7 +97,7 @@ where
 mod tests {
     use super::RandomBitsGenerator;
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         protocol::{context::Context, malicious::MaliciousValidator, RecordId},
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -151,7 +151,7 @@ mod tests {
                     // Pass the number of fallbacks out as a share in Fp31.
                     // It will reconstruct as Fp31(3) or Fp31(0), which will let the outer
                     // code to know when to stop.  Reconstruction also ensures that helpers agree.
-                    let f = Fp31::from(rbg.fallbacks() > 0);
+                    let f = Fp31::truncate_from(rbg.fallbacks() > 0);
                     AdditiveShare::new(f, f)
                 })
                 .await

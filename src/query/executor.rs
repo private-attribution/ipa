@@ -190,8 +190,8 @@ mod tests {
         let contexts = world
             .contexts()
             .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
-        let a = [Fp31::from(4u128), Fp31::from(5u128)];
-        let b = [Fp31::from(3u128), Fp31::from(6u128)];
+        let a = [Fp31::truncate_from(4u128), Fp31::truncate_from(5u128)];
+        let b = [Fp31::truncate_from(3u128), Fp31::truncate_from(6u128)];
 
         let helper_shares = (a, b).share().map(|(a, b)| {
             const SIZE: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
@@ -222,7 +222,10 @@ mod tests {
 
         let results = results.reconstruct();
 
-        assert_eq!(vec![Fp31::from(12u128), Fp31::from(30u128)], results);
+        assert_eq!(
+            vec![Fp31::truncate_from(12u128), Fp31::truncate_from(30u128)],
+            results
+        );
     }
 
     #[tokio::test]
@@ -289,7 +292,10 @@ mod tests {
 
     #[test]
     fn serialize_result() {
-        let [input, ..] = (0u128..=3).map(Fp31::from).collect::<Vec<_>>().share();
+        let [input, ..] = (0u128..=3)
+            .map(Fp31::truncate_from)
+            .collect::<Vec<_>>()
+            .share();
         let expected = input.clone();
         let bytes = Box::new(input).into_bytes();
         assert_eq!(

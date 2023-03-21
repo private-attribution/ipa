@@ -101,10 +101,9 @@ where
     //
     // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
     #[allow(clippy::cast_possible_truncation)]
-    let b_p: S = b_b
-        .iter()
-        .enumerate()
-        .fold(S::ZERO, |acc, (i, x)| acc + &(x.clone() * F::from(1 << i)));
+    let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
+        acc + &(x.clone() * F::try_from(1 << i).unwrap())
+    });
 
     Ok(Some(RandomBitsShare {
         b_b,

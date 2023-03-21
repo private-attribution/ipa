@@ -1,7 +1,7 @@
 #![cfg(all(feature = "shuttle", test))]
 
 use crate::{
-    ff::Fp32BitPrime,
+    ff::{Field, Fp32BitPrime},
     helpers::{Direction, GatewayConfig},
     protocol::{context::Context, RecordId},
     secret_sharing::replicated::{
@@ -16,7 +16,9 @@ fn send_receive_sequential() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                let input = (0u32..11).map(Fp32BitPrime::from).collect::<Vec<_>>();
+                let input = (0u32..11)
+                    .map(Fp32BitPrime::truncate_from)
+                    .collect::<Vec<_>>();
                 let config = TestWorldConfig {
                     gateway_config: GatewayConfig::symmetric_buffers(input.len()),
                     ..Default::default()
@@ -70,7 +72,9 @@ fn send_receive_parallel() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                let input = (0u32..11).map(Fp32BitPrime::from).collect::<Vec<_>>();
+                let input = (0u32..11)
+                    .map(Fp32BitPrime::truncate_from)
+                    .collect::<Vec<_>>();
                 let config = TestWorldConfig {
                     gateway_config: GatewayConfig::symmetric_buffers(input.len()),
                     ..Default::default()

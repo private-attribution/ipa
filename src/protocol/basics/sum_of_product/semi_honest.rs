@@ -138,8 +138,8 @@ mod test {
         F: Field,
         (F, F): Sized,
     {
-        let a: Vec<_> = a.iter().map(|x| Fp31::from(*x)).collect();
-        let b: Vec<_> = b.iter().map(|x| Fp31::from(*x)).collect();
+        let a: Vec<_> = a.iter().map(|x| Fp31::try_from(*x).unwrap()).collect();
+        let b: Vec<_> = b.iter().map(|x| Fp31::try_from(*x).unwrap()).collect();
 
         let result = world
             .semi_honest((a, b), |ctx, (a, b)| async move {

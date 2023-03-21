@@ -77,7 +77,7 @@ pub async fn check_zero<F: Field>(
 mod tests {
     use crate::{
         error::Error,
-        ff::{Fp31, PrimeField},
+        ff::{Field, Fp31, PrimeField},
         protocol::{basics::check_zero, context::Context, RecordId},
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},
@@ -93,7 +93,7 @@ mod tests {
         let mut counter = 0_u32;
 
         for v in 0..u32::from(Fp31::PRIME) {
-            let v = Fp31::from(v);
+            let v = Fp31::truncate_from(v);
             let mut num_false_positives = 0;
             for _ in 0..10 {
                 let v_shares = v.share_with(&mut rng);

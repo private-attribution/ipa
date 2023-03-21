@@ -100,7 +100,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitDecomposition;
     use crate::{
-        ff::{Fp31, Fp32BitPrime, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
@@ -147,7 +147,7 @@ mod tests {
     #[tokio::test]
     pub async fn fp31() {
         let world = TestWorld::default();
-        let c = Fp31::from;
+        let c = Fp31::truncate_from;
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
         assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));
         assert_eq!(15, bits_to_value(&bit_decomposition(&world, c(15)).await));
@@ -161,7 +161,7 @@ mod tests {
     #[tokio::test]
     pub async fn fp32_bit_prime() {
         let world = TestWorld::default();
-        let c = Fp32BitPrime::from;
+        let c = Fp32BitPrime::truncate_from;
         let u16_max: u32 = u16::MAX.into();
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
         assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));

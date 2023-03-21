@@ -295,9 +295,12 @@ mod fixture {
     #[async_trait]
     impl TestSender for OrderingMpscSender<Fp32BitPrime> {
         async fn send_test(&self, i: usize) {
-            self.send(i, Fp32BitPrime::from(u128::try_from(i).unwrap()))
-                .await
-                .unwrap();
+            self.send(
+                i,
+                Fp32BitPrime::try_from(u128::try_from(i).unwrap()).unwrap(),
+            )
+            .await
+            .unwrap();
         }
     }
 
@@ -356,7 +359,7 @@ mod fixture {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod unit {
     use crate::{
-        ff::{Fp31, Serializable},
+        ff::{Field, Fp31, Serializable},
         helpers::buffers::ordering_mpsc::{
             fixture::{TestSender, FP32BIT_SIZE},
             ordering_mpsc,
@@ -369,7 +372,7 @@ mod unit {
     /// Test that a single value can be sent and received successfully.
     #[tokio::test]
     async fn in_and_out() {
-        let input = Fp31::from(7_u128);
+        let input = Fp31::truncate_from(7_u128);
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         let tx_a = tx.clone();
         let send = async move {

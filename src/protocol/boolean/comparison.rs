@@ -447,7 +447,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn gt_fp31() {
-        let c = Fp31::from;
+        let c = Fp31::truncate_from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
         let world = TestWorld::default();
@@ -466,7 +466,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn bw_gt_fp31() {
-        let c = Fp31::from;
+        let c = Fp31::truncate_from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
         let world = TestWorld::default();
@@ -486,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn bw_lt_fp31() {
-        let c = Fp31::from;
+        let c = Fp31::truncate_from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
         let world = TestWorld::default();
@@ -506,7 +506,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn bw_gt_fp_32bit_prime() {
-        let c = Fp32BitPrime::from;
+        let c = Fp32BitPrime::truncate_from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
@@ -549,7 +549,7 @@ mod tests {
         fn gt_fp31_proptest(a in 0..Fp31::PRIME, c in 0..Fp31::PRIME) {
             type F = Fp31;
             let r = thread_rng().gen::<F>();
-            let b = F::from(a) + r;
+            let b = F::truncate_from(a) + r;
             assert_eq!(a > c, compute_r_bounds(b.as_u128(), c.into(), F::PRIME.into()).evaluate(r.as_u128()));
         }
 
@@ -557,7 +557,7 @@ mod tests {
         fn gt_fp_32bit_prime_proptest(a in 0..Fp32BitPrime::PRIME, c in 0..Fp32BitPrime::PRIME) {
             type F = Fp32BitPrime;
             let r = thread_rng().gen::<F>();
-            let b = F::from(a) + r;
+            let b = F::truncate_from(a) + r;
             assert_eq!(a > c, compute_r_bounds(b.as_u128(), c.into(), F::PRIME.into()).evaluate(r.as_u128()));
         }
     }
@@ -572,7 +572,7 @@ mod tests {
             let a = rand.gen::<Fp32BitPrime>();
             let b = rand.gen::<Fp32BitPrime>();
             assert_eq!(
-                Fp32BitPrime::from(a.as_u128() > b.as_u128()),
+                Fp32BitPrime::truncate_from(a.as_u128() > b.as_u128()),
                 bitwise_gt(&world, a, b.as_u128()).await
             );
         }
@@ -586,8 +586,8 @@ mod tests {
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
-                    Fp31::from(a > b),
-                    bitwise_gt(&world, Fp31::from(a), b.into()).await
+                    Fp31::truncate_from(a > b),
+                    bitwise_gt(&world, Fp31::truncate_from(a), b.into()).await
                 );
             }
         }

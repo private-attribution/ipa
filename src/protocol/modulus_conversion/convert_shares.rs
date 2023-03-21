@@ -9,10 +9,7 @@ use crate::{
         IpaProtocolStep, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
 };
@@ -64,29 +61,32 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 ///
 /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
 ///
+/// # Panics
+/// If any bits in the bitwise shared input cannot be converted into the given field `F`
+/// without truncation.
 #[must_use]
 pub fn convert_bit_local<F: Field, B: GaloisField>(
     helper_role: Role,
     bit_index: u32,
-    input: &XorReplicated<B>,
+    input: &Replicated<B>,
 ) -> BitConversionTriple<Replicated<F>> {
     let left = u128::from(input.left()[bit_index]);
     let right = u128::from(input.right()[bit_index]);
     BitConversionTriple(match helper_role {
         Role::H1 => [
-            Replicated::new(F::from(left), F::ZERO),
-            Replicated::new(F::ZERO, F::from(right)),
+            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
+            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
             Replicated::new(F::ZERO, F::ZERO),
         ],
         Role::H2 => [
             Replicated::new(F::ZERO, F::ZERO),
-            Replicated::new(F::from(left), F::ZERO),
-            Replicated::new(F::ZERO, F::from(right)),
+            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
+            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
         ],
         Role::H3 => [
-            Replicated::new(F::ZERO, F::from(right)),
+            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
             Replicated::new(F::ZERO, F::ZERO),
-            Replicated::new(F::from(left), F::ZERO),
+            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
         ],
     })
 }
@@ -94,7 +94,7 @@ pub fn convert_bit_local<F: Field, B: GaloisField>(
 #[must_use]
 pub fn convert_all_bits_local<F: Field, B: GaloisField>(
     helper_role: Role,
-    input: impl Iterator<Item = XorReplicated<B>>,
+    input: impl Iterator<Item = Replicated<B>>,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     input
         .map(move |record| {
@@ -233,7 +233,7 @@ mod tests {
                     .unwrap()
             })
             .await;
-        assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
+        assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
     }
 
     #[tokio::test]
@@ -256,7 +256,7 @@ mod tests {
                 v.validate(m_bit).await.unwrap()
             })
             .await;
-        assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
+        assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
     }
 
     #[tokio::test]

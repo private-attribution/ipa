@@ -91,12 +91,12 @@ where
         // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
         // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
-            -next_carry.clone() * F::from(2)
+            -next_carry.clone() * F::truncate_from(2_u128)
                 + &S::share_known_value(&ctx, F::ONE)
                 + bit
                 + &last_carry
         } else {
-            -next_carry.clone() * F::from(2) + bit + &last_carry
+            -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry
         };
         output.push(result_bit);
 
@@ -144,7 +144,7 @@ where
     let mut last_carry = a[0]
         .multiply(maybe, ctx.narrow(&BitOpStep::from(0)), record_id)
         .await?;
-    output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);
+    output.push(-last_carry.clone() * F::truncate_from(2_u128) + &a[0] + maybe);
 
     let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
     for (bit_index, bit) in a.iter().enumerate().skip(1).take(el - 1) {
@@ -160,11 +160,12 @@ where
         if next_bit == 0 {
             let next_carry = carry_times_bit;
 
-            output.push(-next_carry.clone() * F::from(2) + bit + &last_carry);
+            output.push(-next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry);
 
             last_carry = next_carry;
         } else {
-            let carry_xor_bit = -carry_times_bit.clone() * F::from(2) + &last_carry + bit;
+            let carry_xor_bit =
+                -carry_times_bit.clone() * F::truncate_from(2_u128) + &last_carry + bit;
 
             let carry_xor_bit_times_maybe = carry_xor_bit
                 .multiply(
@@ -176,7 +177,7 @@ where
 
             let next_carry = carry_xor_bit_times_maybe + &carry_times_bit;
 
-            output.push(-next_carry.clone() * F::from(2) + bit + maybe + &last_carry);
+            output.push(-next_carry.clone() * F::truncate_from(2_u128) + bit + maybe + &last_carry);
 
             last_carry = next_carry;
         }
@@ -284,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() {
-        let c = Fp31::from;
+        let c = Fp31::truncate_from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
         let world = TestWorld::default();
@@ -314,6 +315,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
@@ -334,21 +336,38 @@ mod tests {
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7).await
+            add(
+                &world,
+                Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
+                7
+            )
+            .await
         );
         assert_eq!(
             vec![
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0
             ],
-            maybe_add(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, one).await
+            maybe_add(
+                &world,
+                Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
+                7,
+                one
+            )
+            .await
         );
         assert_eq!(
             vec![
                 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1
             ],
-            maybe_add(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, zero).await
+            maybe_add(
+                &world,
+                Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
+                7,
+                zero
+            )
+            .await
         );
 
         // 123456789 + 234567890
@@ -357,7 +376,12 @@ mod tests {
                 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
-            add(&world, Fp32BitPrime::from(123_456_789_u128), 234_567_891).await
+            add(
+                &world,
+                Fp32BitPrime::truncate_from(123_456_789_u128),
+                234_567_891
+            )
+            .await
         );
         assert_eq!(
             vec![
@@ -366,7 +390,7 @@ mod tests {
             ],
             maybe_add(
                 &world,
-                Fp32BitPrime::from(123_456_789_u128),
+                Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
                 one
             )
@@ -379,7 +403,7 @@ mod tests {
             ],
             maybe_add(
                 &world,
-                Fp32BitPrime::from(123_456_789_u128),
+                Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
                 zero
             )
@@ -387,7 +411,7 @@ mod tests {
         );
 
         // some random number (236461931) + (2^l - PRIME)
-        let some_random_number = Fp32BitPrime::from(236_461_931_u128);
+        let some_random_number = Fp32BitPrime::truncate_from(236_461_931_u128);
         let x: u128 = (1 << 32) - Fp32BitPrime::PRIME.as_u128();
         assert_eq!(
             vec![

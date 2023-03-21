@@ -28,7 +28,7 @@ mod tests {
         use rand::seq::SliceRandom;
 
         use crate::{
-            ff::Fp31,
+            ff::{Field, Fp31},
             protocol::{
                 context::Context,
                 sort::{
@@ -62,7 +62,10 @@ mod tests {
             // Applying permutation on the input in clear to get the expected result
             apply_inv(&permutation, &mut expected_result);
 
-            let permutation_iter = permutation.into_iter().map(u128::from).map(Fp31::from);
+            let permutation_iter = permutation
+                .into_iter()
+                .map(u128::from)
+                .map(Fp31::truncate_from);
 
             let result = world
                 .semi_honest(

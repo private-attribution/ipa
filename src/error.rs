@@ -32,6 +32,8 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
     #[error("Infrastructure error: {0}")]
     InfraError(#[from] crate::helpers::Error),
+    #[error("Value truncation error: {0}")]
+    FieldValueTruncation(String),
 }
 
 impl Error {

@@ -23,7 +23,7 @@ impl<F: PrimeField> Serializable for F {
         let mut buf_to = [0u8; 16];
         buf_to[..buf.len()].copy_from_slice(buf);
 
-        Self::from(u128::from_le_bytes(buf_to))
+        Self::try_from(u128::from_le_bytes(buf_to)).unwrap()
     }
 }
 
@@ -47,6 +47,17 @@ macro_rules! field_impl {
             fn as_u128(&self) -> u128 {
                 let int: Self::Storage = (*self).into();
                 int.into()
+            }
+
+            /// An infallible conversion from `u128` to this type.  This can be used to draw
+            /// a random value in the field.  This introduces bias into the final value
+            /// but for our purposes that bias is small provided that `2^128 >> PRIME`, which
+            /// is true provided that `PRIME` is kept to at most 64 bits in value.
+            ///
+            /// This method is simpler than rejection sampling for these small prime fields.
+            fn truncate_from<T: Into<u128>>(v: T) -> Self {
+                #[allow(clippy::cast_possible_truncation)]
+                Self((v.into() % u128::from(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
         }
 
@@ -120,16 +131,19 @@ macro_rules! field_impl {
             }
         }
 
-        /// An infallible conversion from `u128` to this type.  This can be used to draw
-        /// a random value in the field.  This introduces bias into the final value
-        /// but for our purposes that bias is small provided that `2^128 >> PRIME`, which
-        /// is true provided that `PRIME` is kept to at most 64 bits in value.
-        ///
-        /// This method is simpler than rejection sampling for these small prime fields.
-        impl<T: Into<u128>> From<T> for $field {
-            fn from(v: T) -> Self {
-                #[allow(clippy::cast_possible_truncation)]
-                Self((v.into() % u128::from(Self::PRIME)) as <Self as SharedValue>::Storage)
+        impl TryFrom<u128> for $field {
+            type Error = crate::error::Error;
+
+            fn try_from(v: u128) -> Result<Self, Self::Error> {
+                if u128::BITS - v.leading_zeros() <= Self::BITS {
+                    Ok(Self::truncate_from(v))
+                } else {
+                    Err(crate::error::Error::FieldValueTruncation(format!(
+                        "Storage size {} is too small to hold the value {}.",
+                        Self::BITS,
+                        v
+                    )))
+                }
             }
         }
 
@@ -141,7 +155,7 @@ macro_rules! field_impl {
 
         impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
-                <$field>::from(rng.gen::<u128>())
+                <$field>::truncate_from(rng.gen::<u128>())
             }
         }
 
@@ -175,10 +189,17 @@ macro_rules! field_impl {
             #[test]
             fn zero() {
                 let prime = u128::from($field::PRIME);
-                assert_eq!($field::ZERO, $field::from(prime), "from takes a modulus",);
+                assert_eq!(
+                    $field::ZERO,
+                    $field::try_from(prime).unwrap(),
+                    "from takes a modulus",
+                );
                 assert_eq!($field::ZERO, $field::ZERO + $field::ZERO);
                 assert_eq!($field::ZERO, $field::ZERO - $field::ZERO);
-                assert_eq!($field::from(prime - 1), $field::ZERO - $field::ONE);
+                assert_eq!(
+                    $field::try_from(prime - 1).unwrap(),
+                    $field::ZERO - $field::ONE
+                );
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
             }
 
@@ -232,42 +253,42 @@ mod fp32bit {
 
         #[test]
         fn thirty_two_bit_prime() {
-            let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-            let y = Fp32BitPrime::from(4_294_967_289_u32); // PRIME - 2
+            let x = Fp32BitPrime::truncate_from(4_294_967_290_u32); // PRIME - 1
+            let y = Fp32BitPrime::truncate_from(4_294_967_289_u32); // PRIME - 2
 
             assert_eq!(x - y, Fp32BitPrime::ONE);
-            assert_eq!(y - x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1));
-            assert_eq!(y + x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 3));
+            assert_eq!(y - x, Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1));
+            assert_eq!(y + x, Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 3));
 
-            assert_eq!(x * y, Fp32BitPrime::from(2_u32),);
+            assert_eq!(x * y, Fp32BitPrime::truncate_from(2_u32),);
 
-            let x = Fp32BitPrime::from(3_192_725_551_u32);
-            let y = Fp32BitPrime::from(1_471_265_983_u32);
+            let x = Fp32BitPrime::truncate_from(3_192_725_551_u32);
+            let y = Fp32BitPrime::truncate_from(1_471_265_983_u32);
 
-            assert_eq!(x - y, Fp32BitPrime::from(1_721_459_568_u32));
-            assert_eq!(y - x, Fp32BitPrime::from(2_573_507_723_u32));
-            assert_eq!(x + y, Fp32BitPrime::from(369_024_243_u32));
+            assert_eq!(x - y, Fp32BitPrime::truncate_from(1_721_459_568_u32));
+            assert_eq!(y - x, Fp32BitPrime::truncate_from(2_573_507_723_u32));
+            assert_eq!(x + y, Fp32BitPrime::truncate_from(369_024_243_u32));
 
-            assert_eq!(x * y, Fp32BitPrime::from(513_684_208_u32),);
+            assert_eq!(x * y, Fp32BitPrime::truncate_from(513_684_208_u32),);
         }
 
         #[test]
         fn thirty_two_bit_additive_wrapping() {
-            let x = Fp32BitPrime::from(u32::MAX - 20);
-            let y = Fp32BitPrime::from(20_u32);
-            assert_eq!(x + y, Fp32BitPrime::from(4_u32));
+            let x = Fp32BitPrime::truncate_from(u32::MAX - 20);
+            let y = Fp32BitPrime::truncate_from(20_u32);
+            assert_eq!(x + y, Fp32BitPrime::truncate_from(4_u32));
 
-            let x = Fp32BitPrime::from(u32::MAX - 20);
-            let y = Fp32BitPrime::from(21_u32);
-            assert_eq!(x + y, Fp32BitPrime::from(5_u32));
+            let x = Fp32BitPrime::truncate_from(u32::MAX - 20);
+            let y = Fp32BitPrime::truncate_from(21_u32);
+            assert_eq!(x + y, Fp32BitPrime::truncate_from(5_u32));
 
-            let x = Fp32BitPrime::from(u32::MAX - 20);
-            let y = Fp32BitPrime::from(22_u32);
-            assert_eq!(x + y, Fp32BitPrime::from(6_u32));
+            let x = Fp32BitPrime::truncate_from(u32::MAX - 20);
+            let y = Fp32BitPrime::truncate_from(22_u32);
+            assert_eq!(x + y, Fp32BitPrime::truncate_from(6_u32));
 
-            let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-            let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-            assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
+            let x = Fp32BitPrime::truncate_from(4_294_967_290_u32); // PRIME - 1
+            let y = Fp32BitPrime::truncate_from(4_294_967_290_u32); // PRIME - 1
+            assert_eq!(x + y, Fp32BitPrime::truncate_from(4_294_967_289_u32));
         }
     }
 }
