@@ -154,8 +154,9 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
+    use futures_util::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution};
-    use std::iter::zip;
+    use std::iter::{repeat, zip};
 
     /// Execute `solved_bits` `COUNT` times for `F`. The count should be chosen
     /// such that the probability of that many consecutive failures in `F` is
@@ -167,12 +168,14 @@ mod tests {
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
-                let mut outputs = Vec::with_capacity(COUNT);
                 let ctx = ctx.set_total_records(COUNT);
-                for i in 0..COUNT {
-                    outputs.push(solved_bits(ctx.clone(), RecordId::from(i)).await.unwrap());
-                }
-                outputs
+                try_join_all(
+                    (0..COUNT)
+                        .zip(repeat(ctx))
+                        .map(|(i, ctx)| solved_bits(ctx, RecordId::from(i))),
+                )
+                .await
+                .unwrap()
             })
             .await;
 

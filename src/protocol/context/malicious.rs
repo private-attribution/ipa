@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join, try_join3, try_join_all};
 
 use crate::{
     error::Error,
@@ -25,7 +25,7 @@ use crate::{
         malicious::MaliciousValidatorAccumulator,
         modulus_conversion::BitConversionTriple,
         prss::Endpoint as PrssEndpoint,
-        BitOpStep, NoRecord, RecordBinding, RecordId, Step, Substep, RECORD_0,
+        BitOpStep, NoRecord, RecordBinding, RecordId, Step, Substep,
     },
     repeat64str,
     secret_sharing::{
@@ -37,6 +37,19 @@ use crate::{
     },
     sync::Arc,
 };
+
+/// This step is not used at the same place.
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct UpgradeStep;
+
+impl crate::protocol::Substep for UpgradeStep {}
+
+impl AsRef<str> for UpgradeStep {
+    fn as_ref(&self) -> &str {
+        "upgrade"
+    }
+}
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -58,15 +71,45 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub(super) fn new<S: Substep + ?Sized>(
         source: &SemiHonestContext<'a>,
         malicious_step: &S,
-        upgrade_ctx: SemiHonestContext<'a>,
         acc: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Self {
         Self {
-            inner: ContextInner::new(upgrade_ctx, acc, r_share),
+            inner: ContextInner::new(source, acc, r_share),
             step: source.step().narrow(malicious_step),
             total_records: TotalRecords::Unspecified,
         }
+    }
+
+    /// TODO: This is not fast, but we can't just `reinterpret_cast` here.
+    fn as_semi_honest(&self) -> SemiHonestContext<'a> {
+        SemiHonestContext::new_complete(
+            self.inner.prss,
+            self.inner.gateway,
+            self.step.clone(),
+            self.total_records,
+        )
+    }
+
+    async fn upgrade_one(
+        &self,
+        record_id: RecordId,
+        x: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        let rx = x
+            .multiply_sparse(
+                &self.inner.r_share,
+                self.as_semi_honest(),
+                record_id,
+                (zeros_at, ZeroPositions::Pvvv),
+            )
+            .await?;
+        let m = MaliciousReplicated::new(x, rx);
+        let narrowed = self.narrow(&RandomnessForValidation);
+        let prss = narrowed.prss();
+        self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
+        Ok(m)
     }
 
     /// Upgrade an input using this context.
@@ -77,38 +120,46 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     where
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<T, M>,
     {
-        self.inner.upgrade(input).await
+        UpgradeContext {
+            ctx: self.narrow(&UpgradeStep),
+            record_binding: NoRecord,
+        }
+        .upgrade(input)
+        .await
     }
 
     /// Upgrade a sparse input using this context.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_with_sparse<SS: Substep>(
+    #[cfg(test)]
+    pub async fn upgrade_sparse(
         &self,
-        step: &SS,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade_with_sparse(step, input, zeros_at).await
+        UpgradeContext {
+            ctx: self.narrow(&UpgradeStep),
+            record_binding: NoRecord,
+        }
+        .upgrade_sparse(input, zeros_at)
+        .await
     }
 
     /// Upgrade an input for a specific bit index and record using this context.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_for_record_with<SS: Substep, T, M>(
-        &self,
-        step: &SS,
-        record_id: RecordId,
-        input: T,
-    ) -> Result<M, Error>
+    pub async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
     {
-        self.inner
-            .upgrade_for_record_with(step, record_id, input)
-            .await
+        UpgradeContext {
+            ctx: self.narrow(&UpgradeStep),
+            record_binding: record_id,
+        }
+        .upgrade(input)
+        .await
     }
 
     pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
@@ -136,20 +187,16 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
         }
     }
 
-    fn is_total_records_unspecified(&self) -> bool {
-        self.total_records.is_unspecified()
-    }
-
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        debug_assert!(
-            self.is_total_records_unspecified(),
-            "attempt to set total_records more than once"
-        );
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
-            total_records: total_records.into(),
+            total_records: self.total_records.overwrite(total_records),
         }
+    }
+
+    fn is_last_record<T: Into<RecordId>>(&self, record_id: T) -> bool {
+        self.total_records.is_last(record_id)
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
@@ -294,40 +341,29 @@ impl<'a, F: Field>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.upgrade_ctx;
-        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
-            |(idx, mk_share)| async move {
-                self.inner
-                    .upgrade_one(
-                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
-                        self.record_binding,
-                        mk_share,
-                        ZeroPositions::Pvvv,
-                    )
-                    .await
-            },
-        ))
-        .await?;
-
-        let is_trigger_bit = self
-            .inner
-            .upgrade_one(
-                self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
+        let ctx_ref = &self.ctx;
+        let (mk_shares, is_trigger_bit, trigger_value) = try_join3(
+            try_join_all(input.mk_shares.into_iter().enumerate().map(
+                |(idx, mk_share)| async move {
+                    ctx_ref
+                        .narrow(&UpgradeModConvStep::V0(idx))
+                        .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
+                        .await
+                },
+            )),
+            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let trigger_value = self
-            .inner
-            .upgrade_one(
-                self.upgrade_ctx.narrow(&UpgradeModConvStep::V2),
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
                 self.record_binding,
                 input.trigger_value,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
+            ),
+        )
+        .await?;
+
         Ok(IPAModulusConvertedInputRowWrapper::new(
             mk_shares,
             is_trigger_bit,
@@ -365,37 +401,27 @@ impl<'a, F: Field>
         self,
         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
     ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.upgrade_ctx;
+        let ctx_ref = &self.ctx;
         let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
             |(idx, bit)| async move {
-                self.inner
-                    .upgrade_one(
-                        ctx_ref.narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx)),
-                        self.record_binding,
-                        bit,
-                        ZeroPositions::Pvvv,
-                    )
+                ctx_ref
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
+                    .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
                     .await
             },
         ))
         .await?;
 
         let helper_bit = self
-            .inner
-            .upgrade_one(
-                self.upgrade_ctx
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1),
-                self.record_binding,
-                input.helper_bit,
-                ZeroPositions::Pvvv,
-            )
+            .ctx
+            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
+            .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
             .await?;
 
         let aggregation_bit = self
-            .inner
+            .ctx
+            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
             .upgrade_one(
-                self.upgrade_ctx
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2),
                 self.record_binding,
                 input.aggregation_bit,
                 ZeroPositions::Pvvv,
@@ -403,14 +429,9 @@ impl<'a, F: Field>
             .await?;
 
         let credit = self
-            .inner
-            .upgrade_one(
-                self.upgrade_ctx
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3),
-                self.record_binding,
-                input.credit,
-                ZeroPositions::Pvvv,
-            )
+            .ctx
+            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
+            .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
             .await?;
         Ok(MCCappedCreditsWithAggregationBit::new(
             helper_bit,
@@ -424,99 +445,22 @@ impl<'a, F: Field>
 struct ContextInner<'a, F: Field> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
-    upgrade_ctx: SemiHonestContext<'a>,
     accumulator: MaliciousValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
     fn new(
-        upgrade_ctx: SemiHonestContext<'a>,
+        semi_honest: &SemiHonestContext<'a>,
         accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Arc<Self> {
         Arc::new(ContextInner {
-            prss: upgrade_ctx.inner.prss,
-            gateway: upgrade_ctx.inner.gateway,
-            upgrade_ctx,
+            prss: semi_honest.inner.prss,
+            gateway: semi_honest.inner.gateway,
             accumulator,
             r_share,
         })
-    }
-
-    async fn upgrade_one(
-        &self,
-        ctx: SemiHonestContext<'a>,
-        record_id: RecordId,
-        x: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = x
-            .multiply_sparse(
-                &self.r_share,
-                ctx.clone(),
-                record_id,
-                (zeros_at, ZeroPositions::Pvvv),
-            )
-            .await?;
-        let m = MaliciousReplicated::new(x, rx);
-        let ctx = ctx.narrow(&RandomnessForValidation);
-        let prss = ctx.prss();
-        self.accumulator.accumulate_macs(&prss, record_id, &m);
-        Ok(m)
-    }
-
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<T, M>,
-    {
-        UpgradeContext {
-            upgrade_ctx: self.upgrade_ctx.clone(),
-            inner: self,
-            record_binding: NoRecord,
-        }
-        .upgrade(input)
-        .await
-    }
-
-    async fn upgrade_with_sparse<SS: Substep>(
-        &self,
-        step: &SS,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        UpgradeContext {
-            upgrade_ctx: self.upgrade_ctx.narrow(step),
-            inner: self,
-            record_binding: NoRecord,
-        }
-        .upgrade_sparse(input, zeros_at)
-        .await
-    }
-
-    async fn upgrade_for_record_with<SS: Substep, T, M>(
-        &self,
-        step: &SS,
-        record_id: RecordId,
-        input: T,
-    ) -> Result<M, Error>
-    where
-        for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
-    {
-        // TODO: This function is called from within solved_bits, where the
-        // total number of records is indeterminate.  If using it elsewhere,
-        // need to update this. (However the concept of indeterminate total
-        // records probably needs to go away.)
-        UpgradeContext {
-            upgrade_ctx: self
-                .upgrade_ctx
-                .set_total_records(TotalRecords::Indeterminate)
-                .narrow(step),
-            inner: self,
-            record_binding: record_id,
-        }
-        .upgrade(input)
-        .await
     }
 }
 
@@ -533,8 +477,11 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
+/// // Note: Unbound upgrades only work when testing.
+/// #[cfg(test)]
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
+/// #[cfg(test)]
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>), _>>::upgrade;
@@ -551,37 +498,16 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
 /// ```
 pub struct UpgradeContext<'a, F: Field, B: RecordBinding = NoRecord> {
-    upgrade_ctx: SemiHonestContext<'a>,
-    inner: &'a ContextInner<'a, F>,
+    ctx: MaliciousContext<'a, F>,
     record_binding: B,
 }
 
 impl<'a, F: Field, B: RecordBinding> UpgradeContext<'a, F, B> {
     fn narrow<SS: Substep>(&self, step: &SS) -> Self {
         Self {
-            upgrade_ctx: self.upgrade_ctx.narrow(step),
-            inner: self.inner,
+            ctx: self.ctx.narrow(step),
             record_binding: self.record_binding,
         }
-    }
-}
-
-// This could also work on a record-bound context, but it's only used in one place for tests where
-// that's not currently required.
-impl<'a, F: Field> UpgradeContext<'a, F, NoRecord> {
-    async fn upgrade_sparse(
-        self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner
-            .upgrade_one(
-                self.upgrade_ctx.set_total_records(1),
-                RecordId::from(0u32),
-                input,
-                zeros_at,
-            )
-            .await
     }
 }
 
@@ -604,20 +530,17 @@ impl<'a, F: Field>
         let [v0, v1, v2] = input.0;
         Ok(BitConversionTriple(
             try_join_all([
-                self.inner.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
+                self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
                     self.record_binding,
                     v0,
                     ZeroPositions::Pvzz,
                 ),
-                self.inner.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
+                self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
                     self.record_binding,
                     v1,
                     ZeroPositions::Pzvz,
                 ),
-                self.inner.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
+                self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
                     self.record_binding,
                     v2,
                     ZeroPositions::Pzzv,
@@ -680,13 +603,12 @@ where
     for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
 {
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
-        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx = self.ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
         try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
-                upgrade_ctx: ctx_ref.clone(),
-                inner: self.inner,
+                ctx: ctx_ref.clone(),
                 record_binding: RecordId::from(i),
             }
             .upgrade(share)
@@ -713,15 +635,14 @@ where
         let num_records = input.len();
         assert_ne!(num_records, 0);
         let num_columns = input[0].len();
-        let ctx = self.upgrade_ctx.set_total_records(num_records);
+        let ctx = self.ctx.set_total_records(num_records);
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
 
         try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
                 try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
                     UpgradeContext {
-                        upgrade_ctx: ctx,
-                        inner: self.inner,
+                        ctx,
                         record_binding: RecordId::from(record_idx),
                     }
                     .upgrade(share)
@@ -741,19 +662,15 @@ where
     F: Field,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner
-            .upgrade_one(
-                self.upgrade_ctx,
-                self.record_binding,
-                input,
-                ZeroPositions::Pvvv,
-            )
+        self.ctx
+            .upgrade_one(self.record_binding, input, ZeroPositions::Pvvv)
             .await
     }
 }
 
 // Impl for upgrading things that can be upgraded using a single record ID using a non-record-bound
-// context. This gets used e.g. when the protocol takes a single `Replicated<F>` input.
+// context. This is only used for tests where the protocol takes a single `Replicated<F>` input.
+#[cfg(test)]
 #[async_trait]
 impl<'a, F, T, M> UpgradeToMalicious<T, M> for UpgradeContext<'a, F, NoRecord>
 where
@@ -762,12 +679,31 @@ where
     for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
 {
     async fn upgrade(self, input: T) -> Result<M, Error> {
+        let ctx = if self.ctx.total_records.is_unspecified() {
+            self.ctx.set_total_records(1)
+        } else {
+            self.ctx
+        };
         UpgradeContext {
-            upgrade_ctx: self.upgrade_ctx.set_total_records(1),
-            inner: self.inner,
-            record_binding: RECORD_0,
+            ctx,
+            record_binding: crate::protocol::RECORD_0,
         }
         .upgrade(input)
         .await
+    }
+}
+
+// This could also work on a record-bound context, but it's only used in one place for tests where
+// that's not currently required.
+#[cfg(test)]
+impl<'a, F: Field> UpgradeContext<'a, F, NoRecord> {
+    async fn upgrade_sparse(
+        self,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.ctx
+            .upgrade_one(RecordId::from(0u32), input, zeros_at)
+            .await
     }
 }

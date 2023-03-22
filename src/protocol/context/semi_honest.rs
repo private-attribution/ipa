@@ -8,7 +8,7 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        Step, Substep,
+        RecordId, Step, Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
@@ -28,7 +28,12 @@ pub struct SemiHonestContext<'a> {
 
 impl<'a> SemiHonestContext<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self::new_with_total_records(participant, gateway, TotalRecords::Unspecified)
+        Self::new_complete(
+            participant,
+            gateway,
+            Step::default(),
+            TotalRecords::Unspecified,
+        )
     }
 
     pub fn new_with_total_records(
@@ -36,9 +41,18 @@ impl<'a> SemiHonestContext<'a> {
         gateway: &'a Gateway,
         total_records: TotalRecords,
     ) -> Self {
+        Self::new_complete(participant, gateway, Step::default(), total_records)
+    }
+
+    pub(super) fn new_complete(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        step: Step,
+        total_records: TotalRecords,
+    ) -> Self {
         Self {
             inner: ContextInner::new(participant, gateway),
-            step: Step::default(),
+            step,
             total_records,
         }
     }
@@ -52,12 +66,10 @@ impl<'a> SemiHonestContext<'a> {
     pub fn upgrade<S: Substep + ?Sized, F: Field>(
         self,
         malicious_step: &S,
-        upgrade_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> MaliciousContext<'a, F> {
-        let upgrade_ctx = self.narrow(upgrade_step);
-        MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
+        MaliciousContext::new(&self, malicious_step, accumulator, r_share)
     }
 }
 
@@ -78,20 +90,16 @@ impl<'a> Context for SemiHonestContext<'a> {
         }
     }
 
-    fn is_total_records_unspecified(&self) -> bool {
-        self.total_records.is_unspecified()
-    }
-
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        debug_assert!(
-            self.is_total_records_unspecified(),
-            "attempt to set total_records more than once"
-        );
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
-            total_records: total_records.into(),
+            total_records: self.total_records.overwrite(total_records),
         }
+    }
+
+    fn is_last_record<I: Into<RecordId>>(&self, record_id: I) -> bool {
+        self.total_records.is_last(record_id)
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness {

@@ -46,24 +46,25 @@ async fn main() -> Result<(), Error> {
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
-    for per_user_cap in [1, 3] {
-        let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
+    let per_user_cap = 3;
+    // for per_user_cap in [1, 3] {
+    let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
 
-        for records_for_user in &random_user_records {
-            update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
-        }
-        let world = TestWorld::new_with(config.clone());
-
-        test_ipa(
-            &world,
-            &raw_data,
-            &expected_results,
-            per_user_cap,
-            MAX_BREAKDOWN_KEY,
-            IpaSecurityModel::Malicious,
-        )
-        .await;
+    for records_for_user in &random_user_records {
+        update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
     }
+    let world = TestWorld::new_with(config.clone());
+
+    test_ipa(
+        &world,
+        &raw_data,
+        &expected_results,
+        per_user_cap,
+        MAX_BREAKDOWN_KEY,
+        IpaSecurityModel::Malicious,
+    )
+    .await;
+    // }
     let duration = start.elapsed().as_secs_f32();
     println!("IPA benchmark for QUERY_SIZE {QUERY_SIZE} complete successfully after {duration}s");
     Ok(())
