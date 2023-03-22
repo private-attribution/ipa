@@ -14,7 +14,6 @@ async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
     const QUERY_SIZE: usize = 100;
-    const NUM_USERS: usize = 30;
     const MAX_RECORDS_PER_USER: usize = 10;
 
     let mut config = TestWorldConfig::default();
@@ -26,7 +25,7 @@ async fn main() -> Result<(), Error> {
 
     let mut total_count = 0;
 
-    let mut random_user_records = Vec::with_capacity(NUM_USERS);
+    let mut random_user_records = Vec::with_capacity(QUERY_SIZE / MAX_RECORDS_PER_USER);
     while total_count < QUERY_SIZE {
         let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
             &mut rng,
