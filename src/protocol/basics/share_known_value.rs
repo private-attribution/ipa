@@ -68,11 +68,11 @@ mod tests {
         let world = TestWorld::default();
 
         let mut rng = rand::thread_rng();
-        let a = rng.gen::<Fp32BitPrime>();
+        let a = rng.gen::<Fp31>();
 
         let result = world
             .malicious((), |ctx, ()| async move {
-                MaliciousReplicated::<Fp32BitPrime>::share_known_value(&ctx, a)
+                MaliciousReplicated::<Fp31>::share_known_value(&ctx, a)
             })
             .await
             .reconstruct();

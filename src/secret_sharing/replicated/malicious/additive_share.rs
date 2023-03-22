@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
+    ff::{Field, Fp31, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
@@ -46,6 +46,19 @@ impl ExtendableField for Gf2 {
 
     fn get_induced_value(&self) -> Self::LargeFieldType {
         Gf32Bit::try_from(self.as_u128()).unwrap()
+    }
+}
+
+// The field Fp31 is *not* large enough to provide statistical security. As such, it should never
+// be used (in production) for malicious circuits.
+// That said, it's still very useful for this to work in *tests*. One reason is that it's useful to have
+// a small field where collissions can often happen.
+#[cfg(test)]
+impl ExtendableField for Fp31 {
+    type LargeFieldType = Fp31;
+
+    fn get_induced_value(&self) -> Self::LargeFieldType {
+        *self
     }
 }
 

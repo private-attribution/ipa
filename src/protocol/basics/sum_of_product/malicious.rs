@@ -144,7 +144,7 @@ where
 mod test {
     use super::sum_of_products;
     use crate::{
-        ff::Fp32BitPrime,
+        ff::{Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
@@ -159,10 +159,10 @@ mod test {
         let mut rng = thread_rng();
 
         let (mut av, mut bv) = (Vec::with_capacity(BATCHSIZE), Vec::with_capacity(BATCHSIZE));
-        let mut expected = Fp32BitPrime::ZERO;
+        let mut expected = Fp31::ZERO;
         for _ in 0..BATCHSIZE {
-            let a = rng.gen::<Fp32BitPrime>();
-            let b = rng.gen::<Fp32BitPrime>();
+            let a = rng.gen::<Fp31>();
+            let b = rng.gen::<Fp31>();
             expected += a * b;
             av.push(a);
             bv.push(b);

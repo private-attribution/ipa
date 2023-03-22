@@ -217,44 +217,41 @@ mod tests {
 
     async fn add<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
     where
-        F: PrimeField,
+        F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
-        world
+        let result = world
             .semi_honest(input.clone(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn add_malicious<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
-    where
-        F: PrimeField + ExtendableField,
-        Standard: Distribution<F>,
-    {
-        let input = into_bits(a);
-        world
+        let m_result = world
             .malicious(input, |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     async fn maybe_add<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
     where
-        F: PrimeField,
+        F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
         let input = (into_bits(a), maybe);
-        world
-            .semi_honest(input, |ctx, (a_share, maybe_share)| async move {
+        let result = world
+            .semi_honest(input.clone(), |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -266,16 +263,9 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn maybe_add_malicious<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
-    where
-        F: PrimeField + ExtendableField,
-        Standard: Distribution<F>,
-    {
-        let input = (into_bits(a), maybe);
-        world
+        let m_result = world
             .malicious(input, |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
                     ctx.set_total_records(1),
@@ -288,7 +278,11 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     #[tokio::test]
@@ -335,7 +329,7 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0
             ],
-            add_malicious(&world, zero, 0).await
+            add(&world, zero, 0).await
         );
 
         // Prime - 1 + 6
@@ -344,7 +338,7 @@ mod tests {
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add_malicious(
+            add(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7
@@ -356,7 +350,7 @@ mod tests {
                 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0
             ],
-            maybe_add_malicious(
+            maybe_add(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7,
@@ -369,7 +363,7 @@ mod tests {
                 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1
             ],
-            maybe_add_malicious(
+            maybe_add(
                 &world,
                 Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
                 7,
@@ -384,7 +378,7 @@ mod tests {
                 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
-            add_malicious(
+            add(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891
@@ -396,7 +390,7 @@ mod tests {
                 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0
             ],
-            maybe_add_malicious(
+            maybe_add(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
@@ -409,7 +403,7 @@ mod tests {
                 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0,
                 0, 0, 0, 0
             ],
-            maybe_add_malicious(
+            maybe_add(
                 &world,
                 Fp32BitPrime::truncate_from(123_456_789_u128),
                 234_567_891,
@@ -426,21 +420,21 @@ mod tests {
                 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0, 0
             ],
-            add_malicious(&world, some_random_number, x).await
+            add(&world, some_random_number, x).await
         );
         assert_eq!(
             vec![
                 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0
             ],
-            maybe_add_malicious(&world, some_random_number, x, one).await
+            maybe_add(&world, some_random_number, x, one).await
         );
         assert_eq!(
             vec![
                 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
                 0, 0, 0, 0
             ],
-            maybe_add_malicious(&world, some_random_number, x, zero).await
+            maybe_add(&world, some_random_number, x, zero).await
         );
     }
 }
