@@ -15,9 +15,6 @@ use std::fmt::Debug;
 pub trait Block: Sized + Copy + Debug {
     /// Size of a block in bytes big enough to hold the shared value. `Size * 8 >= VALID_BIT_LENGTH`.
     type Size: ArrayLength<u8>;
-
-    /// Minimum number of bits needed to represent the shared value.
-    const VALID_BIT_LENGTH: u32;
 }
 
 pub trait SharedValue:

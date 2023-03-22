@@ -1,8 +1,7 @@
 use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
-    ff::GaloisField,
     rand::{thread_rng, Rng},
-    secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
+    secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 use rand::distributions::{Distribution, Standard};
 
@@ -27,23 +26,6 @@ where
             AdditiveShare::new(x1, x2),
             AdditiveShare::new(x2, x3),
             AdditiveShare::new(x3, x1),
-        ]
-    }
-}
-
-impl<V> IntoShares<XorShare<V>> for V
-where
-    V: GaloisField,
-    Standard: Distribution<V>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [XorShare<V>; 3] {
-        let s0 = rng.gen::<V>();
-        let s1 = rng.gen::<V>();
-        let s2 = self - (s0 + s1);
-        [
-            XorShare::new(s0, s1),
-            XorShare::new(s1, s2),
-            XorShare::new(s2, s0),
         ]
     }
 }

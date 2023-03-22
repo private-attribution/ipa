@@ -9,10 +9,7 @@ use crate::{
         IpaProtocolStep, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
 };
@@ -71,7 +68,7 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 pub fn convert_bit_local<F: Field, B: GaloisField>(
     helper_role: Role,
     bit_index: u32,
-    input: &XorReplicated<B>,
+    input: &Replicated<B>,
 ) -> BitConversionTriple<Replicated<F>> {
     let left = u128::from(input.left()[bit_index]);
     let right = u128::from(input.right()[bit_index]);
@@ -97,7 +94,7 @@ pub fn convert_bit_local<F: Field, B: GaloisField>(
 #[must_use]
 pub fn convert_all_bits_local<F: Field, B: GaloisField>(
     helper_role: Role,
-    input: impl Iterator<Item = XorReplicated<B>>,
+    input: impl Iterator<Item = Replicated<B>>,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     input
         .map(move |record| {

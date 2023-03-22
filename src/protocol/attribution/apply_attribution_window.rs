@@ -133,19 +133,18 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    // Compare the accumulated timestamp deltas with the specified attribution window
-    // cap value, and zero-out trigger event values that exceed the cap.
-    let c = ctx.clone().set_total_records(input.len());
-    let cmp_ctx = c.narrow(&Step::TimeDeltaLessThanCap);
-    let mul_ctx = c.narrow(&Step::CompareBitTimesTriggerValue);
-
+    let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
+    let cmp_ctx = ctx.narrow(&Step::TimeDeltaLessThanCap);
+    let mul_ctx = ctx.narrow(&Step::CompareBitTimesTriggerValue);
 
+    // Compare the accumulated timestamp deltas with the specified attribution window
+    // cap value, and zero-out trigger event values that exceed the cap.
     try_join_all(
         zip(input, time_delta)
-            .zip(repeat(T::share_known_value(ctx, F::ONE)))
+            .zip(repeat(T::share_known_value(&ctx, F::ONE)))
             .enumerate()
             .map(|(i, ((row, delta), one))| {
                 let c1 = cmp_ctx.clone();

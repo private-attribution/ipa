@@ -26,17 +26,14 @@ type U8_5 = BitArr!(for 40, in u8, Lsb0);
 
 impl Block for U8_1 {
     type Size = U1;
-    const VALID_BIT_LENGTH: u32 = 8;
 }
 
 impl Block for U8_4 {
     type Size = U4;
-    const VALID_BIT_LENGTH: u32 = 32;
 }
 
 impl Block for U8_5 {
     type Size = U5;
-    const VALID_BIT_LENGTH: u32 = 40;
 }
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -47,7 +44,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $one:expr, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -63,7 +60,7 @@ macro_rules! bit_array_impl {
 
             impl SharedValue for $name {
                 type Storage = $store;
-                const BITS: u32 = <$store as Block>::VALID_BIT_LENGTH;
+                const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
@@ -346,7 +343,8 @@ macro_rules! bit_array_impl {
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    assert!($name::try_from(max_plus_one).is_err());
+                    // TODO (taikiy): Uncomment this line once TryFrom is back
+                    // assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 
@@ -460,6 +458,7 @@ bit_array_impl!(
     bit_array_40,
     Gf40Bit,
     U8_5,
+    40,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
@@ -469,6 +468,7 @@ bit_array_impl!(
     bit_array_32,
     Gf32Bit,
     U8_4,
+    32,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
@@ -478,6 +478,7 @@ bit_array_impl!(
     bit_array_8,
     Gf8Bit,
     U8_1,
+    8,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
@@ -487,7 +488,8 @@ bit_array_impl!(
     bit_array_1,
     Gf2,
     U8_0,
-    bitarr!(const u8, Lsb0; 1, 0),
+    1,
+    bitarr!(const u8, Lsb0; 1),
     // x
     0b10_u128
 );

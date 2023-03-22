@@ -75,7 +75,7 @@ where
 
     assert!(c < F::PRIME.into());
 
-    let r = rbg.generate().await?;
+    let r = rbg.generate(record_id).await?;
 
     // Mask `a` with random `r` and reveal.
     let b = (r.b_p.clone() + a)
@@ -420,8 +420,9 @@ mod tests {
     {
         world
             .semi_honest(lhs, |ctx, lhs| async move {
+                let ctx = ctx.set_total_records(1);
                 greater_than_constant(
-                    ctx.set_total_records(1),
+                    ctx.clone(),
                     RecordId::from(0),
                     &RandomBitsGenerator::new(ctx),
                     &lhs,
@@ -442,8 +443,9 @@ mod tests {
     {
         world
             .malicious(lhs, |ctx, lhs| async move {
+                let ctx = ctx.set_total_records(1);
                 greater_than_constant(
-                    ctx.set_total_records(1),
+                    ctx.clone(),
                     RecordId::from(0),
                     &RandomBitsGenerator::new(ctx),
                     &lhs,

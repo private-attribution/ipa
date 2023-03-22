@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
-        buffers::{OrderingMpscReceiver, UnorderedReceiver},
-        gateway::{receive::UR, wrapper::Wrapper},
+        buffers::UnorderedReceiver,
+        gateway::{receive::UR, send::GatewaySendStream},
         ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
     },
     protocol::QueryId,
@@ -22,7 +22,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
     pub(crate) async fn send(
         &self,
         channel_id: &ChannelId,
-        data: OrderingMpscReceiver<Wrapper>,
+        data: GatewaySendStream,
     ) -> Result<(), io::Error> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
