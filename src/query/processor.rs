@@ -562,6 +562,7 @@ mod tests {
                         num_multi_bits: 3,
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
+                        attribution_window_seconds: 0,
                     }
                     .into(),
                 },

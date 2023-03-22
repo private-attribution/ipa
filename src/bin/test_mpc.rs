@@ -113,6 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
                         num_multi_bits: 3,
+                        attribution_window_seconds: 0,
                     }),
                 };
                 let query_id = clients[0].create_query(query_config).await.unwrap();
