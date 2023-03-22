@@ -97,7 +97,7 @@ where
 mod tests {
     use super::RandomBitsGenerator;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31},
         protocol::{context::Context, malicious::MaliciousValidator, RecordId},
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -171,7 +171,7 @@ mod tests {
         let world = TestWorld::default();
         let contexts = world.contexts();
 
-        let validators = contexts.map(MaliciousValidator::<Fp32BitPrime>::new);
+        let validators = contexts.map(MaliciousValidator::<Fp31>::new);
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context().set_total_records(1)))
@@ -193,6 +193,6 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        let _: Fp32BitPrime = result.reconstruct(); // reconstruct() will validate the value.
+        let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
     }
 }

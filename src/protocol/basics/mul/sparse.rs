@@ -407,8 +407,8 @@ pub(in crate::protocol) mod test {
                     continue;
                 }
 
-                let v1 = SparseField::new(rng.gen::<Fp32BitPrime>(), a);
-                let v2 = SparseField::new(rng.gen::<Fp32BitPrime>(), b);
+                let v1 = SparseField::new(rng.gen::<Fp31>(), a);
+                let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
                         let v = MaliciousValidator::new(ctx);

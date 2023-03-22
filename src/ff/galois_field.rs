@@ -281,6 +281,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: usize) -> &Self::Output {
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     &self.0.as_bitslice()[index]
                 }
             }
@@ -289,6 +290,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: u32) -> &Self::Output {
+                    debug_assert!(index < <$name>::BITS);
                     &self[index as usize]
                 }
             }
@@ -342,10 +344,7 @@ macro_rules! bit_array_impl {
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    // TODO (taikiy): Uncomment this line once TryFrom is back
                     assert!($name::try_from(max_plus_one).is_err());
-
-                    // This also fails in Gf(2) since the storage is still 8 bits
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 
@@ -353,8 +352,6 @@ macro_rules! bit_array_impl {
                 pub fn index() {
                     let s = $name::try_from(1_u128).unwrap();
                     assert_eq!(s[0_usize], true);
-                    // This test is just not true in GF(2)
-                    // assert_eq!(s[(<$name>::BITS - 1) as u32], false);
                 }
 
                 #[test]
@@ -362,8 +359,7 @@ macro_rules! bit_array_impl {
                 pub fn out_of_count_index() {
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic
-                    // This test does not fail for GF(2)
-                    // assert_eq!(s[<$name>::BITS as usize], false);
+                    assert_eq!(s[<$name>::BITS as usize], false);
                 }
 
                 #[test]

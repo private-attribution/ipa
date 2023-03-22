@@ -45,7 +45,7 @@ where
 mod tests {
     use super::xor;
     use crate::{
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
@@ -110,7 +110,7 @@ mod tests {
     }
 
     async fn run_sparse(world: &TestWorld, a: bool, b: bool, zeros: MultiplyZeroPositions) -> bool {
-        type F = Fp32BitPrime;
+        type F = Fp31;
 
         let a = SparseField::<F>::new(F::truncate_from(u128::from(a)), zeros.0);
         let b = SparseField::<F>::new(F::truncate_from(u128::from(b)), zeros.1);

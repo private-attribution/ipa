@@ -65,7 +65,7 @@ pub trait Context: Clone + Send + Sync {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31},
         helpers::Direction,
         protocol::{
             malicious::{MaliciousValidator, Step::MaliciousProtocol},
@@ -210,10 +210,7 @@ mod tests {
     #[tokio::test]
     async fn malicious_metrics() {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-        let input = vec![
-            Fp32BitPrime::truncate_from(0u128),
-            Fp32BitPrime::truncate_from(1u128),
-        ];
+        let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let input_len = input.len();
 
         let _result = world
@@ -283,10 +280,7 @@ mod tests {
     /// to unique steps
     #[tokio::test]
     async fn malicious_upgrade() {
-        let input = vec![
-            Fp32BitPrime::truncate_from(0u128),
-            Fp32BitPrime::truncate_from(1u128),
-        ];
+        let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let world = TestWorld::default();
 
         world

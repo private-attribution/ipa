@@ -24,7 +24,7 @@ pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
 mod tests {
     use super::or;
     use crate::{
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp31},
         protocol::{context::Context, RecordId},
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn all() {
-        type F = Fp32BitPrime;
+        type F = Fp31;
         let world = TestWorld::default();
 
         assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);

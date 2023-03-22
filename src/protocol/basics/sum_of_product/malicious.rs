@@ -144,7 +144,7 @@ where
 mod test {
     use super::sum_of_products;
     use crate::{
-        ff::{Fp31, Fp32BitPrime},
+        ff::Fp31,
         protocol::{context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,

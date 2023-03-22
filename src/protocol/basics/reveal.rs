@@ -157,7 +157,6 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::Fp32BitPrime,
         rand::{thread_rng, Rng},
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::Runner,

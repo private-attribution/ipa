@@ -38,7 +38,7 @@ impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F>
 mod tests {
     use super::ShareKnownValue;
     use crate::{
-        ff::{Fp31, Fp32BitPrime},
+        ff::Fp31,
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,

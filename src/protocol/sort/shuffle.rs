@@ -294,7 +294,7 @@ mod tests {
 
     mod malicious {
         use crate::{
-            ff::{Field, Fp32BitPrime},
+            ff::{Field, Fp31},
             protocol::{
                 context::Context,
                 sort::shuffle::{
@@ -317,10 +317,7 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input_u128
-                        .clone()
-                        .into_iter()
-                        .map(Fp32BitPrime::truncate_from),
+                    input_u128.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
@@ -358,7 +355,7 @@ mod tests {
 
             let result = world
                 .malicious(
-                    input.clone().into_iter().map(Fp32BitPrime::truncate_from),
+                    input.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),

@@ -485,12 +485,12 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 /// };
 /// // Note: Unbound upgrades only work when testing.
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, RecordId> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Replicated<Fp32BitPrime>, Replicated<Fp32BitPrime>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp32BitPrime>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp32BitPrime>>, Vec<Replicated<Fp32BitPrime>>), _>>::upgrade;
 /// ```
 ///
 /// ```compile_fail

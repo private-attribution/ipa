@@ -335,47 +335,43 @@ mod tests {
 
     async fn bitwise_lt<F>(world: &TestWorld, a: F, b: u128) -> F
     where
-        F: PrimeField,
+        F: PrimeField + ExtendableField,
         (F, F): Sized,
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
 
-        world
+        let result = world
             .semi_honest(input.clone(), |ctx, a_share| async move {
                 bitwise_less_than_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn bitwise_lt_malicious<F>(world: &TestWorld, a: F, b: u128) -> F
-    where
-        F: PrimeField + ExtendableField,
-        (F, F): Sized,
-        Standard: Distribution<F>,
-    {
-        let input = into_bits(a);
-        world
-            .malicious(input.clone(), |ctx, a_share| async move {
+        let m_result = world
+            .malicious(input, |ctx, a_share| async move {
                 bitwise_less_than_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     async fn bitwise_gt<F>(world: &TestWorld, a: F, b: u128) -> F
     where
-        F: PrimeField,
+        F: PrimeField + ExtendableField,
         (F, F): Sized,
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
-        world
+        let result = world
             .semi_honest(input.clone(), |ctx, a_share| async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
@@ -387,17 +383,9 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn bitwise_gt_malicious<F>(world: &TestWorld, a: F, b: u128) -> F
-    where
-        F: PrimeField + ExtendableField,
-        (F, F): Sized,
-        Standard: Distribution<F>,
-    {
-        let input = into_bits(a);
-        world
+        let m_result = world
             .malicious(input.clone(), |ctx, a_share| async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
@@ -409,16 +397,20 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     async fn gt<F>(world: &TestWorld, lhs: F, rhs: u128) -> F
     where
-        F: PrimeField,
+        F: PrimeField + ExtendableField,
         (F, F): Sized,
         Standard: Distribution<F>,
     {
-        world
+        let result = world
             .semi_honest(lhs, |ctx, lhs| async move {
                 let ctx = ctx.set_total_records(1);
                 greater_than_constant(
@@ -432,16 +424,9 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
-    }
+            .reconstruct();
 
-    async fn gt_malicious<F>(world: &TestWorld, lhs: F, rhs: u128) -> F
-    where
-        F: PrimeField + ExtendableField,
-        (F, F): Sized,
-        Standard: Distribution<F>,
-    {
-        world
+        let m_result = world
             .malicious(lhs, |ctx, lhs| async move {
                 let ctx = ctx.set_total_records(1);
                 greater_than_constant(
@@ -455,7 +440,11 @@ mod tests {
                 .unwrap()
             })
             .await
-            .reconstruct()
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 
     #[tokio::test]
@@ -485,24 +474,21 @@ mod tests {
         let u16_max: u32 = u16::MAX.into();
         let world = TestWorld::default();
 
-        assert_eq!(zero, gt_malicious(&world, zero, 1).await);
-        assert_eq!(one, gt_malicious(&world, one, 0).await);
-        assert_eq!(zero, gt_malicious(&world, zero, 0).await);
-        assert_eq!(zero, gt_malicious(&world, one, 1).await);
+        assert_eq!(zero, gt(&world, zero, 1).await);
+        assert_eq!(one, gt(&world, one, 0).await);
+        assert_eq!(zero, gt(&world, zero, 0).await);
+        assert_eq!(zero, gt(&world, one, 1).await);
 
-        assert_eq!(zero, gt_malicious(&world, c(3), 7).await);
-        assert_eq!(one, gt_malicious(&world, c(21), 20).await);
-        assert_eq!(zero, gt_malicious(&world, c(9), 9).await);
+        assert_eq!(zero, gt(&world, c(3), 7).await);
+        assert_eq!(one, gt(&world, c(21), 20).await);
+        assert_eq!(zero, gt(&world, c(9), 9).await);
 
-        assert_eq!(zero, gt_malicious(&world, c(u16_max), u16_max.into()).await);
-        assert_eq!(
-            one,
-            gt_malicious(&world, c(u16_max + 1), u16_max.into()).await
-        );
+        assert_eq!(zero, gt(&world, c(u16_max), u16_max.into()).await);
+        assert_eq!(one, gt(&world, c(u16_max + 1), u16_max.into()).await);
 
         assert_eq!(
             zero,
-            gt_malicious(&world, zero, u128::from(Fp32BitPrime::PRIME) - 1).await
+            gt(&world, zero, u128::from(Fp32BitPrime::PRIME) - 1).await
         );
     }
 
@@ -554,31 +540,31 @@ mod tests {
         let u16_max: u32 = u16::MAX.into();
         let world = TestWorld::default();
 
-        assert_eq!(one, bitwise_lt_malicious(&world, zero, 1).await);
-        assert_eq!(zero, bitwise_lt_malicious(&world, one, 0).await);
-        assert_eq!(zero, bitwise_lt_malicious(&world, zero, 0).await);
-        assert_eq!(zero, bitwise_lt_malicious(&world, one, 1).await);
+        assert_eq!(one, bitwise_lt(&world, zero, 1).await);
+        assert_eq!(zero, bitwise_lt(&world, one, 0).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, 0).await);
+        assert_eq!(zero, bitwise_lt(&world, one, 1).await);
 
-        assert_eq!(one, bitwise_lt_malicious(&world, c(3), 7).await);
-        assert_eq!(zero, bitwise_lt_malicious(&world, c(21), 20).await);
-        assert_eq!(zero, bitwise_lt_malicious(&world, c(9), 9).await);
+        assert_eq!(one, bitwise_lt(&world, c(3), 7).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), 20).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), 9).await);
 
         assert_eq!(
             zero,
-            bitwise_lt_malicious(&world, c(u16_max + 1), u16_max.into()).await
+            bitwise_lt(&world, c(u16_max + 1), u16_max.into()).await
         );
         assert_eq!(
             one,
-            bitwise_lt_malicious(&world, c(u16_max), (u16_max + 1).into()).await
+            bitwise_lt(&world, c(u16_max), (u16_max + 1).into()).await
         );
 
         assert_eq!(
             one,
-            bitwise_lt_malicious(&world, zero, Fp32BitPrime::PRIME.into()).await
+            bitwise_lt(&world, zero, Fp32BitPrime::PRIME.into()).await
         );
         assert_eq!(
             zero,
-            bitwise_lt_malicious(&world, c(Fp32BitPrime::PRIME - 1), 0).await
+            bitwise_lt(&world, c(Fp32BitPrime::PRIME - 1), 0).await
         );
     }
 
@@ -590,35 +576,35 @@ mod tests {
         let u16_max: u32 = u16::MAX.into();
         let world = TestWorld::default();
 
-        assert_eq!(zero, bitwise_gt_malicious(&world, zero, 1).await);
-        assert_eq!(one, bitwise_gt_malicious(&world, one, 0).await);
-        assert_eq!(zero, bitwise_gt_malicious(&world, zero, 0).await);
-        assert_eq!(zero, bitwise_gt_malicious(&world, one, 1).await);
+        assert_eq!(zero, bitwise_gt(&world, zero, 1).await);
+        assert_eq!(one, bitwise_gt(&world, one, 0).await);
+        assert_eq!(zero, bitwise_gt(&world, zero, 0).await);
+        assert_eq!(zero, bitwise_gt(&world, one, 1).await);
 
-        assert_eq!(zero, bitwise_gt_malicious(&world, c(3_u32), 7).await);
-        assert_eq!(one, bitwise_gt_malicious(&world, c(21), 20).await);
-        assert_eq!(zero, bitwise_gt_malicious(&world, c(9), 9).await);
+        assert_eq!(zero, bitwise_gt(&world, c(3_u32), 7).await);
+        assert_eq!(one, bitwise_gt(&world, c(21), 20).await);
+        assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
 
         assert_eq!(
             zero,
-            bitwise_gt_malicious(&world, c(u16_max), (u16_max + 1).into()).await
+            bitwise_gt(&world, c(u16_max), (u16_max + 1).into()).await
         );
         assert_eq!(
             one,
-            bitwise_gt_malicious(&world, c(u16_max + 1), u16_max.into()).await
+            bitwise_gt(&world, c(u16_max + 1), u16_max.into()).await
         );
         assert_eq!(
             zero,
-            bitwise_gt_malicious(&world, c(u16_max), (Fp32BitPrime::PRIME - 1).into()).await
+            bitwise_gt(&world, c(u16_max), (Fp32BitPrime::PRIME - 1).into()).await
         );
         assert_eq!(
             one,
-            bitwise_gt_malicious(&world, c(Fp32BitPrime::PRIME - 1), u16_max.into()).await
+            bitwise_gt(&world, c(Fp32BitPrime::PRIME - 1), u16_max.into()).await
         );
 
         assert_eq!(
             zero,
-            bitwise_gt_malicious(&world, zero, Fp32BitPrime::PRIME.into()).await
+            bitwise_gt(&world, zero, Fp32BitPrime::PRIME.into()).await
         );
     }
 
@@ -651,7 +637,7 @@ mod tests {
             let b = rand.gen::<Fp32BitPrime>();
             assert_eq!(
                 Fp32BitPrime::truncate_from(a.as_u128() > b.as_u128()),
-                bitwise_gt_malicious(&world, a, b.as_u128()).await
+                bitwise_gt(&world, a, b.as_u128()).await
             );
         }
     }

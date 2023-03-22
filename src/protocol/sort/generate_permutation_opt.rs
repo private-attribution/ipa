@@ -219,7 +219,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Gf40Bit},
+        ff::{Field, Fp31, GaloisField, Gf40Bit},
         protocol::{
             context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -293,7 +293,7 @@ mod tests {
                         .await
                         .unwrap();
 
-                malicious_generate_permutation_opt::<Fp32BitPrime, _>(
+                malicious_generate_permutation_opt::<Fp31, _>(
                     ctx.narrow("sort"),
                     converted_shares.iter(),
                 )
