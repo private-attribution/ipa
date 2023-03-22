@@ -6,11 +6,12 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{GaloisField, PrimeField, Serializable},
+    ff::{GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
-        boolean::bitwise_equal::bitwise_equal,
+        boolean::bitwise_equal::bitwise_equal_gf2,
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
+        modulus_conversion::{convert_bit, convert_bit_local},
         RecordId, Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
@@ -24,6 +25,7 @@ use std::iter::{repeat, zip};
 /// propagates errors from multiplications
 pub async fn secure_attribution<F, BK>(
     ctx: SemiHonestContext<'_>,
+    sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
@@ -37,19 +39,33 @@ where
     let futures = zip(
         repeat(
             ctx.narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_rows.len() - 1),
+                .set_total_records(sorted_match_keys.len() - 1),
         ),
-        sorted_rows.iter(),
+        sorted_match_keys.iter(),
     )
-    .zip(sorted_rows.iter().skip(1))
+    .zip(sorted_match_keys.iter().skip(1))
     .enumerate()
-    .map(|(i, ((ctx, row), next_row))| {
+    .map(|(i, ((c, row), next_row))| {
         let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+        async move { bitwise_equal_gf2(c, record_id, &row, &next_row).await }
     });
+    let helper_bits_gf2 = try_join_all(futures).await?;
+
+    let hb_mod_conv_ctx = ctx
+        .narrow(&Step::ModConvHelperBits)
+        .set_total_records(sorted_match_keys.len() - 1);
+    let semi_honest_helper_bits =
+        try_join_all(helper_bits_gf2.iter().enumerate().map(|(i, gf2_bit)| {
+            let bit_triple = convert_bit_local::<F, Gf2>(ctx.role(), 0, gf2_bit);
+            let record_id = RecordId::from(i);
+            let c = hb_mod_conv_ctx.clone();
+            async move { convert_bit(c, record_id, &bit_triple).await }
+        }))
+        .await?;
+
     let helper_bits = Some(AdditiveShare::ZERO)
         .into_iter()
-        .chain(try_join_all(futures).await?);
+        .chain(semi_honest_helper_bits);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {
@@ -91,6 +107,7 @@ pub enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    ModConvHelperBits,
 }
 
 impl Substep for Step {}
@@ -102,6 +119,7 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::ModConvHelperBits => "mod_conv_helper_bits",
         }
     }
 }

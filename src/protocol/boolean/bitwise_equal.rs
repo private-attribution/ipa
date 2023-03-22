@@ -1,7 +1,7 @@
 use super::xor;
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     protocol::{
         basics::SecureMul, boolean::no_ones, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
@@ -44,6 +44,26 @@ where
         })
         .collect::<Vec<_>>();
     no_ones(ctx, record_id, &xored_bits).await
+}
+
+pub async fn bitwise_equal_gf2<C, S>(
+    ctx: C,
+    record_id: RecordId,
+    a: &[S],
+    b: &[S],
+) -> Result<S, Error>
+where
+    C: Context,
+    S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+{
+    debug_assert!(a.len() == b.len());
+    let c = a
+        .iter()
+        .zip(b.iter())
+        .map(|(a_bit, b_bit)| a_bit.clone() - b_bit)
+        .collect::<Vec<_>>();
+
+    no_ones(ctx, record_id, &c).await
 }
 
 /// # Errors

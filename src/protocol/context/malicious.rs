@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3, try_join_all};
+use futures::future::{try_join, try_join_all};
 
 use crate::{
     error::Error,
@@ -295,7 +295,6 @@ impl AsRef<str> for UpgradeTripleStep {
 }
 
 enum UpgradeModConvStep {
-    V0(usize),
     V1,
     V2,
 }
@@ -304,10 +303,7 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
-        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
-
         match self {
-            Self::V0(i) => UPGRADE_MOD_CONV0[*i],
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
         }
@@ -347,16 +343,7 @@ impl<'a, F: Field + ExtendableField>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.ctx;
-        let (mk_shares, is_trigger_bit, trigger_value) = try_join3(
-            try_join_all(input.mk_shares.into_iter().enumerate().map(
-                |(idx, mk_share)| async move {
-                    ctx_ref
-                        .narrow(&UpgradeModConvStep::V0(idx))
-                        .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
-                        .await
-                },
-            )),
+        let (is_trigger_bit, trigger_value) = try_join(
             self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
@@ -371,7 +358,6 @@ impl<'a, F: Field + ExtendableField>
         .await?;
 
         Ok(IPAModulusConvertedInputRowWrapper::new(
-            mk_shares,
             is_trigger_bit,
             trigger_value,
         ))
@@ -379,16 +365,14 @@ impl<'a, F: Field + ExtendableField>
 }
 
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
-    pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
-    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
+    pub fn new(is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
-            mk_shares,
             is_trigger_bit,
             trigger_value,
             _marker: PhantomData,
