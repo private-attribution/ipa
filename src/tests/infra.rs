@@ -13,14 +13,13 @@ use futures_util::future::{try_join, try_join_all};
 
 #[test]
 fn send_receive_sequential() {
+    type TestField = Fp32BitPrime;
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                let input = (0u32..11)
-                    .map(Fp32BitPrime::truncate_from)
-                    .collect::<Vec<_>>();
+                let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
+                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -69,14 +68,13 @@ fn send_receive_sequential() {
 
 #[test]
 fn send_receive_parallel() {
+    type TestField = Fp32BitPrime;
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                let input = (0u32..11)
-                    .map(Fp32BitPrime::truncate_from)
-                    .collect::<Vec<_>>();
+                let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
+                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
