@@ -16,6 +16,7 @@ async fn main() -> Result<(), Error> {
     const MAX_QUERY_SIZE: usize = 1000;
     const NUM_USERS: usize = 300;
     const MAX_RECORDS_PER_USER: usize = 10;
+    const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config =
@@ -54,7 +55,12 @@ async fn main() -> Result<(), Error> {
     let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
 
     for records_for_user in &random_user_records {
-        update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
+        update_expected_output_for_user(
+            records_for_user,
+            &mut expected_results,
+            per_user_cap,
+            ATTRIBUTION_WINDOW_SECONDS,
+        );
     }
     let world = TestWorld::new_with(config.clone());
 
@@ -64,6 +70,7 @@ async fn main() -> Result<(), Error> {
         &expected_results,
         per_user_cap,
         MAX_BREAKDOWN_KEY,
+        ATTRIBUTION_WINDOW_SECONDS,
         IpaSecurityModel::Malicious,
     )
     .await;

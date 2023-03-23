@@ -124,17 +124,20 @@ pub mod query {
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
                         max_breakdown_key: u32,
+                        attribution_window_seconds: u32,
                         num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
                         per_user_credit_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         num_multi_bits,
                     }) = req.extract().await?;
 
                     Ok(QueryType::IPA(IpaQueryConfig {
                         per_user_credit_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         num_multi_bits,
                     }))
                 }
@@ -155,10 +158,11 @@ pub mod query {
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::IPA(config) => write!(
                     f,
-                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
                     QueryType::IPA_STR,
                     config.per_user_credit_cap,
                     config.max_breakdown_key,
+                    config.attribution_window_seconds,
                     config.num_multi_bits,
                 ),
             }

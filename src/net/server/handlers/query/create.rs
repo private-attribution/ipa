@@ -81,6 +81,7 @@ mod tests {
             query_type: QueryType::IPA(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
+                attribution_window_seconds: 0,
                 num_multi_bits: 3,
             }),
         })
@@ -154,6 +155,7 @@ mod tests {
         query_type: String,
         per_user_credit_cap: String,
         max_breakdown_key: String,
+        attribution_window_seconds: String,
         num_multi_bits: String,
     }
 
@@ -162,10 +164,11 @@ mod tests {
             OverrideReq {
                 field_type: self.field_type,
                 query_type_params: format!(
-                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
                     self.query_type,
                     self.per_user_credit_cap,
                     self.max_breakdown_key,
+                    self.attribution_window_seconds,
                     self.num_multi_bits
                 ),
             }
@@ -180,6 +183,7 @@ mod tests {
                 query_type: QueryType::IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
+                attribution_window_seconds: "0".into(),
                 num_multi_bits: "3".into(),
             }
         }
@@ -216,6 +220,15 @@ mod tests {
     async fn malformed_max_breakdown_key_ipa() {
         let req = OverrideIPAReq {
             max_breakdown_key: "-1".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_attribution_window_seconds_ipa() {
+        let req = OverrideIPAReq {
+            attribution_window_seconds: "-1".into(),
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;

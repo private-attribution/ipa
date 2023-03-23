@@ -73,6 +73,7 @@ pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
     per_user_cap: u32,
+    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
 ) {
     let mut pending_trigger_value = 0;
     let mut total_contribution = 0;
@@ -102,6 +103,7 @@ pub async fn test_ipa(
     expected_results: &[u32],
     per_user_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     security_model: IpaSecurityModel,
 ) {
     const NUM_MULTI_BITS: u32 = 3;
@@ -130,6 +132,7 @@ pub async fn test_ipa(
                         &input_rows,
                         per_user_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -144,6 +147,7 @@ pub async fn test_ipa(
                         &input_rows,
                         per_user_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         NUM_MULTI_BITS,
                     )
                     .await
