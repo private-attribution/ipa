@@ -113,6 +113,7 @@ pub async fn test_ipa(
         .map(|x| {
             ipa_test_input!(
                 {
+                    timestamp: x.timestamp,
                     match_key: x.user_id,
                     is_trigger_report: x.is_trigger_report,
                     breakdown_key: x.breakdown_key,

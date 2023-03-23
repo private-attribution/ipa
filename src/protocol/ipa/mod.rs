@@ -30,7 +30,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::try_join3;
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -59,6 +59,7 @@ impl AsRef<str> for Step {
 }
 
 pub enum IPAInputRowResharableStep {
+    Timestamp,
     MatchKeyShares,
     TriggerBit,
     BreakdownKey,
@@ -70,6 +71,7 @@ impl Substep for IPAInputRowResharableStep {}
 impl AsRef<str> for IPAInputRowResharableStep {
     fn as_ref(&self) -> &str {
         match self {
+            Self::Timestamp => "timestamp",
             Self::MatchKeyShares => "match_key_shares",
             Self::TriggerBit => "is_trigger_bit",
             Self::BreakdownKey => "breakdown_key",
@@ -81,6 +83,7 @@ impl AsRef<str> for IPAInputRowResharableStep {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
+    pub timestamp: Replicated<F>,
     pub mk_shares: Replicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: Replicated<BK>,
@@ -106,18 +109,31 @@ where
             >>::Output,
         >>::Output,
     >,
-    <<Replicated<MK> as Serializable>::Size as Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
+    <Replicated<F> as Serializable>::Size: Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
+            >>::Output,
+        >>::Output,
+    >,
+    <<Replicated<F> as Serializable>::Size as Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
             >>::Output,
         >>::Output,
     >>::Output: ArrayLength<u8>,
 {
-    type Size = <<Replicated<MK> as Serializable>::Size as Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
+    type Size = <<Replicated<F> as Serializable>::Size as Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
             >>::Output,
         >>::Output,
     >>::Output;
@@ -127,15 +143,18 @@ where
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
+        self.timestamp
+            .serialize(GenericArray::from_mut_slice(&mut buf[..f_sz]));
         self.mk_shares
-            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
-        self.is_trigger_bit
-            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + f_sz]));
+            .serialize(GenericArray::from_mut_slice(&mut buf[f_sz..f_sz + mk_sz]));
+        self.is_trigger_bit.serialize(GenericArray::from_mut_slice(
+            &mut buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
+        ));
         self.breakdown_key.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+            &mut buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
         ));
         self.trigger_value.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + f_sz + bk_sz..],
+            &mut buf[f_sz + mk_sz + f_sz + bk_sz..],
         ));
     }
 
@@ -144,15 +163,20 @@ where
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let mk_shares = Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
-        let is_trigger_bit =
-            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + f_sz]));
-        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
-            &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]));
+        let mk_shares =
+            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
+        let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
         ));
-        let trigger_value =
-            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz + f_sz + bk_sz..]));
+        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
+        ));
+        let trigger_value = Replicated::<F>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz + f_sz + bk_sz..],
+        ));
         Self {
+            timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
@@ -183,6 +207,7 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
+    pub timestamp: T,
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
@@ -192,12 +217,14 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
     pub fn new(
+        timestamp: T,
         mk_shares: Vec<T>,
         is_trigger_bit: T,
         breakdown_key: Vec<T>,
         trigger_value: T,
     ) -> Self {
         Self {
+            timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
@@ -223,6 +250,11 @@ where
     where
         C: 'fut,
     {
+        let f_timestamp = self.timestamp.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::Timestamp),
+            record_id,
+            to_helper,
+        );
         let f_mk_shares = self.mk_shares.reshare(
             ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
             record_id,
@@ -244,14 +276,15 @@ where
             to_helper,
         );
 
-        let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
+        let (mk_shares, breakdown_key, (timestamp, is_trigger_bit, trigger_value)) = try_join3(
             f_mk_shares,
             f_breakdown_key,
-            try_join(f_is_trigger_bit, f_trigger_value),
+            try_join3(f_timestamp, f_is_trigger_bit, f_trigger_value),
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRow::new(
+            timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
@@ -321,6 +354,7 @@ where
             .zip(input_rows)
             .map(|((mk_shares, bk_shares), input_row)| {
                 IPAModulusConvertedInputRow::new(
+                    input_row.timestamp.clone(),
                     mk_shares,
                     input_row.is_trigger_bit.clone(),
                     bk_shares,
@@ -426,6 +460,7 @@ where
         .map(|(mk_shares, input_row)| {
             IPAModulusConvertedInputRowWrapper::new(
                 mk_shares,
+                input_row.timestamp.clone(),
                 input_row.is_trigger_bit.clone(),
                 input_row.trigger_value.clone(),
             )
@@ -439,6 +474,7 @@ where
         .zip(converted_bk_shares)
         .map(
             |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+                timestamp: one_row.timestamp,
                 mk_shares: one_row.mk_shares,
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
@@ -519,11 +555,11 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -570,11 +606,11 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 4, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -619,22 +655,22 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
-                { match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
-                { match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
-                { match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
-                { match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                { timestamp: 0, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                { timestamp: 0, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
+                { timestamp: 0, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                { timestamp: 0, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
 
             ];
             (Fp31, MatchKey, BreakdownKey)
@@ -759,6 +795,7 @@ pub mod tests {
     }
 
     fn serde_internal(
+        timestamp: u128,
         match_key: u64,
         trigger_bit: u128,
         breakdown_key: u128,
@@ -769,7 +806,7 @@ pub mod tests {
         let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
         let reports: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
+                { timestamp: timestamp, match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -793,8 +830,8 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn serde(match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
-            serde_internal(match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
+            serde_internal(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
         }
     }
 
@@ -810,29 +847,29 @@ pub mod tests {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Mar 8, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15453;
+        /// empirical value as of Mar 23, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15507;
 
-        /// empirical value as of Mar 8, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38400;
+        /// empirical value as of Mar 23, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38535;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
+        /// empirical value as of Mar 23, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11838;
 
-        /// empirical value as of Feb 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29046;
+        /// empirical value as of Mar 23, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29181;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );

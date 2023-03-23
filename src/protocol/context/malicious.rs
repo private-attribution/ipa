@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3, try_join_all};
+use futures::future::{try_join, try_join4, try_join_all};
 
 use crate::{
     error::Error,
@@ -310,6 +310,7 @@ enum UpgradeModConvStep {
     V0(usize),
     V1,
     V2,
+    V3,
 }
 
 impl crate::protocol::Substep for UpgradeModConvStep {}
@@ -322,6 +323,7 @@ impl AsRef<str> for UpgradeModConvStep {
             Self::V0(i) => UPGRADE_MOD_CONV0[*i],
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
+            Self::V3 => "upgrade_mod_conv3",
         }
     }
 }
@@ -360,7 +362,7 @@ impl<'a, F: Field + ExtendableField>
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
         let ctx_ref = &self.ctx;
-        let (mk_shares, is_trigger_bit, trigger_value) = try_join3(
+        let (mk_shares, is_trigger_bit, trigger_value, timestamp) = try_join4(
             try_join_all(input.mk_shares.into_iter().enumerate().map(
                 |(idx, mk_share)| async move {
                     ctx_ref
@@ -379,11 +381,17 @@ impl<'a, F: Field + ExtendableField>
                 input.trigger_value,
                 ZeroPositions::Pvvv,
             ),
+            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
+                self.record_binding,
+                input.timestamp,
+                ZeroPositions::Pvvv,
+            ),
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRowWrapper::new(
             mk_shares,
+            timestamp,
             is_trigger_bit,
             trigger_value,
         ))
@@ -392,15 +400,17 @@ impl<'a, F: Field + ExtendableField>
 
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
+    pub timestamp: T,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
-    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
+    pub fn new(mk_shares: Vec<T>, timestamp: T, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             mk_shares,
+            timestamp,
             is_trigger_bit,
             trigger_value,
             _marker: PhantomData,

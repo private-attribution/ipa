@@ -31,10 +31,11 @@ fn semi_honest_ipa() {
                     .map(|_| {
                         ipa_test_input!(
                             {
-                                    match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                    is_trigger_report: rng.gen::<u32>(),
-                                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+                                timestamp: 0,
+                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
+                                is_trigger_report: rng.gen::<u32>(),
+                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
                             };
                             (Fp32BitPrime, MatchKey, BreakdownKey)
                         )
@@ -77,10 +78,11 @@ fn malicious_ipa() {
                     .map(|_| {
                         ipa_test_input!(
                             {
-                                    match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                    is_trigger_report: rng.gen::<u32>(),
-                                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+                                timestamp: 0,
+                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
+                                is_trigger_report: rng.gen::<u32>(),
+                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
                             };
                             (Fp32BitPrime, MatchKey, BreakdownKey)
                         )
