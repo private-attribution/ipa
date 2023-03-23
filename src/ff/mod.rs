@@ -7,7 +7,7 @@ mod galois_field;
 mod prime_field;
 
 pub use field::{Field, FieldType};
-pub use galois_field::{GaloisField, Gf40Bit, Gf8Bit};
+pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf40Bit, Gf8Bit};
 pub use prime_field::{Fp31, Fp32BitPrime, PrimeField};
 
 use crate::secret_sharing::SharedValue;

@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, Serializable},
+    ff::{Field, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
@@ -22,17 +22,56 @@ use std::{
 };
 use typenum::Unsigned;
 
+///
+/// This code is an optimization to our malicious compiler that is drawn from:
+/// "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+/// R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+/// <https://eprint.iacr.org/2019/386.pdf>
+///
+/// The general idea here is that each "wire" in the circuit carries both the orginal value `x` as well as another value `rx`
+/// This paper demonstrates a mechanism by which a very small field (even a binary field) can be used for the `x` value,
+/// while a larger extension field is used for `rx`.
+///
+/// This makes it possible to minimize communication overhead required to reach a desired level of statistical security.
+///
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: SharedValue> {
+pub struct AdditiveShare<V: SharedValue + ExtendableField> {
     x: SemiHonestAdditiveShare<V>,
-    rx: SemiHonestAdditiveShare<V>,
+    rx: SemiHonestAdditiveShare<V::ExtendedField>,
 }
 
-impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
+pub trait ExtendableField {
+    type ExtendedField: Field;
+    fn to_extended(&self) -> Self::ExtendedField;
+}
+
+impl ExtendableField for Fp32BitPrime {
+    type ExtendedField = Fp32BitPrime;
+
+    fn to_extended(&self) -> Self::ExtendedField {
+        *self
+    }
+}
+
+// A binary field (just 2 elements, 0 and 1) is way too small.
+// As such, we need to define a 32-bit extension field (Gf32Bit) if we want to achieve an acceptable level of statistical security.
+// Computing the "induced share" is super easy,
+// all of the bits are zero except the least significant one - which is taken from the share you're converting.
+//
+// `f(1) = (0, 0, 0, 0, ..., 0, 1)`
+impl ExtendableField for Gf2 {
+    type ExtendedField = Gf32Bit;
+
+    fn to_extended(&self) -> Self::ExtendedField {
+        Gf32Bit::try_from(self.as_u128()).unwrap()
+    }
+}
+
+impl<V: SharedValue + ExtendableField> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue + ExtendableField> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
@@ -55,13 +94,13 @@ pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
 
-impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
+impl<V: SharedValue + Debug + ExtendableField> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
     }
 }
 
-impl<V: SharedValue> Default for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Default for AdditiveShare<V> {
     fn default() -> Self {
         AdditiveShare::new(
             SemiHonestAdditiveShare::default(),
@@ -70,9 +109,12 @@ impl<V: SharedValue> Default for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
     #[must_use]
-    pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V>) -> Self {
+    pub fn new(
+        x: SemiHonestAdditiveShare<V>,
+        rx: SemiHonestAdditiveShare<V::ExtendedField>,
+    ) -> Self {
         Self { x, rx }
     }
 
@@ -80,7 +122,7 @@ impl<V: SharedValue> AdditiveShare<V> {
         UnauthorizedDowngradeWrapper(&self.x)
     }
 
-    pub fn rx(&self) -> &SemiHonestAdditiveShare<V> {
+    pub fn rx(&self) -> &SemiHonestAdditiveShare<V::ExtendedField> {
         &self.rx
     }
 
@@ -90,7 +132,7 @@ impl<V: SharedValue> AdditiveShare<V> {
     };
 }
 
-impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Add<Self> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -101,7 +143,7 @@ impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<&Self> for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Add<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(mut self, rhs: &Self) -> Self::Output {
@@ -110,14 +152,14 @@ impl<V: SharedValue> Add<&Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> AddAssign<&Self> for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.x += &rhs.x;
         self.rx += &rhs.rx;
     }
 }
 
-impl<V: SharedValue> Neg for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -128,7 +170,7 @@ impl<V: SharedValue> Neg for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Sub<Self> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -138,7 +180,7 @@ impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
         }
     }
 }
-impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(mut self, rhs: &Self) -> Self::Output {
@@ -147,36 +189,37 @@ impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> SubAssign<&Self> for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.x -= &rhs.x;
         self.rx -= &rhs.rx;
     }
 }
 
-impl<V: SharedValue> Mul<V> for AdditiveShare<V> {
+impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
     type Output = Self;
 
     fn mul(self, rhs: V) -> Self::Output {
         Self {
             x: self.x * rhs,
-            rx: self.rx * rhs,
+            rx: self.rx * rhs.to_extended(),
         }
     }
 }
 
 /// todo serde macro for these collections so we can hide the crazy size calculations
-impl<V: SharedValue> Serializable for AdditiveShare<V>
+impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,
+    SemiHonestAdditiveShare<V::ExtendedField>: Serializable,
     <SemiHonestAdditiveShare<V> as Serializable>::Size:
-        Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
+        Add<<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size>,
     <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output: ArrayLength<u8>,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
@@ -191,16 +234,17 @@ where
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
             ));
-        let rx =
-            <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
-                &buf[<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE..],
-            ));
+        let rx = <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::deserialize(
+            GenericArray::from_slice(
+                &buf[<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size::USIZE..],
+            ),
+        );
         Self { x, rx }
     }
 }
 
 #[async_trait]
-impl<F: Field> Downgrade for AdditiveShare<F> {
+impl<F: Field + ExtendableField> Downgrade for AdditiveShare<F> {
     type Target = SemiHonestAdditiveShare<F>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
@@ -224,7 +268,7 @@ where
 }
 
 #[async_trait]
-impl<'a, F: Field> Downgrade
+impl<'a, F: Field + ExtendableField> Downgrade
     for ShuffledPermutationWrapper<AdditiveShare<F>, MaliciousContext<'a, F>>
 {
     type Target = Vec<u32>;
@@ -261,7 +305,9 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
+    use super::{
+        AdditiveShare, Downgrade, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
@@ -274,6 +320,19 @@ mod tests {
         },
         test_fixture::Reconstruct,
     };
+
+    // The field Fp31 is *not* large enough to provide statistical security. As such, it should never
+    // be used (in production) for malicious circuits.
+    // That said, it's still very useful for this to work in *tests*. One reason is that it's useful to have
+    // a small field where collissions can often happen.
+    #[cfg(test)]
+    impl ExtendableField for Fp31 {
+        type ExtendedField = Fp31;
+
+        fn to_extended(&self) -> Self::ExtendedField {
+            *self
+        }
+    }
 
     #[test]
     #[allow(clippy::many_single_char_names)]

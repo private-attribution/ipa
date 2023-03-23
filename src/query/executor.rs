@@ -119,6 +119,7 @@ where
         input_vec.as_slice(),
         query_config.per_user_credit_cap,
         query_config.max_breakdown_key,
+        query_config.attribution_window_seconds,
         query_config.num_multi_bits,
     )
     .await
@@ -267,6 +268,7 @@ mod tests {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
+                attribution_window_seconds: 0,
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares)

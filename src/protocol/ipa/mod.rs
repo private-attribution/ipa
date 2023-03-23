@@ -22,7 +22,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
@@ -269,6 +269,7 @@ pub async fn ipa<F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -341,6 +342,7 @@ where
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
+        attribution_window_seconds,
         num_multi_bits,
     )
     .await
@@ -358,16 +360,17 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: PrimeField,
+    F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
     Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
-    let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
+    let malicious_validator = MaliciousValidator::<F>::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -397,7 +400,8 @@ where
     .await
     .unwrap();
 
-    let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
+    let malicious_validator =
+        MaliciousValidator::<F>::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
@@ -458,6 +462,7 @@ where
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
+        attribution_window_seconds,
         num_multi_bits,
     )
     .await
@@ -507,6 +512,7 @@ pub mod tests {
             [7, 0],
         ];
         const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -529,6 +535,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -556,6 +563,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -578,6 +586,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -603,6 +612,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
         const MAX_BREAKDOWN_KEY: u32 = 7;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -637,6 +647,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -659,11 +670,12 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<_, MatchKey, BreakdownKey>(
+                ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -693,6 +705,7 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
@@ -731,6 +744,7 @@ pub mod tests {
                     records_for_user,
                     &mut expected_results,
                     per_user_cap,
+                    ATTRIBUTION_WINDOW_SECONDS,
                 );
             }
 
@@ -740,6 +754,7 @@ pub mod tests {
                 &expected_results,
                 per_user_cap,
                 MAX_BREAKDOWN_KEY,
+                ATTRIBUTION_WINDOW_SECONDS,
                 IpaSecurityModel::SemiHonest,
             )
             .await;
@@ -795,6 +810,7 @@ pub mod tests {
     #[tokio::test]
     pub async fn communication_baseline() {
         const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Mar 8, 2023.
@@ -834,6 +850,7 @@ pub mod tests {
                         &input_rows,
                         per_user_cap,
                         MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -866,6 +883,7 @@ pub mod tests {
                         &input_rows,
                         per_user_cap,
                         MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
                     )
                     .await

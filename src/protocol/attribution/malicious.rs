@@ -15,7 +15,8 @@ use crate::{
         RecordId, Substep,
     },
     secret_sharing::replicated::{
-        malicious::AdditiveShare, semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+        malicious::{AdditiveShare, ExtendableField},
+        semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
 };
 use futures::future::try_join_all;
@@ -31,10 +32,11 @@ pub async fn secure_attribution<'a, F, BK>(
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
-    F: PrimeField,
+    F: PrimeField + ExtendableField,
     BK: GaloisField,
     AdditiveShare<F>: Serializable,
     SemiHonestAdditiveShare<F>: Serializable,

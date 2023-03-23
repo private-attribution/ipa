@@ -26,7 +26,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
@@ -148,7 +148,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
     Error,
 >
 where
-    F: Field,
+    F: Field + ExtendableField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
@@ -401,7 +401,7 @@ async fn sort_by_breakdown_key<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_breakdown_key<F: Field>(
+async fn malicious_sort_by_breakdown_key<F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u32,
@@ -470,7 +470,7 @@ async fn sort_by_aggregation_bit<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
+async fn malicious_sort_by_aggregation_bit<'a, F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<

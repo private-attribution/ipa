@@ -11,7 +11,7 @@ use crate::{
         BreakdownKey, MatchKey,
     },
     secret_sharing::{
-        replicated::{malicious, semi_honest},
+        replicated::{malicious, malicious::ExtendableField, semi_honest},
         IntoShares,
     },
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner},
@@ -80,6 +80,7 @@ pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
     per_user_cap: u32,
+    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
 ) {
     let mut pending_trigger_value = 0;
     let mut total_contribution = 0;
@@ -109,11 +110,13 @@ pub async fn test_ipa<F>(
     expected_results: &[u32],
     per_user_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     security_model: IpaSecurityModel,
 ) where
     semi_honest::AdditiveShare<F>: Serializable,
     malicious::AdditiveShare<F>: Serializable,
-    F: PrimeField + IntoShares<semi_honest::AdditiveShare<F>>,
+    // todo: for semi-honest we don't need extendable fields.
+    F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     Standard: Distribution<F>,
 {
     const NUM_MULTI_BITS: u32 = 3;
@@ -141,6 +144,7 @@ pub async fn test_ipa<F>(
                     &input_rows,
                     per_user_cap,
                     max_breakdown_key,
+                    attribution_window_seconds,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -155,6 +159,7 @@ pub async fn test_ipa<F>(
                     &input_rows,
                     per_user_cap,
                     max_breakdown_key,
+                    attribution_window_seconds,
                     NUM_MULTI_BITS,
                 )
                 .await

@@ -73,8 +73,9 @@ mod tests {
             RecordId,
         },
         secret_sharing::replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -107,12 +108,12 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
-        fn l(&self) -> F {
+    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
+        fn l(&self) -> F::ExtendedField {
             (self as &MaliciousReplicated<F>).rx().left()
         }
 
-        fn r(&self) -> F {
+        fn r(&self) -> F::ExtendedField {
             (self as &MaliciousReplicated<F>).rx().right()
         }
     }
