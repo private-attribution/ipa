@@ -11,19 +11,19 @@ use crate::{
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
 };
 
+const BATCHSIZE: usize = 5;
+const PER_USER_CAP: u32 = 10;
+const MAX_BREAKDOWN_KEY: u32 = 8;
+const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+const MAX_TRIGGER_VALUE: u32 = 5;
+const NUM_MULTI_BITS: u32 = 3;
+const MAX_MATCH_KEY: u128 = 3;
+
 #[test]
 fn semi_honest_ipa() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                const BATCHSIZE: usize = 5;
-                const PER_USER_CAP: u32 = 10;
-                const MAX_BREAKDOWN_KEY: u32 = 8;
-                const MAX_TRIGGER_VALUE: u32 = 5;
-                const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
-                const NUM_MULTI_BITS: u32 = 3;
-                const MAX_MATCH_KEY: u128 = 3;
-
                 let world = TestWorld::default();
                 let mut rng = thread_rng();
 
@@ -70,14 +70,6 @@ fn malicious_ipa() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                const BATCHSIZE: usize = 5;
-                const PER_USER_CAP: u32 = 10;
-                const MAX_BREAKDOWN_KEY: u32 = 8;
-                const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
-                const MAX_TRIGGER_VALUE: u32 = 5;
-                const NUM_MULTI_BITS: u32 = 3;
-                const MAX_MATCH_KEY: u128 = 3;
-
                 let world = TestWorld::default();
                 let mut rng = thread_rng();
 
