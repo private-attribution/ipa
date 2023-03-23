@@ -251,17 +251,11 @@ where
         .narrow(&Step::ComputeHelperBits)
         .set_total_records(sorted_match_keys.len() - 1);
 
-    try_join_all(
-        sorted_match_keys
-            .iter()
-            .zip(sorted_match_keys.iter().skip(1))
-            .enumerate()
-            .map(|(i, (row, next_row))| {
-                let c = narrowed_ctx.clone();
-                let record_id = RecordId::from(i);
-                async move { bitwise_equal_gf2(c, record_id, row, next_row).await }
-            }),
-    )
+    try_join_all(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
+        let c = narrowed_ctx.clone();
+        let record_id = RecordId::from(i);
+        async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
+    }))
     .await
 }
 
