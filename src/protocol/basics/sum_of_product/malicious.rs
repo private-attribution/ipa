@@ -87,22 +87,37 @@ where
     let prss = ctx.prss();
     let duplicate_prss = duplicate_multiply_ctx.prss();
     let (s0, s1): (F, F) = prss.generate_fields(record_id);
-    let (s0_m, s1_m): (F::LargeFieldType, F::LargeFieldType) =
+    let (s0_m, s1_m): (F::ExtendedField, F::ExtendedField) =
         duplicate_prss.generate_fields(record_id);
     let role = ctx.role();
 
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = s1 - s0;
-    let mut right_sops_m: F::LargeFieldType = s1_m - s0_m;
+    let mut right_sops_m: F::ExtendedField = s1_m - s0_m;
 
     for i in 0..vec_len {
         let ax = a[i].x().access_without_downgrade();
         let bx = b[i].x().access_without_downgrade();
         let arx = a[i].rx();
-        let bx_induced = Replicated::new(
-            bx.left().get_induced_value(),
-            bx.right().get_induced_value(),
-        );
+
+        //
+        // This code is an optimization to our malicious compiler that is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In Step 4: "Circuit emulation:", it says:
+        //
+        // If G_j is a multiplication gate: Given pairs `([x], [[ȓ · x]])` and `([y], [[ȓ · y]])` on the left and right input wires
+        // respectively, the parties compute `([x · y], [[ȓ · x · y]])` as follows:
+        // (a) The parties call `F_mult` on `[x]` and `[y]` to receive `[x · y]`.
+        // (b) The parties locally compute the induced share [[y]] = f([y], 0, . . . , 0).
+        // (c) The parties call `Ḟ_mult` on `[[ȓ · x]]` and `[[y]]` to receive `[[ȓ · x · y]]`.
+        //
+        // As "sum of products" is essentially just a multiplication, which is also secure up to an additive attack, the same applies here
+        //
+        let bx_induced = Replicated::new(bx.left().to_extended(), bx.right().to_extended());
         right_sops += ax.right() * bx.right() + ax.left() * bx.right() + ax.right() * bx.left();
         right_sops_m += arx.right() * bx_induced.right()
             + arx.left() * bx_induced.right()
@@ -120,7 +135,7 @@ where
     .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let (left_sops, left_sops_m): (F, F::LargeFieldType) = try_join(
+    let (left_sops, left_sops_m): (F, F::ExtendedField) = try_join(
         ctx.recv_channel(role.peer(Direction::Left))
             .receive(record_id),
         duplicate_multiply_ctx

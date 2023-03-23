@@ -386,7 +386,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(input.clone(), |ctx, a_share| async move {
+            .malicious(input, |ctx, a_share| async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -410,6 +410,8 @@ mod tests {
         (F, F): Sized,
         Standard: Distribution<F>,
     {
+        let bitwise_result = bitwise_gt(world, lhs, rhs).await;
+
         let result = world
             .semi_honest(lhs, |ctx, lhs| async move {
                 let ctx = ctx.set_total_records(1);
@@ -425,6 +427,8 @@ mod tests {
             })
             .await
             .reconstruct();
+
+        assert_eq!(bitwise_result, result);
 
         let m_result = world
             .malicious(lhs, |ctx, lhs| async move {
@@ -464,6 +468,9 @@ mod tests {
         assert_eq!(zero, gt(&world, c(9), 9).await);
 
         assert_eq!(zero, gt(&world, zero, u128::from(Fp31::PRIME) - 1).await);
+        assert_eq!(one, gt(&world, c(Fp31::PRIME - 1), 0).await);
+
+        assert_eq!(zero, bitwise_gt(&world, zero, Fp31::PRIME.into()).await);
     }
 
     #[tokio::test]
@@ -484,32 +491,26 @@ mod tests {
         assert_eq!(zero, gt(&world, c(9), 9).await);
 
         assert_eq!(zero, gt(&world, c(u16_max), u16_max.into()).await);
+        assert_eq!(zero, gt(&world, c(u16_max), (u16_max + 1).into()).await);
         assert_eq!(one, gt(&world, c(u16_max + 1), u16_max.into()).await);
 
         assert_eq!(
             zero,
             gt(&world, zero, u128::from(Fp32BitPrime::PRIME) - 1).await
         );
-    }
+        assert_eq!(
+            zero,
+            gt(&world, c(u16_max), (Fp32BitPrime::PRIME - 1).into()).await
+        );
+        assert_eq!(
+            one,
+            gt(&world, c(Fp32BitPrime::PRIME - 1), u16_max.into()).await
+        );
 
-    #[tokio::test]
-    pub async fn bw_gt_fp31() {
-        let c = Fp31::truncate_from;
-        let zero = Fp31::ZERO;
-        let one = Fp31::ONE;
-        let world = TestWorld::default();
-
-        assert_eq!(zero, bitwise_gt(&world, zero, 1).await);
-        assert_eq!(one, bitwise_gt(&world, one, 0).await);
-        assert_eq!(zero, bitwise_gt(&world, zero, 0).await);
-        assert_eq!(zero, bitwise_gt(&world, one, 1).await);
-
-        assert_eq!(zero, bitwise_gt(&world, c(3_u8), 7).await);
-        assert_eq!(one, bitwise_gt(&world, c(21), 20).await);
-        assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
-
-        assert_eq!(zero, bitwise_gt(&world, zero, Fp31::PRIME.into()).await);
-        assert_eq!(one, bitwise_gt(&world, c(Fp31::PRIME - 1), 0).await);
+        assert_eq!(
+            zero,
+            bitwise_gt(&world, zero, Fp32BitPrime::PRIME.into()).await
+        );
     }
 
     #[tokio::test]
@@ -565,46 +566,6 @@ mod tests {
         assert_eq!(
             zero,
             bitwise_lt(&world, c(Fp32BitPrime::PRIME - 1), 0).await
-        );
-    }
-
-    #[tokio::test]
-    pub async fn bw_gt_fp_32bit_prime() {
-        let c = Fp32BitPrime::truncate_from;
-        let zero = Fp32BitPrime::ZERO;
-        let one = Fp32BitPrime::ONE;
-        let u16_max: u32 = u16::MAX.into();
-        let world = TestWorld::default();
-
-        assert_eq!(zero, bitwise_gt(&world, zero, 1).await);
-        assert_eq!(one, bitwise_gt(&world, one, 0).await);
-        assert_eq!(zero, bitwise_gt(&world, zero, 0).await);
-        assert_eq!(zero, bitwise_gt(&world, one, 1).await);
-
-        assert_eq!(zero, bitwise_gt(&world, c(3_u32), 7).await);
-        assert_eq!(one, bitwise_gt(&world, c(21), 20).await);
-        assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
-
-        assert_eq!(
-            zero,
-            bitwise_gt(&world, c(u16_max), (u16_max + 1).into()).await
-        );
-        assert_eq!(
-            one,
-            bitwise_gt(&world, c(u16_max + 1), u16_max.into()).await
-        );
-        assert_eq!(
-            zero,
-            bitwise_gt(&world, c(u16_max), (Fp32BitPrime::PRIME - 1).into()).await
-        );
-        assert_eq!(
-            one,
-            bitwise_gt(&world, c(Fp32BitPrime::PRIME - 1), u16_max.into()).await
-        );
-
-        assert_eq!(
-            zero,
-            bitwise_gt(&world, zero, Fp32BitPrime::PRIME.into()).await
         );
     }
 

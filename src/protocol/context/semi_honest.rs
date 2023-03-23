@@ -69,7 +69,7 @@ impl<'a> SemiHonestContext<'a> {
         self,
         malicious_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F::LargeFieldType>,
+        r_share: Replicated<F::ExtendedField>,
     ) -> MaliciousContext<'a, F> {
         MaliciousContext::new(&self, malicious_step, accumulator, r_share)
     }

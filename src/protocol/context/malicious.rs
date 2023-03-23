@@ -73,7 +73,7 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
         source: &SemiHonestContext<'a>,
         malicious_step: &S,
         acc: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F::LargeFieldType>,
+        r_share: Replicated<F::ExtendedField>,
     ) -> Self {
         Self {
             inner: ContextInner::new(source, acc, r_share),
@@ -98,8 +98,20 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let induced_share =
-            Replicated::new(x.left().get_induced_value(), x.right().get_induced_value());
+        //
+        // This code is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In Step 3: "Randomization of inputs:", it says:
+        //
+        // For each input wire sharing `[v_j]` (where j ∈ {1, . . . , M}), the parties locally
+        // compute the induced share `[[v_j]] = f([v_j], 0, . . . , 0)`.
+        // Then, the parties call `Ḟ_mult` on `[[ȓ]]` and `[[v_j]]` to receive `[[ȓ · v_j]]`
+        //
+        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
         let rx = induced_share
             .multiply_sparse(
@@ -169,7 +181,7 @@ impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
     pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().semi_honest_context(), value),
-            self.inner.r_share.clone() * value.get_induced_value(),
+            self.inner.r_share.clone() * value.to_extended(),
         )
     }
 }
@@ -452,14 +464,14 @@ struct ContextInner<'a, F: Field + ExtendableField> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: MaliciousValidatorAccumulator<F>,
-    r_share: Replicated<F::LargeFieldType>,
+    r_share: Replicated<F::ExtendedField>,
 }
 
 impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
     fn new(
         semi_honest: &SemiHonestContext<'a>,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F::LargeFieldType>,
+        r_share: Replicated<F::ExtendedField>,
     ) -> Arc<Self> {
         Arc::new(ContextInner {
             prss: semi_honest.inner.prss,

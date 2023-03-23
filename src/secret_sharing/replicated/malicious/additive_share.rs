@@ -22,29 +22,47 @@ use std::{
 };
 use typenum::Unsigned;
 
+///
+/// This code is an optimization to our malicious compiler that is drawn from:
+/// "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+/// R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+/// <https://eprint.iacr.org/2019/386.pdf>
+///
+/// The general idea here is that each "wire" in the circuit carries both the orginal value `x` as well as another value `rx`
+/// This paper demonstrates a mechanism by which a very small field (even a binary field) can be used for the `x` value,
+/// while a larger extension field is used for `rx`.
+///
+/// This makes it possible to minimize communication overhead required to reach a desired level of statistical security.
+///
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: SharedValue + ExtendableField> {
     x: SemiHonestAdditiveShare<V>,
-    rx: SemiHonestAdditiveShare<V::LargeFieldType>,
+    rx: SemiHonestAdditiveShare<V::ExtendedField>,
 }
 
 pub trait ExtendableField {
-    type LargeFieldType: Field;
-    fn get_induced_value(&self) -> Self::LargeFieldType;
+    type ExtendedField: Field;
+    fn to_extended(&self) -> Self::ExtendedField;
 }
 
 impl ExtendableField for Fp32BitPrime {
-    type LargeFieldType = Fp32BitPrime;
+    type ExtendedField = Fp32BitPrime;
 
-    fn get_induced_value(&self) -> Self::LargeFieldType {
+    fn to_extended(&self) -> Self::ExtendedField {
         *self
     }
 }
 
+// A binary field (just 2 elements, 0 and 1) is way too small.
+// As such, we need to define a 32-bit extension field (Gf32Bit) if we want to achieve an acceptable level of statistical security.
+// Computing the "induced share" is super easy,
+// all of the bits are zero except the least significant one - which is taken from the share you're converting.
+//
+// `f(1) = (0, 0, 0, 0, ..., 0, 1)`
 impl ExtendableField for Gf2 {
-    type LargeFieldType = Gf32Bit;
+    type ExtendedField = Gf32Bit;
 
-    fn get_induced_value(&self) -> Self::LargeFieldType {
+    fn to_extended(&self) -> Self::ExtendedField {
         Gf32Bit::try_from(self.as_u128()).unwrap()
     }
 }
@@ -95,7 +113,7 @@ impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
     #[must_use]
     pub fn new(
         x: SemiHonestAdditiveShare<V>,
-        rx: SemiHonestAdditiveShare<V::LargeFieldType>,
+        rx: SemiHonestAdditiveShare<V::ExtendedField>,
     ) -> Self {
         Self { x, rx }
     }
@@ -104,7 +122,7 @@ impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
         UnauthorizedDowngradeWrapper(&self.x)
     }
 
-    pub fn rx(&self) -> &SemiHonestAdditiveShare<V::LargeFieldType> {
+    pub fn rx(&self) -> &SemiHonestAdditiveShare<V::ExtendedField> {
         &self.rx
     }
 
@@ -184,7 +202,7 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
     fn mul(self, rhs: V) -> Self::Output {
         Self {
             x: self.x * rhs,
-            rx: self.rx * rhs.get_induced_value(),
+            rx: self.rx * rhs.to_extended(),
         }
     }
 }
@@ -193,15 +211,15 @@ impl<V: SharedValue + ExtendableField> Mul<V> for AdditiveShare<V> {
 impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,
-    SemiHonestAdditiveShare<V::LargeFieldType>: Serializable,
+    SemiHonestAdditiveShare<V::ExtendedField>: Serializable,
     <SemiHonestAdditiveShare<V> as Serializable>::Size:
-        Add<<SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size>,
+        Add<<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size>,
     <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output: ArrayLength<u8>,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
-        <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size,
+        <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
@@ -216,9 +234,9 @@ where
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
             ));
-        let rx = <SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::deserialize(
+        let rx = <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::deserialize(
             GenericArray::from_slice(
-                &buf[<SemiHonestAdditiveShare<V::LargeFieldType> as Serializable>::Size::USIZE..],
+                &buf[<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size::USIZE..],
             ),
         );
         Self { x, rx }
@@ -309,9 +327,9 @@ mod tests {
     // a small field where collissions can often happen.
     #[cfg(test)]
     impl ExtendableField for Fp31 {
-        type LargeFieldType = Fp31;
+        type ExtendedField = Fp31;
 
-        fn get_induced_value(&self) -> Self::LargeFieldType {
+        fn to_extended(&self) -> Self::ExtendedField {
             *self
         }
     }

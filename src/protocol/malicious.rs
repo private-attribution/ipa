@@ -116,14 +116,14 @@ impl<T: Field> AccumulatorState<T> {
 
 #[derive(Clone, Debug)]
 pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
-    inner: Weak<Mutex<AccumulatorState<F::LargeFieldType>>>,
+    inner: Weak<Mutex<AccumulatorState<F::ExtendedField>>>,
 }
 
 impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
     fn compute_dot_product_contribution(
-        a: &Replicated<F::LargeFieldType>,
-        b: &Replicated<F::LargeFieldType>,
-    ) -> F::LargeFieldType {
+        a: &Replicated<F::ExtendedField>,
+        b: &Replicated<F::ExtendedField>,
+    ) -> F::ExtendedField {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
     }
 
@@ -138,13 +138,26 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = input.x().access_without_downgrade();
-        let induced_share =
-            Replicated::new(x.left().get_induced_value(), x.right().get_induced_value());
+
+        //
+        // This code is an optimization to our malicious compiler that is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In step 5: Verification Stage, it says:
+        //
+        // The parties locally compute the induced share `[[z_k]] = f([z_k], 0, . . . , 0)`
+        // of the output wire of the k-th multiplication gate.
+        // Then, the parties call `Ḟ_product` on vectors
+        // `([[ᾶ_1]], . . . , [[ᾶ_N ]], [[β_1]], . . . , [[β_M]])` and `([[z_1]], . . . , [[z_N]], [[v_1]], . . . , [[v_M]])` to receive `[[ŵ]]`
+        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
         let random_constant = prss.generate_replicated(record_id);
-        let u_contribution: F::LargeFieldType =
+        let u_contribution: F::ExtendedField =
             Self::compute_dot_product_contribution(&random_constant, input.rx());
-        let w_contribution: F::LargeFieldType =
+        let w_contribution: F::ExtendedField =
             Self::compute_dot_product_contribution(&random_constant, &induced_share);
 
         let arc_mutex = self.inner.upgrade().unwrap();
@@ -158,8 +171,8 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
 }
 
 pub struct MaliciousValidator<'a, F: Field + ExtendableField> {
-    r_share: Replicated<F::LargeFieldType>,
-    u_and_w: Arc<Mutex<AccumulatorState<F::LargeFieldType>>>,
+    r_share: Replicated<F::ExtendedField>,
+    u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
     protocol_ctx: MaliciousContext<'a, F>,
     validate_ctx: SemiHonestContext<'a>,
 }
@@ -169,10 +182,10 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share: Replicated<F::LargeFieldType> = ctx.prss().generate_replicated(RECORD_0);
+        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
-        let u: F::LargeFieldType = prss.zero(RECORD_1);
-        let w: F::LargeFieldType = prss.zero(RECORD_2);
+        let u: F::ExtendedField = prss.zero(RECORD_1);
+        let w: F::ExtendedField = prss.zero(RECORD_2);
         let state = AccumulatorState::new(u, w);
 
         let u_and_w = Arc::new(Mutex::new(state));
@@ -189,7 +202,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
         }
     }
 
-    pub fn r_share(&self) -> &Replicated<F::LargeFieldType> {
+    pub fn r_share(&self) -> &Replicated<F::ExtendedField> {
         &self.r_share
     }
 
@@ -236,7 +249,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     /// Turns out local values for `u` and `w` into proper replicated shares.
     async fn propagate_u_and_w(
         &self,
-    ) -> Result<(Replicated<F::LargeFieldType>, Replicated<F::LargeFieldType>), Error> {
+    ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)
@@ -252,7 +265,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
             helper_right.send(RECORD_1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F::LargeFieldType, F::LargeFieldType) =
+        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) =
             try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);

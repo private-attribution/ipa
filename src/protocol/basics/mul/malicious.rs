@@ -81,10 +81,23 @@ where
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     let b_x = b.x().access_without_downgrade();
-    let b_induced_share = Replicated::new(
-        b_x.left().get_induced_value(),
-        b_x.right().get_induced_value(),
-    );
+
+    //
+    // This code is an optimization to our malicious compiler that is drawn from:
+    // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+    // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+    // <https://eprint.iacr.org/2019/386.pdf>
+    //
+    // See protocol 4.15
+    // In Step 4: "Circuit emulation:", it says:
+    //
+    // If G_j is a multiplication gate: Given pairs `([x], [[ȓ · x]])` and `([y], [[ȓ · y]])` on the left and right input wires
+    // respectively, the parties compute `([x · y], [[ȓ · x · y]])` as follows:
+    // (a) The parties call `F_mult` on `[x]` and `[y]` to receive `[x · y]`.
+    // (b) The parties locally compute the induced share [[y]] = f([y], 0, . . . , 0).
+    // (c) The parties call `Ḟ_mult` on `[[ȓ · x]]` and `[[y]]` to receive `[[ȓ · x · y]]`.
+    //
+    let b_induced_share = Replicated::new(b_x.left().to_extended(), b_x.right().to_extended());
     let (ab, rab) = try_join(
         a.x().access_without_downgrade().multiply_sparse(
             b_x,
@@ -110,7 +123,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use crate::{
-        ff::Fp32BitPrime,
+        ff::Fp31,
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -121,8 +134,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp32BitPrime>();
-        let b = rng.gen::<Fp32BitPrime>();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {

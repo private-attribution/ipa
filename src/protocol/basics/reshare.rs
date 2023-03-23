@@ -307,10 +307,11 @@ mod tests {
 
     mod malicious {
         use futures::future::try_join;
+        use rand::{distributions::Standard, prelude::Distribution};
 
         use crate::{
             error::Error,
-            ff::{Field, Fp32BitPrime},
+            ff::{Field, Fp32BitPrime, Gf2, Gf32Bit},
             helpers::{Direction, Role},
             protocol::{
                 basics::Reshare,
@@ -321,10 +322,13 @@ mod tests {
                 RecordId,
             },
             rand::{thread_rng, Rng},
-            secret_sharing::replicated::{
-                malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-                semi_honest::AdditiveShare as Replicated,
-                ReplicatedSecretSharing,
+            secret_sharing::{
+                replicated::{
+                    malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+                    semi_honest::AdditiveShare as Replicated,
+                    ReplicatedSecretSharing,
+                },
+                SharedValue,
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
@@ -400,7 +404,7 @@ mod tests {
             record_id: RecordId,
             to_helper: Role,
             small_field_additive_error: F,
-            large_field_additive_error: F::LargeFieldType,
+            large_field_additive_error: F::ExtendedField,
         ) -> Result<MaliciousReplicated<F>, Error> {
             use crate::{
                 protocol::context::SpecialAccessToMaliciousContext,
@@ -432,42 +436,70 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn malicious_validation_fail() {
+        async fn fp32bit_reshare_validation_fail() {
+            const PERTURBATIONS: [(Fp32BitPrime, Fp32BitPrime); 3] = [
+                (Fp32BitPrime::ONE, Fp32BitPrime::ONE),
+                (Fp32BitPrime::ONE, Fp32BitPrime::ZERO),
+                (Fp32BitPrime::ZERO, Fp32BitPrime::ONE),
+            ];
+            malicious_validation_fail_helper::<Fp32BitPrime>(&PERTURBATIONS).await;
+        }
+
+        #[tokio::test]
+        async fn gf2_reshare_validation_fail() {
+            const PERTURBATIONS: [(Gf2, Gf32Bit); 3] = [
+                (Gf2::ONE, Gf32Bit::ONE),
+                (Gf2::ONE, Gf32Bit::ZERO),
+                (Gf2::ZERO, Gf32Bit::ONE),
+            ];
+            malicious_validation_fail_helper::<Gf2>(&PERTURBATIONS).await;
+        }
+
+        async fn malicious_validation_fail_helper<F>(perturbations: &[(F, F::ExtendedField)])
+        where
+            F: Field + ExtendableField,
+            Standard: Distribution<F>,
+        {
             let world = TestWorld::default();
             let mut rng = thread_rng();
 
-            let a = rng.gen::<Fp32BitPrime>();
+            let a = rng.gen::<F>();
 
             let to_helper = Role::H1;
-            for malicious_actor in &[Role::H2, Role::H3] {
-                world
-                    .semi_honest(a, |ctx, a| async move {
-                        let v = MaliciousValidator::new(ctx);
-                        let m_ctx = v.context().set_total_records(1);
-                        let record_id = RecordId::from(0);
-                        let m_a = v.context().upgrade(a).await.unwrap();
 
-                        let m_reshared_a = if m_ctx.role() == *malicious_actor {
-                            // This role is spoiling the value.
-                            reshare_malicious_with_additive_attack(
-                                m_ctx,
-                                &m_a,
-                                record_id,
-                                to_helper,
-                                Fp32BitPrime::ONE,
-                                Fp32BitPrime::ONE,
-                            )
-                            .await
-                            .unwrap()
-                        } else {
-                            m_a.reshare(m_ctx, record_id, to_helper).await.unwrap()
-                        };
-                        match v.validate(m_reshared_a).await {
-                            Ok(result) => panic!("Got a result {result:?}"),
-                            Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
-                        }
-                    })
-                    .await;
+            for perturbation in perturbations {
+                for malicious_actor in &[Role::H2, Role::H3] {
+                    world
+                        .semi_honest(a, |ctx, a| async move {
+                            let v = MaliciousValidator::new(ctx);
+                            let m_ctx = v.context().set_total_records(1);
+                            let record_id = RecordId::from(0);
+                            let m_a = v.context().upgrade(a).await.unwrap();
+
+                            let m_reshared_a = if m_ctx.role() == *malicious_actor {
+                                // This role is spoiling the value.
+                                reshare_malicious_with_additive_attack(
+                                    m_ctx,
+                                    &m_a,
+                                    record_id,
+                                    to_helper,
+                                    perturbation.0,
+                                    perturbation.1,
+                                )
+                                .await
+                                .unwrap()
+                            } else {
+                                m_a.reshare(m_ctx, record_id, to_helper).await.unwrap()
+                            };
+                            match v.validate(m_reshared_a).await {
+                                Ok(result) => panic!("Got a result {result:?}"),
+                                Err(err) => {
+                                    assert!(matches!(err, Error::MaliciousSecurityCheckFailed));
+                                }
+                            }
+                        })
+                        .await;
+                }
             }
         }
     }
