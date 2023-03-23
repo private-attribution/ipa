@@ -221,11 +221,6 @@ where
     where
         C: 'fut,
     {
-        // let f_mk_shares = self.mk_shares.reshare(
-        //     ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
-        //     record_id,
-        //     to_helper,
-        // );
         let f_is_trigger_bit = self.is_trigger_bit.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
@@ -307,21 +302,9 @@ where
     .await
     .unwrap();
 
-    let match_key_bitwise_sharings = input_rows
-        .iter()
-        .map(|row| {
-            (0..MK::BITS)
-                .map(|i| {
-                    Replicated::new(
-                        Gf2::truncate_from(row.mk_shares.left()[i]),
-                        Gf2::truncate_from(row.mk_shares.right()[i]),
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
-    let combined_match_keys_and_sidecar_data = converted_bk_shares
+    let inputs_sans_match_keys = converted_bk_shares
         .into_iter()
         .zip(input_rows)
         .map(|(bk_shares, input_row)| {
@@ -335,7 +318,7 @@ where
 
     let sorted_rows = apply_sort_permutation(
         ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
         &sort_permutation,
     )
     .await
@@ -343,7 +326,7 @@ where
 
     let sorted_match_keys = apply_sort_permutation(
         ctx.narrow(&Step::ApplySortPermutationToMatchKeys),
-        match_key_bitwise_sharings,
+        gf2_match_key_bits,
         &sort_permutation,
     )
     .await
@@ -417,29 +400,12 @@ where
         MaliciousValidator::<F>::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
-    //
-    //New stuff
-    //  let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
-    //
-    let match_key_bitwise_sharings = input_rows
-        .iter()
-        .map(|row| {
-            (0..MK::BITS)
-                .map(|i| {
-                    Replicated::new(
-                        Gf2::truncate_from(row.mk_shares.left()[i]),
-                        Gf2::truncate_from(row.mk_shares.right()[i]),
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
     let binary_validator = MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BinaryValidator));
     let binary_m_ctx = binary_validator.context();
 
-    let upgraded_match_key_bitwise_sharings =
-        binary_m_ctx.upgrade(match_key_bitwise_sharings).await?;
+    let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
@@ -467,8 +433,8 @@ where
         .collect::<Vec<_>>();
 
     let intermediate = m_ctx.upgrade(intermediate).await?;
-    println!("Before combining stuff");
-    let combined_match_keys_and_sidecar_data = intermediate
+
+    let inputs_sans_match_keys = intermediate
         .into_iter()
         .zip(converted_bk_shares)
         .map(
@@ -480,23 +446,23 @@ where
             },
         )
         .collect::<Vec<_>>();
-    println!("Before apply sort permutation to stuff");
+
     let sorted_rows = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
         &sort_permutation,
     )
     .await
     .unwrap();
-    println!("Before apply sort permutation to match keys");
+
     let sorted_match_keys = apply_sort_permutation(
         binary_m_ctx.narrow(&Step::ApplySortPermutation),
-        upgraded_match_key_bitwise_sharings,
+        upgraded_gf2_match_key_bits,
         &sort_permutation,
     )
     .await
     .unwrap();
-    println!("Before secure attribution");
+
     malicious::secure_attribution(
         sh_ctx,
         malicious_validator,
@@ -509,6 +475,29 @@ where
         num_multi_bits,
     )
     .await
+}
+
+fn get_gf2_match_key_bits<F, MK, BK>(
+    input_rows: &[IPAInputRow<F, MK, BK>],
+) -> Vec<Vec<Replicated<Gf2>>>
+where
+    F: PrimeField,
+    MK: GaloisField,
+    BK: GaloisField,
+{
+    input_rows
+        .iter()
+        .map(|row| {
+            (0..MK::BITS)
+                .map(|i| {
+                    Replicated::new(
+                        Gf2::truncate_from(row.mk_shares.left()[i]),
+                        Gf2::truncate_from(row.mk_shares.right()[i]),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -853,16 +842,16 @@ pub mod tests {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Mar 8, 2023.
+        /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
 
-        /// empirical value as of Mar 8, 2023.
+        /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
 
-        /// empirical value as of Mar 23, 2023.
+        /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
 
-        /// empirical value as of Feb 28, 2023.
+        /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(

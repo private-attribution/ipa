@@ -1,32 +1,32 @@
 use super::{
     accumulate_credit::accumulate_credit,
     aggregate_credit::malicious_aggregate_credit,
+    compute_helper_bits_gf2,
     credit_capping::credit_capping,
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
+    mod_conv_helper_bits,
 };
 use crate::{
     error::Error,
     ff::{GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
-        boolean::bitwise_equal::bitwise_equal_gf2,
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
         malicious::MaliciousValidator,
-        modulus_conversion::{convert_bit, convert_bit_local},
-        RecordId, Substep,
+        Substep,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare, ExtendableField},
         semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
 };
-use futures::future::try_join_all;
-use std::iter::{repeat, zip};
+use std::iter::zip;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[allow(clippy::too_many_arguments)]
 pub async fn secure_attribution<'a, F, BK>(
     sh_ctx: SemiHonestContext<'a>,
     malicious_validator: MaliciousValidator<'a, F>,
@@ -47,40 +47,13 @@ where
     let m_ctx = malicious_validator.context();
     let m_binary_ctx = binary_malicious_validator.context();
 
-    let futures = zip(
-        repeat(
-            m_binary_ctx
-                .narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_match_keys.len() - 1),
-        ),
-        sorted_match_keys.iter(),
-    )
-    .zip(sorted_match_keys.iter().skip(1))
-    .enumerate()
-    .map(|(i, ((c, row), next_row))| {
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal_gf2(c, record_id, &row, &next_row).await }
-    });
-    let helper_bits_gf2 = try_join_all(futures).await?;
-
+    let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
     let validated_helper_bits_gf2 = binary_malicious_validator.validate(helper_bits_gf2).await?;
-
-    let hb_mod_conv_ctx = sh_ctx
-        .narrow(&Step::ModConvHelperBits)
-        .set_total_records(sorted_match_keys.len() - 1);
-    let semi_honest_helper_bits = try_join_all(validated_helper_bits_gf2.iter().enumerate().map(
-        |(i, gf2_bit)| {
-            let bit_triple = convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
-            let record_id = RecordId::from(i);
-            let c = hb_mod_conv_ctx.clone();
-            async move { convert_bit(c, record_id, &bit_triple).await }
-        },
-    ))
-    .await?;
-
+    let semi_honest_fp_helper_bits =
+        mod_conv_helper_bits(sh_ctx.clone(), &validated_helper_bits_gf2).await?;
     let helper_bits = Some(AdditiveShare::ZERO)
         .into_iter()
-        .chain(m_ctx.upgrade(semi_honest_helper_bits).await?);
+        .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {
@@ -122,11 +95,9 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
-    ComputeHelperBits,
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
-    ModConvHelperBits,
 }
 
 impl Substep for Step {}
@@ -134,11 +105,9 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ComputeHelperBits => "compute_helper_bits",
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
-            Self::ModConvHelperBits => "mod_conv_helper_bits",
         }
     }
 }

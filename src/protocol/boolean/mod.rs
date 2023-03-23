@@ -101,11 +101,11 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let one = S::share_known_value(&ctx, F::ONE);
-    let res = no_ones(ctx, record_id, x).await?;
+    let res = all_zeroes(ctx, record_id, x).await?;
     Ok(one - &res)
 }
 
-pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
+pub(crate) async fn all_zeroes<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,
     C: Context,
