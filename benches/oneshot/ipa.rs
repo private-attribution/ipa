@@ -33,9 +33,8 @@ async fn main() -> Result<(), Error> {
             MAX_BREAKDOWN_KEY,
             MAX_TRIGGER_VALUE,
         );
-        if records_for_user.len() > QUERY_SIZE - total_count {
-            records_for_user.truncate(QUERY_SIZE - total_count);
-        }
+        records_for_user.truncate(QUERY_SIZE - total_count);
+
         total_count += records_for_user.len();
         random_user_records.push(records_for_user);
     }
