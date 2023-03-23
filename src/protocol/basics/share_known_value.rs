@@ -4,8 +4,9 @@ use crate::{
     protocol::context::{Context, MaliciousContext, SemiHonestContext},
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         SharedValue,
     },
@@ -25,7 +26,9 @@ impl<'a, F: Field> ShareKnownValue<SemiHonestContext<'a>, F> for Replicated<F> {
     }
 }
 
-impl<'a, F: Field> ShareKnownValue<MaliciousContext<'a, F>, F> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F>
+    for MaliciousReplicated<F>
+{
     fn share_known_value(ctx: &MaliciousContext<'a, F>, value: F) -> Self {
         ctx.share_known_value(value)
     }

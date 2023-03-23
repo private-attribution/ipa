@@ -6,7 +6,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{
-        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
     },
 };
 use async_trait::async_trait;
@@ -67,7 +68,7 @@ impl<'a, F: Field> SecureMul<SemiHonestContext<'a>> for Replicated<F> {
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: Field> SecureMul<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> SecureMul<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,

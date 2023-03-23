@@ -71,7 +71,8 @@ macro_rules! bit_array_impl {
                 }
 
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
+                    const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
+                    let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
                 }
             }
@@ -280,6 +281,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: usize) -> &Self::Output {
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     &self.0.as_bitslice()[index]
                 }
             }
@@ -288,6 +290,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: u32) -> &Self::Output {
+                    debug_assert!(index < <$name>::BITS);
                     &self[index as usize]
                 }
             }
@@ -336,14 +339,12 @@ macro_rules! bit_array_impl {
                     let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     let mut one = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     *one.first_mut().unwrap() = true;
-
                     assert_eq!($name::ZERO.0, zero);
                     assert_eq!($name::ONE.0, one);
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    // TODO (taikiy): Uncomment this line once TryFrom is back
-                    // assert!($name::try_from(max_plus_one).is_err());
+                    assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 
@@ -351,7 +352,6 @@ macro_rules! bit_array_impl {
                 pub fn index() {
                     let s = $name::try_from(1_u128).unwrap();
                     assert_eq!(s[0_usize], true);
-                    assert_eq!(s[(<$name>::BITS - 1) as u32], false);
                 }
 
                 #[test]
@@ -481,4 +481,14 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
+);
+
+bit_array_impl!(
+    bit_array_1,
+    Gf2,
+    U8_1,
+    1,
+    bitarr!(const u8, Lsb0; 1),
+    // x
+    0b10_u128
 );

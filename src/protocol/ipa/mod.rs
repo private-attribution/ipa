@@ -22,7 +22,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
@@ -364,13 +364,13 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: PrimeField,
+    F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
     Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
-    let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
+    let malicious_validator = MaliciousValidator::<F>::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -400,7 +400,8 @@ where
     .await
     .unwrap();
 
-    let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
+    let malicious_validator =
+        MaliciousValidator::<F>::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
@@ -669,7 +670,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<_, MatchKey, BreakdownKey>(
+                ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
