@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use crate::{
     helpers::HelperIdentity,
     protocol::{QueryId, Step},
@@ -31,6 +32,7 @@ pub struct NoStep;
 pub enum RouteId {
     Records,
     ReceiveQuery,
+    PrepareQuery,
 }
 
 impl ResourceIdentifier for NoResourceIdentifier {}
@@ -59,14 +61,18 @@ where
     Option<QueryId>: From<Q>,
     Option<Step>: From<S>,
 {
+    type Params: Borrow<str>;
+
     fn resource_identifier(&self) -> R;
     fn query_id(&self) -> Q;
     fn step(&self) -> S;
 
-    fn extra(&self) -> &str;
+    fn extra(&self) -> Self::Params;
 }
 
 impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
+    type Params = &'static str;
+
     fn resource_identifier(&self) -> NoResourceIdentifier {
         NoResourceIdentifier
     }
@@ -79,12 +85,14 @@ impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
         self.1.clone()
     }
 
-    fn extra(&self) -> &str {
+    fn extra(&self) -> Self::Params {
         ""
     }
 }
 
 impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
+    type Params = &'static str;
+
     fn resource_identifier(&self) -> RouteId {
         self.0
     }
@@ -97,7 +105,7 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
         self.2.clone()
     }
 
-    fn extra(&self) -> &str {
+    fn extra(&self) -> Self::Params {
         ""
     }
 }

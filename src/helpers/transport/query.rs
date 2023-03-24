@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use crate::{
     ff::FieldType,
     helpers::{transport::ByteArrStream, RoleAssignment},
@@ -7,6 +8,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
+use crate::helpers::{RouteId, RouteParams};
+use crate::helpers::transport::NoStep;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -22,6 +25,27 @@ pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
+    type Params = String;
+
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::PrepareQuery
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    fn step(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        String::new()
+    }
 }
 
 pub struct QueryInput {

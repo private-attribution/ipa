@@ -14,8 +14,9 @@ use futures::StreamExt;
 use futures_util::future::try_join;
 use pin_project::pin_project;
 use std::{collections::hash_map::Entry, fmt::{Debug, Formatter}, io};
+use futures_util::stream;
 use tokio::sync::oneshot;
-use crate::helpers::{Transport, TransportImpl};
+use crate::helpers::{RouteId, Transport, TransportImpl};
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
@@ -35,10 +36,10 @@ use crate::helpers::{Transport, TransportImpl};
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
-    transport: TransportImpl,
+    identity: HelperIdentity,
+    gateway_handler: GatewayHandler,
     queries: RunningQueries,
 }
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum NewQueryError {
@@ -85,8 +86,10 @@ pub enum QueryCompletionError {
     },
 }
 
+type GatewayHandler = fn(&PrepareQuery) -> Gateway;
+
 #[inline(always)]
-fn ensure_sync<T: Sync>(thing: T) -> T {
+const fn ensure_sync<T: Sync>(thing: T) -> T {
     thing
 }
 
@@ -97,8 +100,8 @@ impl Debug for Processor {
 }
 
 impl Processor {
-    fn new(transport: TransportImpl) -> Self {
-        ensure_sync(Self { transport, queries: RunningQueries::default() })
+    fn new(identity: HelperIdentity, handler: GatewayHandler) -> Self {
+        ensure_sync(Self { identity, gateway_handler: handler, queries: RunningQueries::default() })
     }
 
     /// Upon receiving a new query request:
@@ -113,12 +116,12 @@ impl Processor {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query<T: Transport>(&self, req: QueryConfig, transport: &T) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        let id = self.transport.identity();
+        let id = self.identity;
         let [right, left] = id.others();
 
         let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
@@ -130,7 +133,9 @@ impl Processor {
             roles: roles.clone(),
         };
 
-
+        transport.send(left, &prepare_request, stream::empty()).await?;
+        transport.send(right, &prepare_request, stream::empty()).await?;
+            // transport.send(right, (RouteId::PrepareQuery, query_id), stream::empty()),
 
         // let (left_tx, left_rx) = oneshot::channel();
         // let (right_tx, right_rx) = oneshot::channel();
@@ -148,7 +153,8 @@ impl Processor {
         // // await responses from prepare commands
         // try_join(left_rx, right_rx).await?;
 
-        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles, self.transport.clone());
+        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles.clone(), transport.into());
+
 
         handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
@@ -291,27 +297,40 @@ impl Processor {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
 #[cfg(never)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
         helpers::query::QueryType,
         sync::Arc,
-        test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork},
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
+    use crate::test_fixture::network::InMemoryNetwork;
+
+    fn transport_adapter(id: HelperIdentity, transport: TransportImpl) -> GatewayHandler {
+        |prepare| {
+            // send left and right
+            for other in id.others() {
+                transport.send(())
+            }
+        }
+    }
 
     /// set up 3 query processors in active-passive mode. The first processor is returned and can be
     /// used to drive query workflow, while two others will be spawned in a tokio task and will
     /// be listening for incoming commands.
-    async fn active_passive<T: Transport + Clone>(transports: [T; 3]) -> Processor<T> {
-        let [t0, t1, t2] = transports;
+    async fn active_passive<T: Transport + Clone>(network: InMemoryNetwork) -> Processor {
+        let [t0, t1, t2] = network.transports();
         tokio::spawn(async move {
-            let mut processor2 = Processor::new(t1).await;
-            let mut processor3 = Processor::new(t2).await;
+            let mut processor2 = Processor::new(t1.identity(), |prepare| {
+                todo!()
+            }).await;
+            let mut processor3 = Processor::new(t2, |prepare| {
+                todo!()
+            }).identity().await;
             // don't use tokio::select! here because it cancels one of the futures if another one is making progress
             // that causes events to be dropped
             loop {
@@ -320,7 +339,9 @@ mod tests {
             }
         });
 
-        Processor::new(t0).await
+        Processor::new(t0, |prepare| {
+
+        }).await
     }
 
     #[tokio::test]
@@ -372,6 +393,7 @@ mod tests {
         ));
     }
 
+    #[cfg(never)]
     #[tokio::test]
     async fn prepare_rejected() {
         let network = InMemoryNetwork::default();
@@ -393,6 +415,7 @@ mod tests {
         ));
     }
 
+    #[cfg(never)]
     mod prepare {
         use super::*;
 
@@ -449,6 +472,7 @@ mod tests {
         }
     }
 
+    #[cfg(never)]
     mod e2e {
         use super::*;
         use crate::{
