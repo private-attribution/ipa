@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -10,7 +10,7 @@ use crate::{
             SemiHonestContext,
         },
         malicious::MaliciousValidator,
-        modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+        modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
@@ -24,13 +24,14 @@ use crate::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         Linear as LinearSecretSharing,
     },
 };
 
 use async_trait::async_trait;
-use futures::future::try_join3;
+use futures::future::{try_join3, try_join4};
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -41,7 +42,9 @@ pub enum Step {
     ModulusConversionForBreakdownKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
+    ApplySortPermutationToMatchKeys,
     AfterConvertAllBits,
+    BinaryValidator,
 }
 
 impl Substep for Step {}
@@ -53,7 +56,9 @@ impl AsRef<str> for Step {
             Self::ModulusConversionForBreakdownKeys => "mod_conv_breakdown_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
+            Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::BinaryValidator => "binary_validator",
         }
     }
 }
@@ -208,7 +213,6 @@ where
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub timestamp: T,
-    pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
@@ -216,16 +220,9 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(
-        timestamp: T,
-        mk_shares: Vec<T>,
-        is_trigger_bit: T,
-        breakdown_key: Vec<T>,
-        trigger_value: T,
-    ) -> Self {
+    pub fn new(timestamp: T, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
         Self {
             timestamp,
-            mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -255,11 +252,6 @@ where
             record_id,
             to_helper,
         );
-        let f_mk_shares = self.mk_shares.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
-            record_id,
-            to_helper,
-        );
         let f_is_trigger_bit = self.is_trigger_bit.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
@@ -276,16 +268,16 @@ where
             to_helper,
         );
 
-        let (mk_shares, breakdown_key, (timestamp, is_trigger_bit, trigger_value)) = try_join3(
-            f_mk_shares,
+        let (breakdown_key, timestamp, is_trigger_bit, trigger_value) = try_join4(
             f_breakdown_key,
-            try_join3(f_timestamp, f_is_trigger_bit, f_trigger_value),
+            f_timestamp,
+            f_is_trigger_bit,
+            f_trigger_value,
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRow::new(
             timestamp,
-            mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -333,7 +325,7 @@ where
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), mk_shares.into_iter()),
+        &convert_all_bits_local::<F, MK>(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
         num_multi_bits,
     )
@@ -347,25 +339,32 @@ where
     .await
     .unwrap();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
-    let combined_match_keys_and_sidecar_data =
-        std::iter::zip(converted_mk_shares, converted_bk_shares)
-            .zip(input_rows)
-            .map(|((mk_shares, bk_shares), input_row)| {
-                IPAModulusConvertedInputRow::new(
-                    input_row.timestamp.clone(),
-                    mk_shares,
-                    input_row.is_trigger_bit.clone(),
-                    bk_shares,
-                    input_row.trigger_value.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
+    let inputs_sans_match_keys = converted_bk_shares
+        .into_iter()
+        .zip(input_rows)
+        .map(|(bk_shares, input_row)| {
+            IPAModulusConvertedInputRow::new(
+                input_row.timestamp.clone(),
+                input_row.is_trigger_bit.clone(),
+                bk_shares,
+                input_row.trigger_value.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
         ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let sorted_match_keys = apply_sort_permutation(
+        ctx.narrow(&Step::ApplySortPermutationToMatchKeys),
+        gf2_match_key_bits,
         &sort_permutation,
     )
     .await
@@ -373,6 +372,7 @@ where
 
     semi_honest::secure_attribution(
         ctx,
+        sorted_match_keys,
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
@@ -438,7 +438,12 @@ where
         MaliciousValidator::<F>::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
+
+    let binary_validator = MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BinaryValidator));
+    let binary_m_ctx = binary_validator.context();
+
+    let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
@@ -455,11 +460,10 @@ where
 
     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
-    let intermediate = converted_mk_shares
-        .zip(input_rows)
-        .map(|(mk_shares, input_row)| {
+    let intermediate = input_rows
+        .iter()
+        .map(|input_row| {
             IPAModulusConvertedInputRowWrapper::new(
-                mk_shares,
                 input_row.timestamp.clone(),
                 input_row.is_trigger_bit.clone(),
                 input_row.trigger_value.clone(),
@@ -469,13 +473,12 @@ where
 
     let intermediate = m_ctx.upgrade(intermediate).await?;
 
-    let combined_match_keys_and_sidecar_data = intermediate
+    let inputs_sans_match_keys = intermediate
         .into_iter()
         .zip(converted_bk_shares)
         .map(
             |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
                 timestamp: one_row.timestamp,
-                mk_shares: one_row.mk_shares,
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
                 breakdown_key: bk_shares,
@@ -486,7 +489,15 @@ where
 
     let sorted_rows = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let sorted_match_keys = apply_sort_permutation(
+        binary_m_ctx.narrow(&Step::ApplySortPermutation),
+        upgraded_gf2_match_key_bits,
         &sort_permutation,
     )
     .await
@@ -495,6 +506,8 @@ where
     malicious::secure_attribution(
         sh_ctx,
         malicious_validator,
+        binary_validator,
+        sorted_match_keys,
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
@@ -502,6 +515,29 @@ where
         num_multi_bits,
     )
     .await
+}
+
+fn get_gf2_match_key_bits<F, MK, BK>(
+    input_rows: &[IPAInputRow<F, MK, BK>],
+) -> Vec<Vec<Replicated<Gf2>>>
+where
+    F: PrimeField,
+    MK: GaloisField,
+    BK: GaloisField,
+{
+    input_rows
+        .iter()
+        .map(|row| {
+            (0..MK::BITS)
+                .map(|i| {
+                    Replicated::new(
+                        Gf2::truncate_from(row.mk_shares.left()[i]),
+                        Gf2::truncate_from(row.mk_shares.right()[i]),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -742,6 +778,7 @@ pub mod tests {
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
@@ -763,7 +800,9 @@ pub mod tests {
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::symmetric_buffers(raw_data.len().clamp(4, 1024)),
+            gateway_config: GatewayConfig::symmetric_buffers::<TestField>(
+                raw_data.len().clamp(4, 1024),
+            ),
             ..Default::default()
         };
 
@@ -781,7 +820,7 @@ pub mod tests {
                 );
             }
 
-            test_ipa(
+            test_ipa::<TestField>(
                 &world,
                 &raw_data,
                 &expected_results,
@@ -847,17 +886,17 @@ pub mod tests {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Mar 23, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15507;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
 
-        /// empirical value as of Mar 23, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38535;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
 
-        /// empirical value as of Mar 23, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11838;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
 
-        /// empirical value as of Mar 23, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29181;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [

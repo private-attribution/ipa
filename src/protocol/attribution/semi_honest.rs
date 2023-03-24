@@ -1,22 +1,22 @@
 use super::{
     accumulate_credit::accumulate_credit,
     aggregate_credit::aggregate_credit,
+    compute_helper_bits_gf2,
     credit_capping::credit_capping,
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
+    mod_conv_helper_bits,
 };
 use crate::{
     error::Error,
-    ff::{GaloisField, PrimeField, Serializable},
+    ff::{GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
-        boolean::bitwise_equal::bitwise_equal,
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
-        RecordId, Substep,
+        Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
-use futures::future::try_join_all;
-use std::iter::{repeat, zip};
+use std::iter::zip;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -24,6 +24,7 @@ use std::iter::{repeat, zip};
 /// propagates errors from multiplications
 pub async fn secure_attribution<F, BK>(
     ctx: SemiHonestContext<'_>,
+    sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
@@ -35,22 +36,11 @@ where
     BK: GaloisField,
     AdditiveShare<F>: Serializable,
 {
-    let futures = zip(
-        repeat(
-            ctx.narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_rows.len() - 1),
-        ),
-        sorted_rows.iter(),
-    )
-    .zip(sorted_rows.iter().skip(1))
-    .enumerate()
-    .map(|(i, ((ctx, row), next_row))| {
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
-    });
+    let helper_bits_gf2 = compute_helper_bits_gf2(ctx.clone(), &sorted_match_keys).await?;
+    let semi_honest_fp_helper_bits = mod_conv_helper_bits(ctx.clone(), &helper_bits_gf2).await?;
     let helper_bits = Some(AdditiveShare::ZERO)
         .into_iter()
-        .chain(try_join_all(futures).await?);
+        .chain(semi_honest_fp_helper_bits);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {
@@ -88,7 +78,6 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
-    ComputeHelperBits,
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
@@ -99,7 +88,6 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ComputeHelperBits => "compute_helper_bits",
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",

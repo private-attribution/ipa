@@ -1,6 +1,7 @@
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raw_ipa::{
     error::Error,
+    ff::Fp32BitPrime,
     helpers::GatewayConfig,
     test_fixture::{
         generate_random_user_records_in_reverse_chronological_order, test_ipa,
@@ -16,9 +17,11 @@ async fn main() -> Result<(), Error> {
     const QUERY_SIZE: usize = 100;
     const MAX_RECORDS_PER_USER: usize = 10;
     const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+    type BenchField = Fp32BitPrime;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::symmetric_buffers(QUERY_SIZE.clamp(16, 1024));
+    config.gateway_config =
+        GatewayConfig::symmetric_buffers::<BenchField>(QUERY_SIZE.clamp(16, 1024));
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed}");
@@ -60,7 +63,7 @@ async fn main() -> Result<(), Error> {
     }
     let world = TestWorld::new_with(config.clone());
 
-    test_ipa(
+    test_ipa::<BenchField>(
         &world,
         &raw_data,
         &expected_results,
