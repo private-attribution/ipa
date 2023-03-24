@@ -5,7 +5,8 @@ use crate::{
     protocol::{
         basics::SecureMul, boolean::no_ones, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
-    secret_sharing::Linear as LinearSecretSharing, seq_futures::seq_try_join_all,
+    secret_sharing::Linear as LinearSecretSharing,
+    seq_futures::seq_try_join_all,
 };
 use std::iter::zip;
 

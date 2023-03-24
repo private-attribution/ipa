@@ -19,9 +19,9 @@ use crate::{
     seq_futures::seq_try_join_all,
 };
 
-fn assert_send<'a, O>(fut: impl Future<Output = O> + Send + 'a)
-  -> impl Future<Output = O> + Send + 'a
-{
+fn assert_send<'a, O>(
+    fut: impl Future<Output = O> + Send + 'a,
+) -> impl Future<Output = O> + Send + 'a {
     fut
 }
 

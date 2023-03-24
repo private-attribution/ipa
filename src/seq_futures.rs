@@ -1,14 +1,17 @@
 #![warn(clippy::future_not_send)]
 
 use futures::{
-    Future, Stream, stream::{Collect, TryCollect}, StreamExt, TryStreamExt,
+    stream::{Collect, TryCollect},
+    Future, Stream, StreamExt, TryStreamExt,
 };
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
+    future::IntoFuture,
+    iter::Fuse,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll}, iter::Fuse,
+    task::{Context, Poll},
 };
 
 /// Sequentially join futures from an iterator.
@@ -58,7 +61,7 @@ use std::{
 pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I, F, O>
 where
     I: Iterator<Item = F> + Send,
-    F: Future<Output = O> + ?Sized,
+    F: Future<Output = O>,
 {
     SequentialFutures {
         iter: iter.fuse(),
@@ -66,12 +69,14 @@ where
     }
 }
 
+type SeqTryJoinAll<I, F, O, E> = SequentialFutures<<I as IntoIterator>::IntoIter, F, Result<O, E>>;
+
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SequentialFutures<<I as IntoIterator>::IntoIter, F, Result<O, E>>, Vec<O>>
+pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SeqTryJoinAll<I, F, O, E>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
@@ -86,7 +91,9 @@ where
 /// A substitute for [`futures::future::join_all`] that uses [`seq_join`].
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub fn seq_join_all<I, F, O>(iterable: I) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F, O>, Vec<O>>
+pub fn seq_join_all<I, F, O>(
+    iterable: I,
+) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F, O>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
@@ -100,17 +107,17 @@ where
 pub struct SequentialFutures<I, F, O>
 where
     I: Iterator<Item = F> + Send,
-    F: Future<Output = O> + ?Sized,
+    F: IntoFuture<Output = O>,
 {
     iter: Fuse<I>,
     #[pin]
-    active: VecDeque<Pin<Box<F>>>,
+    active: VecDeque<Pin<Box<F::IntoFuture>>>,
 }
 
 impl<I, F, O> Stream for SequentialFutures<I, F, O>
 where
     I: Iterator<Item = F> + Send,
-    F: Future<Output = O>,
+    F: IntoFuture<Output = O>,
 {
     type Item = O;
 
@@ -120,7 +127,7 @@ where
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
             if let Some(f) = this.iter.next() {
-                this.active.push_back(Box::pin(f));
+                this.active.push_back(Box::pin(f.into_future()));
             } else {
                 break;
             }
