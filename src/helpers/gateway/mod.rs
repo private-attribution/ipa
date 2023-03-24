@@ -12,11 +12,15 @@ use crate::{
     protocol::QueryId,
 };
 
-use crate::helpers::gateway::{
-    receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+use crate::{
+    ff::Field,
+    helpers::gateway::{
+        receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+    },
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use typenum::Unsigned;
 
 /// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages
 pub struct Gateway {
@@ -29,7 +33,7 @@ pub struct Gateway {
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
     /// The maximum number of items that can be outstanding for sending.
-    pub send_outstanding: NonZeroUsize,
+    pub send_outstanding_bytes: NonZeroUsize,
     /// The maximum number of items that can be outstanding for receiving.
     pub recv_outstanding: NonZeroUsize,
 }
@@ -68,7 +72,7 @@ impl Gateway {
     ) -> SendingEnd<M> {
         let (tx, maybe_stream) = self.senders.get_or_create::<M>(
             channel_id,
-            self.config.send_outstanding,
+            self.config.send_outstanding_bytes,
             total_records,
         );
         if let Some(stream) = maybe_stream {
@@ -98,15 +102,16 @@ impl Gateway {
 
 impl GatewayConfig {
     /// Config for symmetric send and receive buffers. Capacity must not be zero.
+    /// Send capacity will be aligned with [`F::Size`]
     ///
     /// ## Panics
     /// if capacity is set to be 0.
     #[must_use]
-    pub fn symmetric_buffers(capacity: usize) -> Self {
-        let capacity = NonZeroUsize::new(capacity).unwrap();
+    pub fn symmetric_buffers<F: Field>(capacity: usize) -> Self {
+        let send_capacity = F::Size::USIZE * capacity;
         Self {
-            send_outstanding: capacity,
-            recv_outstanding: capacity,
+            send_outstanding_bytes: NonZeroUsize::new(send_capacity).unwrap(),
+            recv_outstanding: NonZeroUsize::new(capacity).unwrap(),
         }
     }
 }
@@ -125,7 +130,7 @@ mod tests {
     #[tokio::test]
     pub async fn handles_reordering() {
         let mut config = TestWorldConfig::default();
-        config.gateway_config.send_outstanding = 2.try_into().unwrap();
+        config.gateway_config.send_outstanding_bytes = 2.try_into().unwrap();
 
         let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let contexts = world.contexts();

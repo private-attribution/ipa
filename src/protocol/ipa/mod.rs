@@ -738,6 +738,7 @@ pub mod tests {
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
@@ -759,7 +760,9 @@ pub mod tests {
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::symmetric_buffers(raw_data.len().clamp(4, 1024)),
+            gateway_config: GatewayConfig::symmetric_buffers::<TestField>(
+                raw_data.len().clamp(4, 1024),
+            ),
             ..Default::default()
         };
 
@@ -777,7 +780,7 @@ pub mod tests {
                 );
             }
 
-            test_ipa(
+            test_ipa::<TestField>(
                 &world,
                 &raw_data,
                 &expected_results,

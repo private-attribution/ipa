@@ -18,9 +18,11 @@ use std::time::Instant;
 async fn main() -> Result<(), Error> {
     const BATCHSIZE: usize = 100;
     const NUM_MULTI_BITS: u32 = 3;
+    type BenchField = Fp32BitPrime;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::symmetric_buffers(BATCHSIZE.clamp(4, 1024));
+    config.gateway_config =
+        GatewayConfig::symmetric_buffers::<BenchField>(BATCHSIZE.clamp(4, 1024));
     let world = TestWorld::new_with(config);
     let [ctx0, ctx1, ctx2] = world.contexts();
     let mut rng = rand::thread_rng();
@@ -33,7 +35,7 @@ async fn main() -> Result<(), Error> {
 
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits::<Fp32BitPrime, _, _>(
+            convert_all_bits::<BenchField, _, _>(
                 &ctx,
                 &convert_all_bits_local(ctx.role(), match_key.into_iter()),
                 Gf40Bit::BITS,
