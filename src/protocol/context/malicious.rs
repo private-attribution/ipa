@@ -6,11 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-<<<<<<< HEAD
-use futures::future::{try_join, try_join4, try_join_all, try_join3};
-=======
-use futures::future::{try_join, try_join_all};
->>>>>>> origin/main
+use futures::future::{try_join, try_join3, try_join_all};
 
 use crate::{
     error::Error,

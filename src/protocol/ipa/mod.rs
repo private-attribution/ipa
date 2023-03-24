@@ -31,7 +31,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join3, try_join4};
+use futures::future::try_join4;
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -887,16 +887,16 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14571;
 
         /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36678;
 
         /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10902;
 
         /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27324;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
