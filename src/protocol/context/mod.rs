@@ -65,7 +65,7 @@ pub trait Context: Clone + Send + Sync {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Serializable},
         helpers::Direction,
         protocol::{
             malicious::{MaliciousValidator, Step::MaliciousProtocol},
@@ -77,7 +77,9 @@ mod tests {
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
+        telemetry::metrics::{
+            BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
+        },
     };
     use futures_util::{future::join_all, try_join};
     use rand::{
@@ -85,6 +87,7 @@ mod tests {
         Rng,
     };
     use std::iter::repeat;
+    use typenum::Unsigned;
 
     use super::*;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
@@ -156,6 +159,7 @@ mod tests {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = (0..10u128).map(Fp31::truncate_from).collect::<Vec<_>>();
         let input_len = input.len();
+        let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let result = world
             .semi_honest(input.clone(), |ctx, shares| async move {
@@ -192,6 +196,11 @@ mod tests {
             .total(3 * input_size)
             .per_step(&metrics_step, 3 * input_size);
 
+        let bytes_sent_assert = snapshot
+            .assert_metric(BYTES_SENT)
+            .total(3 * input_size * field_size)
+            .per_step(&metrics_step, 3 * input_size * field_size);
+
         // each helper generates 2 128 bit values resuling in 4 calls to rng::<gen>() per input row
         let seq_prss_assert = snapshot
             .assert_metric(SEQUENTIAL_PRSS_GENERATED)
@@ -200,6 +209,7 @@ mod tests {
 
         for role in Role::all() {
             records_sent_assert.per_helper(role, input_size);
+            bytes_sent_assert.per_helper(role, field_size * input_size);
             indexed_prss_assert.per_helper(role, input_size);
             seq_prss_assert.per_helper(role, 4 * input_size);
         }
@@ -210,6 +220,7 @@ mod tests {
         let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = vec![Fp31::truncate_from(0u128), Fp31::truncate_from(1u128)];
         let input_len = input.len();
+        let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
@@ -246,6 +257,11 @@ mod tests {
             .total(3 * comm_factor(input_size))
             .per_step(&metrics_step, 3 * input_size);
 
+        let bytes_sent_assert = snapshot
+            .assert_metric(BYTES_SENT)
+            .total(3 * comm_factor(input_size) * field_size)
+            .per_step(&metrics_step, 3 * input_size * field_size);
+
         // PRSS amplification factor is 3 and constant overhead is 5
         // (1) to generate r
         // (1) to generate u
@@ -269,6 +285,7 @@ mod tests {
 
         for role in Role::all() {
             records_sent_assert.per_helper(role, comm_factor(input_size));
+            bytes_sent_assert.per_helper(role, comm_factor(input_size) * field_size);
             indexed_prss_assert.per_helper(role, prss_factor(input_size));
             seq_prss_assert.per_helper(role, 4 * input_size);
         }
