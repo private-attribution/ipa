@@ -851,15 +851,19 @@ pub mod tests {
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48780;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 136_884;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34104;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 99468;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -899,16 +903,16 @@ pub mod tests {
             let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
                 (
                     RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
-                    FIELD_SIZE * RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1,
                 )
             } else {
                 (
                     RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
-                    FIELD_SIZE * RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3,
                 )
             };
             assert_baselines(
-                "semi-honest IPA (cap = {per_user_cap})",
+                &format!("semi-honest IPA (cap = {per_user_cap})"),
                 &snapshot,
                 [
                     (RECORDS_SENT, records_baseline),
@@ -937,16 +941,16 @@ pub mod tests {
             let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
                 (
                     RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
-                    FIELD_SIZE * RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_1,
                 )
             } else {
                 (
                     RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
-                    FIELD_SIZE * RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_3,
                 )
             };
             assert_baselines(
-                "malicious IPA (cap = {per_user_cap})",
+                &format!("malicious IPA (cap = {per_user_cap})"),
                 &snapshot,
                 [
                     (RECORDS_SENT, records_baseline),
@@ -967,7 +971,7 @@ pub mod tests {
                     "{metric_name} baseline for {name} has DEGRADED! Expected {baseline}, got {actual}.");
 
             if actual < baseline {
-                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}.\
+                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}. \
                 Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
         }

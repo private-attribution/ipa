@@ -3,7 +3,7 @@
 
 use crate::telemetry::{
     labels,
-    metrics::{BYTES_SENT, INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED},
+    metrics::{BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     stats::Metrics,
 };
 use std::{
@@ -11,7 +11,6 @@ use std::{
     io,
     io::{Error, Write},
 };
-use crate::telemetry::metrics::RECORDS_SENT;
 
 pub trait CsvExporter {
     /// Writes the serialized version of this instance into the provided writer in CSV format.
@@ -36,7 +35,10 @@ impl CsvExporter for Metrics {
         // then dump them to the provided Write interface
         // TODO: include role dimension. That requires rethinking `Metrics` implementation
         // because it does not allow such breakdown atm.
-        writeln!(w, "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS")?;
+        writeln!(
+            w,
+            "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS"
+        )?;
         for (step, stats) in steps_stats.all_steps() {
             writeln!(
                 w,
