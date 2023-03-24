@@ -151,6 +151,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
         secret_sharing::SharedValue,
+        seq_futures::seq_try_join_all,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -163,17 +164,11 @@ mod tests {
     where
         Standard: Distribution<F>,
     {
-        // TODO - remove this and it will compile!
-        // fn annotate<T: Send>(v: T) -> T {
-        //     v
-        // }
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
                 let ctx = ctx.set_total_records(COUNT);
-                futures::future::try_join_all(
-                    // TODO - switch to this and it will fail to compile again
-                    // crate::seq_futures::seq_try_join_all(
+                seq_try_join_all(
                     repeat(ctx)
                         .take(COUNT)
                         .enumerate()

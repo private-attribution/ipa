@@ -1,3 +1,5 @@
+use futures::future::try_join_all;
+
 use super::xor;
 use crate::{
     error::Error,
@@ -6,7 +8,6 @@ use crate::{
         basics::SecureMul, boolean::no_ones, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_futures::seq_try_join_all,
 };
 use std::iter::zip;
 
@@ -80,7 +81,7 @@ where
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { xor(c, record_id, a_bit, b_bit).await }
     });
-    seq_try_join_all(xor).await
+    try_join_all(xor).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

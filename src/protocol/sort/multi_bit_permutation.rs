@@ -94,13 +94,12 @@ pub async fn multi_bit_permutation<
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::seq_futures::seq_try_join_all;
-
     use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
         protocol::{context::Context, sort::check_everything},
         secret_sharing::SharedValue,
+        seq_futures::seq_try_join_all,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -146,10 +145,10 @@ mod tests {
 
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
+                let ctx = ctx.set_total_records(num_records);
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for (i, record) in m_shares.iter().enumerate() {
-                    let ctx = ctx.set_total_records(num_records);
-                    equality_check_futures.push(check_everything(ctx, i, record));
+                    equality_check_futures.push(check_everything(ctx.clone(), i, record));
                 }
                 seq_try_join_all(equality_check_futures).await.unwrap()
             })

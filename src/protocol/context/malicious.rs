@@ -7,7 +7,7 @@ use std::{
 
 use crate::seq_futures::seq_try_join_all;
 use async_trait::async_trait;
-use futures::future::try_join;
+use futures::future::{try_join, try_join3, try_join_all};
 
 use crate::{
     error::Error,
@@ -410,7 +410,7 @@ impl<'a, F: Field>
         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
     ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
         let ctx_ref = &self.ctx;
-        let breakdown_key = seq_try_join_all(input.breakdown_key.into_iter().enumerate().map(
+        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
             |(idx, bit)| async move {
                 ctx_ref
                     .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
@@ -536,28 +536,25 @@ impl<'a, F: Field>
         input: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         let [v0, v1, v2] = input.0;
-        Ok(BitConversionTriple(
-            seq_try_join_all([
-                self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
-                    self.record_binding,
-                    v0,
-                    ZeroPositions::Pvzz,
-                ),
-                self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
-                    self.record_binding,
-                    v1,
-                    ZeroPositions::Pzvz,
-                ),
-                self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
-                    self.record_binding,
-                    v2,
-                    ZeroPositions::Pzzv,
-                ),
-            ])
-            .await?
-            .try_into()
-            .unwrap(),
-        ))
+        let (t0, t1, t2) = try_join3(
+            self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
+                self.record_binding,
+                v0,
+                ZeroPositions::Pvzz,
+            ),
+            self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
+                self.record_binding,
+                v1,
+                ZeroPositions::Pzvz,
+            ),
+            self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
+                self.record_binding,
+                v2,
+                ZeroPositions::Pzzv,
+            ),
+        )
+        .await?;
+        Ok(BitConversionTriple([t0, t1, t2]))
     }
 }
 
@@ -648,7 +645,7 @@ where
 
         seq_try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
-                seq_try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
                     UpgradeContext {
                         ctx,
                         record_binding: RecordId::from(record_idx),

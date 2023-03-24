@@ -13,7 +13,12 @@ use crate::{
         BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_futures::seq_try_join_all,
+    seq_futures::{seq_join, seq_try_join_all},
+};
+use futures::{
+    future::{ok, ready},
+    stream::once,
+    StreamExt, TryStreamExt,
 };
 use std::iter::{repeat, zip};
 
@@ -265,7 +270,8 @@ where
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
-    let cap = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
+    let cap_share = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
+    let cap = &cap_share;
     let ctx = ctx.set_total_records(num_rows - 1);
 
     // This method implements the logic below:
@@ -284,20 +290,34 @@ where
     //     current_credit
     //   }
 
-    seq_try_join_all(
-        (0..num_rows)
-            .zip(repeat((ctx, cap)))
-            .map(|(i, (ctx, cap))| async move {
-                if i == num_rows - 1 {
-                    return Ok(original_credits[i].clone());
-                }
+    seq_join(
+        zip(
+            repeat(ctx),
+            zip(
+                zip(
+                    zip(original_credits, prefix_summed_credits),
+                    exceeds_cap_bits.windows(2),
+                ),
+                input[1..].iter(),
+            ),
+        )
+        .enumerate()
+        .map(
+            |(
+                i,
+                (
+                    ctx,
+                    (
+                        (
+                            (original_credit, next_prefix_summed_credit),
+                            [current_prefix_summed_credit_exceeds_cap, next_credit_exceeds_cap],
+                        ),
+                        input,
+                    ),
+                ),
+            )| async move {
                 let record_id = RecordId::from(i);
-
-                let original_credit = &original_credits[i];
-                let next_prefix_summed_credit = &prefix_summed_credits[i + 1];
-                let current_prefix_summed_credit_exceeds_cap = &exceeds_cap_bits[i];
-                let next_credit_exceeds_cap = &exceeds_cap_bits[i + 1];
-                let next_event_has_same_match_key = &input[i + 1].helper_bit;
+                let next_event_has_same_match_key = &input.helper_bit;
 
                 let remaining_budget = if_else(
                     ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
@@ -311,7 +331,7 @@ where
                         &(cap.clone() - next_prefix_summed_credit),
                     )
                     .await?,
-                    &cap,
+                    cap,
                 )
                 .await?;
 
@@ -325,9 +345,12 @@ where
                 .await?;
 
                 Ok::<_, Error>(capped_credit)
-            }),
+            },
+        ),
     )
-    .await
+    .chain(once(ok(original_credits.last().unwrap().clone())))
+    .try_collect()
+    .await?
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

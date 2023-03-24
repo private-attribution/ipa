@@ -9,16 +9,15 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
-use crate::{protocol::Substep, repeat64str};
-use std::fmt::Debug;
-
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
+    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId, Substep},
+    repeat64str,
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
-    seq_futures::seq_try_join_all,
 };
+use futures::future::try_join_all;
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
@@ -264,7 +263,7 @@ where
     for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =
-            seq_try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
+            try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
                 |(j, precomputed_combination)| {
                     let child_idx = j + step;
                     precomputed_combination.multiply(

@@ -7,9 +7,9 @@ use crate::{
         BitOpStep, RecordId,
     },
     secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated,
-    seq_futures::seq_try_join_all,
 };
 use async_trait::async_trait;
+use futures::future::try_join_all;
 
 #[async_trait]
 impl<F: PrimeField> RandomBits<F> for MaliciousContext<'_, F> {
@@ -23,7 +23,7 @@ impl<F: PrimeField> RandomBits<F> for MaliciousContext<'_, F> {
         let c = self.narrow(&Step::UpgradeBitTriples);
         let ctx = &c;
         let malicious_triples =
-            seq_try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
+            try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
                 ctx.narrow(&BitOpStep::from(i))
                     .upgrade_for(record_id, t)
                     .await

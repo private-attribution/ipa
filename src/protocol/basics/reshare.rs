@@ -19,7 +19,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
+use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
@@ -178,7 +178,7 @@ where
     where
         C: 'fut,
     {
-        seq_try_join_all(self.iter().enumerate().map(|(i, x)| {
+        try_join_all(self.iter().enumerate().map(|(i, x)| {
             let c = ctx.narrow(&InnerVectorElementStep::from(i));
             async move { x.reshare(c, record_id, to_helper).await }
         }))

@@ -1,5 +1,3 @@
-#![warn(clippy::future_not_send)]
-
 use futures::{
     stream::{Collect, TryCollect},
     Future, Stream, StreamExt, TryStreamExt,
@@ -13,6 +11,11 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+/// The number of active items to maintain.
+/// For IPA, this needs to be at least as large as the number of items that need to be buffered
+/// for sending.
+pub const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(4096);
 
 /// Sequentially join futures from an iterator.
 ///
@@ -58,7 +61,7 @@ use std::{
 /// [`futures::stream::iter`]: futures::stream::iter::iter
 /// [`StreamExt::collect`]: futures::stream::StreamExt::collect
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I, F, O>
+pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I, F>
 where
     I: Iterator<Item = F> + Send,
     F: Future<Output = O>,
@@ -69,21 +72,19 @@ where
     }
 }
 
-type SeqTryJoinAll<I, F, O, E> = SequentialFutures<<I as IntoIterator>::IntoIter, F, Result<O, E>>;
+type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SeqTryJoinAll<I, F, O, E>, Vec<O>>
+pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
     F: Future<Output = Result<O, E>>,
 {
-    const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
-
     let iter = iterable.into_iter();
     seq_join(ACTIVE.unwrap(), iter).try_collect()
 }
@@ -93,36 +94,34 @@ where
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
 pub fn seq_join_all<I, F, O>(
     iterable: I,
-) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F, O>, Vec<O>>
+) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
     F: Future<Output = O>,
 {
-    const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
     seq_join(ACTIVE.unwrap(), iterable.into_iter()).collect()
 }
 
 #[pin_project]
-pub struct SequentialFutures<I, F, O>
+pub struct SequentialFutures<I, F>
 where
     I: Iterator<Item = F> + Send,
-    F: IntoFuture<Output = O>,
+    F: IntoFuture,
 {
     iter: Fuse<I>,
-    #[pin]
     active: VecDeque<Pin<Box<F::IntoFuture>>>,
 }
 
-impl<I, F, O> Stream for SequentialFutures<I, F, O>
+impl<I, F> Stream for SequentialFutures<I, F>
 where
     I: Iterator<Item = F> + Send,
-    F: IntoFuture<Output = O>,
+    F: IntoFuture,
 {
-    type Item = O;
+    type Item = F::Output;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
+        let this = self.project();
 
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
@@ -160,27 +159,18 @@ where
     }
 }
 
-/*
 #[cfg(test)]
 mod test {
     use crate::seq_futures::{seq_join, seq_join_all, seq_try_join_all};
     use futures::{
         future::{lazy, pending, BoxFuture},
-        stream::{iter, poll_fn, repeat_with},
         Future, StreamExt,
     };
-    use std::{
-        convert::Infallible,
-        iter::once,
-        num::NonZeroUsize,
-        ptr::null,
-        sync::{Arc, Mutex},
-        task::{Context, Poll, Waker},
-    };
+    use std::{convert::Infallible, iter::once, num::NonZeroUsize};
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
-        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
+        let values = seq_join(capacity, (0..count).map(|i| async move { i }))
             .collect::<Vec<_>>()
             .await;
         assert_eq!((0..count).collect::<Vec<_>>(), values);
@@ -204,9 +194,10 @@ mod test {
         let unresolved: BoxFuture<'_, u32> = Box::pin(pending());
         let it = once(unresolved)
             .chain((0..3_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        drop(seq_join(capacity, iter(it)).collect::<Vec<_>>().await);
+        drop(seq_join(capacity, it).collect::<Vec<_>>().await);
     }
 
+    #[cfg(seq_join_stream)]
     fn fake_waker() -> Waker {
         use std::task::{RawWaker, RawWakerVTable};
         const fn fake_raw_waker() -> RawWaker {
@@ -218,6 +209,7 @@ mod test {
     }
 
     /// Check the value of a counter, then reset it.
+    #[cfg(seq_join_stream)]
     fn assert_count(counter_r: &Arc<Mutex<usize>>, expected: usize) {
         let mut counter = counter_r.lock().unwrap();
         assert_eq!(*counter, expected);
@@ -225,6 +217,7 @@ mod test {
     }
 
     /// A fully synchronous test.
+    #[cfg(seq_join_stream)]
     #[test]
     fn synchronous() {
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -273,6 +266,7 @@ mod test {
     }
 
     /// A fully synchronous test with a synthetic stream, all the way to the end.
+    #[cfg(seq_join_stream)]
     #[test]
     fn complete_stream() {
         const VALUE: u32 = 20;
@@ -318,7 +312,10 @@ mod test {
 
     #[tokio::test]
     async fn join_success() {
-        fn fut<T>(v: T) -> impl Future<Output = T> {
+        fn fut<T>(v: T) -> impl Future<Output = T>
+        where
+            T: Send,
+        {
             lazy(move |_| v)
         }
 
@@ -345,4 +342,3 @@ mod test {
         assert_eq!(err, ERROR);
     }
 }
-*/
