@@ -9,7 +9,7 @@ use raw_ipa::{
         update_expected_output_for_user, IpaSecurityModel, TestWorld, TestWorldConfig,
     },
 };
-use std::{cmp::min, time::Instant};
+use std::time::Instant;
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -63,23 +63,20 @@ async fn main() -> Result<(), Error> {
     let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
-        let records_for_user = generate_random_user_records_in_reverse_chronological_order(
+        let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
             &mut rng,
             args.records_per_user,
             args.breakdown_keys,
             args.max_trigger_value,
         );
-        let needed = min(
-            records_for_user.len(),
-            args.query_size.saturating_sub(raw_data.len()),
-        );
-        raw_data.extend_from_slice(&records_for_user[..needed]);
+        records_for_user.truncate(args.query_size - raw_data.len());
         update_expected_output_for_user(
-            &records_for_user[..needed],
+            &records_for_user,
             &mut expected_results,
             args.per_user_cap,
             args.attribution_window,
         );
+        raw_data.append(&mut records_for_user);
     }
 
     // Sort the records in chronological order
