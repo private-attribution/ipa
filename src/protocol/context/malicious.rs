@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::seq_futures::seq_try_join_all;
+use crate::seq_join::seq_try_join_all;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3, try_join_all};
 
@@ -645,6 +645,7 @@ where
 
         seq_try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
+                // This inner join is truly concurrent.
                 try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
                     UpgradeContext {
                         ctx,

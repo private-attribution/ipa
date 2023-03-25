@@ -15,7 +15,7 @@ use crate::{
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
-use futures::{future::try_join_all, TryFuture};
+use futures::TryFuture;
 pub use ipa::{
     generate_random_user_records_in_reverse_chronological_order, test_ipa,
     update_expected_output_for_user, IpaSecurityModel,
@@ -111,8 +111,8 @@ where
     T::Ok: Debug,
     T::Error: Debug,
 {
-    let x = try_join_all([a, b, c]).await.unwrap();
-    <[_; 3]>::try_from(x).unwrap()
+    let (a, b, c) = futures::future::try_join3(a, b, c).await.unwrap();
+    [a, b, c]
 }
 
 /// Wrapper for joining three things into an array.

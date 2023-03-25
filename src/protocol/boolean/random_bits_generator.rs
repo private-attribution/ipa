@@ -95,6 +95,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use futures::future::try_join_all;
+
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
@@ -103,7 +105,7 @@ mod tests {
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
-        seq_futures::seq_try_join_all,
+        seq_join::seq_try_join_all,
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
     use std::iter::zip;
@@ -144,7 +146,8 @@ mod tests {
                     let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
-                        seq_try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
+                        // This can't use `seq_try_join_all` because this isn't sequential.
+                        try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
                             .await
                             .unwrap(),
                     );

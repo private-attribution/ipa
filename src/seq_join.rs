@@ -1,7 +1,4 @@
-use futures::{
-    stream::{Collect, TryCollect},
-    Future, Stream, StreamExt, TryStreamExt,
-};
+use futures::{stream::TryCollect, Future, Stream, TryStreamExt};
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
@@ -16,6 +13,20 @@ use std::{
 /// For IPA, this needs to be at least as large as the number of items that need to be buffered
 /// for sending.
 pub const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(4096);
+
+/// This helper function might be necessary to convince the compiler that
+/// the return value from [`seq_try_join_all`] implements `Send`.
+/// Use this if you get higher-ranked lifetime errors that mention `std::marker::Send`.
+// pub fn assert_send<'a, F, O>(
+//     fut: F,
+// ) -> F where F: Future<Output = O> + Send + 'a {
+//     fut
+// }
+pub fn assert_send<'a, O>(
+    fut: impl Future<Output = O> + Send + 'a,
+) -> impl Future<Output = O> + Send + 'a {
+    fut
+}
 
 /// Sequentially join futures from an iterator.
 ///
@@ -61,13 +72,14 @@ pub const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(4096);
 /// [`futures::stream::iter`]: futures::stream::iter::iter
 /// [`StreamExt::collect`]: futures::stream::StreamExt::collect
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I, F>
+pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I::IntoIter, F>
 where
-    I: Iterator<Item = F> + Send,
+    I: IntoIterator<Item = F>,
+    I::IntoIter: Send,
     F: Future<Output = O>,
 {
     SequentialFutures {
-        iter: iter.fuse(),
+        iter: iter.into_iter().fuse(),
         active: VecDeque::with_capacity(active.get()),
     }
 }
@@ -85,22 +97,7 @@ where
     I::IntoIter: Send,
     F: Future<Output = Result<O, E>>,
 {
-    let iter = iterable.into_iter();
-    seq_join(ACTIVE.unwrap(), iter).try_collect()
-}
-
-/// A substitute for [`futures::future::join_all`] that uses [`seq_join`].
-///
-/// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub fn seq_join_all<I, F, O>(
-    iterable: I,
-) -> Collect<SequentialFutures<<I as IntoIterator>::IntoIter, F>, Vec<O>>
-where
-    I: IntoIterator<Item = F> + Send,
-    I::IntoIter: Send,
-    F: Future<Output = O>,
-{
-    seq_join(ACTIVE.unwrap(), iterable.into_iter()).collect()
+    seq_join(ACTIVE.unwrap(), iterable).try_collect()
 }
 
 #[pin_project]
@@ -161,7 +158,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::seq_futures::{seq_join, seq_join_all, seq_try_join_all};
+    use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{
         future::{lazy, pending, BoxFuture},
         Future, StreamExt,
@@ -322,8 +319,6 @@ mod test {
         let res = seq_try_join_all([fut::<Result<_, Infallible>>(Ok(1)), fut(Ok(2)), fut(Ok(3))])
             .await
             .unwrap();
-        assert_eq!(vec![1, 2, 3], res);
-        let res = seq_join_all([fut(1), fut(2), fut(3)]).await;
         assert_eq!(vec![1, 2, 3], res);
     }
 

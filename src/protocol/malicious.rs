@@ -270,7 +270,7 @@ mod tests {
             },
             IntoShares,
         },
-        seq_futures::seq_try_join_all,
+        seq_join::seq_try_join_all,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
 

@@ -14,7 +14,7 @@ use crate::{
         RecordId, Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use std::iter::{repeat, zip};
 

@@ -15,7 +15,7 @@ use crate::{
         malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -178,6 +178,7 @@ where
     where
         C: 'fut,
     {
+        // This is a truly parallel operation, so no `seq_try_join_all`.
         try_join_all(self.iter().enumerate().map(|(i, x)| {
             let c = ctx.narrow(&InnerVectorElementStep::from(i));
             async move { x.reshare(c, record_id, to_helper).await }

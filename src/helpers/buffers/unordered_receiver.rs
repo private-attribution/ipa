@@ -493,6 +493,7 @@ mod test {
         run(|| {
             let recv = receiver(vec![DATA.to_vec()]);
             async move {
+                // True concurrency is needed here.
                 try_join_all(DATA.iter().enumerate().rev().map(|(i, &v)| {
                     spawn({
                         let recv = recv.clone();

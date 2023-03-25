@@ -7,7 +7,7 @@ use crate::{
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

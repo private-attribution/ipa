@@ -13,13 +13,9 @@ use crate::{
         BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_futures::{seq_join, seq_try_join_all},
+    seq_join::{seq_join, seq_try_join_all, ACTIVE},
 };
-use futures::{
-    future::{ok, ready},
-    stream::once,
-    StreamExt, TryStreamExt,
-};
+use futures::{future::try_join_all, stream::once, StreamExt, TryStreamExt};
 use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
@@ -238,7 +234,9 @@ where
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
-    seq_try_join_all(
+    // This can't use `seq_try_join_all` because `greater_than_constant` uses
+    // a `RandomBitsGenerator`
+    try_join_all(
         prefix_summed_credits
             .iter()
             .zip(zip(repeat(ctx), repeat(cap)))
@@ -272,7 +270,6 @@ where
     let num_rows = input.len();
     let cap_share = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
     let cap = &cap_share;
-    let ctx = ctx.set_total_records(num_rows - 1);
 
     // This method implements the logic below:
     //
@@ -290,67 +287,74 @@ where
     //     current_credit
     //   }
 
-    seq_join(
+    let capped = zip(
+        repeat(ctx.set_total_records(num_rows - 1)),
         zip(
-            repeat(ctx),
             zip(
-                zip(
-                    zip(original_credits, prefix_summed_credits),
-                    exceeds_cap_bits.windows(2),
-                ),
-                input[1..].iter(),
+                // Take the original credit at the current line
+                // and the prefix-summed credit at the next line.
+                zip(original_credits, &prefix_summed_credits[1..]),
+                // Then the exceeds cap bits on both lines.
+                exceeds_cap_bits.windows(2),
             ),
-        )
-        .enumerate()
-        .map(
-            |(
-                i,
-                (
-                    ctx,
-                    (
-                        (
-                            (original_credit, next_prefix_summed_credit),
-                            [current_prefix_summed_credit_exceeds_cap, next_credit_exceeds_cap],
-                        ),
-                        input,
-                    ),
-                ),
-            )| async move {
-                let record_id = RecordId::from(i);
-                let next_event_has_same_match_key = &input.helper_bit;
-
-                let remaining_budget = if_else(
-                    ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
-                    record_id,
-                    next_event_has_same_match_key,
-                    &if_else(
-                        ctx.narrow(&Step::IfNextExceedsCapOrElse),
-                        record_id,
-                        next_credit_exceeds_cap,
-                        &T::ZERO,
-                        &(cap.clone() - next_prefix_summed_credit),
-                    )
-                    .await?,
-                    cap,
-                )
-                .await?;
-
-                let capped_credit = if_else(
-                    ctx.narrow(&Step::IfCurrentExceedsCapOrElse),
-                    record_id,
-                    current_prefix_summed_credit_exceeds_cap,
-                    &remaining_budget,
-                    original_credit,
-                )
-                .await?;
-
-                Ok::<_, Error>(capped_credit)
-            },
+            // Get the helper bit from the next line.
+            input[1..].iter().map(|i| &i.helper_bit),
         ),
     )
-    .chain(once(ok(original_credits.last().unwrap().clone())))
-    .try_collect()
-    .await?
+    .enumerate()
+    .map(
+        |(
+            i,
+            (
+                ctx,
+                (
+                    ((original_credit, next_prefix_summed_credit), exceeds_cap),
+                    next_event_has_same_match_key,
+                ),
+            ),
+        )| async move {
+            let record_id = RecordId::from(i);
+            let current_prefix_summed_credit_exceeds_cap = &exceeds_cap[0];
+            let next_credit_exceeds_cap = &exceeds_cap[1];
+
+            let remaining_budget = if_else(
+                ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
+                record_id,
+                next_event_has_same_match_key,
+                &if_else(
+                    ctx.narrow(&Step::IfNextExceedsCapOrElse),
+                    record_id,
+                    next_credit_exceeds_cap,
+                    &T::ZERO,
+                    &(cap.clone() - next_prefix_summed_credit),
+                )
+                .await?,
+                cap,
+            )
+            .await?;
+
+            let capped_credit = if_else(
+                ctx.narrow(&Step::IfCurrentExceedsCapOrElse),
+                record_id,
+                current_prefix_summed_credit_exceeds_cap,
+                &remaining_budget,
+                original_credit,
+            )
+            .await?;
+
+            Ok::<_, Error>(capped_credit)
+        },
+    );
+
+    let last = original_credits
+        .last()
+        .map(<T as Clone>::clone)
+        .ok_or(Error::Internal);
+
+    seq_join(ACTIVE.unwrap(), capped)
+        .chain(once(async { last }))
+        .try_collect()
+        .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,5 +1,4 @@
 use rand::Rng;
-
 use crate::{
     ff::{Field, Fp32BitPrime, GaloisField},
     ipa_test_input,
@@ -9,7 +8,7 @@ use crate::{
     },
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner},
 };
-
+use std::cmp::min;
 use super::TestWorld;
 
 pub enum IpaSecurityModel {
@@ -36,7 +35,10 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
     const SECONDS_IN_EPOCH: usize = 604_800;
 
     let random_user_id = rng.gen_range(0..MAX_USER_ID);
-    let num_records_for_user = rng.gen_range(1..max_records_per_user);
+    let num_records_for_user = min(
+        rng.gen_range(1..max_records_per_user),
+        rng.gen_range(1..max_records_per_user),
+    );
     let mut records_for_user = Vec::with_capacity(num_records_for_user);
     for _ in 0..num_records_for_user {
         let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);

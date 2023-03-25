@@ -3,7 +3,7 @@ use crate::{
     ff::{Field, PrimeField},
     protocol::{basics::SecureMul, BasicProtocols},
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use std::iter::repeat;
 

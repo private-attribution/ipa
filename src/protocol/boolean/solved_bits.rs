@@ -151,7 +151,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
         secret_sharing::SharedValue,
-        seq_futures::seq_try_join_all,
+        seq_join::seq_try_join_all,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};

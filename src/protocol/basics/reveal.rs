@@ -16,7 +16,7 @@ use crate::{
         },
         SecretSharing,
     },
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;

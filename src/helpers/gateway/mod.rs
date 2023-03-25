@@ -119,7 +119,6 @@ mod tests {
         protocol::{context::Context, RecordId},
         test_fixture::{TestWorld, TestWorldConfig},
     };
-
     use futures_util::future::try_join;
 
     #[tokio::test]

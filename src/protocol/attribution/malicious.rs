@@ -17,7 +17,7 @@ use crate::{
     secret_sharing::replicated::{
         malicious::AdditiveShare, semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use std::iter::{repeat, zip};
 

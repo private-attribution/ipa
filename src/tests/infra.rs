@@ -7,9 +7,10 @@ use crate::{
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
-    seq_futures::try_join_all,
+    seq_join::seq_try_join_all,
     test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
+use futures::future::try_join;
 
 #[test]
 fn send_receive_sequential() {
@@ -98,7 +99,7 @@ fn send_receive_parallel() {
                             futures.push(left_channel.send(record_id, share.left()));
                             futures.push(right_channel.send(record_id, share.right()));
                         }
-                        try_join_all(futures)
+                        seq_try_join_all(futures)
                             .await
                             .unwrap()
                             .into_iter()
@@ -116,7 +117,7 @@ fn send_receive_parallel() {
                             ));
                         }
 
-                        let result = try_join_all(futures).await.unwrap();
+                        let result = seq_try_join_all(futures).await.unwrap();
 
                         result.into_iter().map(Replicated::from).collect::<Vec<_>>()
                     })

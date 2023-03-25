@@ -262,6 +262,7 @@ where
     precomputed_combinations.push(S::share_known_value(&ctx, F::ONE));
     for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
+        // Concurrency needed here.
         let mut multiplication_results =
             try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
                 |(j, precomputed_combination)| {

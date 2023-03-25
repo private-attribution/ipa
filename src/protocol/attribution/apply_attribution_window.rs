@@ -11,7 +11,7 @@ use crate::{
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_futures::seq_try_join_all,
+    seq_join::seq_try_join_all,
 };
 use std::iter::{repeat, zip};
 

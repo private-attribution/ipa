@@ -12,6 +12,7 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
+    seq_join::{assert_send, seq_try_join_all},
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -151,8 +152,9 @@ where
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
     let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
+    // The outer loop is concurrent; the inner is fully sequential.
     try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
-        try_join_all(
+        assert_send(seq_try_join_all(
             zip(locally_converted_bits, repeat(ctx.clone()))
                 .enumerate()
                 .map(move |(idx, (record, ctx))| async move {
@@ -165,7 +167,7 @@ where
                     )
                     .await
                 }),
-        )
+        ))
     }))
     .await
 }
@@ -184,6 +186,7 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
+    // True concurrency needed here (different contexts).
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()

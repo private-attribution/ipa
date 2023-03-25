@@ -81,6 +81,7 @@ where
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { xor(c, record_id, a_bit, b_bit).await }
     });
+    // True concurrency
     try_join_all(xor).await
 }
 

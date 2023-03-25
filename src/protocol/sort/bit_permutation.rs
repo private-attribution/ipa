@@ -7,7 +7,7 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
 };
 
-use crate::seq_futures::seq_try_join_all;
+use crate::seq_join::seq_try_join_all;
 use embed_doc_image::embed_doc_image;
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]

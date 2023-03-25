@@ -1,4 +1,4 @@
-use crate::seq_futures::seq_try_join_all;
+use crate::seq_join::seq_try_join_all;
 
 use crate::{
     error::Error,
