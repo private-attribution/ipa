@@ -2,12 +2,14 @@ use clap::Parser;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raw_ipa::{
     error::Error,
+    ff::Fp32BitPrime,
     helpers::GatewayConfig,
     test_fixture::{
         generate_random_user_records_in_reverse_chronological_order, test_ipa,
         update_expected_output_for_user, IpaSecurityModel, TestWorld, TestWorldConfig,
     },
 };
+use std::cmp::min;
 use std::time::Instant;
 
 /// A benchmark for the full IPA protocol.
@@ -25,9 +27,10 @@ struct Args {
 async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
-    const QUERY_SIZE: usize = 10000;
+    const QUERY_SIZE: usize = 1000;
     const MAX_RECORDS_PER_USER: usize = 100;
     const PER_USER_CAP: u32 = 3;
+    type Prime = Fp32BitPrime;
 
     let prep_time = Instant::now();
     let mut config = TestWorldConfig::default();
@@ -55,7 +58,7 @@ async fn main() -> Result<(), Error> {
         update_expected_output_for_user(
             &records_for_user[..needed],
             &mut expected_results,
-            per_user_cap,
+            PER_USER_CAP,
         );
     }
     println!("Running test for {:?} records", raw_data.len());
@@ -72,7 +75,7 @@ async fn main() -> Result<(), Error> {
         &world,
         &raw_data,
         &expected_results,
-        per_user_cap,
+        PER_USER_CAP,
         MAX_BREAKDOWN_KEY,
         IpaSecurityModel::Malicious,
     )
