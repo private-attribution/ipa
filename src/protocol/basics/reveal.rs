@@ -11,7 +11,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         SecretSharing,
@@ -79,7 +79,9 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<'a, F: Field> Reveal<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
+impl<'a, F: Field + ExtendableField> Reveal<MaliciousContext<'a, F>, RecordId>
+    for MaliciousReplicated<F>
+{
     type Output = F;
 
     async fn reveal<'fut>(
@@ -157,6 +159,7 @@ where
 mod tests {
     use crate::{
         rand::{thread_rng, Rng},
+        secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::Runner,
     };
     use futures::future::{try_join, try_join3};
@@ -271,7 +274,7 @@ mod tests {
         Ok(())
     }
 
-    pub async fn reveal_with_additive_attack<F: Field>(
+    pub async fn reveal_with_additive_attack<F: Field + ExtendableField>(
         ctx: MaliciousContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,

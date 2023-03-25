@@ -7,12 +7,10 @@ use typenum::{U1, U4};
 
 impl Block for u8 {
     type Size = U1;
-    const VALID_BIT_LENGTH: u32 = u8::BITS;
 }
 
 impl Block for u32 {
     type Size = U4;
-    const VALID_BIT_LENGTH: u32 = u32::BITS;
 }
 
 pub trait Field: SharedValue + TryFrom<u128, Error = error::Error> + Into<Self::Storage> {

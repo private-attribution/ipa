@@ -1,15 +1,22 @@
-use rand::Rng;
+use super::TestWorld;
 use crate::{
-    ff::{Field, Fp32BitPrime, GaloisField},
+    ff::{GaloisField, PrimeField, Serializable},
     ipa_test_input,
     protocol::{
         ipa::{ipa, ipa_malicious},
         BreakdownKey, MatchKey,
     },
+    secret_sharing::{
+        replicated::{malicious, malicious::ExtendableField, semi_honest},
+        IntoShares,
+    },
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner},
 };
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
 use std::cmp::min;
-use super::TestWorld;
 
 pub enum IpaSecurityModel {
     SemiHonest,
@@ -75,6 +82,7 @@ pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
     per_user_cap: u32,
+    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
 ) {
     let mut pending_trigger_value = 0;
     let mut total_contribution = 0;
@@ -98,14 +106,21 @@ pub fn update_expected_output_for_user(
 
 /// # Panics
 /// If any of the IPA protocol modules panic
-pub async fn test_ipa(
+pub async fn test_ipa<F>(
     world: &TestWorld,
     records: &[TestRawDataRecord],
     expected_results: &[u32],
     per_user_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     security_model: IpaSecurityModel,
-) {
+) where
+    semi_honest::AdditiveShare<F>: Serializable,
+    malicious::AdditiveShare<F>: Serializable,
+    // todo: for semi-honest we don't need extendable fields.
+    F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
+    Standard: Distribution<F>,
+{
     const NUM_MULTI_BITS: u32 = 3;
 
     let records = records
@@ -118,42 +133,43 @@ pub async fn test_ipa(
                     breakdown_key: x.breakdown_key,
                     trigger_value: x.trigger_value,
                 };
-                (Fp32BitPrime, MatchKey, BreakdownKey)
+                (F, MatchKey, BreakdownKey)
             )
         })
         .collect::<Vec<_>>();
 
-    let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
-        match security_model {
-            IpaSecurityModel::Malicious => world
-                .semi_honest(records, |ctx, input_rows| async move {
-                    ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        per_user_cap,
-                        max_breakdown_key,
-                        NUM_MULTI_BITS,
-                    )
-                    .await
-                    .unwrap()
-                })
+    let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
+        IpaSecurityModel::Malicious => world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_malicious::<F, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    per_user_cap,
+                    max_breakdown_key,
+                    attribution_window_seconds,
+                    NUM_MULTI_BITS,
+                )
                 .await
-                .reconstruct(),
-            IpaSecurityModel::SemiHonest => world
-                .semi_honest(records, |ctx, input_rows| async move {
-                    ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        per_user_cap,
-                        max_breakdown_key,
-                        NUM_MULTI_BITS,
-                    )
-                    .await
-                    .unwrap()
-                })
+                .unwrap()
+            })
+            .await
+            .reconstruct(),
+        IpaSecurityModel::SemiHonest => world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<F, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    per_user_cap,
+                    max_breakdown_key,
+                    attribution_window_seconds,
+                    NUM_MULTI_BITS,
+                )
                 .await
-                .reconstruct(),
-        };
+                .unwrap()
+            })
+            .await
+            .reconstruct(),
+    };
 
     assert_eq!(max_breakdown_key, u32::try_from(result.len()).unwrap());
 

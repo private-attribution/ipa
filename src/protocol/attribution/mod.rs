@@ -8,15 +8,23 @@ pub mod semi_honest;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     protocol::{
         basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
     },
     repeat64str,
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
+    },
     seq_join::{assert_send, seq_try_join_all},
 };
 use futures::future::try_join;
+
+use super::{
+    boolean::bitwise_equal::bitwise_equal_gf2,
+    context::SemiHonestContext,
+    modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+};
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(
@@ -232,12 +240,60 @@ where
     Ok(())
 }
 
+async fn compute_helper_bits_gf2<C, S>(
+    ctx: C,
+    sorted_match_keys: &[Vec<S>],
+) -> Result<Vec<S>, Error>
+where
+    C: Context,
+    S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+{
+    let narrowed_ctx = ctx
+        .narrow(&Step::ComputeHelperBits)
+        .set_total_records(sorted_match_keys.len() - 1);
+
+    seq_try_join_all(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
+        let c = narrowed_ctx.clone();
+        let record_id = RecordId::from(i);
+        async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
+    }))
+    .await
+}
+
+async fn mod_conv_helper_bits<F>(
+    sh_ctx: SemiHonestContext<'_>,
+    semi_honest_helper_bits_gf2: &[Replicated<Gf2>],
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    F: Field,
+{
+    let hb_mod_conv_ctx = sh_ctx
+        .narrow(&Step::ModConvHelperBits)
+        .set_total_records(semi_honest_helper_bits_gf2.len());
+
+    seq_try_join_all(
+        semi_honest_helper_bits_gf2
+            .iter()
+            .enumerate()
+            .map(|(i, gf2_bit)| {
+                let bit_triple: BitConversionTriple<Replicated<F>> =
+                    convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
+                let record_id = RecordId::from(i);
+                let c = hb_mod_conv_ctx.clone();
+                async move { convert_bit(c, record_id, &bit_triple).await }
+            }),
+    )
+    .await
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
 enum Step {
     CurrentStopBitTimesSuccessorCredit,
     CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
+    ComputeHelperBits,
+    ModConvHelperBits,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -250,6 +306,8 @@ impl AsRef<str> for Step {
                 "current_stop_bit_times_successor_stop_bit"
             }
             Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
+            Self::ComputeHelperBits => "compute_helper_bits",
+            Self::ModConvHelperBits => "mod_conv_helper_bits",
         }
     }
 }

@@ -6,7 +6,11 @@ use crate::{
         context::{Context, MaliciousContext},
         RecordId,
     },
-    secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated,
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
+    },
 };
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -67,7 +71,7 @@ pub async fn multiply<F>(
     zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
-    F: Field,
+    F: Field + ExtendableField,
 {
     use crate::{
         protocol::context::SpecialAccessToMaliciousContext,
@@ -76,15 +80,33 @@ where
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let b_x = b.x().access_without_downgrade();
+
+    //
+    // This code is an optimization to our malicious compiler that is drawn from:
+    // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+    // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+    // <https://eprint.iacr.org/2019/386.pdf>
+    //
+    // See protocol 4.15
+    // In Step 4: "Circuit emulation:", it says:
+    //
+    // If G_j is a multiplication gate: Given pairs `([x], [[ȓ · x]])` and `([y], [[ȓ · y]])` on the left and right input wires
+    // respectively, the parties compute `([x · y], [[ȓ · x · y]])` as follows:
+    // (a) The parties call `F_mult` on `[x]` and `[y]` to receive `[x · y]`.
+    // (b) The parties locally compute the induced share [[y]] = f([y], 0, . . . , 0).
+    // (c) The parties call `Ḟ_mult` on `[[ȓ · x]]` and `[[y]]` to receive `[[ȓ · x · y]]`.
+    //
+    let b_induced_share = Replicated::new(b_x.left().to_extended(), b_x.right().to_extended());
     let (ab, rab) = try_join(
         a.x().access_without_downgrade().multiply_sparse(
-            b.x().access_without_downgrade(),
+            b_x,
             ctx.semi_honest_context(),
             record_id,
             zeros_at,
         ),
         a.rx().multiply_sparse(
-            b.x().access_without_downgrade(),
+            &b_induced_share,
             duplicate_multiply_ctx.semi_honest_context(),
             record_id,
             (ZeroPositions::Pvvv, zeros_at.1),

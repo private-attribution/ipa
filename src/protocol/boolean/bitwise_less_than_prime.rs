@@ -203,7 +203,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{context::Context, RecordId},
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -283,7 +283,7 @@ mod tests {
 
     async fn bitwise_less_than_prime<F>(a: u32, num_bits: u32) -> F
     where
-        F: PrimeField + Sized,
+        F: PrimeField + ExtendableField + Sized,
         Standard: Distribution<F>,
     {
         let world = TestWorld::default();

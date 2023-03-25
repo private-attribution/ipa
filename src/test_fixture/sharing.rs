@@ -3,8 +3,9 @@ use crate::{
     protocol::boolean::RandomBitsShare,
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         SecretSharing,
     },
@@ -119,16 +120,16 @@ where
     }
 }
 
-pub trait ValidateMalicious<F> {
-    fn validate(&self, r: F);
+pub trait ValidateMalicious<F: Field + ExtendableField> {
+    fn validate(&self, r: F::ExtendedField);
 }
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Borrow<MaliciousReplicated<F>>,
 {
-    fn validate(&self, r: F) {
+    fn validate(&self, r: F::ExtendedField) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = [
@@ -141,12 +142,12 @@ where
             self[1].borrow().rx(),
             self[2].borrow().rx(),
         ];
-        assert_eq!(x.reconstruct() * r, rx.reconstruct());
+        assert_eq!(x.reconstruct().to_extended() * r, rx.reconstruct(),);
     }
 }
 
-impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
-    fn validate(&self, r: F) {
+impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+    fn validate(&self, r: F::ExtendedField) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
 
@@ -156,8 +157,10 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     }
 }
 
-impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
-    fn validate(&self, r: F) {
+impl<F: Field + ExtendableField> ValidateMalicious<F>
+    for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3]
+{
+    fn validate(&self, r: F::ExtendedField) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
 

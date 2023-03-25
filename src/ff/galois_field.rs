@@ -25,17 +25,14 @@ type U8_5 = BitArr!(for 40, in u8, Lsb0);
 
 impl Block for U8_1 {
     type Size = U1;
-    const VALID_BIT_LENGTH: u32 = 8;
 }
 
 impl Block for U8_4 {
     type Size = U4;
-    const VALID_BIT_LENGTH: u32 = 32;
 }
 
 impl Block for U8_5 {
     type Size = U5;
-    const VALID_BIT_LENGTH: u32 = 40;
 }
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -46,7 +43,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $one:expr, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -62,7 +59,7 @@ macro_rules! bit_array_impl {
 
             impl SharedValue for $name {
                 type Storage = $store;
-                const BITS: u32 = <$store as Block>::VALID_BIT_LENGTH;
+                const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
@@ -74,7 +71,8 @@ macro_rules! bit_array_impl {
                 }
 
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
+                    const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
+                    let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
                 }
             }
@@ -283,6 +281,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: usize) -> &Self::Output {
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     &self.0.as_bitslice()[index]
                 }
             }
@@ -291,6 +290,7 @@ macro_rules! bit_array_impl {
                 type Output = bool;
 
                 fn index(&self, index: u32) -> &Self::Output {
+                    debug_assert!(index < <$name>::BITS);
                     &self[index as usize]
                 }
             }
@@ -339,14 +339,12 @@ macro_rules! bit_array_impl {
                     let zero = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     let mut one = bitarr!(u8, Lsb0; 0; <$name>::BITS as usize);
                     *one.first_mut().unwrap() = true;
-
                     assert_eq!($name::ZERO.0, zero);
                     assert_eq!($name::ONE.0, one);
                     assert_eq!($name::truncate_from(1_u128).0, one);
 
                     let max_plus_one = (1_u128 << <$name>::BITS) + 1;
-                    // TODO (taikiy): Uncomment this line once TryFrom is back
-                    // assert!($name::try_from(max_plus_one).is_err());
+                    assert!($name::try_from(max_plus_one).is_err());
                     assert_eq!($name::truncate_from(max_plus_one).0, one);
                 }
 
@@ -354,7 +352,6 @@ macro_rules! bit_array_impl {
                 pub fn index() {
                     let s = $name::try_from(1_u128).unwrap();
                     assert_eq!(s[0_usize], true);
-                    assert_eq!(s[(<$name>::BITS - 1) as u32], false);
                 }
 
                 #[test]
@@ -460,6 +457,7 @@ bit_array_impl!(
     bit_array_40,
     Gf40Bit,
     U8_5,
+    40,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
@@ -469,6 +467,7 @@ bit_array_impl!(
     bit_array_32,
     Gf32Bit,
     U8_4,
+    32,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
@@ -478,7 +477,18 @@ bit_array_impl!(
     bit_array_8,
     Gf8Bit,
     U8_1,
+    8,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
+);
+
+bit_array_impl!(
+    bit_array_1,
+    Gf2,
+    U8_1,
+    1,
+    bitarr!(const u8, Lsb0; 1),
+    // x
+    0b10_u128
 );

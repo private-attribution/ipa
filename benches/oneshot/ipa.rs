@@ -28,13 +28,15 @@ async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
     const QUERY_SIZE: usize = 1000;
-    const MAX_RECORDS_PER_USER: usize = 100;
+    const MAX_RECORDS_PER_USER: usize = 10;
+    const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
     const PER_USER_CAP: u32 = 3;
-    type Prime = Fp32BitPrime;
+    type BenchField = Fp32BitPrime;
 
     let prep_time = Instant::now();
     let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::symmetric_buffers(QUERY_SIZE.clamp(16, 1024));
+    config.gateway_config =
+        GatewayConfig::symmetric_buffers::<BenchField>(QUERY_SIZE.clamp(16, 1024));
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed} for {QUERY_SIZE} records");
@@ -59,6 +61,7 @@ async fn main() -> Result<(), Error> {
             &records_for_user[..needed],
             &mut expected_results,
             PER_USER_CAP,
+            0,
         );
     }
     println!("Running test for {:?} records", raw_data.len());
@@ -70,16 +73,17 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::new_with(config.clone());
     println!("Preparation time {:?}", prep_time.elapsed());
 
-    let start = Instant::now();
-    test_ipa(
+    let protocol_time = Instant::now();
+    test_ipa::<BenchField>(
         &world,
         &raw_data,
         &expected_results,
         PER_USER_CAP,
         MAX_BREAKDOWN_KEY,
+        ATTRIBUTION_WINDOW_SECONDS,
         IpaSecurityModel::Malicious,
     )
     .await;
-    println!("IPA time {:?}", start.elapsed());
+    println!("IPA for {QUERY_SIZE} records took {:?}", protocol_time.elapsed());
     Ok(())
 }

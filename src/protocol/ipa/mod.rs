@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -10,7 +10,7 @@ use crate::{
             SemiHonestContext,
         },
         malicious::MaliciousValidator,
-        modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+        modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
@@ -22,15 +22,16 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         Linear as LinearSecretSharing,
     },
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::try_join3;
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -41,7 +42,9 @@ pub enum Step {
     ModulusConversionForBreakdownKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
+    ApplySortPermutationToMatchKeys,
     AfterConvertAllBits,
+    BinaryValidator,
 }
 
 impl Substep for Step {}
@@ -53,7 +56,9 @@ impl AsRef<str> for Step {
             Self::ModulusConversionForBreakdownKeys => "mod_conv_breakdown_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
+            Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::BinaryValidator => "binary_validator",
         }
     }
 }
@@ -183,7 +188,6 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
@@ -191,14 +195,8 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(
-        mk_shares: Vec<T>,
-        is_trigger_bit: T,
-        breakdown_key: Vec<T>,
-        trigger_value: T,
-    ) -> Self {
+    pub fn new(is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
         Self {
-            mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -223,11 +221,6 @@ where
     where
         C: 'fut,
     {
-        let f_mk_shares = self.mk_shares.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
-            record_id,
-            to_helper,
-        );
         let f_is_trigger_bit = self.is_trigger_bit.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
@@ -244,15 +237,10 @@ where
             to_helper,
         );
 
-        let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
-            f_mk_shares,
-            f_breakdown_key,
-            try_join(f_is_trigger_bit, f_trigger_value),
-        )
-        .await?;
+        let (breakdown_key, is_trigger_bit, trigger_value) =
+            try_join3(f_breakdown_key, f_is_trigger_bit, f_trigger_value).await?;
 
         Ok(IPAModulusConvertedInputRow::new(
-            mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -269,6 +257,7 @@ pub async fn ipa<F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -299,7 +288,7 @@ where
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), mk_shares.into_iter()),
+        &convert_all_bits_local::<F, MK>(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
         num_multi_bits,
     )
@@ -313,24 +302,31 @@ where
     .await
     .unwrap();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
-    let combined_match_keys_and_sidecar_data =
-        std::iter::zip(converted_mk_shares, converted_bk_shares)
-            .zip(input_rows)
-            .map(|((mk_shares, bk_shares), input_row)| {
-                IPAModulusConvertedInputRow::new(
-                    mk_shares,
-                    input_row.is_trigger_bit.clone(),
-                    bk_shares,
-                    input_row.trigger_value.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
+    let inputs_sans_match_keys = converted_bk_shares
+        .into_iter()
+        .zip(input_rows)
+        .map(|(bk_shares, input_row)| {
+            IPAModulusConvertedInputRow::new(
+                input_row.is_trigger_bit.clone(),
+                bk_shares,
+                input_row.trigger_value.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
         ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let sorted_match_keys = apply_sort_permutation(
+        ctx.narrow(&Step::ApplySortPermutationToMatchKeys),
+        gf2_match_key_bits,
         &sort_permutation,
     )
     .await
@@ -338,9 +334,11 @@ where
 
     semi_honest::secure_attribution(
         ctx,
+        sorted_match_keys,
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
+        attribution_window_seconds,
         num_multi_bits,
     )
     .await
@@ -358,16 +356,17 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: PrimeField,
+    F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
     Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
-    let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
+    let malicious_validator = MaliciousValidator::<F>::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -397,10 +396,16 @@ where
     .await
     .unwrap();
 
-    let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
+    let malicious_validator =
+        MaliciousValidator::<F>::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
-    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+    let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
+
+    let binary_validator = MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BinaryValidator));
+    let binary_m_ctx = binary_validator.context();
+
+    let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
@@ -417,11 +422,10 @@ where
 
     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
-    let intermediate = converted_mk_shares
-        .zip(input_rows)
-        .map(|(mk_shares, input_row)| {
+    let intermediate = input_rows
+        .iter()
+        .map(|input_row| {
             IPAModulusConvertedInputRowWrapper::new(
-                mk_shares,
                 input_row.is_trigger_bit.clone(),
                 input_row.trigger_value.clone(),
             )
@@ -430,12 +434,11 @@ where
 
     let intermediate = m_ctx.upgrade(intermediate).await?;
 
-    let combined_match_keys_and_sidecar_data = intermediate
+    let inputs_sans_match_keys = intermediate
         .into_iter()
         .zip(converted_bk_shares)
         .map(
             |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
-                mk_shares: one_row.mk_shares,
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
                 breakdown_key: bk_shares,
@@ -446,7 +449,15 @@ where
 
     let sorted_rows = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
+        inputs_sans_match_keys,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let sorted_match_keys = apply_sort_permutation(
+        binary_m_ctx.narrow(&Step::ApplySortPermutation),
+        upgraded_gf2_match_key_bits,
         &sort_permutation,
     )
     .await
@@ -455,12 +466,38 @@ where
     malicious::secure_attribution(
         sh_ctx,
         malicious_validator,
+        binary_validator,
+        sorted_match_keys,
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
+        attribution_window_seconds,
         num_multi_bits,
     )
     .await
+}
+
+fn get_gf2_match_key_bits<F, MK, BK>(
+    input_rows: &[IPAInputRow<F, MK, BK>],
+) -> Vec<Vec<Replicated<Gf2>>>
+where
+    F: PrimeField,
+    MK: GaloisField,
+    BK: GaloisField,
+{
+    input_rows
+        .iter()
+        .map(|row| {
+            (0..MK::BITS)
+                .map(|i| {
+                    Replicated::new(
+                        Gf2::truncate_from(row.mk_shares.left()[i]),
+                        Gf2::truncate_from(row.mk_shares.right()[i]),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -472,7 +509,10 @@ pub mod tests {
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
-        telemetry::metrics::RECORDS_SENT,
+        telemetry::{
+            metrics::{BYTES_SENT, RECORDS_SENT},
+            stats::Metrics,
+        },
         test_fixture::{
             input::GenericReportTestInput,
             ipa::{
@@ -507,6 +547,7 @@ pub mod tests {
             [7, 0],
         ];
         const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -529,6 +570,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -556,6 +598,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -578,6 +621,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -603,6 +647,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
         const MAX_BREAKDOWN_KEY: u32 = 7;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -637,6 +682,7 @@ pub mod tests {
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -659,11 +705,12 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<_, MatchKey, BreakdownKey>(
+                ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
                     MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -693,6 +740,8 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
@@ -714,7 +763,9 @@ pub mod tests {
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::symmetric_buffers(raw_data.len().clamp(4, 1024)),
+            gateway_config: GatewayConfig::symmetric_buffers::<TestField>(
+                raw_data.len().clamp(4, 1024),
+            ),
             ..Default::default()
         };
 
@@ -728,15 +779,17 @@ pub mod tests {
                     records_for_user,
                     &mut expected_results,
                     per_user_cap,
+                    ATTRIBUTION_WINDOW_SECONDS,
                 );
             }
 
-            test_ipa(
+            test_ipa::<TestField>(
                 &world,
                 &raw_data,
                 &expected_results,
                 per_user_cap,
                 MAX_BREAKDOWN_KEY,
+                ATTRIBUTION_WINDOW_SECONDS,
                 IpaSecurityModel::SemiHonest,
             )
             .await;
@@ -792,19 +845,25 @@ pub mod tests {
     #[tokio::test]
     pub async fn communication_baseline() {
         const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
+        const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        /// empirical value as of Mar 8, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15453;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48780;
 
-        /// empirical value as of Mar 8, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38400;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 136_884;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34104;
 
-        /// empirical value as of Feb 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29046;
+        /// empirical value as of Mar 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 99468;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -831,6 +890,7 @@ pub mod tests {
                         &input_rows,
                         per_user_cap,
                         MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -840,19 +900,25 @@ pub mod tests {
                 .reconstruct();
 
             let snapshot = world.metrics_snapshot();
-            let records_sent = snapshot.get_counter(RECORDS_SENT);
-            let semi_honest_baseline = if per_user_cap == 1 {
-                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1
+            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
+                (
+                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1,
+                )
             } else {
-                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3
+                (
+                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3,
+                )
             };
-            assert!(records_sent <= semi_honest_baseline,
-                "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
-
-            if records_sent < semi_honest_baseline {
-                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}. \
-                                Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
-            }
+            assert_baselines(
+                &format!("semi-honest IPA (cap = {per_user_cap})"),
+                &snapshot,
+                [
+                    (RECORDS_SENT, records_baseline),
+                    (BYTES_SENT, bytes_baseline),
+                ],
+            );
 
             let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
@@ -863,6 +929,7 @@ pub mod tests {
                         &input_rows,
                         per_user_cap,
                         MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -871,20 +938,42 @@ pub mod tests {
                 .await;
 
             let snapshot = world.metrics_snapshot();
-            let records_sent = snapshot.get_counter(RECORDS_SENT);
-            let malicious_baseline = if per_user_cap == 1 {
-                RECORDS_SENT_MALICIOUS_BASELINE_CAP_1
+            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
+                (
+                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_1,
+                )
             } else {
-                RECORDS_SENT_MALICIOUS_BASELINE_CAP_3
+                (
+                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_3,
+                )
             };
+            assert_baselines(
+                &format!("malicious IPA (cap = {per_user_cap})"),
+                &snapshot,
+                [
+                    (RECORDS_SENT, records_baseline),
+                    (BYTES_SENT, bytes_baseline),
+                ],
+            );
+        }
+    }
 
-            if records_sent < malicious_baseline {
-                tracing::warn!("Baseline for malicious IPA (cap = {per_user_cap}) has improved! Expected {malicious_baseline}, got {records_sent}.\
+    fn assert_baselines<const N: usize>(
+        name: &str,
+        snapshot: &Metrics,
+        baselines: [(&'static str, u64); N],
+    ) {
+        for (metric_name, baseline) in baselines {
+            let actual = snapshot.get_counter(metric_name);
+            assert!(actual <= baseline,
+                    "{metric_name} baseline for {name} has DEGRADED! Expected {baseline}, got {actual}.");
+
+            if actual < baseline {
+                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}. \
                 Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
-
-            assert!(records_sent <= malicious_baseline,
-                "Baseline for malicious IPA (cap = {per_user_cap}) has DEGRADED! Expected {malicious_baseline}, got {records_sent}.");
         }
     }
 }

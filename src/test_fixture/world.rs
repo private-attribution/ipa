@@ -11,7 +11,7 @@ use crate::{
         QueryId, Substep,
     },
     rand::thread_rng,
-    secret_sharing::{replicated::malicious::DowngradeMalicious, IntoShares},
+    secret_sharing::{replicated::malicious::{DowngradeMalicious, ExtendableField}, IntoShares},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -52,7 +52,7 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             gateway_config: GatewayConfig {
-                send_outstanding: NonZeroUsize::new(16).unwrap(),
+                send_outstanding_bytes: NonZeroUsize::new(16).unwrap(),
                 recv_outstanding: NonZeroUsize::new(16).unwrap(),
             },
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
@@ -169,7 +169,7 @@ pub trait Runner {
 
     async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        F: Field,
+        F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
@@ -208,7 +208,7 @@ impl Runner for TestWorld {
 
     async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        F: Field,
+        F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,

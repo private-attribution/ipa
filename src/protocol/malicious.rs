@@ -9,7 +9,7 @@ use crate::{
         RecordId, RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
@@ -103,18 +103,27 @@ impl AsRef<str> for ValidateStep {
 /// and the parties wish to validate the circuit. This makes for a very memory efficient implementation.
 ///
 #[derive(Clone, Copy, Debug)]
-struct AccumulatorState<F> {
-    u: F,
-    w: F,
+struct AccumulatorState<T: Field> {
+    u: T,
+    w: T,
+}
+
+impl<T: Field> AccumulatorState<T> {
+    pub fn new(u: T, w: T) -> Self {
+        Self { u, w }
+    }
 }
 
 #[derive(Clone, Debug)]
-pub struct MaliciousValidatorAccumulator<F> {
-    inner: Weak<Mutex<AccumulatorState<F>>>,
+pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
+    inner: Weak<Mutex<AccumulatorState<F::ExtendedField>>>,
 }
 
-impl<F: Field> MaliciousValidatorAccumulator<F> {
-    fn compute_dot_product_contribution(a: &Replicated<F>, b: &Replicated<F>) -> F {
+impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
+    fn compute_dot_product_contribution(
+        a: &Replicated<F::ExtendedField>,
+        b: &Replicated<F::ExtendedField>,
+    ) -> F::ExtendedField {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
     }
 
@@ -128,12 +137,28 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     ) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
+        let x = input.x().access_without_downgrade();
+
+        //
+        // This code is an optimization to our malicious compiler that is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In step 5: Verification Stage, it says:
+        //
+        // The parties locally compute the induced share `[[z_k]] = f([z_k], 0, . . . , 0)`
+        // of the output wire of the k-th multiplication gate.
+        // Then, the parties call `Ḟ_product` on vectors
+        // `([[ᾶ_1]], . . . , [[ᾶ_N ]], [[β_1]], . . . , [[β_M]])` and `([[z_1]], . . . , [[z_N]], [[v_1]], . . . , [[v_M]])` to receive `[[ŵ]]`
+        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
+
         let random_constant = prss.generate_replicated(record_id);
-        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
-        let w_contribution = Self::compute_dot_product_contribution(
-            &random_constant,
-            input.x().access_without_downgrade(),
-        );
+        let u_contribution: F::ExtendedField =
+            Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let w_contribution: F::ExtendedField =
+            Self::compute_dot_product_contribution(&random_constant, &induced_share);
 
         let arc_mutex = self.inner.upgrade().unwrap();
         // LOCK BEGIN
@@ -145,27 +170,26 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-pub struct MaliciousValidator<'a, F: Field> {
-    r_share: Replicated<F>,
-    u_and_w: Arc<Mutex<AccumulatorState<F>>>,
+pub struct MaliciousValidator<'a, F: Field + ExtendableField> {
+    r_share: Replicated<F::ExtendedField>,
+    u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
     protocol_ctx: MaliciousContext<'a, F>,
     validate_ctx: SemiHonestContext<'a>,
 }
 
-impl<'a, F: Field> MaliciousValidator<'a, F> {
+impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share = ctx.prss().generate_replicated(RECORD_0);
+        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
-        let state = AccumulatorState {
-            u: prss.zero(RECORD_1),
-            w: prss.zero(RECORD_2),
-        };
+        let u: F::ExtendedField = prss.zero(RECORD_1);
+        let w: F::ExtendedField = prss.zero(RECORD_2);
+        let state = AccumulatorState::new(u, w);
 
         let u_and_w = Arc::new(Mutex::new(state));
-        let accumulator = MaliciousValidatorAccumulator {
+        let accumulator = MaliciousValidatorAccumulator::<F> {
             inner: Arc::downgrade(&u_and_w),
         };
         let validate_ctx = ctx.narrow(&Step::Validate);
@@ -178,7 +202,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         }
     }
 
-    pub fn r_share(&self) -> &Replicated<F> {
+    pub fn r_share(&self) -> &Replicated<F::ExtendedField> {
         &self.r_share
     }
 
@@ -223,7 +247,9 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
-    async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
+    async fn propagate_u_and_w(
+        &self,
+    ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)
@@ -239,7 +265,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             helper_right.send(RECORD_1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F, F) =
+        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) =
             try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
@@ -247,7 +273,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 }
 
-impl<F: Field> Debug for MaliciousValidator<'_, F> {
+impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }

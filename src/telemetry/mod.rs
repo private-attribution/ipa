@@ -13,6 +13,7 @@ pub mod metrics {
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
     pub const RECORDS_SENT: &str = "records.sent";
+    pub const BYTES_SENT: &str = "bytes.sent";
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
 
@@ -83,6 +84,12 @@ pub mod metrics {
             RECORDS_SENT,
             Unit::Count,
             "Number of unique records sent from the infrastructure layer to the network"
+        );
+
+        describe_counter!(
+            BYTES_SENT,
+            Unit::Count,
+            "Bytes sent from the infrastructure layer to the network"
         );
 
         describe_counter!(

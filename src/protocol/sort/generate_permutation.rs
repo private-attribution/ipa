@@ -13,7 +13,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
         SecretSharing,
@@ -86,7 +86,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 1. Get random permutation 2/3 shared across helpers
 /// 2. Shuffle shares three times
 /// 3. Validate the accumulated macs - this returns the revealed permutation
-pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
+pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field + ExtendableField>(
     m_ctx: MaliciousContext<'_, F>,
     input_permutation: Vec<MaliciousReplicated<F>>,
     malicious_validator: MaliciousValidator<'_, F>,
@@ -141,7 +141,7 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
-pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
+pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field + ExtendableField>(
     sh_ctx: SemiHonestContext<'_>,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {

@@ -5,7 +5,8 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::{
         replicated::malicious::{
-            AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
+            AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+            UnauthorizedDowngradeWrapper,
         },
         Linear as LinearSecretSharing, SecretSharing,
     },
@@ -27,7 +28,7 @@ where
 #[async_trait]
 impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicated<F>>
 where
-    F: Field,
+    F: Field + ExtendableField,
 {
     type Target =
         RandomBitsShare<F, crate::secret_sharing::replicated::semi_honest::AdditiveShare<F>>;

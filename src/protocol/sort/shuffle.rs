@@ -335,8 +335,8 @@ mod tests {
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
             for val in result.reconstruct() {
-                output_secret.push(u8::from(val));
-                hashed_output_secret.insert(u8::from(val));
+                output_secret.push(u8::try_from(val.as_u128()).unwrap());
+                hashed_output_secret.insert(u8::try_from(val.as_u128()).unwrap());
             }
 
             // Secrets should be shuffled

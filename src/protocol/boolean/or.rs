@@ -26,14 +26,14 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{context::Context, RecordId},
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::distributions::{Distribution, Standard};
 
     async fn run<F>(world: &TestWorld, a: F, b: F) -> F
     where
-        F: Field,
+        F: Field + ExtendableField,
         Standard: Distribution<F>,
     {
         let result = world

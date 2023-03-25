@@ -31,8 +31,9 @@ use crate::{
     repeat64str,
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousReplicated,
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
         },
         Linear as LinearSecretSharing,
     },
@@ -55,7 +56,7 @@ impl AsRef<str> for UpgradeStep {
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone)]
-pub struct MaliciousContext<'a, F: Field> {
+pub struct MaliciousContext<'a, F: Field + ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<ContextInner<'a, F>>,
@@ -63,17 +64,17 @@ pub struct MaliciousContext<'a, F: Field> {
     total_records: TotalRecords,
 }
 
-pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
+pub trait SpecialAccessToMaliciousContext<'a, F: Field + ExtendableField> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>);
     fn semi_honest_context(self) -> SemiHonestContext<'a>;
 }
 
-impl<'a, F: Field> MaliciousContext<'a, F> {
+impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
     pub(super) fn new<S: Substep + ?Sized>(
         source: &SemiHonestContext<'a>,
         malicious_step: &S,
         acc: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: Replicated<F::ExtendedField>,
     ) -> Self {
         Self {
             inner: ContextInner::new(source, acc, r_share),
@@ -98,7 +99,22 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = x
+        //
+        // This code is drawn from:
+        // "Field Extension in Secret-Shared Form and Its Applications to Efficient Secure Computation"
+        // R. Kikuchi, N. Attrapadung, K. Hamada, D. Ikarashi, A. Ishida, T. Matsuda, Y. Sakai, and J. C. N. Schuldt
+        // <https://eprint.iacr.org/2019/386.pdf>
+        //
+        // See protocol 4.15
+        // In Step 3: "Randomization of inputs:", it says:
+        //
+        // For each input wire sharing `[v_j]` (where j ∈ {1, . . . , M}), the parties locally
+        // compute the induced share `[[v_j]] = f([v_j], 0, . . . , 0)`.
+        // Then, the parties call `Ḟ_mult` on `[[ȓ]]` and `[[v_j]]` to receive `[[ȓ · v_j]]`
+        //
+        let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
+
+        let rx = induced_share
             .multiply_sparse(
                 &self.inner.r_share,
                 self.as_semi_honest(),
@@ -166,12 +182,12 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().semi_honest_context(), value),
-            self.inner.r_share.clone() * value,
+            self.inner.r_share.clone() * value.to_extended(),
         )
     }
 }
 
-impl<'a, F: Field> Context for MaliciousContext<'a, F> {
+impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -236,7 +252,9 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
-impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
+impl<'a, F: Field + ExtendableField> SpecialAccessToMaliciousContext<'a, F>
+    for MaliciousContext<'a, F>
+{
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
         self.inner
             .accumulator
@@ -265,7 +283,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     }
 }
 
-impl<F: Field> Debug for MaliciousContext<'_, F> {
+impl<F: Field + ExtendableField> Debug for MaliciousContext<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }
@@ -290,7 +308,6 @@ impl AsRef<str> for UpgradeTripleStep {
 }
 
 enum UpgradeModConvStep {
-    V0(usize),
     V1,
     V2,
 }
@@ -299,10 +316,7 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
-        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
-
         match self {
-            Self::V0(i) => UPGRADE_MOD_CONV0[*i],
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
         }
@@ -332,7 +346,7 @@ impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
 }
 
 #[async_trait]
-impl<'a, F: Field>
+impl<'a, F: Field + ExtendableField>
     UpgradeToMalicious<
         IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
         IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>,
@@ -342,38 +356,21 @@ impl<'a, F: Field>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.ctx;
-        let mk_shares = seq_try_join_all(input.mk_shares.into_iter().enumerate().map(
-            |(idx, mk_share)| async move {
-                ctx_ref
-                    .narrow(&UpgradeModConvStep::V0(idx))
-                    .upgrade_one(self.record_binding, mk_share, ZeroPositions::Pvvv)
-                    .await
-            },
-        ))
-        .await?;
-
-        let is_trigger_bit = self
-            .ctx
-            .narrow(&UpgradeModConvStep::V1)
-            .upgrade_one(
+        let (is_trigger_bit, trigger_value) = try_join(
+            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let trigger_value = self
-            .ctx
-            .narrow(&UpgradeModConvStep::V2)
-            .upgrade_one(
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
                 self.record_binding,
                 input.trigger_value,
                 ZeroPositions::Pvvv,
-            )
-            .await?;
+            ),
+        )
+        .await?;
+
         Ok(IPAModulusConvertedInputRowWrapper::new(
-            mk_shares,
             is_trigger_bit,
             trigger_value,
         ))
@@ -381,16 +378,14 @@ impl<'a, F: Field>
 }
 
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
-    pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
-    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
+    pub fn new(is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
-            mk_shares,
             is_trigger_bit,
             trigger_value,
             _marker: PhantomData,
@@ -399,7 +394,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
 }
 
 #[async_trait]
-impl<'a, F: Field>
+impl<'a, F: Field + ExtendableField>
     UpgradeToMalicious<
         MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
         MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>,
@@ -450,18 +445,18 @@ impl<'a, F: Field>
     }
 }
 
-struct ContextInner<'a, F: Field> {
+struct ContextInner<'a, F: Field + ExtendableField> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: MaliciousValidatorAccumulator<F>,
-    r_share: Replicated<F>,
+    r_share: Replicated<F::ExtendedField>,
 }
 
-impl<'a, F: Field> ContextInner<'a, F> {
+impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
     fn new(
         semi_honest: &SemiHonestContext<'a>,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: Replicated<F::ExtendedField>,
     ) -> Arc<Self> {
         Arc::new(ContextInner {
             prss: semi_honest.inner.prss,
@@ -481,36 +476,36 @@ impl<'a, F: Field> ContextInner<'a, F> {
 ///
 /// ```no_run
 /// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::ff::Fp32BitPrime;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // Note: Unbound upgrades only work when testing.
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, RecordId> as UpgradeToMalicious<Replicated<Fp32BitPrime>, _>>::upgrade;
 /// #[cfg(test)]
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
-/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Replicated<Fp32BitPrime>, Replicated<Fp32BitPrime>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp32BitPrime>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp32BitPrime>>, Vec<Replicated<Fp32BitPrime>>), _>>::upgrade;
 /// ```
 ///
 /// ```compile_fail
 /// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::ff::Fp32BitPrime;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // This can't be upgraded with a record-bound context because the record ID
 /// // is used internally for vector indexing.
-/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp32BitPrime, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp32BitPrime>>, _>>::upgrade;
 /// ```
-pub struct UpgradeContext<'a, F: Field, B: RecordBinding = NoRecord> {
+pub struct UpgradeContext<'a, F: Field + ExtendableField, B: RecordBinding = NoRecord> {
     ctx: MaliciousContext<'a, F>,
     record_binding: B,
 }
 
-impl<'a, F: Field, B: RecordBinding> UpgradeContext<'a, F, B> {
+impl<'a, F: Field + ExtendableField, B: RecordBinding> UpgradeContext<'a, F, B> {
     fn narrow<SS: Substep>(&self, step: &SS) -> Self {
         Self {
             ctx: self.ctx.narrow(step),
@@ -525,7 +520,7 @@ pub trait UpgradeToMalicious<T, M> {
 }
 
 #[async_trait]
-impl<'a, F: Field>
+impl<'a, F: Field + ExtendableField>
     UpgradeToMalicious<
         BitConversionTriple<Replicated<F>>,
         BitConversionTriple<MaliciousReplicated<F>>,
@@ -559,7 +554,7 @@ impl<'a, F: Field>
 }
 
 #[async_trait]
-impl<F: Field> UpgradeToMalicious<(), ()> for UpgradeContext<'_, F, NoRecord> {
+impl<F: Field + ExtendableField> UpgradeToMalicious<(), ()> for UpgradeContext<'_, F, NoRecord> {
     async fn upgrade(self, _input: ()) -> Result<(), Error> {
         Ok(())
     }
@@ -568,7 +563,7 @@ impl<F: Field> UpgradeToMalicious<(), ()> for UpgradeContext<'_, F, NoRecord> {
 #[async_trait]
 impl<'a, F, T, TM, U, UM> UpgradeToMalicious<(T, U), (TM, UM)> for UpgradeContext<'a, F, NoRecord>
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Send + 'static,
     U: Send + 'static,
     TM: Send + Sized,
@@ -602,7 +597,7 @@ impl AsRef<str> for Upgrade2DVectors {
 #[async_trait]
 impl<F, T, M> UpgradeToMalicious<Vec<T>, Vec<M>> for UpgradeContext<'_, F, NoRecord>
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Send + 'static,
     M: Send + 'static,
     for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
@@ -629,7 +624,7 @@ where
 #[async_trait]
 impl<'a, F, T, M> UpgradeToMalicious<Vec<Vec<T>>, Vec<Vec<M>>> for UpgradeContext<'a, F, NoRecord>
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Send + 'static,
     M: Send + 'static,
     for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
@@ -665,7 +660,7 @@ where
 impl<'a, F> UpgradeToMalicious<Replicated<F>, MaliciousReplicated<F>>
     for UpgradeContext<'a, F, RecordId>
 where
-    F: Field,
+    F: Field + ExtendableField,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
         self.ctx
@@ -680,7 +675,7 @@ where
 #[async_trait]
 impl<'a, F, T, M> UpgradeToMalicious<T, M> for UpgradeContext<'a, F, NoRecord>
 where
-    F: Field,
+    F: Field + ExtendableField,
     T: Send + 'static,
     for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
 {
@@ -702,7 +697,7 @@ where
 // This could also work on a record-bound context, but it's only used in one place for tests where
 // that's not currently required.
 #[cfg(test)]
-impl<'a, F: Field> UpgradeContext<'a, F, NoRecord> {
+impl<'a, F: Field + ExtendableField> UpgradeContext<'a, F, NoRecord> {
     async fn upgrade_sparse(
         self,
         input: Replicated<F>,

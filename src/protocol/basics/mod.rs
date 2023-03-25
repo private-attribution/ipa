@@ -20,7 +20,8 @@ use crate::{
     },
     secret_sharing::{
         replicated::{
-            malicious::AdditiveShare as MaliciousAdditiveShare, semi_honest::AdditiveShare,
+            malicious::{AdditiveShare as MaliciousAdditiveShare, ExtendableField},
+            semi_honest::AdditiveShare,
         },
         SharedValue,
     },
@@ -37,4 +38,7 @@ pub trait BasicProtocols<C: Context, V: SharedValue>:
 
 impl<'a, F: Field> BasicProtocols<SemiHonestContext<'a>, F> for AdditiveShare<F> {}
 
-impl<'a, F: Field> BasicProtocols<MaliciousContext<'a, F>, F> for MaliciousAdditiveShare<F> {}
+impl<'a, F: Field + ExtendableField> BasicProtocols<MaliciousContext<'a, F>, F>
+    for MaliciousAdditiveShare<F>
+{
+}

@@ -3,7 +3,6 @@ use crate::{
     ff::{Field, PrimeField},
     protocol::{basics::SecureMul, BasicProtocols},
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
-    seq_join::seq_try_join_all,
 };
 use std::iter::repeat;
 
@@ -22,6 +21,7 @@ mod xor;
 
 pub use bit_decomposition::BitDecomposition;
 pub use comparison::greater_than_constant;
+use futures::future::try_join_all;
 pub use generate_random_bits::RandomBits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
@@ -71,7 +71,7 @@ where
             ));
             mult_count += 1;
         }
-        let mut results = seq_try_join_all(multiplications).await?;
+        let mut results = try_join_all(multiplications).await?;
         if shares_to_multiply.len() % 2 == 1 {
             results.push(shares_to_multiply.pop().unwrap());
         }
@@ -100,11 +100,11 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let one = S::share_known_value(&ctx, F::ONE);
-    let res = no_ones(ctx, record_id, x).await?;
+    let res = all_zeroes(ctx, record_id, x).await?;
     Ok(one - &res)
 }
 
-pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
+pub(crate) async fn all_zeroes<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,
     C: Context,
