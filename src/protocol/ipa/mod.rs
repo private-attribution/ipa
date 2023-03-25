@@ -509,7 +509,10 @@ pub mod tests {
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
-        telemetry::metrics::RECORDS_SENT,
+        telemetry::{
+            metrics::{BYTES_SENT, RECORDS_SENT},
+            stats::Metrics,
+        },
         test_fixture::{
             input::GenericReportTestInput,
             ipa::{
@@ -844,18 +847,23 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
+        const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48780;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 136_884;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34104;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 99468;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -892,19 +900,25 @@ pub mod tests {
                 .reconstruct();
 
             let snapshot = world.metrics_snapshot();
-            let records_sent = snapshot.get_counter(RECORDS_SENT);
-            let semi_honest_baseline = if per_user_cap == 1 {
-                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1
+            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
+                (
+                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1,
+                )
             } else {
-                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3
+                (
+                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
+                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3,
+                )
             };
-            assert!(records_sent <= semi_honest_baseline,
-                "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
-
-            if records_sent < semi_honest_baseline {
-                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}. \
-                                Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
-            }
+            assert_baselines(
+                &format!("semi-honest IPA (cap = {per_user_cap})"),
+                &snapshot,
+                [
+                    (RECORDS_SENT, records_baseline),
+                    (BYTES_SENT, bytes_baseline),
+                ],
+            );
 
             let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
@@ -924,20 +938,42 @@ pub mod tests {
                 .await;
 
             let snapshot = world.metrics_snapshot();
-            let records_sent = snapshot.get_counter(RECORDS_SENT);
-            let malicious_baseline = if per_user_cap == 1 {
-                RECORDS_SENT_MALICIOUS_BASELINE_CAP_1
+            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
+                (
+                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_1,
+                )
             } else {
-                RECORDS_SENT_MALICIOUS_BASELINE_CAP_3
+                (
+                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
+                    BYTES_SENT_MALICIOUS_BASELINE_CAP_3,
+                )
             };
+            assert_baselines(
+                &format!("malicious IPA (cap = {per_user_cap})"),
+                &snapshot,
+                [
+                    (RECORDS_SENT, records_baseline),
+                    (BYTES_SENT, bytes_baseline),
+                ],
+            );
+        }
+    }
 
-            if records_sent < malicious_baseline {
-                tracing::warn!("Baseline for malicious IPA (cap = {per_user_cap}) has improved! Expected {malicious_baseline}, got {records_sent}.\
+    fn assert_baselines<const N: usize>(
+        name: &str,
+        snapshot: &Metrics,
+        baselines: [(&'static str, u64); N],
+    ) {
+        for (metric_name, baseline) in baselines {
+            let actual = snapshot.get_counter(metric_name);
+            assert!(actual <= baseline,
+                    "{metric_name} baseline for {name} has DEGRADED! Expected {baseline}, got {actual}.");
+
+            if actual < baseline {
+                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}. \
                 Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
-
-            assert!(records_sent <= malicious_baseline,
-                "Baseline for malicious IPA (cap = {per_user_cap}) has DEGRADED! Expected {malicious_baseline}, got {records_sent}.");
         }
     }
 }
