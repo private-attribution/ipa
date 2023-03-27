@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::borrow::Borrow;
 use crate::{
     helpers::HelperIdentity,
@@ -6,11 +7,13 @@ use crate::{
 use async_trait::async_trait;
 use futures::Stream;
 use std::io;
+use std::sync::Weak;
 
 mod bytearrstream;
 pub mod query;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
+use crate::test_fixture::network::InMemoryTransport;
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -117,6 +120,10 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     fn identity(&self) -> HelperIdentity;
 
+    /// Sends a new request to the given destination helper party.
+    /// The contract for this method requires it to block until the request is acknowledged by
+    /// the remote party. For streaming requests where body is large, only request headers are
+    /// expected to be acknowledged)
     async fn send<D, Q, S, R>(
         &self,
         dest: HelperIdentity,
@@ -208,6 +215,22 @@ impl Transport for TransportImpl {
             TransportImpl::RealWorld => {
                 unimplemented!()
             }
+        }
+    }
+}
+
+impl <T: Transport + Any> From<&T> for TransportImpl {
+    fn from(value: &T) -> Self {
+        TransportImpl::from(value)
+    }
+}
+
+impl TransportImpl {
+    pub fn from<T: Transport + Any>(value: &T) -> Self {
+        let value_any = value as &dyn Any;
+        match value_any.downcast_ref::<Weak<InMemoryTransport>>() {
+            Some(transport) => {Self::InMemory(transport.clone())}
+            None => panic!("Only InMemory transport is supported inside the gateway at the moment")
         }
     }
 }

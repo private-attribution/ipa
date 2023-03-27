@@ -36,8 +36,6 @@ use crate::helpers::{RouteId, Transport, TransportImpl};
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor {
-    identity: HelperIdentity,
-    gateway_handler: GatewayHandler,
     queries: RunningQueries,
 }
 
@@ -86,7 +84,6 @@ pub enum QueryCompletionError {
     },
 }
 
-type GatewayHandler = fn(&PrepareQuery) -> Gateway;
 
 #[inline(always)]
 const fn ensure_sync<T: Sync>(thing: T) -> T {
@@ -100,8 +97,8 @@ impl Debug for Processor {
 }
 
 impl Processor {
-    fn new(identity: HelperIdentity, handler: GatewayHandler) -> Self {
-        ensure_sync(Self { identity, gateway_handler: handler, queries: RunningQueries::default() })
+    fn new() -> Self {
+        ensure_sync(Self { queries: RunningQueries::default() })
     }
 
     /// Upon receiving a new query request:
@@ -121,7 +118,7 @@ impl Processor {
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        let id = self.identity;
+        let id = transport.identity();
         let [right, left] = id.others();
 
         let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
@@ -133,29 +130,13 @@ impl Processor {
             roles: roles.clone(),
         };
 
-        transport.send(left, &prepare_request, stream::empty()).await?;
-        transport.send(right, &prepare_request, stream::empty()).await?;
-            // transport.send(right, (RouteId::PrepareQuery, query_id), stream::empty()),
+        // Inform other parties about new query. If any of them rejects it, this join will fail
+        try_join(
+            transport.send(left, &prepare_request, stream::empty()),
+            transport.send(right, &prepare_request, stream::empty())
+        ).await?;
 
-        // let (left_tx, left_rx) = oneshot::channel();
-        // let (right_tx, right_rx) = oneshot::channel();
-        // try_join(
-        //     self.transport.send(
-        //         left,
-        //         QueryCommand::Prepare(prepare_request.clone(), left_tx),
-        //     ),
-        //     self.transport.send(
-        //         right,
-        //         QueryCommand::Prepare(prepare_request.clone(), right_tx),
-        //     ),
-        // )
-        // .await?;
-        // // await responses from prepare commands
-        // try_join(left_rx, right_rx).await?;
-
-        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles.clone(), transport.into());
-
-
+        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles.clone(), transport);
         handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
         Ok(prepare_request)
@@ -297,7 +278,6 @@ impl Processor {
     }
 }
 
-#[cfg(never)]
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
@@ -308,45 +288,17 @@ mod tests {
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
-    use crate::test_fixture::network::InMemoryNetwork;
+    use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, TransportCallbacks};
 
-    fn transport_adapter(id: HelperIdentity, transport: TransportImpl) -> GatewayHandler {
-        |prepare| {
-            // send left and right
-            for other in id.others() {
-                transport.send(())
-            }
-        }
-    }
-
-    /// set up 3 query processors in active-passive mode. The first processor is returned and can be
-    /// used to drive query workflow, while two others will be spawned in a tokio task and will
-    /// be listening for incoming commands.
-    async fn active_passive<T: Transport + Clone>(network: InMemoryNetwork) -> Processor {
-        let [t0, t1, t2] = network.transports();
-        tokio::spawn(async move {
-            let mut processor2 = Processor::new(t1.identity(), |prepare| {
-                todo!()
-            }).await;
-            let mut processor3 = Processor::new(t2, |prepare| {
-                todo!()
-            }).identity().await;
-            // don't use tokio::select! here because it cancels one of the futures if another one is making progress
-            // that causes events to be dropped
-            loop {
-                processor2.handle_next().await;
-                processor3.handle_next().await;
-            }
-        });
-
-        Processor::new(t0, |prepare| {
-
-        }).await
-    }
-
+    #[cfg(never)]
     #[tokio::test]
     async fn new_query() {
-        let network = InMemoryNetwork::default();
+        let processors = [Processor::new(), Processor::new(), Processor::new()];
+        // let network = InMemoryNetwork::new([TransportCallbacks {
+        //     receive_query: |query_config| async move {
+        //         processors[0].new_query(query_config, )
+        //     }
+        // }])
         let [t0, t1, t2] = network.transports().map(|t| DelayedTransport::new(t, 3));
         let processor = active_passive([t0.clone(), t1, t2]).await;
         let request = QueryConfig {
@@ -354,7 +306,7 @@ mod tests {
             query_type: QueryType::TestMultiply,
         };
 
-        let qc_future = processor.new_query(request);
+        let qc_future = processor.new_query(request, &t0);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -377,18 +329,20 @@ mod tests {
         assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
     }
 
+    #[cfg(never)]
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
         let network = InMemoryNetwork::default();
         let processor = active_passive(network.transports()).await;
+        let [t0, _, _] = network.transports();
         let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
 
-        let _qc = processor.new_query(request).await.unwrap();
+        let _qc = processor.new_query(request, &t0).await.unwrap();
         assert!(matches!(
-            processor.new_query(request).await,
+            processor.new_query(request, &t0).await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }

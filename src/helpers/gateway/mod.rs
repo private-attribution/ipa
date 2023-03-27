@@ -38,18 +38,18 @@ pub struct GatewayConfig {
 
 impl Gateway {
     #[must_use]
-    pub fn new(
+    pub fn new<T: Into<TransportImpl>>(
         query_id: QueryId,
         config: GatewayConfig,
         roles: RoleAssignment,
-        transport: TransportImpl,
+        transport: T,
     ) -> Self {
         Self {
             config,
             transport: RoleResolvingTransport {
                 query_id,
                 roles,
-                inner: transport,
+                inner: transport.into(),
                 config,
             },
             senders: GatewaySenders::default(),
