@@ -20,6 +20,8 @@ use crate::{
 };
 use futures::future::try_join_all;
 
+use super::basics::{SecureMul, ShareKnownValue};
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
     BitPermutationStep,
@@ -155,20 +157,11 @@ impl AsRef<str> for MultiBitPermutationStep {
 ///
 /// # Errors
 /// If any multiplication fails, or if the record is too long (e.g. more than 64 multiplications required)
-pub async fn check_everything<F, C, S>(
-    ctx: C,
-    record_idx: usize,
-    record: &[S],
-) -> Result<Vec<S>, Error>
+pub fn check_everything<F, S>(precomputed_combinations: &[S], num_checks: usize) -> Vec<S>
 where
     F: Field,
-    C: Context,
-    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F>,
 {
-    let num_bits = record.len();
-    let precomputed_combinations =
-        pregenerate_all_combinations(ctx, record_idx, record, num_bits).await?;
-
     // This loop just iterates over all the possible values this N-bit input could potentially represent
     // and checks if the bits are equal to this value. It does so by computing a linear combination of the
     // pre-computed coefficients.
@@ -207,9 +200,8 @@ where
     //
     // Where 000, 101, 011, and 110 mean positive contributions, and
     // 001, 010, 100, and 111 mean negative contributions.
-    let side_length = 1 << num_bits;
-    let mut equality_checks = Vec::with_capacity(side_length);
-    for i in 0..side_length {
+    let mut equality_checks = Vec::with_capacity(num_checks);
+    for i in 0..num_checks {
         let mut check = S::ZERO;
         for (j, combination) in precomputed_combinations.iter().enumerate() {
             let bit: i8 = i8::from((i & j) == i);
@@ -223,7 +215,7 @@ where
         }
         equality_checks.push(check);
     }
-    Ok(equality_checks)
+    equality_checks
 }
 
 //
@@ -247,18 +239,18 @@ where
 // The next step is to mulitply all of these values of `x_3` and append them to the end of the array.
 // Now the array is `[1, x_1, x_2, x_1*x_2, x_3, x_1*x_3, x_2*x_3, x_1*x_2*x_3]`
 // This process continues for as many steps as there are bits of input.
-async fn pregenerate_all_combinations<F, C, S>(
+pub async fn pregenerate_all_combinations<F, C, S>(
     ctx: C,
     record_idx: usize,
     input: &[S],
-    num_bits: usize,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context,
-    S: SecretSharing<F> + BasicProtocols<C, F>,
+    S: SecretSharing<F> + SecureMul<C> + ShareKnownValue<C, F>,
 {
     let record_id = RecordId::from(record_idx);
+    let num_bits = input.len();
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
     precomputed_combinations.push(S::share_known_value(&ctx, F::ONE));
     for (bit_idx, bit) in input.iter().enumerate() {

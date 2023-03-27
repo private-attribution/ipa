@@ -1,7 +1,11 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
+    protocol::{
+        context::Context,
+        sort::{check_everything, pregenerate_all_combinations},
+        BasicProtocols, RecordId,
+    },
     secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
@@ -40,7 +44,7 @@ pub async fn multi_bit_permutation<
     let num_multi_bits = (input[0]).len();
     assert!(num_multi_bits > 0);
 
-    let num_possible_bit_values = 2 << (num_multi_bits - 1);
+    let num_possible_bit_values = 1 << num_multi_bits;
 
     let share_of_one = S::share_known_value(&ctx, F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
@@ -49,7 +53,14 @@ pub async fn multi_bit_permutation<
             .iter()
             .zip(repeat(ctx.set_total_records(num_records)))
             .enumerate()
-            .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
+            .map(|(idx, (record, ctx))| async move {
+                let pregenerated_combinations =
+                    pregenerate_all_combinations(ctx, idx, record).await?;
+                Ok::<_, Error>(check_everything(
+                    &pregenerated_combinations,
+                    num_possible_bit_values,
+                ))
+            }),
     )
     .await?;
 
@@ -99,7 +110,10 @@ mod tests {
     use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
-        protocol::{context::Context, sort::check_everything},
+        protocol::{
+            context::Context,
+            sort::{check_everything, pregenerate_all_combinations},
+        },
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -149,9 +163,14 @@ mod tests {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for (i, record) in m_shares.iter().enumerate() {
                     let ctx = ctx.set_total_records(num_records);
-                    equality_check_futures.push(check_everything(ctx, i, record));
+                    let pregenerated_combos = pregenerate_all_combinations(ctx, i, record);
+                    equality_check_futures.push(pregenerated_combos);
                 }
-                try_join_all(equality_check_futures).await.unwrap()
+                let pregen_combos = try_join_all(equality_check_futures).await.unwrap();
+                pregen_combos
+                    .iter()
+                    .map(|x| check_everything(x, 8))
+                    .collect::<Vec<_>>()
             })
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();

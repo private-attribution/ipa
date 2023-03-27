@@ -10,7 +10,7 @@ use futures::future::{try_join, try_join_all};
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         attribution::input::MCCappedCreditsWithAggregationBit,
@@ -392,57 +392,57 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-#[async_trait]
-impl<'a, F: Field + ExtendableField>
-    UpgradeToMalicious<
-        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-        MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>,
-    > for UpgradeContext<'a, F, RecordId>
-{
-    async fn upgrade(
-        self,
-        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-    ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
-        let ctx_ref = &self.ctx;
-        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
-            |(idx, bit)| async move {
-                ctx_ref
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                    .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                    .await
-            },
-        ))
-        .await?;
+// #[async_trait]
+// impl<'a, F: Field + ExtendableField>
+//     UpgradeToMalicious<
+//         MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>,
+//         MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>, MaliciousReplicated<Gf2>>,
+//     > for UpgradeContext<'a, F, RecordId>
+// {
+//     async fn upgrade(
+//         self,
+//         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>,
+//     ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>, MaliciousReplicated<Gf2>>, Error> {
+//         let ctx_ref = &self.ctx;
+//         let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
+//             |(idx, bit)| async move {
+//                 ctx_ref
+//                     .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
+//                     .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
+//                     .await
+//             },
+//         ))
+//         .await?;
 
-        let helper_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
-            .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
-            .await?;
+//         let helper_bit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
+//             .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
+//             .await?;
 
-        let aggregation_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
-            .upgrade_one(
-                self.record_binding,
-                input.aggregation_bit,
-                ZeroPositions::Pvvv,
-            )
-            .await?;
+//         let aggregation_bit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
+//             .upgrade_one(
+//                 self.record_binding,
+//                 input.aggregation_bit,
+//                 ZeroPositions::Pvvv,
+//             )
+//             .await?;
 
-        let credit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
-            .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
-            .await?;
-        Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
-        ))
-    }
-}
+//         let credit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
+//             .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
+//             .await?;
+//         Ok(MCCappedCreditsWithAggregationBit::new(
+//             helper_bit,
+//             aggregation_bit,
+//             breakdown_key,
+//             credit,
+//         ))
+//     }
+// }
 
 struct ContextInner<'a, F: Field + ExtendableField> {
     prss: &'a PrssEndpoint,

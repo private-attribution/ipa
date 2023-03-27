@@ -23,6 +23,7 @@ use super::{
     boolean::bitwise_equal::bitwise_equal_gf2,
     context::SemiHonestContext,
     modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+    BitOpStep,
 };
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
@@ -279,9 +280,32 @@ where
                     convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
                 let record_id = RecordId::from(i);
                 let c = hb_mod_conv_ctx.clone();
+                // TODO: I think this is a mistake.
+                // In the malicious case, I think this should be upgraded *first*
+                // before calling `convert_bit`
                 async move { convert_bit(c, record_id, &bit_triple).await }
             }),
     )
+    .await
+}
+
+async fn mod_conv_gf2_vec<F>(
+    sh_ctx: SemiHonestContext<'_>,
+    record_id: RecordId,
+    semi_honest_gf2_bits: &[Replicated<Gf2>],
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    F: Field,
+{
+    try_join_all(semi_honest_gf2_bits.iter().enumerate().map(|(i, gf2_bit)| {
+        let bit_triple: BitConversionTriple<Replicated<F>> =
+            convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
+        let c = sh_ctx.narrow(&BitOpStep::from(i));
+        // TODO: I think this is a mistake.
+        // In the malicious case, I think this should be upgraded *first*
+        // before calling `convert_bit`
+        async move { convert_bit(c, record_id, &bit_triple).await }
+    }))
     .await
 }
 

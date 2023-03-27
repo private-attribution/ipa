@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -37,14 +37,15 @@ impl AsRef<str> for Step {
 ///
 /// This method implements "last touch" attribution, so only the last `source report` before a `trigger report`
 /// will receive any credit.
-async fn accumulate_credit_cap_one<F, C, T>(
+async fn accumulate_credit_cap_one<F, C, T, B>(
     ctx: C,
-    input: &[MCAccumulateCreditInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + '_, Error>
+    input: &[MCAccumulateCreditInputRow<F, T, B>],
+) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T, B>> + '_, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     let num_rows = input.len();
 
@@ -85,15 +86,16 @@ where
 /// # Errors
 ///
 /// Fails if the multiplication fails.
-pub async fn accumulate_credit<F, C, T>(
+pub async fn accumulate_credit<F, C, T, B>(
     ctx: C,
-    input: &[MCAccumulateCreditInputRow<F, T>],
+    input: &[MCAccumulateCreditInputRow<F, T, B>],
     per_user_credit_cap: u32,
-) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+) -> Result<Vec<MCAccumulateCreditOutputRow<F, T, B>>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     if per_user_credit_cap == 1 {
         return Ok(accumulate_credit_cap_one(ctx, input)
@@ -162,7 +164,7 @@ mod tests {
 
     use crate::{
         accumulation_test_input,
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, Gf2},
         helpers::Role,
         protocol::{
             attribution::{
@@ -216,13 +218,13 @@ mod tests {
         let input_len = input.len();
 
         let world = TestWorld::default();
-        let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
+        let result: [Vec<
+            MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>, Replicated<Gf2>>,
+        >; 3] = world
             .semi_honest(
                 input,
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
-                    let bk_shares = input
-                        .iter()
-                        .map(|x| x.breakdown_key.clone());
+                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
@@ -230,19 +232,20 @@ mod tests {
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
-                        .await
-                        .unwrap();
-                    let converted_bk_shares =
-                    converted_bk_shares.pop().unwrap();
+                    .await
+                    .unwrap();
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .into_iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAccumulateCreditInputRow::new(
-                             row.is_trigger_report,
-                             row.helper_bit,
-                             bk,
-                             row.trigger_value,
-                        ))
+                        .map(|(row, bk)| {
+                            MCAccumulateCreditInputRow::new(
+                                row.is_trigger_report,
+                                row.helper_bit,
+                                bk,
+                                row.trigger_value,
+                            )
+                        })
                         .collect::<Vec<_>>();
 
                     accumulate_credit(ctx, &modulus_converted_shares, 12345) // cap can be anything but one

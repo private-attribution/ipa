@@ -31,7 +31,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join3;
+use futures::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -43,8 +43,10 @@ pub enum Step {
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
     ApplySortPermutationToMatchKeys,
+    ApplySortPermutationToBreakdownKeys,
     AfterConvertAllBits,
     BinaryValidator,
+    BreakdownKeyValdator,
 }
 
 impl Substep for Step {}
@@ -57,8 +59,10 @@ impl AsRef<str> for Step {
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
+            Self::ApplySortPermutationToBreakdownKeys => "apply_sort_permutation_to_breakdown_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
             Self::BinaryValidator => "binary_validator",
+            Self::BreakdownKeyValdator => "breakdown_key_validator",
         }
     }
 }
@@ -189,16 +193,14 @@ where
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_bit: T,
-    pub breakdown_key: Vec<T>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
+    pub fn new(is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             is_trigger_bit,
-            breakdown_key,
             trigger_value,
             _marker: PhantomData,
         }
@@ -226,23 +228,16 @@ where
             record_id,
             to_helper,
         );
-        let f_breakdown_key = self.breakdown_key.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::BreakdownKey),
-            record_id,
-            to_helper,
-        );
         let f_trigger_value = self.trigger_value.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerValue),
             record_id,
             to_helper,
         );
 
-        let (breakdown_key, is_trigger_bit, trigger_value) =
-            try_join3(f_breakdown_key, f_is_trigger_bit, f_trigger_value).await?;
+        let (is_trigger_bit, trigger_value) = try_join(f_is_trigger_bit, f_trigger_value).await?;
 
         Ok(IPAModulusConvertedInputRow::new(
             is_trigger_bit,
-            breakdown_key,
             trigger_value,
         ))
     }
@@ -266,24 +261,10 @@ where
     BK: GaloisField,
     Replicated<F>: Serializable,
 {
-    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+    let mk_shares: Vec<_> = input_rows
         .iter()
-        .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
-        .unzip();
-
-    // TODO (richaj) need to revisit convert_all_bits and make it return iterator on a slice for sort
-    // or, a complete slice for breakdown keys. For now, converted_bk_shares has just 1 slice inside
-    // the outermost vector
-    // Breakdown key modulus conversion
-    let mut converted_bk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(ctx.role(), bk_shares.into_iter()),
-        BK::BITS,
-        BK::BITS,
-    )
-    .await
-    .unwrap();
-    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+        .map(|x| x.mk_shares.clone())
+        .collect::<Vec<_>>();
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
@@ -304,13 +285,13 @@ where
 
     let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
-    let inputs_sans_match_keys = converted_bk_shares
-        .into_iter()
-        .zip(input_rows)
-        .map(|(bk_shares, input_row)| {
+    let gf2_breakdown_key_bits = get_gf2_breakdown_key_bits(input_rows, max_breakdown_key);
+
+    let inputs_sans_match_keys = input_rows
+        .iter()
+        .map(|input_row| {
             IPAModulusConvertedInputRow::new(
                 input_row.is_trigger_bit.clone(),
-                bk_shares,
                 input_row.trigger_value.clone(),
             )
         })
@@ -332,9 +313,18 @@ where
     .await
     .unwrap();
 
+    let sorted_breakdown_keys = apply_sort_permutation(
+        ctx.narrow(&Step::ApplySortPermutationToBreakdownKeys),
+        gf2_breakdown_key_bits,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
     semi_honest::secure_attribution(
         ctx,
         sorted_match_keys,
+        sorted_breakdown_keys,
         sorted_rows,
         per_user_credit_cap,
         max_breakdown_key,
@@ -369,10 +359,10 @@ where
     let malicious_validator = MaliciousValidator::<F>::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
-    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+    let mk_shares: Vec<_> = input_rows
         .iter()
-        .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
-        .unzip();
+        .map(|x| x.mk_shares.clone())
+        .collect::<Vec<_>>();
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
@@ -402,25 +392,36 @@ where
 
     let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
 
-    let binary_validator = MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BinaryValidator));
-    let binary_m_ctx = binary_validator.context();
+    let match_key_malicious_validator =
+        MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BinaryValidator));
+    let match_key_m_ctx = match_key_malicious_validator.context();
 
-    let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
+    let breakdown_key_validator =
+        MaliciousValidator::<Gf2>::new(sh_ctx.narrow(&Step::BreakdownKeyValdator));
+    let breakdown_key_m_ctx = breakdown_key_validator.context();
+
+    let upgraded_gf2_match_key_bits = match_key_m_ctx.upgrade(gf2_match_key_bits).await?;
 
     // Breakdown key modulus conversion
-    let mut converted_bk_shares = convert_all_bits(
-        &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &m_ctx
-            .narrow(&Step::ModulusConversionForBreakdownKeys)
-            .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
-            .await?,
-        BK::BITS,
-        BK::BITS,
-    )
-    .await
-    .unwrap();
+    // MOVE SOMEWHERE ELSE
+    // let mut converted_bk_shares = convert_all_bits(
+    //     &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+    //     &m_ctx
+    //         .narrow(&Step::ModulusConversionForBreakdownKeys)
+    //         .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
+    //         .await?,
+    //     BK::BITS,
+    //     BK::BITS,
+    // )
+    // .await
+    // .unwrap();
 
-    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+    // let converted_bk_shares = converted_bk_shares.pop().unwrap();
+
+    let gf2_breakdown_key_bits = get_gf2_breakdown_key_bits(input_rows, max_breakdown_key);
+
+    let upgraded_gf2_breakdown_key_bits =
+        breakdown_key_m_ctx.upgrade(gf2_breakdown_key_bits).await?;
 
     let intermediate = input_rows
         .iter()
@@ -436,12 +437,10 @@ where
 
     let inputs_sans_match_keys = intermediate
         .into_iter()
-        .zip(converted_bk_shares)
         .map(
-            |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+            |one_row| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
-                breakdown_key: bk_shares,
                 _marker: PhantomData,
             },
         )
@@ -456,8 +455,16 @@ where
     .unwrap();
 
     let sorted_match_keys = apply_sort_permutation(
-        binary_m_ctx.narrow(&Step::ApplySortPermutation),
+        match_key_m_ctx.narrow(&Step::ApplySortPermutation),
         upgraded_gf2_match_key_bits,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let sorted_breakdown_keys = apply_sort_permutation(
+        breakdown_key_m_ctx.narrow(&Step::ApplySortPermutationToBreakdownKeys),
+        upgraded_gf2_breakdown_key_bits,
         &sort_permutation,
     )
     .await
@@ -466,7 +473,9 @@ where
     malicious::secure_attribution(
         sh_ctx,
         malicious_validator,
-        binary_validator,
+        match_key_malicious_validator,
+        breakdown_key_validator,
+        sorted_breakdown_keys,
         sorted_match_keys,
         sorted_rows,
         per_user_credit_cap,
@@ -493,6 +502,32 @@ where
                     Replicated::new(
                         Gf2::truncate_from(row.mk_shares.left()[i]),
                         Gf2::truncate_from(row.mk_shares.right()[i]),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+}
+
+fn get_gf2_breakdown_key_bits<F, MK, BK>(
+    input_rows: &[IPAInputRow<F, MK, BK>],
+    max_breakdown_key: u32,
+) -> Vec<Vec<Replicated<Gf2>>>
+where
+    F: PrimeField,
+    MK: GaloisField,
+    BK: GaloisField,
+{
+    let breakdown_key_bits_required = u32::BITS - (max_breakdown_key - 1).leading_zeros();
+
+    input_rows
+        .iter()
+        .map(|row| {
+            (0..breakdown_key_bits_required)
+                .map(|i| {
+                    Replicated::new(
+                        Gf2::truncate_from(row.breakdown_key.left()[i]),
+                        Gf2::truncate_from(row.breakdown_key.right()[i]),
                     )
                 })
                 .collect::<Vec<_>>()

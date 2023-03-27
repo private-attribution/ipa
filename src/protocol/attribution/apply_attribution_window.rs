@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, Gf2, PrimeField},
     protocol::{
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
@@ -22,15 +22,16 @@ use std::iter::{repeat, zip};
 /// # Errors
 /// Fails if sub-protocols fails.
 #[allow(dead_code)]
-async fn apply_attribution_window<F, C, T>(
+async fn apply_attribution_window<F, C, T, B>(
     ctx: C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[MCApplyAttributionWindowInputRow<F, T, B>],
     attribution_window_seconds: u32,
-) -> Result<impl Iterator<Item = MCApplyAttributionWindowOutputRow<F, T>> + '_, Error>
+) -> Result<impl Iterator<Item = MCApplyAttributionWindowOutputRow<F, T, B>> + '_, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
 {
     let mut t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
 
@@ -52,14 +53,15 @@ where
 ///
 /// # Errors
 /// Fails if the multiplication fails.
-async fn prefix_sum_time_deltas<F, C, T>(
+async fn prefix_sum_time_deltas<F, C, T, B>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[MCApplyAttributionWindowInputRow<F, T, B>],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
 {
     let num_rows = input.len();
 
@@ -122,9 +124,9 @@ where
 ///
 /// # Errors
 /// Fails if the bit-decomposition, bitwise comparison, or multiplication fails.
-async fn zero_out_expired_trigger_values<F, C, T>(
+async fn zero_out_expired_trigger_values<F, C, T, B>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[MCApplyAttributionWindowInputRow<F, T, B>],
     time_delta: &mut [T],
     cap: u32,
 ) -> Result<Vec<T>, Error>
@@ -132,6 +134,7 @@ where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =
@@ -190,7 +193,7 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         attribution_window_test_input,
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime, Gf2},
         protocol::{
             attribution::{
                 apply_attribution_window::apply_attribution_window,
@@ -245,7 +248,7 @@ mod tests {
         let input_len = input.len();
 
         let world = TestWorld::default();
-        let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
+        let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>, Replicated<Gf2>>>; 3] = world
             .semi_honest(
                 input,
                 |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {

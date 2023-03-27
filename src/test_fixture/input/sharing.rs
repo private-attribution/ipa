@@ -1,6 +1,6 @@
 use super::{GenericReportShare, GenericReportTestInput};
 use crate::{
-    ff::{Field, GaloisField},
+    ff::{Field, GaloisField, Gf2},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, AggregateCreditInputRow, ApplyAttributionWindowInputRow,
@@ -226,7 +226,7 @@ fn reconstruct_mod_converted_bits<F: Field, B: GaloisField>(input: [&[Replicated
 }
 
 impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [MCAccumulateCreditInputRow<F, Replicated<F>>; 3]
+    for [MCAccumulateCreditInputRow<F, Replicated<F>, Replicated<Gf2>>; 3]
 where
     F: Field,
     MK: GaloisField,
@@ -238,7 +238,7 @@ where
 }
 
 impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [&MCAccumulateCreditInputRow<F, Replicated<F>>; 3]
+    for [&MCAccumulateCreditInputRow<F, Replicated<F>, Replicated<Gf2>>; 3]
 where
     F: Field,
     MK: GaloisField,

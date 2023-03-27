@@ -1,8 +1,10 @@
+use std::iter::{repeat, zip};
+
 use futures::future::try_join_all;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable},
+    ff::{Field, GaloisField, Gf2, Serializable},
     protocol::{
         attribution::{
             do_the_binary_tree_thing,
@@ -21,6 +23,7 @@ use crate::{
                 generate_permutation_and_reveal_shuffled,
                 malicious_generate_permutation_and_reveal_shuffled,
             },
+            pregenerate_all_combinations,
         },
         BasicProtocols, BitOpStep, RecordId, Substep,
     },
@@ -32,6 +35,8 @@ use crate::{
         Linear as LinearSecretSharing,
     },
 };
+
+use super::mod_conv_gf2_vec;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
@@ -46,7 +51,7 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 /// propagates errors from multiplications
 pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_>,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
+    capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>, Replicated<Gf2>>],
     max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
@@ -56,76 +61,88 @@ where
     for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
-        return simple_aggregate_credit(ctx, capped_credits, max_breakdown_key).await;
+        let breakdown_keys = capped_credits
+            .iter()
+            .map(|row| row.breakdown_key.clone())
+            .collect::<Vec<_>>();
+        let credits = capped_credits
+            .iter()
+            .map(|row| row.credit.clone())
+            .collect::<Vec<_>>();
+        let equality_checks =
+            compute_equality_checks_semi_honest(ctx.clone(), &breakdown_keys, max_breakdown_key)
+                .await?;
+        return simple_aggregate_credit(ctx, &credits, &equality_checks, max_breakdown_key).await;
     }
-    //
-    // 1. Add aggregation bits and new rows per unique breakdown_key
-    //
-    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
-        &ctx,
-        capped_credits,
-        max_breakdown_key,
-    );
+    todo!();
+    // //
+    // // 1. Add aggregation bits and new rows per unique breakdown_key
+    // //
+    // let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, _, BK>(
+    //     &ctx,
+    //     capped_credits,
+    //     max_breakdown_key,
+    // );
 
-    //
-    // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
-    // precede all other rows in the input. (done in the previous step).
-    //
-    let sorted_input = sort_by_breakdown_key(
-        ctx.narrow(&Step::SortByBreakdownKey),
-        capped_credits_with_aggregation_bits,
-        max_breakdown_key,
-        num_multi_bits,
-    )
-    .await?;
+    // //
+    // // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
+    // // precede all other rows in the input. (done in the previous step).
+    // //
+    // let sorted_input = sort_by_breakdown_key(
+    //     ctx.narrow(&Step::SortByBreakdownKey),
+    //     capped_credits_with_aggregation_bits,
+    //     max_breakdown_key,
+    //     num_multi_bits,
+    // )
+    // .await?;
 
-    //
-    // 3. Aggregate by parallel prefix sum of credits per breakdown_key
-    //
-    //     b = current.stop_bit * successor.helper_bit;
-    //     new_credit[current_index] = current.credit + b * successor.credit;
-    //     new_stop_bit[current_index] = b * successor.stop_bit;
-    //
-    let helper_bits = sorted_input
-        .iter()
-        .skip(1)
-        .map(|x| x.helper_bit.clone())
-        .collect::<Vec<_>>();
+    // //
+    // // 3. Aggregate by parallel prefix sum of credits per breakdown_key
+    // //
+    // //     b = current.stop_bit * successor.helper_bit;
+    // //     new_credit[current_index] = current.credit + b * successor.credit;
+    // //     new_stop_bit[current_index] = b * successor.stop_bit;
+    // //
+    // let helper_bits = sorted_input
+    //     .iter()
+    //     .skip(1)
+    //     .map(|x| x.helper_bit.clone())
+    //     .collect::<Vec<_>>();
 
-    let mut credits = sorted_input
-        .iter()
-        .map(|x| x.credit.clone())
-        .collect::<Vec<_>>();
+    // let mut credits = sorted_input
+    //     .iter()
+    //     .map(|x| x.credit.clone())
+    //     .collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx.clone(), helper_bits, &mut credits).await?;
+    // do_the_binary_tree_thing(ctx.clone(), helper_bits, &mut credits).await?;
 
-    // Prepare the sidecar for sorting
-    let aggregated_credits = sorted_input
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            MCCappedCreditsWithAggregationBit::new(
-                x.helper_bit.clone(),
-                x.aggregation_bit.clone(),
-                x.breakdown_key.clone(),
-                credits[i].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
+    // // Prepare the sidecar for sorting
+    // let aggregated_credits = sorted_input
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(i, x)| {
+    //         MCCappedCreditsWithAggregationBit::new(
+    //             x.helper_bit.clone(),
+    //             x.aggregation_bit.clone(),
+    //             x.breakdown_key.clone(),
+    //             credits[i].clone(),
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
 
-    //
-    // 4. Sort by `aggregation_bit`
-    //
-    let sorted_output =
-        sort_by_aggregation_bit(ctx.narrow(&Step::SortByAttributionBit), aggregated_credits)
-            .await?;
+    // //
+    // // 4. Sort by `aggregation_bit`
+    // //
+    // let sorted_output =
+    //     sort_by_aggregation_bit(ctx.narrow(&Step::SortByAttributionBit), aggregated_credits)
+    //         .await?;
 
-    // Take the first k elements, where k is the amount of breakdown keys.
-    Ok(sorted_output
-        .iter()
-        .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
-        .collect::<Vec<_>>())
+    // // Take the first k elements, where k is the amount of breakdown keys.
+    // Ok(sorted_output
+    //     .iter()
+    //     .take(max_breakdown_key.try_into().unwrap())
+    //     .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
+    //     .collect::<Vec<_>>())
 }
 
 /// Aggregation step for Oblivious Attribution protocol.
@@ -136,8 +153,13 @@ where
 /// propagates errors from multiplications
 pub async fn malicious_aggregate_credit<'a, F, BK>(
     malicious_validator: MaliciousValidator<'a, F>,
+    breakdown_key_validator: MaliciousValidator<'a, Gf2>,
     sh_ctx: SemiHonestContext<'a>,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, MaliciousReplicated<F>>>,
+    capped_credits: &[MCAggregateCreditInputRow<
+        F,
+        MaliciousReplicated<F>,
+        MaliciousReplicated<Gf2>,
+    >],
     max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<
@@ -155,89 +177,188 @@ where
     let m_ctx = malicious_validator.context();
 
     if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
-        let res = simple_aggregate_credit(m_ctx, capped_credits, max_breakdown_key).await?;
+        let breakdown_keys = capped_credits
+            .iter()
+            .map(|row| row.breakdown_key.clone())
+            .collect::<Vec<_>>();
+        let credits = capped_credits
+            .iter()
+            .map(|row| row.credit.clone())
+            .collect::<Vec<_>>();
+        let equality_checks = compute_equality_checks_malicious(
+            sh_ctx.clone(),
+            m_ctx.clone(),
+            breakdown_key_validator,
+            &breakdown_keys,
+            max_breakdown_key,
+        )
+        .await?;
+        let res =
+            simple_aggregate_credit(m_ctx, &credits, &equality_checks, max_breakdown_key).await?;
         return Ok((malicious_validator, res));
     }
 
-    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
-        &m_ctx,
-        capped_credits,
-        max_breakdown_key,
-    );
+    todo!();
+    // let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
+    //     &m_ctx,
+    //     capped_credits,
+    //     max_breakdown_key,
+    // );
 
-    let capped_credits_with_aggregation_bits = malicious_validator
-        .validate(capped_credits_with_aggregation_bits)
-        .await?;
-    //
-    // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
-    // precede all other rows in the input. (done in the previous step).
-    //
-    let (malicious_validator, sorted_input) = malicious_sort_by_breakdown_key(
-        sh_ctx.narrow(&Step::SortByBreakdownKey),
-        capped_credits_with_aggregation_bits,
-        max_breakdown_key,
-        num_multi_bits,
+    // let capped_credits_with_aggregation_bits = malicious_validator
+    //     .validate(capped_credits_with_aggregation_bits)
+    //     .await?;
+    // //
+    // // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
+    // // precede all other rows in the input. (done in the previous step).
+    // //
+    // let (malicious_validator, sorted_input) = malicious_sort_by_breakdown_key(
+    //     sh_ctx.narrow(&Step::SortByBreakdownKey),
+    //     capped_credits_with_aggregation_bits,
+    //     max_breakdown_key,
+    //     num_multi_bits,
+    // )
+    // .await?;
+
+    // let m_ctx = malicious_validator.context();
+    // //
+    // // 3. Aggregate by parallel prefix sum of credits per breakdown_key
+    // //
+    // //     b = current.stop_bit * successor.helper_bit;
+    // //     new_credit[current_index] = current.credit + b * successor.credit;
+    // //     new_stop_bit[current_index] = b * successor.stop_bit;
+    // //
+    // let helper_bits = sorted_input
+    //     .iter()
+    //     .skip(1)
+    //     .map(|x| x.helper_bit.clone())
+    //     .collect::<Vec<_>>();
+
+    // let mut credits = sorted_input
+    //     .iter()
+    //     .map(|x| x.credit.clone())
+    //     .collect::<Vec<_>>();
+
+    // do_the_binary_tree_thing(m_ctx, helper_bits, &mut credits).await?;
+
+    // // Prepare the sidecar for sorting
+    // let aggregated_credits = sorted_input
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(i, x)| {
+    //         MCCappedCreditsWithAggregationBit::new(
+    //             x.helper_bit.clone(),
+    //             x.aggregation_bit.clone(),
+    //             x.breakdown_key.clone(),
+    //             credits[i].clone(),
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
+
+    // let aggregated_credits = malicious_validator.validate(aggregated_credits).await?;
+    // //
+    // // 4. Sort by `aggregation_bit`
+    // //
+    // let (malicious_validator, sorted_output) = malicious_sort_by_aggregation_bit(
+    //     sh_ctx.narrow(&Step::SortByAttributionBit),
+    //     aggregated_credits,
+    // )
+    // .await?;
+
+    // // Take the first k elements, where k is the amount of breakdown keys.
+    // let result = sorted_output
+    //     .iter()
+    //     .take(max_breakdown_key.try_into().unwrap())
+    //     .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
+    //     .collect::<Vec<_>>();
+
+    // Ok((malicious_validator, result))
+}
+
+async fn compute_equality_checks_malicious<F>(
+    sh_ctx: SemiHonestContext<'_>,
+    ctx: MaliciousContext<'_, F>,
+    binary_validator: MaliciousValidator<'_, Gf2>,
+    breakdown_keys: &[Vec<MaliciousReplicated<Gf2>>],
+    max_breakdown_key: u32,
+) -> Result<Vec<Vec<MaliciousReplicated<F>>>, Error>
+where
+    F: Field + ExtendableField,
+{
+    let binary_ctx = binary_validator.context();
+    let pregen_combos_cxt = binary_ctx
+        .narrow(&Step::PregenBreakdownKeyEqualityCheckCombos)
+        .set_total_records(breakdown_keys.len());
+    let mod_conv_convos_cxt = sh_ctx
+        .narrow(&Step::ModulusConvertCombos)
+        .set_total_records(breakdown_keys.len());
+    let pregen_combos_gf2 = try_join_all(
+        zip(repeat(pregen_combos_cxt), breakdown_keys.iter())
+            .enumerate()
+            .map(|(i, (c, breakdown_key))| pregenerate_all_combinations(c, i, breakdown_key)),
     )
     .await?;
 
-    let m_ctx = malicious_validator.context();
-    //
-    // 3. Aggregate by parallel prefix sum of credits per breakdown_key
-    //
-    //     b = current.stop_bit * successor.helper_bit;
-    //     new_credit[current_index] = current.credit + b * successor.credit;
-    //     new_stop_bit[current_index] = b * successor.stop_bit;
-    //
-    let helper_bits = sorted_input
-        .iter()
-        .skip(1)
-        .map(|x| x.helper_bit.clone())
-        .collect::<Vec<_>>();
-
-    let mut credits = sorted_input
-        .iter()
-        .map(|x| x.credit.clone())
-        .collect::<Vec<_>>();
-
-    do_the_binary_tree_thing(m_ctx, helper_bits, &mut credits).await?;
-
-    // Prepare the sidecar for sorting
-    let aggregated_credits = sorted_input
-        .iter()
+    let semi_honest_gf2_pregen_combos = binary_validator.validate(pregen_combos_gf2).await?;
+    // TODO: wrong order. Should upgrade first, then run modulus conversion
+    let semi_honest_pregenerated_combinations_fp = try_join_all(
+        zip(
+            repeat(mod_conv_convos_cxt),
+            semi_honest_gf2_pregen_combos.iter(),
+        )
         .enumerate()
-        .map(|(i, x)| {
-            MCCappedCreditsWithAggregationBit::new(
-                x.helper_bit.clone(),
-                x.aggregation_bit.clone(),
-                x.breakdown_key.clone(),
-                credits[i].clone(),
-            )
-        })
+        .map(|(i, (c, combos))| mod_conv_gf2_vec(c, RecordId::from(i), combos)),
+    )
+    .await?;
+    let pregenerated_combinations_fp = ctx
+        .upgrade(semi_honest_pregenerated_combinations_fp)
+        .await?;
+    let equality_checks = pregenerated_combinations_fp
+        .into_iter()
+        .map(|combos| check_everything(&combos, usize::try_from(max_breakdown_key).unwrap()))
         .collect::<Vec<_>>();
+    Ok(equality_checks)
+}
 
-    let aggregated_credits = malicious_validator.validate(aggregated_credits).await?;
-    //
-    // 4. Sort by `aggregation_bit`
-    //
-    let (malicious_validator, sorted_output) = malicious_sort_by_aggregation_bit(
-        sh_ctx.narrow(&Step::SortByAttributionBit),
-        aggregated_credits,
+async fn compute_equality_checks_semi_honest<F>(
+    ctx: SemiHonestContext<'_>,
+    breakdown_keys: &[Vec<Replicated<Gf2>>],
+    max_breakdown_key: u32,
+) -> Result<Vec<Vec<Replicated<F>>>, Error>
+where
+    F: Field,
+{
+    let pregen_combos_cxt = ctx
+        .narrow(&Step::PregenBreakdownKeyEqualityCheckCombos)
+        .set_total_records(breakdown_keys.len());
+    let mod_conv_convos_cxt = ctx
+        .narrow(&Step::ModulusConvertCombos)
+        .set_total_records(breakdown_keys.len());
+
+    let pregen_combos_gf2 = try_join_all(
+        zip(repeat(pregen_combos_cxt), breakdown_keys.iter())
+            .enumerate()
+            .map(|(i, (c, breakdown_key))| pregenerate_all_combinations(c, i, breakdown_key)),
     )
     .await?;
 
-    // Take the first k elements, where k is the amount of breakdown keys.
-    let result = sorted_output
-        .iter()
-        .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
+    let pregenerated_combinations_fp = try_join_all(
+        zip(repeat(mod_conv_convos_cxt), pregen_combos_gf2.iter())
+            .enumerate()
+            .map(|(i, (c, combos))| mod_conv_gf2_vec(c, RecordId::from(i), combos)),
+    )
+    .await?;
+    let equality_checks = pregenerated_combinations_fp
+        .into_iter()
+        .map(|combos| check_everything(&combos, usize::try_from(max_breakdown_key).unwrap()))
         .collect::<Vec<_>>();
-
-    Ok((malicious_validator, result))
+    Ok(equality_checks)
 }
 
 async fn simple_aggregate_credit<F, C, T, BK>(
     ctx: C,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
+    credits: &[T],
+    equality_checks: &[Vec<T>],
     max_breakdown_key: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, T, BK>>, Error>
 where
@@ -249,37 +370,20 @@ where
     let mut sums = vec![T::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
     let valid_bits_count = (u32::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
-
-    let inputs = capped_credits
-        .map(|row| {
-            (
-                row.credit.clone(),
-                row.breakdown_key[..valid_bits_count].to_vec(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let equality_check_context = ctx
-        .narrow(&Step::ComputeEqualityChecks)
-        .set_total_records(inputs.len());
     let check_times_credit_context = ctx
         .narrow(&Step::CheckTimesCredit)
-        .set_total_records(inputs.len());
+        .set_total_records(credits.len());
 
-    let increments = try_join_all(inputs.iter().enumerate().map(
-        |(i, (credit, breakdown_key_bits))| {
-            let c1 = equality_check_context.clone();
-            let c2 = check_times_credit_context.clone();
+    let increments = try_join_all(zip(credits.iter(), equality_checks.iter()).enumerate().map(
+        |(i, (credit, eq_checks))| {
+            let c1 = check_times_credit_context.clone();
             async move {
-                let equality_checks = check_everything(c1.clone(), i, breakdown_key_bits).await?;
-                try_join_all(equality_checks.iter().take(to_take).enumerate().map(
-                    |(check_idx, check)| {
-                        let step = BitOpStep::from(check_idx);
-                        let c = c2.narrow(&step);
-                        let record_id = RecordId::from(i);
-                        async move { check.multiply(credit, c, record_id).await }
-                    },
-                ))
+                try_join_all(eq_checks.iter().enumerate().map(|(check_idx, check)| {
+                    let step = BitOpStep::from(check_idx);
+                    let c = c1.narrow(&step);
+                    let record_id = RecordId::from(i);
+                    async move { check.multiply(credit, c, record_id).await }
+                }))
                 .await
             }
         },
@@ -315,66 +419,68 @@ where
         .collect())
 }
 
-fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
+fn add_aggregation_bits_and_breakdown_keys<F, C, T, B, BK>(
     ctx: &C,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T, B>>,
     max_breakdown_key: u32,
-) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
+) -> Vec<MCCappedCreditsWithAggregationBit<F, T, B>>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
     BK: GaloisField,
 {
-    let zero = T::ZERO;
-    let one = T::share_known_value(ctx, F::ONE);
+    todo!();
+    // let zero = T::ZERO;
+    // let one = T::share_known_value(ctx, F::ONE);
 
-    // Unique breakdown_key values with all other fields initialized with 0's.
-    // Since we cannot see the actual breakdown key values, we'll need to
-    // append all possible values. For now, we assume breakdown_key is in the
-    // range of (0..max_breakdown_key).
-    let mut unique_breakdown_keys = (0..max_breakdown_key)
-        .map(|i| {
-            // Since these breakdown keys are publicly known, we can directly convert them to Vec<Replicated<F>>
-            let bk_bits = BK::truncate_from(i);
-            let converted_bk = (0..BK::BITS)
-                .map(|i| {
-                    if bk_bits[i] {
-                        one.clone()
-                    } else {
-                        zero.clone()
-                    }
-                })
-                .collect::<Vec<_>>();
+    // // Unique breakdown_key values with all other fields initialized with 0's.
+    // // Since we cannot see the actual breakdown key values, we'll need to
+    // // append all possible values. For now, we assume breakdown_key is in the
+    // // range of (0..max_breakdown_key).
+    // let mut unique_breakdown_keys = (0..max_breakdown_key)
+    //     .map(|i| {
+    //         // Since these breakdown keys are publicly known, we can directly convert them to Vec<Replicated<F>>
+    //         let bk_bits = BK::truncate_from(i);
+    //         let converted_bk = (0..BK::BITS)
+    //             .map(|i| {
+    //                 if bk_bits[i] {
+    //                     one.clone()
+    //                 } else {
+    //                     zero.clone()
+    //                 }
+    //             })
+    //             .collect::<Vec<_>>();
 
-            MCCappedCreditsWithAggregationBit::new(
-                zero.clone(),
-                zero.clone(),
-                converted_bk,
-                zero.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
+    //         MCCappedCreditsWithAggregationBit::new(
+    //             zero.clone(),
+    //             zero.clone(),
+    //             converted_bk,
+    //             zero.clone(),
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
 
-    // Add aggregation bits and initialize with 1's.
-    unique_breakdown_keys.extend(&mut capped_credits.map(|x| {
-        MCCappedCreditsWithAggregationBit::new(
-            one.clone(),
-            one.clone(),
-            x.breakdown_key.clone(),
-            x.credit,
-        )
-    }));
+    // // Add aggregation bits and initialize with 1's.
+    // unique_breakdown_keys.extend(&mut capped_credits.map(|x| {
+    //     MCCappedCreditsWithAggregationBit::new(
+    //         one.clone(),
+    //         one.clone(),
+    //         x.breakdown_key.clone(),
+    //         x.credit,
+    //     )
+    // }));
 
-    unique_breakdown_keys
+    // unique_breakdown_keys
 }
 
 async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
     max_breakdown_key: u32,
     num_multi_bits: u32,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
+) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>, Error> {
     let breakdown_keys = input
         .iter()
         .map(|x| x.breakdown_key.clone())
@@ -403,52 +509,53 @@ async fn sort_by_breakdown_key<F: Field>(
 
 async fn malicious_sort_by_breakdown_key<F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
     max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<
     (
         MaliciousValidator<'_, F>,
-        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>, MaliciousReplicated<Gf2>>>,
     ),
     Error,
 > {
-    let breakdown_keys = input
-        .iter()
-        .map(|x| x.breakdown_key.clone())
-        .collect::<Vec<_>>();
+    todo!();
+    // let breakdown_keys = input
+    //     .iter()
+    //     .map(|x| x.breakdown_key.clone())
+    //     .collect::<Vec<_>>();
 
-    // We only need to run a radix sort on the bits used by all possible
-    // breakdown key values.
-    let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
+    // // We only need to run a radix sort on the bits used by all possible
+    // // breakdown key values.
+    // let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
-    let breakdown_keys =
-        split_into_multi_bit_slices(&breakdown_keys, valid_bits_count, num_multi_bits);
+    // let breakdown_keys =
+    //     split_into_multi_bit_slices(&breakdown_keys, valid_bits_count, num_multi_bits);
 
-    let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
-        ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        breakdown_keys.iter(),
-    )
-    .await?;
+    // let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
+    //     ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
+    //     breakdown_keys.iter(),
+    // )
+    // .await?;
 
-    let malicious_validator = MaliciousValidator::new(ctx);
-    let m_ctx = malicious_validator.context();
-    let input = m_ctx.upgrade(input).await?;
-    Ok((
-        malicious_validator,
-        apply_sort_permutation(
-            m_ctx.narrow(&Step::ApplyPermutationOnBreakdownKey),
-            input,
-            &sort_permutation,
-        )
-        .await?,
-    ))
+    // let malicious_validator = MaliciousValidator::new(ctx);
+    // let m_ctx = malicious_validator.context();
+    // let input = m_ctx.upgrade(input).await?;
+    // Ok((
+    //     malicious_validator,
+    //     apply_sort_permutation(
+    //         m_ctx.narrow(&Step::ApplyPermutationOnBreakdownKey),
+    //         input,
+    //         &sort_permutation,
+    //     )
+    //     .await?,
+    // ))
 }
 
 async fn sort_by_aggregation_bit<F: Field>(
     ctx: SemiHonestContext<'_>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
+) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
     let aggregation_bits = [input
@@ -472,45 +579,47 @@ async fn sort_by_aggregation_bit<F: Field>(
 
 async fn malicious_sort_by_aggregation_bit<'a, F: Field + ExtendableField>(
     ctx: SemiHonestContext<'_>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
 ) -> Result<
     (
         MaliciousValidator<'_, F>,
-        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>, Replicated<Gf2>>>,
     ),
     Error,
 > {
-    // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
-    // field and wrap it in another vector.
-    let aggregation_bits = [input
-        .iter()
-        .map(|x| vec![x.aggregation_bit.clone()])
-        .collect::<Vec<_>>()];
+    todo!();
+    // // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
+    // // field and wrap it in another vector.
+    // let aggregation_bits = [input
+    //     .iter()
+    //     .map(|x| vec![x.aggregation_bit.clone()])
+    //     .collect::<Vec<_>>()];
 
-    let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
-        ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits.iter(),
-    )
-    .await?;
+    // let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
+    //     ctx.narrow(&Step::GeneratePermutationByAttributionBit),
+    //     aggregation_bits.iter(),
+    // )
+    // .await?;
 
-    let malicious_validator = MaliciousValidator::new(ctx);
-    let m_ctx = malicious_validator.context();
-    let input = m_ctx.upgrade(input).await?;
+    // let malicious_validator = MaliciousValidator::new(ctx);
+    // let m_ctx = malicious_validator.context();
+    // let input = m_ctx.upgrade(input).await?;
 
-    Ok((
-        malicious_validator,
-        apply_sort_permutation(
-            m_ctx.narrow(&Step::ApplyPermutationOnAttributionBit),
-            input,
-            &sort_permutation,
-        )
-        .await?,
-    ))
+    // Ok((
+    //     malicious_validator,
+    //     apply_sort_permutation(
+    //         m_ctx.narrow(&Step::ApplyPermutationOnAttributionBit),
+    //         input,
+    //         &sort_permutation,
+    //     )
+    //     .await?,
+    // ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    ComputeEqualityChecks,
+    PregenBreakdownKeyEqualityCheckCombos,
+    ModulusConvertCombos,
     CheckTimesCredit,
     SortByBreakdownKey,
     SortByAttributionBit,
@@ -525,7 +634,10 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ComputeEqualityChecks => "compute_equality_checks",
+            Self::PregenBreakdownKeyEqualityCheckCombos => {
+                "pregen_breakdown_key_equality_check_combos"
+            }
+            Self::ModulusConvertCombos => "modulus_convert_combos",
             Self::CheckTimesCredit => "check_times_credit",
             Self::SortByBreakdownKey => "sort_by_breakdown_key",
             Self::SortByAttributionBit => "sort_by_attribution_bit",
@@ -543,14 +655,16 @@ mod tests {
     use super::aggregate_credit;
     use crate::{
         aggregation_test_input,
-        ff::{Field, Fp32BitPrime, GaloisField},
+        ff::{Field, Fp32BitPrime, GaloisField, Gf2},
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
             context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             BreakdownKey, MatchKey,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
 
@@ -602,23 +716,27 @@ mod tests {
                 input,
                 |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+                    let converted_bk_shares = bk_shares
+                        .map(|bk| {
+                            (0..3_u32)
+                                .map(|bit_idx| {
+                                    Replicated::new(
+                                        Gf2::truncate_from(bk.left()[bit_idx]),
+                                        Gf2::truncate_from(bk.right()[bit_idx]),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAggregateCreditInputRow::new(bk, row.credit.clone()));
+                        .map(|(row, bk)| MCAggregateCreditInputRow::new(bk, row.credit.clone()))
+                        .collect::<Vec<_>>();
 
                     aggregate_credit::<Fp32BitPrime, BreakdownKey>(
                         ctx,
-                        modulus_converted_shares,
+                        &modulus_converted_shares,
                         MAX_BREAKDOWN_KEY,
                         NUM_MULTI_BITS,
                     )

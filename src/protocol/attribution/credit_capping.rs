@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, Gf2, PrimeField},
     protocol::{
         basics::SecureMul,
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
@@ -22,15 +22,16 @@ use std::iter::{repeat, zip};
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
-pub async fn credit_capping<F, C, T>(
+pub async fn credit_capping<F, C, T, B>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, B>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+) -> Result<Vec<MCCreditCappingOutputRow<F, T, B>>, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -100,14 +101,15 @@ where
 /// is from the same `match-key`, and the prefix-OR indicates that there is *at least one* attributed conversion
 /// in the following rows, then the contribution is "capped", which in this context means set to zero.
 /// In this way, only the final attributed conversion will not be "capped".
-async fn credit_capping_max_one<F, C, T>(
+async fn credit_capping_max_one<F, C, T, B>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + '_, Error>
+    input: &[MCCreditCappingInputRow<F, T, B>],
+) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T, B>> + '_, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     let input_len = input.len();
 
@@ -168,14 +170,15 @@ where
     Ok(output)
 }
 
-async fn mask_source_credits<F, C, T>(
-    input: &[MCCreditCappingInputRow<F, T>],
+async fn mask_source_credits<F, C, T, B>(
+    input: &[MCCreditCappingInputRow<F, T, B>],
     ctx: C,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     try_join_all(
         input
@@ -194,15 +197,16 @@ where
     .await
 }
 
-async fn credit_prefix_sum<'a, F, C, T, I>(
+async fn credit_prefix_sum<'a, F, C, T, B, I>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, B>],
     original_credits: I,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + SecureMul<C> + 'a,
+    B: LinearSecretSharing<Gf2>,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -251,9 +255,9 @@ where
     .await
 }
 
-async fn compute_final_credits<F, C, T>(
+async fn compute_final_credits<F, C, T, B>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, B>],
     prefix_summed_credits: &[T],
     exceeds_cap_bits: &[T],
     original_credits: &[T],
@@ -263,6 +267,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    B: LinearSecretSharing<Gf2>,
 {
     let num_rows = input.len();
     let cap = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
