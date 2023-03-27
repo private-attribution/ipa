@@ -1,5 +1,5 @@
 #![allow(dead_code)] // TODO: remove once migrated to new transports
-
+use std::borrow::Borrow;
 use crate::{
     helpers::{
         query::QueryConfig, HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId,
@@ -89,6 +89,9 @@ impl InMemoryTransport {
                                 let step = addr.step.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, step), stream);
+                            }
+                            RouteId::PrepareQuery => {
+                                unimplemented!()
                             }
                         }
                     }
@@ -255,7 +258,7 @@ impl Addr {
             origin: Some(origin),
             query_id: route.query_id().into(),
             step: route.step().into(),
-            params: route.extra().to_string(),
+            params: route.extra().borrow().to_string(),
         }
     }
 
@@ -459,7 +462,7 @@ pub struct TransportCallbacks {
     pub(crate) receive_query: Box<dyn ReceiveQueryCallback>,
 }
 
-fn stub_callbacks() -> TransportCallbacks {
+pub fn stub_callbacks() -> TransportCallbacks {
     TransportCallbacks {
         receive_query: Box::new(move |_| Box::pin(async { unimplemented!() })),
     }
@@ -480,7 +483,6 @@ impl Setup {
             identity,
             tx,
             rx,
-            callbacks,
             connections: HashMap::default(),
         }
     }
@@ -496,15 +498,15 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(self) -> (ConnectionTx, Arc<InMemoryTransport>) {
+    fn into_active_conn<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> (ConnectionTx, Arc<InMemoryTransport>) {
         let transport = InMemoryTransport::new(self.identity, self.connections);
-        transport.listen(self.callbacks, self.rx);
+        transport.listen(callbacks, self.rx);
 
         (self.tx, Arc::new(transport))
     }
 
-    pub fn start(self) -> Arc<InMemoryTransport> {
-        self.into_active_conn().1
+    pub fn start<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> Arc<InMemoryTransport> {
+        self.into_active_conn(callbacks).1
     }
 }
 

@@ -11,6 +11,14 @@ pub use util::DelayedTransport;
 pub use transport::TransportCallbacks;
 use crate::test_fixture::network::transport::{ReceiveQueryCallback, Setup, stub_callbacks};
 
+
+trait Network {
+    type Endpoint: Transport;
+
+    fn get_endpoint(&self, id: HelperIdentity) -> Self::Endpoint;
+    fn all_endpoints(&self) -> [Self::Endpoint; 3];
+}
+
 /// Container for all active transports
 #[derive(Clone)]
 pub struct InMemoryNetwork {
@@ -24,19 +32,18 @@ impl Default for InMemoryNetwork {
 }
 
 impl InMemoryNetwork {
-    pub fn new<C: ReceiveQueryCallback<Weak<InMemoryTransport>>>(callbacks: [TransportCallbacks<Weak<InMemoryTransport>>; 3]) -> Self {
-        let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three().into_iter()
-            .zip(callbacks)
-            .map(|(id, callback)| {
-            Setup::new(id, callback)
-        }).collect::<Vec<_>>().try_into().map_err(|_| unreachable!()).unwrap();
+    pub fn new<C: ReceiveQueryCallback>(callbacks: [TransportCallbacks<C>; 3]) -> Self {
+        let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three()
+            .map(|(id)| Setup::new(id));
 
         first.connect(&mut second);
         second.connect(&mut third);
         third.connect(&mut first);
 
+        let [cb1, cb2, cb3] = callbacks;
+
         Self {
-            transports: [first.start(), second.start(), third.start()]
+            transports: [first.start(cb1), second.start(cb2), third.start(cb3)],
         }
     }
 
