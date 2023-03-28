@@ -119,18 +119,22 @@ impl GatewayConfig {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Serializable},
         helpers::Role,
         protocol::{context::Context, RecordId},
         test_fixture::{TestWorld, TestWorldConfig},
     };
-
     use futures_util::future::try_join;
+    use std::num::NonZeroUsize;
+    use typenum::Unsigned;
 
     #[tokio::test]
     pub async fn handles_reordering() {
+        type TestField = Fp31;
         let mut config = TestWorldConfig::default();
-        config.gateway_config.send_outstanding_bytes = 2.try_into().unwrap();
+
+        config.gateway_config.send_outstanding_bytes =
+            NonZeroUsize::new(2 * <TestField as Serializable>::Size::USIZE).unwrap();
 
         let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let contexts = world.contexts();
@@ -143,14 +147,14 @@ mod tests {
         tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
             try_join(
-                channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
-                channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)),
+                channel.send(RecordId::from(1), TestField::truncate_from(1_u128)),
+                channel.send(RecordId::from(0), TestField::truncate_from(0_u128)),
             )
             .await
             .unwrap();
         });
 
-        let recv_channel = recv_ctx.recv_channel::<Fp31>(Role::H1);
+        let recv_channel = recv_ctx.recv_channel::<TestField>(Role::H1);
         let result = try_join(
             recv_channel.receive(RecordId::from(1)),
             recv_channel.receive(RecordId::from(0)),
@@ -159,7 +163,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            (Fp31::truncate_from(1u128), Fp31::truncate_from(0u128)),
+            (
+                TestField::truncate_from(1u128),
+                TestField::truncate_from(0u128)
+            ),
             result
         );
     }
