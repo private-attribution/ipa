@@ -26,6 +26,7 @@ use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::TransportImpl;
 
 type ConnectionTx = Sender<(Addr, InMemoryStream)>;
 type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
@@ -68,6 +69,7 @@ impl InMemoryTransport {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
+                let this = Arc::downgrade(&self);
                 async move {
                     let mut active_queries = HashSet::new();
                     while let Some((addr, stream)) = rx.recv().await {
@@ -76,7 +78,7 @@ impl InMemoryTransport {
                         match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                let query_id = (callbacks.receive_query)(qc)
+                                let query_id = (callbacks.receive_query)(TransportImpl::from(&this), qc)
                                     .await
                                     .expect("Should be able to receive a new query request");
                                 assert!(
@@ -447,12 +449,12 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
 }
 
 pub trait ReceiveQueryCallback:
-    FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
+    FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
 {
 }
 
 impl<F> ReceiveQueryCallback for F where
-    F: FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
+    F: FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
         + Send
         + 'static
 {
@@ -464,7 +466,7 @@ pub struct TransportCallbacks {
 
 pub fn stub_callbacks() -> TransportCallbacks {
     TransportCallbacks {
-        receive_query: Box::new(move |_| Box::pin(async { unimplemented!() })),
+        receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
     }
 }
 
@@ -499,10 +501,10 @@ impl Setup {
     }
 
     fn into_active_conn<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> (ConnectionTx, Arc<InMemoryTransport>) {
-        let transport = InMemoryTransport::new(self.identity, self.connections);
+        let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(callbacks, self.rx);
 
-        (self.tx, Arc::new(transport))
+        (self.tx, transport)
     }
 
     pub fn start<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> Arc<InMemoryTransport> {
