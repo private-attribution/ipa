@@ -1,9 +1,10 @@
 use super::{
     accumulate_credit::accumulate_credit,
     aggregate_credit::aggregate_credit,
+    apply_attribution_window::apply_attribution_window,
     compute_helper_bits_gf2,
     credit_capping::credit_capping,
-    input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
+    input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
     mod_conv_helper_bits,
 };
 use crate::{
@@ -28,7 +29,7 @@ pub async fn secure_attribution<F, BK>(
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
-    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
+    attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where
@@ -44,7 +45,8 @@ where
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {
-            MCAccumulateCreditInputRow::new(
+            MCApplyAttributionWindowInputRow::new(
+                row.timestamp,
                 row.is_trigger_bit,
                 hb,
                 row.breakdown_key,
@@ -53,9 +55,16 @@ where
         })
         .collect::<Vec<_>>();
 
+    let windowed_reports = apply_attribution_window(
+        ctx.narrow(&Step::ApplyAttributionWindow),
+        &attribution_input_rows,
+        attribution_window_seconds,
+    )
+    .await?;
+
     let accumulated_credits = accumulate_credit(
         ctx.narrow(&Step::AccumulateCredit),
-        &attribution_input_rows,
+        &windowed_reports,
         per_user_credit_cap,
     )
     .await?;
@@ -78,6 +87,7 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
+    ApplyAttributionWindow,
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
@@ -88,6 +98,7 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
+            Self::ApplyAttributionWindow => "apply_attribution_window",
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",

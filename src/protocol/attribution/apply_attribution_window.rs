@@ -20,31 +20,49 @@ use std::iter::{repeat, zip};
 ///
 /// # Errors
 /// Fails if sub-protocols fails.
-#[allow(dead_code)]
-async fn apply_attribution_window<F, C, T>(
+pub async fn apply_attribution_window<F, C, T>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, T>],
     attribution_window_seconds: u32,
-) -> Result<impl Iterator<Item = MCApplyAttributionWindowOutputRow<F, T>> + '_, Error>
+) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, T>>, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
+    // if `attribution_window_seconds` is 0, skip the entire protocol
+    if attribution_window_seconds == 0 {
+        return Ok(input
+            .iter()
+            .map(|x| {
+                MCApplyAttributionWindowOutputRow::new(
+                    x.is_trigger_report.clone(),
+                    x.helper_bit.clone(),
+                    x.breakdown_key.clone(),
+                    x.trigger_value.clone(),
+                )
+            })
+            .collect::<Vec<_>>());
+    }
+
     let mut t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
 
     let trigger_values =
         zero_out_expired_trigger_values(&ctx, input, &mut t_deltas, attribution_window_seconds)
             .await?;
 
-    Ok(input.iter().zip(trigger_values).map(|(x, value)| {
-        MCApplyAttributionWindowOutputRow::new(
-            x.is_trigger_report.clone(),
-            x.helper_bit.clone(),
-            x.breakdown_key.clone(),
-            value,
-        )
-    }))
+    Ok(input
+        .iter()
+        .zip(trigger_values)
+        .map(|(x, value)| {
+            MCApplyAttributionWindowOutputRow::new(
+                x.is_trigger_report.clone(),
+                x.helper_bit.clone(),
+                x.breakdown_key.clone(),
+                value,
+            )
+        })
+        .collect::<Vec<_>>())
 }
 
 /// Computes time deltas from each trigger event to its nearest matching source event.
@@ -275,7 +293,7 @@ mod tests {
 
                     apply_attribution_window(ctx, &modulus_converted_shares, ATTRIBUTION_WINDOW)
                         .await
-                        .unwrap().collect()
+                        .unwrap()
                 },
             )
             .await;
