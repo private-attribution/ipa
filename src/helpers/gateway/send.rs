@@ -13,7 +13,7 @@ use crate::{
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
-        metrics::RECORDS_SENT,
+        metrics::{BYTES_SENT, RECORDS_SENT},
     },
 };
 
@@ -97,8 +97,14 @@ impl<M: Message> SendingEnd<M> {
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
+        use typenum::Unsigned;
+
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
+            STEP => self.channel_id.step.as_ref().to_string(),
+            ROLE => self.sender_role.as_static_str()
+        );
+        metrics::counter!(BYTES_SENT, M::Size::U64,
             STEP => self.channel_id.step.as_ref().to_string(),
             ROLE => self.sender_role.as_static_str()
         );
