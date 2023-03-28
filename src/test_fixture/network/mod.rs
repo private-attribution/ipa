@@ -9,7 +9,7 @@ use crate::{
 pub use transport::InMemoryTransport;
 pub use util::DelayedTransport;
 pub use transport::TransportCallbacks;
-use crate::test_fixture::network::transport::{ReceiveQueryCallback, Setup, stub_callbacks};
+pub use crate::test_fixture::network::transport::{ReceiveQueryCallback, Setup};
 
 
 trait Network {
@@ -27,7 +27,7 @@ pub struct InMemoryNetwork {
 
 impl Default for InMemoryNetwork {
     fn default() -> Self {
-        Self::new([stub_callbacks(), stub_callbacks(), stub_callbacks()])
+        Self::new([TransportCallbacks::default(), TransportCallbacks::default(), TransportCallbacks::default()])
     }
 }
 

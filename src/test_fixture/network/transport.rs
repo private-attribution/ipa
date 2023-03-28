@@ -26,6 +26,7 @@ use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::query::PrepareQuery;
 use crate::helpers::TransportImpl;
 
 type ConnectionTx = Sender<(Addr, InMemoryStream)>;
@@ -449,24 +450,38 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
 }
 
 pub trait ReceiveQueryCallback:
-    FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
+    FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send
 {
 }
 
 impl<F> ReceiveQueryCallback for F where
     F: FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
         + Send
-        + 'static
+{
+}
+
+pub trait PrepareQueryCallback:
+FnMut(TransportImpl, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send
+{
+}
+
+impl<F> PrepareQueryCallback for F where
+    F: FnMut(TransportImpl, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+    + Send
 {
 }
 
 pub struct TransportCallbacks {
-    pub(crate) receive_query: Box<dyn ReceiveQueryCallback>,
+    pub receive_query: Box<dyn ReceiveQueryCallback>,
+    pub prepare_query: Box<dyn PrepareQueryCallback>,
 }
 
-pub fn stub_callbacks() -> TransportCallbacks {
-    TransportCallbacks {
-        receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
+impl Default for TransportCallbacks {
+    fn default() -> Self {
+        Self {
+            receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
+            prepare_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
+        }
     }
 }
 
@@ -548,6 +563,7 @@ mod tests {
                         Ok(QueryId)
                     })
                 }),
+                ..Default::default()
             },
         );
         let expected = QueryConfig {
@@ -563,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
@@ -586,7 +602,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let expected = vec![vec![1], vec![2]];
 
         tx.send((
@@ -648,8 +664,8 @@ mod tests {
 
         setup1.connect(&mut setup2);
 
-        let transport1 = setup1.start(stub_callbacks());
-        let transport2 = setup2.start(stub_callbacks());
+        let transport1 = setup1.start(TransportCallbacks::default());
+        let transport2 = setup2.start(TransportCallbacks::default());
         let transports = HashMap::from([
             (HelperIdentity::ONE, Arc::downgrade(&transport1)),
             (HelperIdentity::TWO, Arc::downgrade(&transport2)),
@@ -662,7 +678,7 @@ mod tests {
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let step = Step::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);

@@ -288,24 +288,35 @@ mod tests {
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
+    use tokio::time::MissedTickBehavior::Delay;
     use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, TransportCallbacks};
 
-    #[cfg(never)]
     #[tokio::test]
     async fn new_query() {
-        let processors = [Processor::new(), Processor::new(), Processor::new()];
-        // let network = InMemoryNetwork::new([TransportCallbacks {
-        //     receive_query: |query_config| async move {
-        //         processors[0].new_query(query_config, )
-        //     }
-        // }])
-        let [t0, t1, t2] = network.transports().map(|t| DelayedTransport::new(t, 3));
-        let processor = active_passive([t0.clone(), t1, t2]).await;
+        let processors = [Processor::new(), Processor::new(), Processor::new()].map(Arc::new);
+        let p0 = processors[0].clone();
+        let cb1 = TransportCallbacks {
+            prepare_query: Box::new(move |transport, prepare_query| Box::pin(async move {
+                println!("received prepare bro!");
+                unimplemented!()
+            })),
+            ..Default::default()
+        };
+        let cb2 = TransportCallbacks {
+            prepare_query: Box::new(move |transport, prepare_query| Box::pin(async move {
+                println!("received prepare bro!");
+                unimplemented!()
+            })),
+            ..Default::default()
+        };
+        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb1, cb2]);
+        let t0 = DelayedTransport::new(network.transport(HelperIdentity::ONE).unwrap(), 3);
         let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
 
+        let processor = p0;
         let qc_future = processor.new_query(request, &t0);
         pin_mut!(qc_future);
 

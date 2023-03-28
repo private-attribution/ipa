@@ -7,6 +7,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::Stream;
 use std::io;
+use std::ops::Deref;
 use std::sync::Weak;
 
 mod bytearrstream;
@@ -229,7 +230,7 @@ impl TransportImpl {
     pub fn from<T: Transport + Any>(value: &T) -> Self {
         use crate::test_fixture::network::InMemoryTransport;
         let value_any = value as &dyn Any;
-        match value_any.downcast_ref::<Weak<InMemoryTransport>>() {
+        match value_any.downcast_ref::<Deref<InMemoryTransport>>() {
             Some(transport) => {Self::InMemory(transport.clone())}
             None => panic!("Only InMemory transport is supported inside the gateway at the moment")
         }
