@@ -890,19 +890,19 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        // empirical value as of Mar 24, 2023.
+        // empirical value as of Mar 28, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14_571;
         const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48_996;
 
-        // empirical value as of Mar 24, 2023.
+        // empirical value as of Mar 28, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36_678;
         const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 137_424;
 
-        // empirical value as of Mar 24, 2023.
+        // empirical value as of Mar 28, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10_902;
         const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34_320;
 
-        // empirical value as of Mar 24, 2023.
+        // empirical value as of Mar 28, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27_324;
         const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 100_008;
 
