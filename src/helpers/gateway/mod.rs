@@ -102,7 +102,7 @@ impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             /// send buffer capacity, in bytes
-            send_outstanding: NonZeroUsize::new(4096).unwrap(),
+            send_outstanding_bytes: NonZeroUsize::new(4096).unwrap(),
             // receive buffer capacity in total messages it can hold.
             /// set to match send buffer capacity / [`Fp32`] size
             ///

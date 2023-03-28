@@ -531,10 +531,10 @@ mod tests {
     async fn callback_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) = Setup::new(
-            HelperIdentity::ONE,
+        let (tx, _transport) = Setup::new(HelperIdentity::ONE)
+        .into_active_conn(
             TransportCallbacks {
-                receive_query: Box::new(move |query_config| {
+                receive_query: Box::new(move |transport, query_config| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
                         // this works because callback is only called once
@@ -549,8 +549,7 @@ mod tests {
                     })
                 }),
             },
-        )
-        .into_active_conn();
+        );
         let expected = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -564,7 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
@@ -587,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
         let expected = vec![vec![1], vec![2]];
 
         tx.send((
@@ -644,13 +643,13 @@ mod tests {
             assert!(matches!(poll_immediate(&mut recv).next().await, None));
         }
 
-        let mut setup1 = Setup::new(HelperIdentity::ONE, stub_callbacks());
-        let mut setup2 = Setup::new(HelperIdentity::TWO, stub_callbacks());
+        let mut setup1 = Setup::new(HelperIdentity::ONE);
+        let mut setup2 = Setup::new(HelperIdentity::TWO);
 
         setup1.connect(&mut setup2);
 
-        let transport1 = setup1.start();
-        let transport2 = setup2.start();
+        let transport1 = setup1.start(stub_callbacks());
+        let transport2 = setup2.start(stub_callbacks());
         let transports = HashMap::from([
             (HelperIdentity::ONE, Arc::downgrade(&transport1)),
             (HelperIdentity::TWO, Arc::downgrade(&transport2)),
@@ -663,7 +662,7 @@ mod tests {
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
-            Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+            Setup::new(HelperIdentity::ONE).into_active_conn(stub_callbacks());
         let step = Step::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);

@@ -13,7 +13,6 @@ mod bytearrstream;
 pub mod query;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-use crate::test_fixture::network::InMemoryTransport;
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -226,7 +225,9 @@ impl <T: Transport + Any> From<&T> for TransportImpl {
 }
 
 impl TransportImpl {
+    #[cfg(any(feature = "test-fixture", test))]
     pub fn from<T: Transport + Any>(value: &T) -> Self {
+        use crate::test_fixture::network::InMemoryTransport;
         let value_any = value as &dyn Any;
         match value_any.downcast_ref::<Weak<InMemoryTransport>>() {
             Some(transport) => {Self::InMemory(transport.clone())}
