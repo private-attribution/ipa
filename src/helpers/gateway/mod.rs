@@ -8,19 +8,17 @@ pub use send::SendingEnd;
 use std::{fmt::Debug, num::NonZeroUsize};
 
 use crate::{
-    helpers::{transport::TransportImpl, ChannelId, Message, Role, RoleAssignment, TotalRecords},
-    protocol::QueryId,
-};
-
-use crate::{
-    ff::Field,
-    helpers::gateway::{
-        receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+    helpers::{
+        gateway::{
+            receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+        },
+        transport::TransportImpl,
+        ChannelId, Message, Role, RoleAssignment, TotalRecords,
     },
+    protocol::QueryId,
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use typenum::Unsigned;
 
 /// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages
 pub struct Gateway {
@@ -33,7 +31,7 @@ pub struct Gateway {
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
     /// The maximum number of items that can be outstanding for sending.
-    pub send_outstanding_bytes: NonZeroUsize,
+    pub send_outstanding: NonZeroUsize,
     /// The maximum number of items that can be outstanding for receiving.
     pub recv_outstanding: NonZeroUsize,
 }
@@ -72,7 +70,7 @@ impl Gateway {
     ) -> SendingEnd<M> {
         let (tx, maybe_stream) = self.senders.get_or_create::<M>(
             channel_id,
-            self.config.send_outstanding_bytes,
+            self.config.send_outstanding,
             total_records,
         );
         if let Some(stream) = maybe_stream {
@@ -102,15 +100,12 @@ impl Gateway {
 
 impl GatewayConfig {
     /// Config for symmetric send and receive buffers. Capacity must not be zero.
-    /// Send capacity will be aligned with [`F::Size`]
-    ///
     /// ## Panics
     /// if capacity is set to be 0.
     #[must_use]
-    pub fn symmetric_buffers<F: Field>(capacity: usize) -> Self {
-        let send_capacity = F::Size::USIZE * capacity;
+    pub fn symmetric_buffers(capacity: usize) -> Self {
         Self {
-            send_outstanding_bytes: NonZeroUsize::new(send_capacity).unwrap(),
+            send_outstanding: NonZeroUsize::new(capacity).unwrap(),
             recv_outstanding: NonZeroUsize::new(capacity).unwrap(),
         }
     }
@@ -118,19 +113,57 @@ impl GatewayConfig {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::*;
     use crate::{
-        ff::{Field, Fp31},
-        helpers::Role,
+        ff::{Field, Fp31, Fp32BitPrime, Gf2},
+        helpers::{Direction, GatewayConfig, SendingEnd},
         protocol::{context::Context, RecordId},
-        test_fixture::{TestWorld, TestWorldConfig},
+        test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
+    use futures_util::future::{join, try_join};
 
-    use futures_util::future::try_join;
+    /// Verifies that [`Gateway`] send buffer capacity is adjusted to the message size.
+    /// IPA protocol opens many channels to send values from different fields, while message size
+    /// is set per channel, it does not have to be the same across multiple send channels.
+    ///
+    /// Gateway must be able to deal with it.
+    #[tokio::test]
+    async fn can_handle_heterogeneous_channels() {
+        async fn send<F: Field>(channel: &SendingEnd<F>, i: usize) {
+            channel
+                .send(i.into(), F::truncate_from(u128::try_from(i).unwrap()))
+                .await
+                .unwrap();
+        }
+
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig::symmetric_buffers(2),
+            ..Default::default()
+        };
+
+        let world = TestWorld::new_with(config);
+        world
+            .semi_honest((), |ctx, _| async move {
+                let fp2_ctx = ctx.narrow("fp2").set_total_records(100);
+                let fp32_ctx = ctx.narrow("fp32").set_total_records(100);
+                let role = ctx.role();
+
+                let fp2_channel = fp2_ctx.send_channel::<Gf2>(role.peer(Direction::Right));
+                let fp32_channel =
+                    fp32_ctx.send_channel::<Fp32BitPrime>(role.peer(Direction::Right));
+
+                // joins must complete, despite us not closing the send channel.
+                // fp2 channel byte capacity must be set to 2 bytes, fp32 channel can store 8 bytes.
+                join(send(&fp2_channel, 0), send(&fp2_channel, 1)).await;
+                join(send(&fp32_channel, 0), send(&fp32_channel, 1)).await;
+            })
+            .await;
+    }
 
     #[tokio::test]
     pub async fn handles_reordering() {
         let mut config = TestWorldConfig::default();
-        config.gateway_config.send_outstanding_bytes = 2.try_into().unwrap();
+        config.gateway_config.send_outstanding = 2.try_into().unwrap();
 
         let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let contexts = world.contexts();

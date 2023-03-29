@@ -49,8 +49,7 @@ async fn main() -> Result<(), Error> {
 
     let prep_time = Instant::now();
     let mut config = TestWorldConfig::default();
-    config.gateway_config =
-        GatewayConfig::symmetric_buffers::<BenchField>(args.query_size.clamp(16, 1024));
+    config.gateway_config = GatewayConfig::symmetric_buffers(args.query_size.clamp(16, 1024));
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
     println!(
