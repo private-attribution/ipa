@@ -66,7 +66,7 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(&self, mut callbacks: TransportCallbacks, mut rx: ConnectionRx) {
+    fn listen(&self, mut callbacks: TransportCallbacks<Weak<Self>>, mut rx: ConnectionRx) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -79,7 +79,7 @@ impl InMemoryTransport {
                         match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                let query_id = (callbacks.receive_query)(TransportImpl::from(&this), qc)
+                                let query_id = (callbacks.receive_query)(&this, qc)
                                     .await
                                     .expect("Should be able to receive a new query request");
                                 assert!(
@@ -449,34 +449,34 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
     }
 }
 
-pub trait ReceiveQueryCallback:
-    FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send
+pub trait ReceiveQueryCallback<T>:
+    FnMut(&T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send
 {
 }
 
-impl<F> ReceiveQueryCallback for F where
-    F: FnMut(TransportImpl, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
+impl <T, F> ReceiveQueryCallback<T> for F where
+    F: FnMut(&T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
         + Send
 {
 }
 
-pub trait PrepareQueryCallback:
-FnMut(TransportImpl, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send
-{
-}
+pub trait PrepareQueryCallback<T>:
+    FnMut(&T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send
+    {
+    }
 
-impl<F> PrepareQueryCallback for F where
-    F: FnMut(TransportImpl, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+impl<T, F> PrepareQueryCallback<T> for F where
+    F: FnMut(&T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
     + Send
 {
 }
 
-pub struct TransportCallbacks {
-    pub receive_query: Box<dyn ReceiveQueryCallback>,
-    pub prepare_query: Box<dyn PrepareQueryCallback>,
+pub struct TransportCallbacks<T> {
+    pub receive_query: Box<dyn ReceiveQueryCallback<T>>,
+    pub prepare_query: Box<dyn PrepareQueryCallback<T>>,
 }
 
-impl Default for TransportCallbacks {
+impl <T> Default for TransportCallbacks<T> {
     fn default() -> Self {
         Self {
             receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
@@ -515,14 +515,14 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> (ConnectionTx, Arc<InMemoryTransport>) {
+    fn into_active_conn(self, callbacks: TransportCallbacks<Weak<InMemoryTransport>>) -> (ConnectionTx, Arc<InMemoryTransport>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(callbacks, self.rx);
 
         (self.tx, transport)
     }
 
-    pub fn start<RQC: ReceiveQueryCallback>(self, callbacks: TransportCallbacks<RQC>) -> Arc<InMemoryTransport> {
+    pub fn start(self, callbacks: TransportCallbacks<Weak<InMemoryTransport>>) -> Arc<InMemoryTransport> {
         self.into_active_conn(callbacks).1
     }
 }

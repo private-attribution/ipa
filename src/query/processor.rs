@@ -113,11 +113,12 @@ impl Processor {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query<T: Transport>(&self, req: QueryConfig, transport: &T) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query<T: Into<TransportImpl>>(&self, req: QueryConfig, transport: T) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
+        let transport = transport.into();
         let id = transport.identity();
         let [right, left] = id.others();
 

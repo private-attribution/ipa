@@ -32,7 +32,7 @@ impl Default for InMemoryNetwork {
 }
 
 impl InMemoryNetwork {
-    pub fn new(callbacks: [TransportCallbacks; 3]) -> Self {
+    pub fn new(callbacks: [TransportCallbacks<Weak<InMemoryTransport>>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three()
             .map(|(id)| Setup::new(id));
 

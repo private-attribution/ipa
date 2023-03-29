@@ -10,6 +10,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
+use crate::helpers::TransportImpl;
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -65,5 +66,11 @@ impl<T: Transport> Transport for DelayedTransport<T> {
         route: R,
     ) -> Self::RecordsStream {
         self.inner.receive(from, route)
+    }
+}
+
+impl <T> From<&DelayedTransport<T>> for TransportImpl {
+    fn from(value: &DelayedTransport<T>) -> Self {
+        TransportImpl::InMemory(value.inner.into())
     }
 }
