@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::io;
+use std::{io, io::Error};
 
 mod bytearrstream;
 pub mod query;
@@ -132,42 +132,20 @@ pub trait Transport: Clone + Send + Sync + 'static {
     ) -> Self::RecordsStream;
 }
 
-/// Enum to dispatch calls to various [`Transport`] implementations without the need
-/// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
-/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
+/// Until we have proper HTTP transport
 #[derive(Clone)]
-pub enum TransportImpl {
-    #[cfg(any(test, feature = "test-fixture"))]
-    InMemory(std::sync::Weak<crate::test_fixture::network::InMemoryTransport>),
-    #[cfg(not(any(test, feature = "test-fixture")))]
-    RealWorld,
-}
+pub struct DummyTransport;
 
 #[async_trait]
 #[allow(unused_variables)]
-impl Transport for TransportImpl {
-    #[cfg(any(test, feature = "test-fixture"))]
-    type RecordsStream = <std::sync::Weak<crate::test_fixture::network::InMemoryTransport> as Transport>::RecordsStream;
-    #[cfg(not(any(test, feature = "test-fixture")))]
-    type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
+impl Transport for DummyTransport {
+    type RecordsStream = Box<dyn Stream<Item = Vec<u8>> + Send + Unpin>;
 
     fn identity(&self) -> HelperIdentity {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(ref inner) => inner.identity(),
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 
-    async fn send<D, Q, S, R>(
-        &self,
-        dest: HelperIdentity,
-        route: R,
-        data: D,
-    ) -> Result<(), std::io::Error>
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -176,14 +154,7 @@ impl Transport for TransportImpl {
         R: RouteParams<RouteId, Q, S>,
         D: Stream<Item = Vec<u8>> + Send + 'static,
     {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -191,13 +162,6 @@ impl Transport for TransportImpl {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(inner) => inner.receive(from, route),
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 }

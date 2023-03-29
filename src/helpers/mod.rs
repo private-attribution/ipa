@@ -11,11 +11,14 @@ mod time;
 mod transport;
 
 pub use error::{Error, Result};
-pub use gateway::{Gateway, GatewayConfig, ReceivingEnd, SendingEnd};
+pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
+
+pub use gateway::Gateway;
+
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
-    RouteParams, StepBinding, Transport, TransportImpl,
+    RouteParams, StepBinding, Transport,
 };
 
 pub use transport::query;
