@@ -23,7 +23,7 @@ use std::io::stdout;
 use std::{fmt::Debug, iter::zip, num::NonZeroUsize};
 
 use crate::{
-    helpers::{RoleAssignment, TransportImpl},
+    helpers::RoleAssignment,
     protocol::{QueryId, Substep},
     secret_sharing::IntoShares,
     sync::Arc,
@@ -109,7 +109,7 @@ impl TestWorld {
                 QueryId,
                 config.gateway_config,
                 role_assignment,
-                TransportImpl::InMemory(Arc::downgrade(transport)),
+                Arc::downgrade(transport),
             );
             let role = gateway.role();
             gateways[role] = Some(gateway);

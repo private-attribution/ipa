@@ -2,30 +2,48 @@ mod receive;
 mod send;
 mod transport;
 
-pub use receive::ReceivingEnd;
 pub use send::SendingEnd;
 
 use std::{fmt::Debug, num::NonZeroUsize};
 
 use crate::{
+    helpers::{ChannelId, Message, Role, RoleAssignment, TotalRecords},
+    protocol::QueryId,
+};
+
+use crate::{
+    ff::Field,
     helpers::{
         gateway::{
-            receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+            receive::{GatewayReceivers, ReceivingEnd as ReceivingEndBase},
+            send::GatewaySenders,
+            transport::RoleResolvingTransport,
         },
-        transport::TransportImpl,
-        ChannelId, Message, Role, RoleAssignment, TotalRecords,
+        Transport,
     },
     protocol::QueryId,
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
-/// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages
-pub struct Gateway {
+#[cfg(any(feature = "test-fixture", test))]
+type TransportImpl = std::sync::Weak<crate::test_fixture::network::InMemoryTransport>;
+#[cfg(not(any(feature = "test-fixture", test)))]
+type TransportImpl = crate::helpers::transport::DummyTransport;
+
+pub type Gateway = GatewayBase<TransportImpl>;
+pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
+
+/// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages.
+/// As it is generic over network/transport layer implementation, type alias [`Gateway`] should be
+/// used to avoid carrying `T` over.
+///
+/// [`Gateway`]: crate::helpers::Gateway
+pub struct GatewayBase<T: Transport> {
     config: GatewayConfig,
-    transport: RoleResolvingTransport<TransportImpl>,
+    transport: RoleResolvingTransport<T>,
     senders: GatewaySenders,
-    receivers: GatewayReceivers<TransportImpl>,
+    receivers: GatewayReceivers<T>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,7 +54,7 @@ pub struct GatewayConfig {
     pub recv_outstanding: NonZeroUsize,
 }
 
-impl Gateway {
+impl<T: Transport> GatewayBase<T> {
     #[must_use]
     pub fn new<T: Into<TransportImpl>>(
         query_id: QueryId,
@@ -90,8 +108,8 @@ impl Gateway {
     }
 
     #[must_use]
-    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<M> {
-        ReceivingEnd::new(
+    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
+        ReceivingEndBase::new(
             self.receivers
                 .get_or_create::<M, _>(channel_id, || self.transport.receive(channel_id)),
         )

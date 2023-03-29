@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport, TransportImpl},
+    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
 use dashmap::DashMap;
@@ -7,8 +7,8 @@ use futures::Stream;
 use std::marker::PhantomData;
 
 /// Receiving end end of the gateway channel.
-pub struct ReceivingEnd<M: Message> {
-    unordered_rx: UR<TransportImpl>,
+pub struct ReceivingEnd<T: Transport, M: Message> {
+    unordered_rx: UR<T>,
     _phantom: PhantomData<M>,
 }
 
@@ -22,8 +22,8 @@ pub(super) type UR<T> = UnorderedReceiver<
     <<T as Transport>::RecordsStream as Stream>::Item,
 >;
 
-impl<M: Message> ReceivingEnd<M> {
-    pub(super) fn new(rx: UR<TransportImpl>) -> Self {
+impl<T: Transport, M: Message> ReceivingEnd<T, M> {
+    pub(super) fn new(rx: UR<T>) -> Self {
         Self {
             unordered_rx: rx,
             _phantom: PhantomData,
