@@ -156,6 +156,7 @@ mod tests {
                     {
                         is_trigger_report: rng.gen::<u8>(),
                         helper_bit: rng.gen::<u8>(),
+                        active_bit: rng.gen::<u8>(),
                         breakdown_key: rng.gen::<u8>(),
                         credit: rng.gen::<u8>(),
                     };
@@ -200,6 +201,7 @@ mod tests {
                                 MCAccumulateCreditInputRow::new(
                                     row.is_trigger_report,
                                     row.helper_bit,
+                                    row.active_bit,
                                     bk,
                                     row.trigger_value,
                                 )

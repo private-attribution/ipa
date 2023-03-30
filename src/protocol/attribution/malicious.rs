@@ -90,6 +90,7 @@ where
         &windowed_reports,
         &stop_bits,
         per_user_credit_cap,
+        attribution_window_seconds,
     )
     .await?;
 
