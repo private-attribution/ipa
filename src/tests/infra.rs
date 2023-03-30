@@ -19,7 +19,7 @@ fn send_receive_sequential() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
+                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -74,7 +74,7 @@ fn send_receive_parallel() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
+                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);

@@ -61,7 +61,7 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             gateway_config: GatewayConfig {
-                send_outstanding_bytes: NonZeroUsize::new(16).unwrap(),
+                send_outstanding: NonZeroUsize::new(16).unwrap(),
                 recv_outstanding: NonZeroUsize::new(16).unwrap(),
             },
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.

@@ -21,8 +21,7 @@ async fn main() -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config =
-        GatewayConfig::symmetric_buffers::<BenchField>(BATCHSIZE.clamp(4, 1024));
+    config.gateway_config = GatewayConfig::symmetric_buffers(BATCHSIZE.clamp(4, 1024));
     let world = TestWorld::new_with(config);
     let [ctx0, ctx1, ctx2] = world.contexts();
     let mut rng = rand::thread_rng();
