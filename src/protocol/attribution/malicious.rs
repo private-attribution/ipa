@@ -2,7 +2,7 @@ use super::{
     accumulate_credit::accumulate_credit,
     aggregate_credit::malicious_aggregate_credit,
     apply_attribution_window::apply_attribution_window,
-    compute_helper_bits_gf2,
+    compute_helper_bits_gf2, compute_stop_bits,
     credit_capping::credit_capping,
     input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
     mod_conv_helper_bits,
@@ -21,7 +21,7 @@ use crate::{
         semi_honest::AdditiveShare as SemiHonestAdditiveShare,
     },
 };
-use std::iter::zip;
+use std::iter::{once, zip};
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -52,9 +52,18 @@ where
     let validated_helper_bits_gf2 = binary_malicious_validator.validate(helper_bits_gf2).await?;
     let semi_honest_fp_helper_bits =
         mod_conv_helper_bits(sh_ctx.clone(), &validated_helper_bits_gf2).await?;
-    let helper_bits = Some(AdditiveShare::ZERO)
-        .into_iter()
-        .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?);
+    let helper_bits = once(AdditiveShare::ZERO)
+        .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
+        .collect::<Vec<_>>();
+
+    // stop_bit = is_trigger_bit * helper_bit
+    let is_trigger_bits = sorted_rows
+        .iter()
+        .map(|x| x.is_trigger_bit.clone())
+        .collect::<Vec<_>>();
+    let stop_bits = compute_stop_bits(m_ctx.clone(), &is_trigger_bits, &helper_bits)
+        .await?
+        .collect::<Vec<_>>();
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
         .map(|(row, hb)| {
@@ -71,6 +80,7 @@ where
     let windowed_reports = apply_attribution_window(
         m_ctx.narrow(&Step::ApplyAttributionWindow),
         &attribution_input_rows,
+        &stop_bits,
         attribution_window_seconds,
     )
     .await?;
@@ -78,6 +88,7 @@ where
     let accumulated_credits = accumulate_credit(
         m_ctx.narrow(&Step::AccumulateCredit),
         &windowed_reports,
+        &stop_bits,
         per_user_credit_cap,
     )
     .await?;

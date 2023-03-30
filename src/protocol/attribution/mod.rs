@@ -19,6 +19,7 @@ use crate::{
     seq_join::{assert_send, SeqJoin},
 };
 use futures::future::try_join;
+use std::iter::{empty, zip};
 
 use super::{
     boolean::bitwise_equal::bitwise_equal_gf2,
@@ -240,6 +241,31 @@ where
     Ok(())
 }
 
+async fn compute_stop_bits<F, S, C>(
+    ctx: C,
+    is_trigger_bits: &[S],
+    helper_bits: &[S],
+) -> Result<impl Iterator<Item = S>, Error>
+where
+    F: Field,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context,
+{
+    let stop_bits_ctx = ctx
+        .narrow(&Step::ComputeStopBits)
+        .set_total_records(is_trigger_bits.len() - 1);
+
+    let futures = zip(is_trigger_bits, helper_bits).skip(1).enumerate().map(
+        |(i, (is_trigger_bit, helper_bit))| {
+            let c = stop_bits_ctx.clone();
+            let record_id = RecordId::from(i);
+            async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
+        },
+    );
+
+    Ok(empty().chain(ctx.join(futures).await?))
+}
+
 async fn compute_helper_bits_gf2<C, S>(
     ctx: C,
     sorted_match_keys: &[Vec<S>],
@@ -294,6 +320,7 @@ enum Step {
     CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
     ComputeHelperBits,
+    ComputeStopBits,
     ModConvHelperBits,
 }
 
@@ -308,6 +335,7 @@ impl AsRef<str> for Step {
             }
             Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
             Self::ComputeHelperBits => "compute_helper_bits",
+            Self::ComputeStopBits => "compute_stop_bits",
             Self::ModConvHelperBits => "mod_conv_helper_bits",
         }
     }

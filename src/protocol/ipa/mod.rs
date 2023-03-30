@@ -998,21 +998,21 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_258;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_744;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_234;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_648;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_068;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_984;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_020;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_792;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 49_068;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_565;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 48_972;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_714;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_568;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_666;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_376;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
