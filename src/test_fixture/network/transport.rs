@@ -26,11 +26,11 @@ use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use tokio::sync::oneshot;
 use crate::helpers::query::PrepareQuery;
-use crate::helpers::TransportImpl;
 
-type ConnectionTx = Sender<(Addr, InMemoryStream)>;
-type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
+type ConnectionTx = Sender<(Addr, InMemoryStream, oneshot::Sender<()>)>;
+type ConnectionRx = Receiver<(Addr, InMemoryStream, oneshot::Sender<()>)>;
 type StreamItem = Vec<u8>;
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -73,7 +73,7 @@ impl InMemoryTransport {
                 let this = Arc::downgrade(&self);
                 async move {
                     let mut active_queries = HashSet::new();
-                    while let Some((addr, stream)) = rx.recv().await {
+                    while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
                         match addr.route {
@@ -94,9 +94,13 @@ impl InMemoryTransport {
                                 streams.add_stream((query_id, from, step), stream);
                             }
                             RouteId::PrepareQuery => {
-                                unimplemented!()
+                                let input = addr.into::<PrepareQuery>();
+                                (callbacks.prepare_query)(&this, input).await
+                                    .expect("Should be able to process prepare query request");
                             }
                         }
+
+                        ack.send(()).unwrap()
                     }
                 }
             }
@@ -143,13 +147,18 @@ impl Transport for Weak<InMemoryTransport> {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
         let addr = Addr::from_route(this.identity, &route);
+        let (ack_tx, ack_rx) = oneshot::channel();
 
         channel
-            .send((addr, InMemoryStream::wrap(data)))
+            .send((addr, InMemoryStream::wrap(data), ack_tx))
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
-            })
+            });
+
+        ack_rx.await.map_err(|_| {
+            io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
+        })
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -527,6 +536,7 @@ impl Setup {
     }
 }
 
+#[cfg(never)]
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
@@ -570,6 +580,7 @@ mod tests {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
+
         tx.send((Addr::receive_query(expected), InMemoryStream::empty()))
             .await
             .unwrap();

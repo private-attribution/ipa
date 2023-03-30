@@ -16,7 +16,7 @@ use pin_project::pin_project;
 use std::{collections::hash_map::Entry, fmt::{Debug, Formatter}, io};
 use futures_util::stream;
 use tokio::sync::oneshot;
-use crate::helpers::{RouteId, Transport, TransportImpl};
+use crate::helpers::{GatewayBase, RouteId, Transport};
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
@@ -35,8 +35,8 @@ use crate::helpers::{RouteId, Transport, TransportImpl};
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
-pub struct Processor {
-    queries: RunningQueries,
+pub struct Processor<T: Transport> {
+    queries: RunningQueries<T>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -90,13 +90,13 @@ const fn ensure_sync<T: Sync>(thing: T) -> T {
     thing
 }
 
-impl Debug for Processor {
+impl <T: Transport> Debug for Processor<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "QueryProcessor[{:?}]", self.queries)
     }
 }
 
-impl Processor {
+impl <T: Transport> Processor<T> {
     fn new() -> Self {
         ensure_sync(Self { queries: RunningQueries::default() })
     }
@@ -113,12 +113,11 @@ impl Processor {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query<T: Into<TransportImpl>>(&self, req: QueryConfig, transport: T) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query(&self, req: QueryConfig, transport: &T) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        let transport = transport.into();
         let id = transport.identity();
         let [right, left] = id.others();
 
@@ -137,7 +136,7 @@ impl Processor {
             transport.send(right, &prepare_request, stream::empty())
         ).await?;
 
-        let gateway = Gateway::new(query_id, GatewayConfig::default(), roles.clone(), transport);
+        let gateway = GatewayBase::new(query_id, GatewayConfig::default(), roles.clone(), transport.clone());
         handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
         Ok(prepare_request)
@@ -297,17 +296,11 @@ mod tests {
         let processors = [Processor::new(), Processor::new(), Processor::new()].map(Arc::new);
         let p0 = processors[0].clone();
         let cb1 = TransportCallbacks {
-            prepare_query: Box::new(move |transport, prepare_query| Box::pin(async move {
-                println!("received prepare bro!");
-                unimplemented!()
-            })),
+            prepare_query: Box::new(move |_, _| Box::pin(async move { Ok(()) })),
             ..Default::default()
         };
         let cb2 = TransportCallbacks {
-            prepare_query: Box::new(move |transport, prepare_query| Box::pin(async move {
-                println!("received prepare bro!");
-                unimplemented!()
-            })),
+            prepare_query: Box::new(move |_, _| Box::pin(async move { Ok(()) })),
             ..Default::default()
         };
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb1, cb2]);

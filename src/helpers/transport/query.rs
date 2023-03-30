@@ -21,6 +21,7 @@ pub struct QueryConfig {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
@@ -29,7 +30,6 @@ pub struct PrepareQuery {
 
 impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     type Params = String;
-
 
     fn resource_identifier(&self) -> RouteId {
         RouteId::PrepareQuery
@@ -43,8 +43,16 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
         NoStep
     }
 
+    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
-        String::new()
+        // todo: query id will appear twice because of it. Not sure if should care about it
+        // for in-memory runs though.
+        serde_json::to_string(self).unwrap()
+    }
+
+    #[cfg(not(feature = "enable-serde"))]
+    fn extra(&self) -> Self::Params {
+        unimplemented!()
     }
 }
 

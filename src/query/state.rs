@@ -7,6 +7,7 @@ use crate::{
 };
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Debug, Formatter};
+use crate::helpers::{GatewayBase, Transport};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -25,8 +26,8 @@ pub enum QueryStatus {
     AwaitingCompletion,
 }
 
-impl From<&QueryState> for QueryStatus {
-    fn from(source: &QueryState) -> Self {
+impl <T: Transport> From<&QueryState<T>> for QueryStatus {
+    fn from(source: &QueryState<T>) -> Self {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing(_) => QueryStatus::Preparing,
@@ -38,15 +39,15 @@ impl From<&QueryState> for QueryStatus {
 }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
-pub enum QueryState {
+pub enum QueryState<T: Transport> {
     Empty,
     Preparing(QueryConfig),
-    AwaitingInputs(QueryConfig, Gateway),
+    AwaitingInputs(QueryConfig, GatewayBase<T>),
     Running(JoinHandle<Box<dyn ProtocolResult>>),
     AwaitingCompletion,
 }
 
-impl QueryState {
+impl <T: Transport> QueryState<T> {
     pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
         use QueryState::{AwaitingInputs, Empty, Preparing};
 
@@ -74,11 +75,11 @@ pub enum StateError {
 }
 
 /// Keeps track of queries running on this helper.
-pub struct RunningQueries {
-    pub inner: Mutex<HashMap<QueryId, QueryState>>,
+pub struct RunningQueries<T: Transport> {
+    pub inner: Mutex<HashMap<QueryId, QueryState<T>>>,
 }
 
-impl Default for RunningQueries {
+impl <T: Transport> Default for RunningQueries<T> {
     fn default() -> Self {
         Self {
             inner: Mutex::new(HashMap::default()),
@@ -86,19 +87,19 @@ impl Default for RunningQueries {
     }
 }
 
-impl Debug for RunningQueries {
+impl <T: Transport> Debug for RunningQueries<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RunningQueries[{}]", self.inner.lock().unwrap().len())
     }
 }
 
-pub struct QueryHandle<'a> {
+pub struct QueryHandle<'a, T: Transport> {
     query_id: QueryId,
-    queries: &'a RunningQueries,
+    queries: &'a RunningQueries<T>,
 }
 
-impl QueryHandle<'_> {
-    pub fn set_state(&self, new_state: QueryState) -> Result<(), StateError> {
+impl <T: Transport> QueryHandle<'_, T> {
+    pub fn set_state(&self, new_state: QueryState<T>) -> Result<(), StateError> {
         let mut inner = self.queries.inner.lock().unwrap();
         let entry = inner.entry(self.query_id);
         match entry {
@@ -119,8 +120,8 @@ impl QueryHandle<'_> {
     }
 }
 
-impl RunningQueries {
-    pub fn handle(&self, query_id: QueryId) -> QueryHandle {
+impl <T: Transport> RunningQueries<T> {
+    pub fn handle(&self, query_id: QueryId) -> QueryHandle<T> {
         QueryHandle {
             query_id,
             queries: self,

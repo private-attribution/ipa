@@ -13,6 +13,9 @@ mod transport;
 pub use error::{Error, Result};
 pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 
+// TODO: this type should only be available within infra. Right now several infra modules
+// are exposed at the root level. That makes it impossible to have a proper hierarchy here.
+pub use gateway::GatewayBase;
 pub use gateway::Gateway;
 
 pub use prss_protocol::negotiate as negotiate_prss;

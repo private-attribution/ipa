@@ -56,7 +56,7 @@ pub struct GatewayConfig {
 
 impl<T: Transport> GatewayBase<T> {
     #[must_use]
-    pub fn new<T: Into<TransportImpl>>(
+    pub fn new(
         query_id: QueryId,
         config: GatewayConfig,
         roles: RoleAssignment,
@@ -67,7 +67,7 @@ impl<T: Transport> GatewayBase<T> {
             transport: RoleResolvingTransport {
                 query_id,
                 roles,
-                inner: transport.into(),
+                inner: transport,
                 config,
             },
             senders: GatewaySenders::default(),
