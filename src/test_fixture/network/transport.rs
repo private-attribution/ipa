@@ -42,7 +42,7 @@ pub struct InMemoryTransport {
 
 impl InMemoryTransport {
     #[must_use]
-    pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup<impl ReceiveQueryCallback> {
+    pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup {
         Setup::new(identity, stub_callbacks())
     }
 
@@ -64,11 +64,7 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen<CB: ReceiveQueryCallback>(
-        &self,
-        mut callbacks: TransportCallbacks<CB>,
-        mut rx: ConnectionRx,
-    ) {
+    fn listen(&self, mut callbacks: TransportCallbacks, mut rx: ConnectionRx) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -459,26 +455,26 @@ impl<F> ReceiveQueryCallback for F where
 {
 }
 
-pub struct TransportCallbacks<RQC: ReceiveQueryCallback> {
-    pub(crate) receive_query: RQC,
+pub struct TransportCallbacks {
+    pub(crate) receive_query: Box<dyn ReceiveQueryCallback>,
 }
 
-fn stub_callbacks() -> TransportCallbacks<impl ReceiveQueryCallback> {
+fn stub_callbacks() -> TransportCallbacks {
     TransportCallbacks {
-        receive_query: move |_| Box::pin(async { unimplemented!() }),
+        receive_query: Box::new(move |_| Box::pin(async { unimplemented!() })),
     }
 }
 
-pub struct Setup<CB: ReceiveQueryCallback> {
+pub struct Setup {
     identity: HelperIdentity,
     tx: ConnectionTx,
     rx: ConnectionRx,
-    callbacks: TransportCallbacks<CB>,
+    callbacks: TransportCallbacks,
     connections: HashMap<HelperIdentity, ConnectionTx>,
 }
 
-impl<CB: ReceiveQueryCallback> Setup<CB> {
-    pub fn new(identity: HelperIdentity, callbacks: TransportCallbacks<CB>) -> Self {
+impl Setup {
+    pub fn new(identity: HelperIdentity, callbacks: TransportCallbacks) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
@@ -534,7 +530,7 @@ mod tests {
         let (tx, _transport) = Setup::new(
             HelperIdentity::ONE,
             TransportCallbacks {
-                receive_query: move |query_config| {
+                receive_query: Box::new(move |query_config| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
                         // this works because callback is only called once
@@ -547,7 +543,7 @@ mod tests {
                             .unwrap();
                         Ok(QueryId)
                     })
-                },
+                }),
             },
         )
         .into_active_conn();
