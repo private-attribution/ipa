@@ -10,6 +10,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
+use crate::helpers::TransportError;
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -46,7 +47,7 @@ impl<T: Transport> Transport for DelayedTransport<T> {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), io::Error>
+    ) -> Result<(), TransportError>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,

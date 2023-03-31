@@ -16,7 +16,7 @@ use pin_project::pin_project;
 use std::{collections::hash_map::Entry, fmt::{Debug, Formatter}, io};
 use futures_util::stream;
 use tokio::sync::oneshot;
-use crate::helpers::{GatewayBase, RouteId, Transport};
+use crate::helpers::{GatewayBase, RouteId, Transport, TransportError};
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
@@ -36,6 +36,7 @@ use crate::helpers::{GatewayBase, RouteId, Transport};
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
 pub struct Processor<T: Transport> {
+    transport: T,
     queries: RunningQueries<T>,
 }
 
@@ -44,7 +45,7 @@ pub enum NewQueryError {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] io::Error),
+    Transport(#[from] TransportError),
     #[error(transparent)]
     OneshotRecv(#[from] oneshot::error::RecvError),
 }
@@ -97,8 +98,8 @@ impl <T: Transport> Debug for Processor<T> {
 }
 
 impl <T: Transport> Processor<T> {
-    fn new() -> Self {
-        ensure_sync(Self { queries: RunningQueries::default() })
+    fn new(transport: T) -> Self {
+        ensure_sync(Self { transport, queries: RunningQueries::default() })
     }
 
     /// Upon receiving a new query request:
@@ -113,12 +114,12 @@ impl <T: Transport> Processor<T> {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query(&self, req: QueryConfig, transport: &T) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        let id = transport.identity();
+        let id = self.transport.identity();
         let [right, left] = id.others();
 
         let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
@@ -132,11 +133,11 @@ impl <T: Transport> Processor<T> {
 
         // Inform other parties about new query. If any of them rejects it, this join will fail
         try_join(
-            transport.send(left, &prepare_request, stream::empty()),
-            transport.send(right, &prepare_request, stream::empty())
+            self.transport.send(left, &prepare_request, stream::empty()),
+            self.transport.send(right, &prepare_request, stream::empty())
         ).await?;
 
-        let gateway = GatewayBase::new(query_id, GatewayConfig::default(), roles.clone(), transport.clone());
+        let gateway = GatewayBase::new(query_id, GatewayConfig::default(), roles.clone(), self.transport.clone());
         handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
         Ok(prepare_request)
@@ -280,6 +281,7 @@ impl <T: Transport> Processor<T> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::future::Future;
     use super::*;
     use crate::{
         ff::FieldType,
@@ -288,37 +290,52 @@ mod tests {
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
+    use futures_util::TryFutureExt;
+    use tokio::sync::Barrier;
     use tokio::time::MissedTickBehavior::Delay;
-    use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, TransportCallbacks};
+    use crate::error::Error;
+    use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
+
+    fn callback<'a, F, Fut>(mut cb: F) -> Box<dyn PrepareQueryCallback<'a> + 'a>
+    where F: Fn(PrepareQuery) -> Fut + Send + Sync + 'a,
+          Fut: Future<Output = Result<(), TransportError>> + Send + 'a
+    {
+        Box::new(move |prepare_query| Box::pin({
+            cb(prepare_query)
+        }))
+    }
 
     #[tokio::test]
     async fn new_query() {
-        let processors = [Processor::new(), Processor::new(), Processor::new()].map(Arc::new);
-        let p0 = processors[0].clone();
-        let cb1 = TransportCallbacks {
-            prepare_query: Box::new(move |_, _| Box::pin(async move { Ok(()) })),
-            ..Default::default()
-        };
+        let barrier: &_ = Box::leak(Box::new(Barrier::new(3)));
         let cb2 = TransportCallbacks {
-            prepare_query: Box::new(move |_, _| Box::pin(async move { Ok(()) })),
+            prepare_query: callback(|prepare_query| async {
+                    barrier.wait().await;
+                    Ok(())
+            }),
             ..Default::default()
         };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb1, cb2]);
-        let t0 = DelayedTransport::new(network.transport(HelperIdentity::ONE).unwrap(), 3);
-        let request = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
+        let cb3 = TransportCallbacks {
+            prepare_query: callback(|prepare_query| async {
+                barrier.wait().await;
+                Ok(())
+            }),
+            ..Default::default()
         };
+        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let [t0, _, _] = network.transports();
+        let p0 = Processor::new(t0.clone());
+        let request = QueryConfig::default();
 
-        let processor = p0;
-        let qc_future = processor.new_query(request, &t0);
+        let qc_future = p0.new_query(request);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
         let _qc = poll_immediate(&mut qc_future).await;
 
-        assert_eq!(Some(QueryStatus::Preparing), processor.status(QueryId));
-        t0.wait().await;
+        assert_eq!(Some(QueryStatus::Preparing), p0.status(QueryId));
+        // unblock sends
+        barrier.wait().await;
 
         let qc = qc_future.await.unwrap();
         let expected_assignment = RoleAssignment::new(HelperIdentity::make_three());
@@ -331,47 +348,51 @@ mod tests {
             },
             qc
         );
-        assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
+        assert_eq!(Some(QueryStatus::AwaitingInputs), p0.status(QueryId));
     }
 
-    #[cfg(never)]
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let network = InMemoryNetwork::default();
-        let processor = active_passive(network.transports()).await;
+        let network = InMemoryNetwork::new([
+            TransportCallbacks::default(),
+            TransportCallbacks::default(),
+            TransportCallbacks::default(),
+        ]);
         let [t0, _, _] = network.transports();
-        let request = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
-        };
+        let p0 = Processor::new(t0.clone());
+        let request = QueryConfig::default();
 
-        let _qc = processor.new_query(request, &t0).await.unwrap();
+        let _qc = p0.new_query(request).await.unwrap();
         assert!(matches!(
-            processor.new_query(request, &t0).await,
+            p0.new_query(request).await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
 
-    #[cfg(never)]
     #[tokio::test]
     async fn prepare_rejected() {
-        let network = InMemoryNetwork::default();
-        let transport = Arc::downgrade(&network.transports[0]);
-        let transport = FailingTransport::new(transport, |command| TransportError::SendFailed {
-            command_name: Some(command.name()),
-            query_id: command.query_id(),
-            inner: "Transport failed".into(),
-        });
-        let processor = Processor::new(transport).await;
-        let request = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
+        let cb2 = TransportCallbacks {
+            prepare_query: callback(|prepare_query| async {
+                Ok(())
+            }),
+            ..Default::default()
         };
+        let cb3 = TransportCallbacks {
+            prepare_query: callback(|prepare_query| async {
+                println!("rejecting");
+                Err(TransportError::Rejected {
+                    dest: HelperIdentity::THREE,
+                    inner: "rejected".into()
+                })
+            }),
+            ..Default::default()
+        };
+        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let [t0, _, _] = network.transports();
+        let p0 = Processor::new(t0.clone());
+        let request = QueryConfig::default();
 
-        assert!(matches!(
-            processor.new_query(request).await,
-            Err(NewQueryError::Transport(TransportError::SendFailed { .. }))
-        ));
+        assert!(matches!(p0.new_query(request).await.unwrap_err(), NewQueryError::Transport(_)));
     }
 
     #[cfg(never)]

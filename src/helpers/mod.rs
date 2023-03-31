@@ -21,7 +21,7 @@ pub use gateway::Gateway;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
-    RouteParams, StepBinding, Transport,
+    RouteParams, StepBinding, Transport, Error as TransportError
 };
 
 pub use transport::query;

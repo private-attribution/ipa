@@ -28,6 +28,15 @@ pub struct PrepareQuery {
     pub roles: RoleAssignment,
 }
 
+impl Default for QueryConfig {
+    fn default() -> Self {
+        Self {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::TestMultiply,
+        }
+    }
+}
+
 impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     type Params = String;
 

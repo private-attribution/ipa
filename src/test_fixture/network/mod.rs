@@ -9,7 +9,7 @@ use crate::{
 pub use transport::InMemoryTransport;
 pub use util::DelayedTransport;
 pub use transport::TransportCallbacks;
-pub use crate::test_fixture::network::transport::{ReceiveQueryCallback, Setup};
+pub use transport::{ReceiveQueryCallback, PrepareQueryCallback, Setup};
 
 
 trait Network {
@@ -32,7 +32,7 @@ impl Default for InMemoryNetwork {
 }
 
 impl InMemoryNetwork {
-    pub fn new(callbacks: [TransportCallbacks<Weak<InMemoryTransport>>; 3]) -> Self {
+    pub fn new(callbacks: [TransportCallbacks<'static>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three()
             .map(|(id)| Setup::new(id));
 

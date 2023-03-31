@@ -1,12 +1,12 @@
 use std::any::Any;
 use std::borrow::Borrow;
+use std::io;
 use crate::{
     helpers::HelperIdentity,
     protocol::{QueryId, Step},
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::{io, io::Error};
 use std::ops::Deref;
 use std::sync::Weak;
 
@@ -14,6 +14,7 @@ mod bytearrstream;
 pub mod query;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
+use crate::error::BoxError;
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -113,6 +114,21 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Io {
+        #[from]
+        inner: io::Error
+    },
+    #[error("Request rejected by remote {dest:?}: {inner:?}")]
+    Rejected {
+        dest: HelperIdentity,
+        #[source]
+        inner: BoxError
+    }
+}
+
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
@@ -129,7 +145,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), io::Error>
+    ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -180,21 +196,3 @@ impl Transport for DummyTransport {
         unimplemented!()
     }
 }
-
-// impl <T: Transport + Any> From<&T> for TransportImpl {
-//     fn from(value: &T) -> Self {
-//         TransportImpl::from(value)
-//     }
-// }
-
-// impl TransportImpl {
-//     #[cfg(any(feature = "test-fixture", test))]
-//     pub fn from<T: Transport + Any>(value: &T) -> Self {
-//         use crate::test_fixture::network::InMemoryTransport;
-//         let value_any = value as &dyn Any;
-//         match value_any.downcast_ref::<Deref<InMemoryTransport>>() {
-//             Some(transport) => {Self::InMemory(transport.clone())}
-//             None => panic!("Only InMemory transport is supported inside the gateway at the moment")
-//         }
-//     }
-// }

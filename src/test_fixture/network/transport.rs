@@ -12,25 +12,19 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use futures_util::stream;
 use serde::de::DeserializeOwned;
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
-    fmt::{Debug, Formatter},
-    future::Future,
-    io,
-    pin::Pin,
-    sync::{Arc, Mutex, Weak},
-    task::{Context, Poll, Waker},
-};
+use std::{collections::{hash_map::Entry, HashMap, HashSet}, convert, fmt::{Debug, Formatter}, future::Future, io, pin::Pin, sync::{Arc, Mutex, Weak}, task::{Context, Poll, Waker}};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio::sync::oneshot;
+use crate::error::Error;
 use crate::helpers::query::PrepareQuery;
+use crate::helpers::TransportError;
 
-type ConnectionTx = Sender<(Addr, InMemoryStream, oneshot::Sender<()>)>;
-type ConnectionRx = Receiver<(Addr, InMemoryStream, oneshot::Sender<()>)>;
+type ConnectionTx = Sender<(Addr, InMemoryStream, oneshot::Sender<Result<(), TransportError>>)>;
+type ConnectionRx = Receiver<(Addr, InMemoryStream, oneshot::Sender<Result<(), TransportError>>)>;
 type StreamItem = Vec<u8>;
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -66,9 +60,8 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(&self, mut callbacks: TransportCallbacks<Weak<Self>>, mut rx: ConnectionRx) {
-        tokio::spawn(
-            {
+    fn listen(&self, mut callbacks: TransportCallbacks<'static>, mut rx: ConnectionRx) {
+        tokio::spawn({
                 let streams = self.record_streams.clone();
                 let this = Arc::downgrade(&self);
                 async move {
@@ -76,31 +69,32 @@ impl InMemoryTransport {
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
-                        match addr.route {
+                        let result = match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                let query_id = (callbacks.receive_query)(&this, qc)
+                                (callbacks.receive_query)(qc)
                                     .await
-                                    .expect("Should be able to receive a new query request");
-                                assert!(
-                                    active_queries.insert(query_id),
-                                    "the same query id {query_id:?} is generated twice"
-                                );
+                                    .map(|query_id| {
+                                        assert!(
+                                            active_queries.insert(query_id),
+                                            "the same query id {query_id:?} is generated twice"
+                                        );
+                                    })
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
                                 let step = addr.step.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, step), stream);
+                                Ok(())
                             }
                             RouteId::PrepareQuery => {
                                 let input = addr.into::<PrepareQuery>();
-                                (callbacks.prepare_query)(&this, input).await
-                                    .expect("Should be able to process prepare query request");
+                                (callbacks.prepare_query)(input).await
                             }
-                        }
+                        };
 
-                        ack.send(()).unwrap()
+                        ack.send(result).unwrap()
                     }
                 }
             }
@@ -139,7 +133,7 @@ impl Transport for Weak<InMemoryTransport> {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), io::Error>
+    ) -> Result<(), TransportError>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -154,11 +148,14 @@ impl Transport for Weak<InMemoryTransport> {
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
-            });
+            })?;
 
-        ack_rx.await.map_err(|_| {
-            io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
-        })
+        ack_rx.await
+            .map_err(|recv_error| TransportError::Rejected {
+                dest,
+                inner: "channel closed".into()
+            })
+            .and_then(convert::identity)
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -458,38 +455,37 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
     }
 }
 
-pub trait ReceiveQueryCallback<T>:
-    FnMut(&T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send
+pub trait ReceiveQueryCallback:
+    FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>> + Send
 {
 }
 
-impl <T, F> ReceiveQueryCallback<T> for F where
-    F: FnMut(&T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
+impl <F> ReceiveQueryCallback for F where
+    F: FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
         + Send
 {
 }
 
-pub trait PrepareQueryCallback<T>:
-    FnMut(&T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send
+pub trait PrepareQueryCallback<'a>:
+    FnMut(PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> + Send
     {
     }
 
-impl<T, F> PrepareQueryCallback<T> for F where
-    F: FnMut(&T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
-    + Send
+impl <'a, F> PrepareQueryCallback<'a> for F where
+    F: FnMut(PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> + Send
 {
 }
 
-pub struct TransportCallbacks<T> {
-    pub receive_query: Box<dyn ReceiveQueryCallback<T>>,
-    pub prepare_query: Box<dyn PrepareQueryCallback<T>>,
+pub struct TransportCallbacks<'a> {
+    pub receive_query: Box<dyn ReceiveQueryCallback>,
+    pub prepare_query: Box<dyn PrepareQueryCallback<'a>>,
 }
 
-impl <T> Default for TransportCallbacks<T> {
+impl Default for TransportCallbacks<'_> {
     fn default() -> Self {
         Self {
-            receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
-            prepare_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
+            receive_query: Box::new(move |_| Box::pin(async { unimplemented!() })),
+            prepare_query: Box::new(move |_| Box::pin(async { Ok(()) })),
         }
     }
 }
@@ -524,14 +520,14 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(self, callbacks: TransportCallbacks<Weak<InMemoryTransport>>) -> (ConnectionTx, Arc<InMemoryTransport>) {
+    fn into_active_conn(self, callbacks: TransportCallbacks<'static>) -> (ConnectionTx, Arc<InMemoryTransport>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(callbacks, self.rx);
 
         (self.tx, transport)
     }
 
-    pub fn start(self, callbacks: TransportCallbacks<Weak<InMemoryTransport>>) -> Arc<InMemoryTransport> {
+    pub fn start(self, callbacks: TransportCallbacks<'static>) -> Arc<InMemoryTransport> {
         self.into_active_conn(callbacks).1
     }
 }

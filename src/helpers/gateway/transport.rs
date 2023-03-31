@@ -7,6 +7,7 @@ use crate::{
     protocol::QueryId,
 };
 use std::io;
+use crate::helpers::TransportError;
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
@@ -25,7 +26,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
         &self,
         channel_id: &ChannelId,
         data: GatewaySendStream,
-    ) -> Result<(), io::Error> {
+    ) -> Result<(), TransportError> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
             dest_identity,
