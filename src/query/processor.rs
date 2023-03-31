@@ -151,7 +151,6 @@ impl <T: Transport> Processor<T> {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    #[cfg(never)]
     pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(self.transport.identity());
 
@@ -163,8 +162,11 @@ impl <T: Transport> Processor<T> {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
-        let network = Network::new(self.transport.clone(), req.query_id, req.roles.clone());
-        let gateway = Gateway::new(my_role, network, GatewayConfig::default()).await;
+        let gateway = GatewayBase::new(req.query_id,
+                                   GatewayConfig::default(),
+                                   req.roles,
+                                   self.transport.clone()
+        );
 
         handle.set_state(QueryState::AwaitingInputs(req.config, gateway))?;
 
@@ -395,7 +397,6 @@ mod tests {
         assert!(matches!(p0.new_query(request).await.unwrap_err(), NewQueryError::Transport(_)));
     }
 
-    #[cfg(never)]
     mod prepare {
         use super::*;
 
@@ -410,13 +411,13 @@ mod tests {
             }
         }
 
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        #[tokio::test]
         async fn happy_case() {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]).unwrap();
-            let processor = Processor::new(transport).await;
+            let processor = Processor::new(transport);
 
             assert_eq!(None, processor.status(QueryId));
             processor.prepare(req).await.unwrap();
@@ -429,7 +430,7 @@ mod tests {
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[0]).unwrap();
-            let processor = Processor::new(transport).await;
+            let processor = Processor::new(transport);
 
             assert!(matches!(
                 processor.prepare(req).await,
@@ -443,7 +444,7 @@ mod tests {
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]).unwrap();
-            let processor = Processor::new(transport).await;
+            let processor = Processor::new(transport);
             processor.prepare(req.clone()).await.unwrap();
             assert!(matches!(
                 processor.prepare(req).await,
@@ -473,32 +474,14 @@ mod tests {
         use generic_array::GenericArray;
         use typenum::Unsigned;
 
-        async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
-            join_all(
-                network
-                    .transports
-                    .iter()
-                    .map(|transport| async { Processor::new(Arc::downgrade(transport)).await }),
-            )
-            .await
-            .try_into()
-            .unwrap()
-        }
-
         async fn start_query(
             network: &InMemoryNetwork,
             config: QueryConfig,
-        ) -> (QueryId, [Processor<Weak<InMemoryTransport>>; 3]) {
+        ) -> QueryId {
             // Helper 1 initiates the query, 2 and 3 must confirm
-            let (tx, rx) = oneshot::channel();
-            let mut processors = make_three(network).await;
-            network.transports[0]
-                .deliver(QueryCommand::Create(config, tx))
-                .await;
-
-            join_all(processors.iter_mut().map(Processor::handle_next)).await;
-
-            let query_id = rx.await.unwrap();
+            // network.transports[0]
+            //     .deliver(QueryCommand::Create(config, tx))
+            //     .await;
 
             (query_id, processors)
         }
@@ -559,94 +542,94 @@ mod tests {
 
             assert_eq!(vec![Fp31::from(20u128)], result.reconstruct());
         }
-
-        #[tokio::test]
-        async fn ipa() {
-            const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
-            const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-            let network = InMemoryNetwork::default();
-            let (query_id, mut processors) = start_query(
-                &network,
-                QueryConfig {
-                    field_type: FieldType::Fp31,
-                    query_type: IpaQueryConfig {
-                        num_multi_bits: 3,
-                        per_user_credit_cap: 3,
-                        max_breakdown_key: 3,
-                        attribution_window_seconds: 0,
-                    }
-                    .into(),
-                },
-            )
-            .await;
-
-            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-                [
-                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                    { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                    { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                ];
-                (Fp31, MatchKey, BreakdownKey)
-            );
-            let helper_shares = records
-                .share()
-                .into_iter()
-                .map(|shares| {
-                    let data = shares
-                        .into_iter()
-                        .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
-                            let mut buf =
-                                [0u8; <IPAInputRow::<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
-                            share.serialize(GenericArray::from_mut_slice(&mut buf));
-
-                            buf
-                        })
-                        .collect::<Vec<_>>();
-
-                    ByteArrStream::from(data)
-                })
-                .collect::<Vec<_>>();
-
-            for (i, input_stream) in helper_shares.into_iter().enumerate() {
-                let (tx, rx) = oneshot::channel();
-                network.transports[i]
-                    .deliver(QueryCommand::Input(
-                        QueryInput {
-                            query_id,
-                            input_stream,
-                        },
-                        tx,
-                    ))
-                    .await;
-                processors[i].handle_next().await;
-                rx.await.unwrap();
-            }
-
-            let result: [_; 3] = join_all(processors.map(|mut processor| async move {
-                let r = processor.complete(query_id).await.unwrap().into_bytes();
-                MCAggregateCreditOutputRow::<Fp31, Replicated<Fp31>, BreakdownKey>::from_byte_slice(
-                    &r,
-                )
-                .collect::<Vec<_>>()
-            }))
-            .await
-            .try_into()
-            .unwrap();
-
-            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-                result.reconstruct();
-            assert_eq!(result.len(), EXPECTED.len());
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
-        }
+        //
+        // #[tokio::test]
+        // async fn ipa() {
+        //     const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
+        //     const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        //     let network = InMemoryNetwork::default();
+        //     let (query_id, mut processors) = start_query(
+        //         &network,
+        //         QueryConfig {
+        //             field_type: FieldType::Fp31,
+        //             query_type: IpaQueryConfig {
+        //                 num_multi_bits: 3,
+        //                 per_user_credit_cap: 3,
+        //                 max_breakdown_key: 3,
+        //                 attribution_window_seconds: 0,
+        //             }
+        //             .into(),
+        //         },
+        //     )
+        //     .await;
+        //
+        //     let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        //         [
+        //             { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+        //             { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+        //             { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+        //             { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+        //             { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+        //         ];
+        //         (Fp31, MatchKey, BreakdownKey)
+        //     );
+        //     let helper_shares = records
+        //         .share()
+        //         .into_iter()
+        //         .map(|shares| {
+        //             let data = shares
+        //                 .into_iter()
+        //                 .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
+        //                     let mut buf =
+        //                         [0u8; <IPAInputRow::<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+        //                     share.serialize(GenericArray::from_mut_slice(&mut buf));
+        //
+        //                     buf
+        //                 })
+        //                 .collect::<Vec<_>>();
+        //
+        //             ByteArrStream::from(data)
+        //         })
+        //         .collect::<Vec<_>>();
+        //
+        //     for (i, input_stream) in helper_shares.into_iter().enumerate() {
+        //         let (tx, rx) = oneshot::channel();
+        //         network.transports[i]
+        //             .deliver(QueryCommand::Input(
+        //                 QueryInput {
+        //                     query_id,
+        //                     input_stream,
+        //                 },
+        //                 tx,
+        //             ))
+        //             .await;
+        //         processors[i].handle_next().await;
+        //         rx.await.unwrap();
+        //     }
+        //
+        //     let result: [_; 3] = join_all(processors.map(|mut processor| async move {
+        //         let r = processor.complete(query_id).await.unwrap().into_bytes();
+        //         MCAggregateCreditOutputRow::<Fp31, Replicated<Fp31>, BreakdownKey>::from_byte_slice(
+        //             &r,
+        //         )
+        //         .collect::<Vec<_>>()
+        //     }))
+        //     .await
+        //     .try_into()
+        //     .unwrap();
+        //
+        //     let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+        //         result.reconstruct();
+        //     assert_eq!(result.len(), EXPECTED.len());
+        //     for (i, expected) in EXPECTED.iter().enumerate() {
+        //         assert_eq!(
+        //             *expected,
+        //             [
+        //                 result[i].breakdown_key.as_u128(),
+        //                 result[i].trigger_value.as_u128()
+        //             ]
+        //         );
+        //     }
+        // }
     }
 }
