@@ -1,8 +1,8 @@
 use crate::{
-    helpers::{query::QueryConfig, Gateway, GatewayBase, RoleAssignment, Transport},
+    helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::ProtocolResult,
-    sync::{Arc, Mutex},
+    sync::{Mutex},
     task::JoinHandle,
 };
 use std::{

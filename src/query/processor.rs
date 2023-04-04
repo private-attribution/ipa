@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
-        query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        Gateway, GatewayBase, GatewayConfig, HelperIdentity, Role, RoleAssignment, RouteId,
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        Gateway, GatewayConfig, Role, RoleAssignment,
         Transport, TransportError, TransportImpl,
     },
     protocol::QueryId,
@@ -11,14 +11,13 @@ use crate::{
         ProtocolResult,
     },
 };
-use futures::StreamExt;
+
 use futures_util::{future::try_join, stream};
-use pin_project::pin_project;
+
 use std::{
     borrow::Borrow,
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
-    io,
 };
 use tokio::sync::oneshot;
 
@@ -275,26 +274,25 @@ impl Processor {
 mod tests {
     use super::*;
     use crate::{
-        error::Error,
         ff::FieldType,
         helpers::query::QueryType,
-        sync::Arc,
         test_fixture::network::{
-            InMemoryNetwork, Network, PrepareQueryCallback, ReceiveQueryCallback,
+            InMemoryNetwork, Network, PrepareQueryCallback,
             TransportCallbacks,
         },
     };
     use futures::pin_mut;
-    use futures_util::{future::poll_immediate, TryFutureExt};
+    use futures_util::{future::poll_immediate};
     use std::future::Future;
-    use tokio::{sync::Barrier, time::MissedTickBehavior::Delay};
+    use tokio::{sync::Barrier};
+    use crate::helpers::HelperIdentity;
 
-    fn callback<'a, T, F, Fut>(mut cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
+    fn callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
     where
         F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'a,
         Fut: Future<Output = Result<(), TransportError>> + Send + 'a,
     {
-        Box::new(move |transport, prepare_query| Box::pin({ cb(transport, prepare_query) }))
+        Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
     }
 
     #[tokio::test]
@@ -451,15 +449,15 @@ mod tests {
             helpers::query::IpaQueryConfig,
             ipa_test_input,
             protocol::{
-                ipa::{ipa, IPAInputRow},
+                ipa::{IPAInputRow},
                 BreakdownKey, MatchKey,
             },
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
-        use futures_util::future::{join_all, try_join_all};
-        use generic_array::GenericArray;
-        use typenum::Unsigned;
+        
+        
+        
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {
@@ -499,7 +497,7 @@ mod tests {
                 ];
                 (Fp31, MatchKey, BreakdownKey)
             );
-            let results = app
+            let _results = app
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
                     records,
                     QueryConfig {

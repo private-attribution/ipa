@@ -57,7 +57,7 @@ impl Network for InMemoryNetwork {
 impl InMemoryNetwork {
     pub fn new(callbacks: [TransportCallbacks<'static, Weak<InMemoryTransport>>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] =
-            HelperIdentity::make_three().map(|(id)| Setup::new(id));
+            HelperIdentity::make_three().map(|id| Setup::new(id));
 
         first.connect(&mut second);
         second.connect(&mut third);

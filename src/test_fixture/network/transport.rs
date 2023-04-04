@@ -26,7 +26,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
 use crate::{
-    error::Error,
     helpers::{query::PrepareQuery, TransportError},
 };
 #[cfg(all(feature = "shuttle", test))]
@@ -166,7 +165,7 @@ impl Transport for Weak<InMemoryTransport> {
 
         ack_rx
             .await
-            .map_err(|recv_error| TransportError::Rejected {
+            .map_err(|_recv_error| TransportError::Rejected {
                 dest,
                 inner: "channel closed".into(),
             })

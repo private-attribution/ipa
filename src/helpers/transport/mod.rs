@@ -4,7 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::{any::Any, borrow::Borrow, io, ops::Deref, sync::Weak};
+use std::{borrow::Borrow, io};
 
 mod bytearrstream;
 pub mod query;

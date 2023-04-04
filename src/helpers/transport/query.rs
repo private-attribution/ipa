@@ -9,7 +9,6 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    borrow::Borrow,
     fmt::{Debug, Formatter},
 };
 use tokio::sync::oneshot;

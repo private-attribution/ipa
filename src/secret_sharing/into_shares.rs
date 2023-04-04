@@ -1,12 +1,11 @@
 use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
-    ff::Serializable,
     rand::{thread_rng, Rng},
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
-use generic_array::GenericArray;
+
 use rand::distributions::{Distribution, Standard};
-use std::ops::Add;
+
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {

@@ -3,23 +3,19 @@ use crate::{
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        ByteArrStream, HelperIdentity, Transport, TransportError,
+        ByteArrStream, Transport, TransportError,
     },
-    protocol::QueryId,
     query::QueryProcessor,
     secret_sharing::IntoShares,
     test_fixture::{
-        network::{InMemoryNetwork, InMemoryTransport, Network, TransportCallbacks},
-        TestWorld,
+        network::{InMemoryNetwork, Network, TransportCallbacks},
     },
 };
 use futures_util::{future::try_join_all, FutureExt};
 use generic_array::GenericArray;
-use rand::thread_rng;
+
 use std::{
-    borrow::Borrow,
-    fmt::Debug,
-    sync::{Arc, Weak},
+    sync::{Arc},
 };
 use typenum::Unsigned;
 
@@ -36,7 +32,7 @@ impl<I: IntoIterator<Item = S>, S: Serializable> IntoBuf for I {
 
         let mut buf = vec![0u8; cnt * item_size];
         for (i, item) in this.enumerate() {
-            let mut sl = &mut buf[i * item_size..(i + 1) * item_size];
+            let sl = &mut buf[i * item_size..(i + 1) * item_size];
             item.serialize(GenericArray::from_mut_slice(sl));
         }
         buf
