@@ -16,6 +16,7 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
 pub use gateway::GatewayBase;
+pub use gateway::TransportImpl;
 pub use gateway::Gateway;
 
 pub use prss_protocol::negotiate as negotiate_prss;
@@ -40,7 +41,9 @@ use crate::{
     secret_sharing::SharedValue,
 };
 use std::ops::{Index, IndexMut};
+use generic_array::GenericArray;
 use typenum::{Unsigned, U8};
+use x25519_dalek::PublicKey;
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
@@ -393,6 +396,22 @@ pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
 /// Any shared value can be send as a message
 impl<V: SharedValue> Message for V {}
+
+impl Serializable for PublicKey {
+    type Size = typenum::U32;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf.copy_from_slice(self.as_bytes())
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        Self::from(<[u8; 32]>::from(*buf))
+    }
+}
+
+impl Message for PublicKey {
+
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {

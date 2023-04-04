@@ -7,7 +7,7 @@ use crate::{
 };
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Debug, Formatter};
-use crate::helpers::{GatewayBase, Transport};
+use crate::helpers::{GatewayBase, RoleAssignment, Transport};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -26,12 +26,12 @@ pub enum QueryStatus {
     AwaitingCompletion,
 }
 
-impl <T: Transport> From<&QueryState<T>> for QueryStatus {
-    fn from(source: &QueryState<T>) -> Self {
+impl  From<&QueryState> for QueryStatus {
+    fn from(source: &QueryState) -> Self {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing(_) => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
+            QueryState::AwaitingInputs(_, _, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
             QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
         }
@@ -39,22 +39,22 @@ impl <T: Transport> From<&QueryState<T>> for QueryStatus {
 }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
-pub enum QueryState<T: Transport> {
+pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
-    AwaitingInputs(QueryConfig, GatewayBase<T>),
+    AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
     Running(JoinHandle<Box<dyn ProtocolResult>>),
     AwaitingCompletion,
 }
 
-impl <T: Transport> QueryState<T> {
+impl  QueryState {
     pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
         use QueryState::{AwaitingInputs, Empty, Preparing};
 
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing(_) | AwaitingInputs(_, _)) | (Preparing(_), AwaitingInputs(_, _)) => {
+            (Empty, Preparing(_) | AwaitingInputs(_, _, _)) | (Preparing(_), AwaitingInputs(_, _, _)) => {
                 Ok(new_state)
             }
             (_, Preparing(_)) => Err(StateError::AlreadyRunning),
@@ -75,11 +75,11 @@ pub enum StateError {
 }
 
 /// Keeps track of queries running on this helper.
-pub struct RunningQueries<T: Transport> {
-    pub inner: Mutex<HashMap<QueryId, QueryState<T>>>,
+pub struct RunningQueries {
+    pub inner: Mutex<HashMap<QueryId, QueryState>>,
 }
 
-impl <T: Transport> Default for RunningQueries<T> {
+impl  Default for RunningQueries {
     fn default() -> Self {
         Self {
             inner: Mutex::new(HashMap::default()),
@@ -87,19 +87,19 @@ impl <T: Transport> Default for RunningQueries<T> {
     }
 }
 
-impl <T: Transport> Debug for RunningQueries<T> {
+impl  Debug for RunningQueries {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RunningQueries[{}]", self.inner.lock().unwrap().len())
     }
 }
 
-pub struct QueryHandle<'a, T: Transport> {
+pub struct QueryHandle<'a> {
     query_id: QueryId,
-    queries: &'a RunningQueries<T>,
+    queries: &'a RunningQueries,
 }
 
-impl <T: Transport> QueryHandle<'_, T> {
-    pub fn set_state(&self, new_state: QueryState<T>) -> Result<(), StateError> {
+impl  QueryHandle<'_> {
+    pub fn set_state(&self, new_state: QueryState) -> Result<(), StateError> {
         let mut inner = self.queries.inner.lock().unwrap();
         let entry = inner.entry(self.query_id);
         match entry {
@@ -120,8 +120,8 @@ impl <T: Transport> QueryHandle<'_, T> {
     }
 }
 
-impl <T: Transport> RunningQueries<T> {
-    pub fn handle(&self, query_id: QueryId) -> QueryHandle<T> {
+impl  RunningQueries {
+    pub fn handle(&self, query_id: QueryId) -> QueryHandle {
         QueryHandle {
             query_id,
             queries: self,

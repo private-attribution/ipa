@@ -32,7 +32,10 @@ impl Default for QueryConfig {
     fn default() -> Self {
         Self {
             field_type: FieldType::Fp32BitPrime,
+            #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
             query_type: QueryType::TestMultiply,
+            #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
+            query_type: QueryType::Ipa(IpaQueryConfig::default()),
         }
     }
 }
@@ -130,7 +133,7 @@ impl QueryCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    IPA(IpaQueryConfig),
+    Ipa(IpaQueryConfig),
 }
 
 impl QueryType {
@@ -144,7 +147,7 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::IPA(_) => Self::IPA_STR,
+            QueryType::Ipa(_) => Self::IPA_STR,
         }
     }
 }
@@ -160,8 +163,19 @@ pub struct IpaQueryConfig {
     pub num_multi_bits: u32,
 }
 
+impl Default for IpaQueryConfig {
+    fn default() -> Self {
+        Self {
+            per_user_credit_cap: 1,
+            max_breakdown_key: 64,
+            attribution_window_seconds: 0,
+            num_multi_bits: 3,
+        }
+    }
+}
+
 impl From<IpaQueryConfig> for QueryType {
     fn from(value: IpaQueryConfig) -> Self {
-        QueryType::IPA(value)
+        QueryType::Ipa(value)
     }
 }

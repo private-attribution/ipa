@@ -12,11 +12,11 @@ pub use transport::TransportCallbacks;
 pub use transport::{ReceiveQueryCallback, PrepareQueryCallback, Setup};
 
 
-trait Network {
+pub trait Network {
     type Endpoint: Transport;
 
-    fn get_endpoint(&self, id: HelperIdentity) -> Self::Endpoint;
-    fn all_endpoints(&self) -> [Self::Endpoint; 3];
+    fn transport(&self, id: HelperIdentity) -> Self::Endpoint;
+    fn transports(&self) -> [Self::Endpoint; 3];
 }
 
 /// Container for all active transports
@@ -31,8 +31,31 @@ impl Default for InMemoryNetwork {
     }
 }
 
+impl Network for InMemoryNetwork {
+    type Endpoint = Weak<InMemoryTransport>;
+
+    fn transport(&self, id: HelperIdentity) -> Self::Endpoint {
+        self.transports
+            .iter()
+            .find(|t| t.identity() == id)
+            .map(Arc::downgrade)
+            .unwrap()
+    }
+
+    fn transports(&self) -> [Self::Endpoint; 3] {
+        self
+            .transports
+            .iter()
+            .map(Arc::downgrade)
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| "What is dead may never die")
+            .unwrap()
+    }
+}
+
 impl InMemoryNetwork {
-    pub fn new(callbacks: [TransportCallbacks<'static>; 3]) -> Self {
+    pub fn new(callbacks: [TransportCallbacks<'static, Weak<InMemoryTransport>>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three()
             .map(|(id)| Setup::new(id));
 
@@ -58,25 +81,25 @@ impl InMemoryNetwork {
             .unwrap()
     }
 
-    #[must_use]
-    pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport> {
-        self.transports
-            .iter()
-            .find(|t| t.identity() == id)
-            .map(Arc::downgrade)
-    }
-
-    #[allow(clippy::missing_panics_doc)]
-    #[must_use]
-    pub fn transports(&self) -> [impl Transport + Clone; 3] {
-        let transports: [Weak<InMemoryTransport>; 3] = self
-            .transports
-            .iter()
-            .map(Arc::downgrade)
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| "What is dead may never die")
-            .unwrap();
-        transports
-    }
+    // #[must_use]
+    // pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport> {
+    //     self.transports
+    //         .iter()
+    //         .find(|t| t.identity() == id)
+    //         .map(Arc::downgrade)
+    // }
+    //
+    // #[allow(clippy::missing_panics_doc)]
+    // #[must_use]
+    // pub fn transports(&self) -> [impl Transport + Clone; 3] {
+    //     let transports: [Weak<InMemoryTransport>; 3] = self
+    //         .transports
+    //         .iter()
+    //         .map(Arc::downgrade)
+    //         .collect::<Vec<_>>()
+    //         .try_into()
+    //         .map_err(|_| "What is dead may never die")
+    //         .unwrap();
+    //     transports
+    // }
 }

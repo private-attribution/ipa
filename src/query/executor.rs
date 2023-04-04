@@ -24,6 +24,7 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use std::fmt::Debug;
 use typenum::Unsigned;
+use crate::helpers::{GatewayBase, Transport};
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
@@ -151,7 +152,7 @@ pub fn start_query(
                     let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
                     Box::new(execute_test_multiply::<Fp31>(ctx, input).await) as Box<dyn Result>
                 }
-                QueryType::IPA(config) => {
+                QueryType::Ipa(config) => {
                     let ctx = SemiHonestContext::new_with_total_records(
                         &prss,
                         &gateway,

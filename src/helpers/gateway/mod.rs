@@ -27,9 +27,9 @@ use crate::{
 use shuttle::future as tokio;
 
 #[cfg(any(feature = "test-fixture", test))]
-type TransportImpl = std::sync::Weak<crate::test_fixture::network::InMemoryTransport>;
+pub type TransportImpl = <crate::test_fixture::network::InMemoryNetwork as crate::test_fixture::network::Network>::Endpoint;
 #[cfg(not(any(feature = "test-fixture", test)))]
-type TransportImpl = crate::helpers::transport::DummyTransport;
+pub type TransportImpl = crate::helpers::transport::DummyTransport;
 
 pub type Gateway = GatewayBase<TransportImpl>;
 pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;

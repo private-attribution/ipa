@@ -314,6 +314,10 @@ impl From<i32> for RecordId {
     }
 }
 
+impl RecordId {
+    pub(crate) const FIRST: Self = Self(0);
+}
+
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()

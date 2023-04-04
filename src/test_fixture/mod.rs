@@ -8,6 +8,7 @@ pub mod ipa;
 pub mod logging;
 pub mod metrics;
 pub mod network;
+mod app;
 
 use crate::{
     ff::{Field, Fp31},
@@ -20,6 +21,7 @@ use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
+pub use app::TestApp;
 
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`

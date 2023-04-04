@@ -134,7 +134,7 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::IPA(IpaQueryConfig {
+                    Ok(QueryType::Ipa(IpaQueryConfig {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
@@ -156,7 +156,7 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::IPA(config) => write!(
+                QueryType::Ipa(config) => write!(
                     f,
                     "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
                     QueryType::IPA_STR,

@@ -14,9 +14,10 @@ use futures::StreamExt;
 use futures_util::future::try_join;
 use pin_project::pin_project;
 use std::{collections::hash_map::Entry, fmt::{Debug, Formatter}, io};
+use std::borrow::Borrow;
 use futures_util::stream;
 use tokio::sync::oneshot;
-use crate::helpers::{GatewayBase, RouteId, Transport, TransportError};
+use crate::helpers::{GatewayBase, RouteId, Transport, TransportError, TransportImpl};
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
@@ -35,9 +36,8 @@ use crate::helpers::{GatewayBase, RouteId, Transport, TransportError};
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
-pub struct Processor<T: Transport> {
-    transport: T,
-    queries: RunningQueries<T>,
+pub struct Processor {
+    queries: RunningQueries,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -85,23 +85,22 @@ pub enum QueryCompletionError {
     },
 }
 
-
-#[inline(always)]
-const fn ensure_sync<T: Sync>(thing: T) -> T {
-    thing
+impl Default for Processor {
+    fn default() -> Self {
+        Self {
+            queries: RunningQueries::default()
+        }
+    }
 }
 
-impl <T: Transport> Debug for Processor<T> {
+impl Debug for Processor {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "QueryProcessor[{:?}]", self.queries)
     }
 }
 
-impl <T: Transport> Processor<T> {
-    fn new(transport: T) -> Self {
-        ensure_sync(Self { transport, queries: RunningQueries::default() })
-    }
 
+impl Processor {
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
@@ -114,12 +113,13 @@ impl <T: Transport> Processor<T> {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query<T: Transport>(&self, transport: &T, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
+        let transport = transport.borrow();
 
-        let id = self.transport.identity();
+        let id = transport.identity();
         let [right, left] = id.others();
 
         let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
@@ -133,12 +133,11 @@ impl <T: Transport> Processor<T> {
 
         // Inform other parties about new query. If any of them rejects it, this join will fail
         try_join(
-            self.transport.send(left, &prepare_request, stream::empty()),
-            self.transport.send(right, &prepare_request, stream::empty())
+            transport.send(left, &prepare_request, stream::empty()),
+            transport.send(right, &prepare_request, stream::empty())
         ).await?;
 
-        let gateway = GatewayBase::new(query_id, GatewayConfig::default(), roles.clone(), self.transport.clone());
-        handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
+        handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
         Ok(prepare_request)
     }
@@ -151,8 +150,8 @@ impl <T: Transport> Processor<T> {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
-        let my_role = req.roles.role(self.transport.identity());
+    pub async fn prepare<T: Transport>(&self, transport: &T, req: PrepareQuery) -> Result<(), PrepareQueryError> {
+        let my_role = req.roles.role(transport.identity());
 
         if my_role == Role::H1 {
             return Err(PrepareQueryError::WrongTarget);
@@ -162,13 +161,7 @@ impl <T: Transport> Processor<T> {
             return Err(PrepareQueryError::AlreadyRunning);
         }
 
-        let gateway = GatewayBase::new(req.query_id,
-                                   GatewayConfig::default(),
-                                   req.roles,
-                                   self.transport.clone()
-        );
-
-        handle.set_state(QueryState::AwaitingInputs(req.config, gateway))?;
+        handle.set_state(QueryState::AwaitingInputs(req.query_id, req.config, req.roles))?;
 
         Ok(())
     }
@@ -180,13 +173,14 @@ impl <T: Transport> Processor<T> {
     ///
     /// ## Panics
     /// If failed to obtain an exclusive access to the query collection.
-    #[cfg(never)]
-    pub fn receive_inputs(&self, input: QueryInput) -> Result<(), QueryInputError> {
+    pub fn receive_inputs(&self, transport: TransportImpl, input: QueryInput) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
         match queries.entry(input.query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
-                if let QueryState::AwaitingInputs(config, gateway) = state {
+                if let QueryState::AwaitingInputs(query_id, config, role_assignment) = state {
+                    assert_eq!(input.query_id, query_id, "received inputs for a different query");
+                    let gateway = Gateway::new(query_id, GatewayConfig::default(), role_assignment, transport);
                     queries.insert(
                         input.query_id,
                         QueryState::Running(executor::start_query(
@@ -252,7 +246,7 @@ impl <T: Transport> Processor<T> {
     /// ## Panics
     /// If failed to obtain an exclusive access to the query collection.
     pub async fn complete(
-        &mut self,
+        &self,
         query_id: QueryId,
     ) -> Result<Box<dyn ProtocolResult>, QueryCompletionError> {
         let handle = {
@@ -296,14 +290,14 @@ mod tests {
     use tokio::sync::Barrier;
     use tokio::time::MissedTickBehavior::Delay;
     use crate::error::Error;
-    use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
+    use crate::test_fixture::network::{DelayedTransport, InMemoryNetwork, Network, PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
-    fn callback<'a, F, Fut>(mut cb: F) -> Box<dyn PrepareQueryCallback<'a> + 'a>
-    where F: Fn(PrepareQuery) -> Fut + Send + Sync + 'a,
+    fn callback<'a, T, F, Fut>(mut cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
+    where F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'a,
           Fut: Future<Output = Result<(), TransportError>> + Send + 'a
     {
-        Box::new(move |prepare_query| Box::pin({
-            cb(prepare_query)
+        Box::new(move |transport, prepare_query| Box::pin({
+            cb(transport, prepare_query)
         }))
     }
 
@@ -311,14 +305,14 @@ mod tests {
     async fn new_query() {
         let barrier: &_ = Box::leak(Box::new(Barrier::new(3)));
         let cb2 = TransportCallbacks {
-            prepare_query: callback(|prepare_query| async {
+            prepare_query: callback(|_, _| async {
                     barrier.wait().await;
                     Ok(())
             }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
-            prepare_query: callback(|prepare_query| async {
+            prepare_query: callback(|_, _| async {
                 barrier.wait().await;
                 Ok(())
             }),
@@ -326,10 +320,10 @@ mod tests {
         };
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
-        let p0 = Processor::new(t0.clone());
+        let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        let qc_future = p0.new_query(request);
+        let qc_future = p0.new_query(&t0, request);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -361,12 +355,12 @@ mod tests {
             TransportCallbacks::default(),
         ]);
         let [t0, _, _] = network.transports();
-        let p0 = Processor::new(t0.clone());
+        let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        let _qc = p0.new_query(request).await.unwrap();
+        let _qc = p0.new_query(&t0, request).await.unwrap();
         assert!(matches!(
-            p0.new_query(request).await,
+            p0.new_query(&t0, request).await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
@@ -374,14 +368,13 @@ mod tests {
     #[tokio::test]
     async fn prepare_rejected() {
         let cb2 = TransportCallbacks {
-            prepare_query: callback(|prepare_query| async {
+            prepare_query: callback(|_, _| async {
                 Ok(())
             }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
-            prepare_query: callback(|prepare_query| async {
-                println!("rejecting");
+            prepare_query: callback(|_, _| async {
                 Err(TransportError::Rejected {
                     dest: HelperIdentity::THREE,
                     inner: "rejected".into()
@@ -391,10 +384,10 @@ mod tests {
         };
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
-        let p0 = Processor::new(t0.clone());
+        let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        assert!(matches!(p0.new_query(request).await.unwrap_err(), NewQueryError::Transport(_)));
+        assert!(matches!(p0.new_query(&t0, request).await.unwrap_err(), NewQueryError::Transport(_)));
     }
 
     mod prepare {
@@ -416,11 +409,11 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
-            let transport = network.transport(identities[1]).unwrap();
-            let processor = Processor::new(transport);
+            let transport = network.transport(identities[1]);
+            let processor = Processor::default();
 
             assert_eq!(None, processor.status(QueryId));
-            processor.prepare(req).await.unwrap();
+            processor.prepare(&transport, req).await.unwrap();
             assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
         }
 
@@ -429,11 +422,11 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
-            let transport = network.transport(identities[0]).unwrap();
-            let processor = Processor::new(transport);
+            let transport = network.transport(identities[0]);
+            let processor = Processor::default();
 
             assert!(matches!(
-                processor.prepare(req).await,
+                processor.prepare(&transport, req).await,
                 Err(PrepareQueryError::WrongTarget)
             ));
         }
@@ -443,104 +436,71 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
-            let transport = network.transport(identities[1]).unwrap();
-            let processor = Processor::new(transport);
-            processor.prepare(req.clone()).await.unwrap();
+            let transport = network.transport(identities[1]);
+            let processor = Processor::default();
+            processor.prepare(&transport, req.clone()).await.unwrap();
             assert!(matches!(
-                processor.prepare(req).await,
+                processor.prepare(&transport, req).await,
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }
     }
 
-    #[cfg(never)]
     mod e2e {
         use super::*;
-        use crate::{
-            ff::{Field, Fp31, GaloisField, Serializable},
-            helpers::{query::IpaQueryConfig, transport::ByteArrStream},
-            ipa_test_input,
-            protocol::{
-                attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey,
-                MatchKey,
-            },
-            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-            sync::Weak,
-            test_fixture::{
-                input::GenericReportTestInput, transport::InMemoryTransport, Reconstruct,
-            },
-        };
         use futures_util::future::{join_all, try_join_all};
         use generic_array::GenericArray;
         use typenum::Unsigned;
+        use crate::error::BoxError;
+        use crate::ff::{Field, Fp31};
+        use crate::helpers::query::IpaQueryConfig;
+        use crate::ipa_test_input;
+        use crate::protocol::ipa::{ipa, IPAInputRow};
+        use crate::protocol::{BreakdownKey, MatchKey};
+        use crate::secret_sharing::replicated::semi_honest;
+        use crate::test_fixture::{Reconstruct, TestApp};
+        use crate::test_fixture::input::GenericReportTestInput;
 
-        async fn start_query(
-            network: &InMemoryNetwork,
-            config: QueryConfig,
-        ) -> QueryId {
-            // Helper 1 initiates the query, 2 and 3 must confirm
-            // network.transports[0]
-            //     .deliver(QueryCommand::Create(config, tx))
-            //     .await;
+        #[tokio::test]
+        async fn complete_query_test_multiply() -> Result<(), BoxError> {
+            let app = TestApp::new();
+            let a = Fp31::truncate_from(4u128);
+            let b = Fp31::truncate_from(5u128);
+            let results = app.execute_query(vec![a, b], QueryConfig {
+                field_type: FieldType::Fp31,
+                query_type: QueryType::TestMultiply
+            }).await?;
 
-            (query_id, processors)
+            let results = results
+                .map(|bytes| semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>());
+
+            Ok(assert_eq!(vec![Fp31::truncate_from(20u128)], results.reconstruct()))
         }
 
         #[tokio::test]
-        async fn test_multiply() {
-            const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
-            let network = InMemoryNetwork::default();
-            let (query_id, mut processors) = start_query(
-                &network,
-                QueryConfig {
-                    field_type: FieldType::Fp31,
-                    query_type: QueryType::TestMultiply,
-                },
-            )
-            .await;
-            let a = Fp31::from(4u128);
-            let b = Fp31::from(5u128);
+        async fn complete_query_ipa() -> Result<(), BoxError> {
+            let app = TestApp::new();
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+                [
+                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            let results = app.execute_query::<_, Vec<IPAInputRow<_, _, _>>>(records, QueryConfig {
+                field_type: FieldType::Fp31,
+                query_type: QueryType::Ipa(IpaQueryConfig {
+                    per_user_credit_cap: 3,
+                    max_breakdown_key: 3,
+                    attribution_window_seconds: 0,
+                    num_multi_bits: 3,
+                })
+            }).await?;
 
-            let helper_shares = (a, b).share().map(|(a, b)| {
-                let mut vec = vec![0u8; 2 * SZ];
-                a.serialize(GenericArray::from_mut_slice(&mut vec[..SZ]));
-                b.serialize(GenericArray::from_mut_slice(&mut vec[SZ..]));
-                ByteArrStream::from(vec)
-            });
-
-            // at this point, all helpers must be awaiting inputs
-            let mut handle_resps = Vec::with_capacity(helper_shares.len());
-            for (i, input) in helper_shares.into_iter().enumerate() {
-                let (tx, rx) = oneshot::channel();
-                network.transports[i]
-                    .deliver(QueryCommand::Input(
-                        QueryInput {
-                            query_id,
-                            input_stream: input,
-                        },
-                        tx,
-                    ))
-                    .await;
-                handle_resps.push(rx);
-            }
-
-            // process inputs and start query processing
-            let mut handles = Vec::with_capacity(processors.len());
-            for processor in &mut processors {
-                handles.push(processor.handle_next());
-            }
-            join_all(handles).await;
-            try_join_all(handle_resps).await.unwrap();
-
-            let result: [_; 3] = join_all(processors.map(|mut processor| async move {
-                let r = processor.complete(query_id).await.unwrap().into_bytes();
-                Replicated::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
-            }))
-            .await
-            .try_into()
-            .unwrap();
-
-            assert_eq!(vec![Fp31::from(20u128)], result.reconstruct());
+            Ok(())
         }
         //
         // #[tokio::test]
