@@ -1,15 +1,18 @@
-use std::borrow::Borrow;
 use crate::{
     ff::FieldType,
-    helpers::{transport::ByteArrStream, RoleAssignment},
+    helpers::{
+        transport::{ByteArrStream, NoStep},
+        RoleAssignment, RouteId, RouteParams,
+    },
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
+use std::{
+    borrow::Borrow,
+    fmt::{Debug, Formatter},
+};
 use tokio::sync::oneshot;
-use crate::helpers::{RouteId, RouteParams};
-use crate::helpers::transport::NoStep;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

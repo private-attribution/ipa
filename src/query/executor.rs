@@ -3,7 +3,7 @@ use crate::{
     helpers::{
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        AlignedByteArrStream, ByteArrStream, Gateway, TotalRecords,
+        AlignedByteArrStream, ByteArrStream, Gateway, GatewayBase, TotalRecords, Transport,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -24,7 +24,6 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use std::fmt::Debug;
 use typenum::Unsigned;
-use crate::helpers::{GatewayBase, Transport};
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;

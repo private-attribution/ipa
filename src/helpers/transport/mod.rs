@@ -1,20 +1,16 @@
-use std::any::Any;
-use std::borrow::Borrow;
-use std::io;
 use crate::{
     helpers::HelperIdentity,
     protocol::{QueryId, Step},
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::ops::Deref;
-use std::sync::Weak;
+use std::{any::Any, borrow::Borrow, io, ops::Deref, sync::Weak};
 
 mod bytearrstream;
 pub mod query;
 
-pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 use crate::error::BoxError;
+pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -119,14 +115,14 @@ pub enum Error {
     #[error(transparent)]
     Io {
         #[from]
-        inner: io::Error
+        inner: io::Error,
     },
     #[error("Request rejected by remote {dest:?}: {inner:?}")]
     Rejected {
         dest: HelperIdentity,
         #[source]
-        inner: BoxError
-    }
+        inner: BoxError,
+    },
 }
 
 /// Transport that supports per-query,per-step channels
@@ -140,12 +136,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// The contract for this method requires it to block until the request is acknowledged by
     /// the remote party. For streaming requests where body is large, only request headers are
     /// expected to be acknowledged)
-    async fn send<D, Q, S, R>(
-        &self,
-        dest: HelperIdentity,
-        route: R,
-        data: D,
-    ) -> Result<(), Error>
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,

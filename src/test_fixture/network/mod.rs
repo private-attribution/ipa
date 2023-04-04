@@ -1,16 +1,13 @@
 mod transport;
-mod util;
 
 use crate::{
     helpers::{HelperIdentity, Transport},
     sync::{Arc, Weak},
 };
 
-pub use transport::InMemoryTransport;
-pub use util::DelayedTransport;
-pub use transport::TransportCallbacks;
-pub use transport::{ReceiveQueryCallback, PrepareQueryCallback, Setup};
-
+pub use transport::{
+    InMemoryTransport, PrepareQueryCallback, ReceiveQueryCallback, Setup, TransportCallbacks,
+};
 
 pub trait Network {
     type Endpoint: Transport;
@@ -27,7 +24,11 @@ pub struct InMemoryNetwork {
 
 impl Default for InMemoryNetwork {
     fn default() -> Self {
-        Self::new([TransportCallbacks::default(), TransportCallbacks::default(), TransportCallbacks::default()])
+        Self::new([
+            TransportCallbacks::default(),
+            TransportCallbacks::default(),
+            TransportCallbacks::default(),
+        ])
     }
 }
 
@@ -43,8 +44,7 @@ impl Network for InMemoryNetwork {
     }
 
     fn transports(&self) -> [Self::Endpoint; 3] {
-        self
-            .transports
+        self.transports
             .iter()
             .map(Arc::downgrade)
             .collect::<Vec<_>>()
@@ -56,8 +56,8 @@ impl Network for InMemoryNetwork {
 
 impl InMemoryNetwork {
     pub fn new(callbacks: [TransportCallbacks<'static, Weak<InMemoryTransport>>; 3]) -> Self {
-        let [mut first, mut second, mut third]: [_; 3] = HelperIdentity::make_three()
-            .map(|(id)| Setup::new(id));
+        let [mut first, mut second, mut third]: [_; 3] =
+            HelperIdentity::make_three().map(|(id)| Setup::new(id));
 
         first.connect(&mut second);
         second.connect(&mut third);

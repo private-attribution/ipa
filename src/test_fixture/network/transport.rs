@@ -1,5 +1,4 @@
 #![allow(dead_code)] // TODO: remove once migrated to new transports
-use std::borrow::Borrow;
 use crate::{
     helpers::{
         query::QueryConfig, HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId,
@@ -12,19 +11,38 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use futures_util::stream;
 use serde::de::DeserializeOwned;
-use std::{collections::{hash_map::Entry, HashMap, HashSet}, convert, fmt::{Debug, Formatter}, future::Future, io, pin::Pin, sync::{Arc, Mutex, Weak}, task::{Context, Poll, Waker}};
+use std::{
+    borrow::Borrow,
+    collections::{hash_map::Entry, HashMap, HashSet},
+    convert,
+    fmt::{Debug, Formatter},
+    future::Future,
+    io,
+    pin::Pin,
+    sync::{Arc, Mutex, Weak},
+    task::{Context, Poll, Waker},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
+use crate::{
+    error::Error,
+    helpers::{query::PrepareQuery, TransportError},
+};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio::sync::oneshot;
-use crate::error::Error;
-use crate::helpers::query::PrepareQuery;
-use crate::helpers::TransportError;
 
-type ConnectionTx = Sender<(Addr, InMemoryStream, oneshot::Sender<Result<(), TransportError>>)>;
-type ConnectionRx = Receiver<(Addr, InMemoryStream, oneshot::Sender<Result<(), TransportError>>)>;
+type ConnectionTx = Sender<(
+    Addr,
+    InMemoryStream,
+    oneshot::Sender<Result<(), TransportError>>,
+)>;
+type ConnectionRx = Receiver<(
+    Addr,
+    InMemoryStream,
+    oneshot::Sender<Result<(), TransportError>>,
+)>;
 type StreamItem = Vec<u8>;
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -37,11 +55,6 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
-    #[must_use]
-    pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup {
-        Setup::new(identity, stub_callbacks())
-    }
-
     #[must_use]
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
         Self {
@@ -61,7 +74,8 @@ impl InMemoryTransport {
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
     fn listen(&self, mut callbacks: TransportCallbacks<'static, Weak<Self>>, mut rx: ConnectionRx) {
-        tokio::spawn({
+        tokio::spawn(
+            {
                 let streams = self.record_streams.clone();
                 let this = Arc::downgrade(&self);
                 async move {
@@ -150,10 +164,11 @@ impl Transport for Weak<InMemoryTransport> {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
             })?;
 
-        ack_rx.await
+        ack_rx
+            .await
             .map_err(|recv_error| TransportError::Rejected {
                 dest,
-                inner: "channel closed".into()
+                inner: "channel closed".into(),
             })
             .and_then(convert::identity)
     }
@@ -456,23 +471,32 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
 }
 
 pub trait ReceiveQueryCallback<T>:
-    FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>> + Send
+    FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
+    + Send
 {
 }
 
-impl <T, F> ReceiveQueryCallback<T> for F where
-    F: FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
+impl<T, F> ReceiveQueryCallback<T> for F where
+    F: FnMut(
+            T,
+            QueryConfig,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
         + Send
 {
 }
 
 pub trait PrepareQueryCallback<'a, T>:
-    FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> + Send
-    {
-    }
+    FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
+    + Send
+{
+}
 
-impl <'a, T, F> PrepareQueryCallback<'a, T> for F where
-    F: FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> + Send
+impl<'a, T, F> PrepareQueryCallback<'a, T> for F where
+    F: FnMut(
+            T,
+            PrepareQuery,
+        ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
+        + Send
 {
 }
 
@@ -481,7 +505,7 @@ pub struct TransportCallbacks<'a, T> {
     pub prepare_query: Box<dyn PrepareQueryCallback<'a, T>>,
 }
 
-impl <T> Default for TransportCallbacks<'_, T> {
+impl<T> Default for TransportCallbacks<'_, T> {
     fn default() -> Self {
         Self {
             receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
@@ -520,14 +544,20 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(self, callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>) -> (ConnectionTx, Arc<InMemoryTransport>) {
+    fn into_active_conn(
+        self,
+        callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>,
+    ) -> (ConnectionTx, Arc<InMemoryTransport>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(callbacks, self.rx);
 
         (self.tx, transport)
     }
 
-    pub fn start(self, callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>) -> Arc<InMemoryTransport> {
+    pub fn start(
+        self,
+        callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>,
+    ) -> Arc<InMemoryTransport> {
         self.into_active_conn(callbacks).1
     }
 }
@@ -552,9 +582,8 @@ mod tests {
     async fn callback_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) = Setup::new(HelperIdentity::ONE)
-        .into_active_conn(
-            TransportCallbacks {
+        let (tx, _transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
                 receive_query: Box::new(move |transport, query_config| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
@@ -570,8 +599,7 @@ mod tests {
                     })
                 }),
                 ..Default::default()
-            },
-        );
+            });
         let expected = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -586,7 +614,8 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
@@ -609,7 +638,8 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let expected = vec![vec![1], vec![2]];
 
         tx.send((

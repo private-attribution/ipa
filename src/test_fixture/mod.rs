@@ -2,13 +2,13 @@ pub mod input;
 mod sharing;
 mod world;
 
+mod app;
 pub mod circuit;
 pub mod config;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
 pub mod network;
-mod app;
 
 use crate::{
     ff::{Field, Fp31},
@@ -16,12 +16,12 @@ use crate::{
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
+pub use app::TestApp;
 use futures::{future::try_join_all, TryFuture};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
-pub use app::TestApp;
 
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`

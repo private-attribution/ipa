@@ -34,10 +34,8 @@ pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
     let left_channel = ChannelId::new(gateway.role().peer(Direction::Left), step.clone());
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
 
-    let left_sender =
-        gateway.get_sender::<PublicKey>(&left_channel, 1.into());
-    let right_sender =
-        gateway.get_sender::<PublicKey>(&right_channel, 1.into());
+    let left_sender = gateway.get_sender::<PublicKey>(&left_channel, 1.into());
+    let right_sender = gateway.get_sender::<PublicKey>(&right_channel, 1.into());
     let left_receiver = gateway.get_receiver::<PublicKey>(&left_channel);
     let right_receiver = gateway.get_receiver::<PublicKey>(&right_channel);
 
@@ -50,11 +48,11 @@ pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
         left_sender.send(record_id, send_left_pk),
         right_sender.send(record_id, send_right_pk),
         left_receiver.receive(record_id),
-        right_receiver.receive(record_id)
-    ).await?;
+        right_receiver.receive(record_id),
+    )
+    .await?;
 
     Ok(ep_setup.setup(&recv_left_pk, &recv_right_pk))
 }
 
 use crate::helpers::{ChannelId, GatewayBase, MessagePayloadArrayLen, Transport};
-

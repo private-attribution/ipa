@@ -5,7 +5,7 @@ mod scheme;
 
 use generic_array::ArrayLength;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-pub use into_shares::{IntoShares};
+pub use into_shares::IntoShares;
 pub use scheme::{Bitwise, Linear, SecretSharing};
 
 use crate::ff::{ArithmeticOps, Serializable};

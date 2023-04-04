@@ -1,13 +1,14 @@
 use crate::{
-    helpers::{query::QueryConfig, Gateway},
+    helpers::{query::QueryConfig, Gateway, GatewayBase, RoleAssignment, Transport},
     protocol::QueryId,
     query::ProtocolResult,
     sync::{Arc, Mutex},
     task::JoinHandle,
 };
-use std::collections::{hash_map::Entry, HashMap};
-use std::fmt::{Debug, Formatter};
-use crate::helpers::{GatewayBase, RoleAssignment, Transport};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::{Debug, Formatter},
+};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -26,7 +27,7 @@ pub enum QueryStatus {
     AwaitingCompletion,
 }
 
-impl  From<&QueryState> for QueryStatus {
+impl From<&QueryState> for QueryStatus {
     fn from(source: &QueryState) -> Self {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
@@ -47,16 +48,15 @@ pub enum QueryState {
     AwaitingCompletion,
 }
 
-impl  QueryState {
+impl QueryState {
     pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
         use QueryState::{AwaitingInputs, Empty, Preparing};
 
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing(_) | AwaitingInputs(_, _, _)) | (Preparing(_), AwaitingInputs(_, _, _)) => {
-                Ok(new_state)
-            }
+            (Empty, Preparing(_) | AwaitingInputs(_, _, _))
+            | (Preparing(_), AwaitingInputs(_, _, _)) => Ok(new_state),
             (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),
@@ -79,7 +79,7 @@ pub struct RunningQueries {
     pub inner: Mutex<HashMap<QueryId, QueryState>>,
 }
 
-impl  Default for RunningQueries {
+impl Default for RunningQueries {
     fn default() -> Self {
         Self {
             inner: Mutex::new(HashMap::default()),
@@ -87,7 +87,7 @@ impl  Default for RunningQueries {
     }
 }
 
-impl  Debug for RunningQueries {
+impl Debug for RunningQueries {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RunningQueries[{}]", self.inner.lock().unwrap().len())
     }
@@ -98,7 +98,7 @@ pub struct QueryHandle<'a> {
     queries: &'a RunningQueries,
 }
 
-impl  QueryHandle<'_> {
+impl QueryHandle<'_> {
     pub fn set_state(&self, new_state: QueryState) -> Result<(), StateError> {
         let mut inner = self.queries.inner.lock().unwrap();
         let entry = inner.entry(self.query_id);
@@ -120,7 +120,7 @@ impl  QueryHandle<'_> {
     }
 }
 
-impl  RunningQueries {
+impl RunningQueries {
     pub fn handle(&self, query_id: QueryId) -> QueryHandle {
         QueryHandle {
             query_id,

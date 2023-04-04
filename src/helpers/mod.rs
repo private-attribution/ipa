@@ -15,14 +15,12 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::GatewayBase;
-pub use gateway::TransportImpl;
-pub use gateway::Gateway;
+pub use gateway::{Gateway, GatewayBase, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
-    RouteParams, StepBinding, Transport, Error as TransportError
+    AlignedByteArrStream, ByteArrStream, Error as TransportError, NoResourceIdentifier,
+    QueryIdBinding, RouteId, RouteParams, StepBinding, Transport,
 };
 
 pub use transport::query;
@@ -40,8 +38,8 @@ use crate::{
     protocol::{RecordId, Step},
     secret_sharing::SharedValue,
 };
-use std::ops::{Index, IndexMut};
 use generic_array::GenericArray;
+use std::ops::{Index, IndexMut};
 use typenum::{Unsigned, U8};
 use x25519_dalek::PublicKey;
 
@@ -409,9 +407,7 @@ impl Serializable for PublicKey {
     }
 }
 
-impl Message for PublicKey {
-
-}
+impl Message for PublicKey {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {

@@ -2,12 +2,11 @@ use crate::{
     helpers::{
         buffers::UnorderedReceiver,
         gateway::{receive::UR, send::GatewaySendStream},
-        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
+        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport, TransportError,
     },
     protocol::QueryId,
 };
 use std::io;
-use crate::helpers::TransportError;
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.

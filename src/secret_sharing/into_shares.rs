@@ -1,12 +1,12 @@
-use std::ops::Add;
-use generic_array::GenericArray;
 use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
+    ff::Serializable,
     rand::{thread_rng, Rng},
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
+use generic_array::GenericArray;
 use rand::distributions::{Distribution, Standard};
-use crate::ff::Serializable;
+use std::ops::Add;
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
@@ -14,8 +14,6 @@ pub trait IntoShares<T>: Sized {
     }
     fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
 }
-
-
 
 // pub trait IntoByteShares: Sized {
 //     type Share<T: AsRef<[u8]>>: IntoShares<T>;
@@ -110,4 +108,3 @@ where
 //         Vec<u8>: From<T>,
 // {
 // }
-
