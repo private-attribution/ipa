@@ -3,9 +3,10 @@ use std::{
     fmt::{Debug, Formatter},
     iter::{repeat, zip},
     marker::PhantomData,
+    num::NonZeroUsize,
 };
 
-use crate::seq_join::seq_try_join_all;
+use crate::seq_join::SeqJoin;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3, try_join_all};
 
@@ -245,6 +246,12 @@ impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
         self.inner
             .gateway
             .get_receiver(&ChannelId::new(role, self.step.clone()))
+    }
+}
+
+impl<'a, F: Field + ExtendableField> SeqJoin for MaliciousContext<'a, F> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.gateway.config().active_work()
     }
 }
 
@@ -605,7 +612,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        seq_try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 ctx: ctx_ref.clone(),
@@ -638,7 +645,7 @@ where
         let ctx = self.ctx.set_total_records(num_records);
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
 
-        seq_try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+        ctx.try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
                 // This inner join is truly concurrent.
                 try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {

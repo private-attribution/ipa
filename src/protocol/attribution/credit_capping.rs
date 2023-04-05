@@ -13,7 +13,7 @@ use crate::{
         BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_join::{seq_join, seq_try_join_all, ACTIVE},
+    seq_join::{seq_join, SeqJoin},
 };
 use futures::{future::try_join_all, stream::once, StreamExt, TryStreamExt};
 use std::iter::{repeat, zip};
@@ -126,8 +126,8 @@ where
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
-    let ever_any_subsequent_credit =
-        seq_try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+    let ever_any_subsequent_credit = ctx
+        .try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
@@ -139,23 +139,24 @@ where
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
         .set_total_records(input.len() - 1);
-    let capped_credits = seq_try_join_all(
-        uncapped_credits
-            .iter()
-            .zip(ever_any_subsequent_credit.iter())
-            .enumerate()
-            .map(|(i, (uncapped_credit, any_subsequent_credit))| {
-                let record_id = RecordId::from(i);
-                let c = potentially_cap_ctx.clone();
-                let one = T::share_known_value(&c, F::ONE);
-                async move {
-                    uncapped_credit
-                        .multiply(&(one - any_subsequent_credit), c, record_id)
-                        .await
-                }
-            }),
-    )
-    .await?;
+    let capped_credits = ctx
+        .try_join_all(
+            uncapped_credits
+                .iter()
+                .zip(ever_any_subsequent_credit.iter())
+                .enumerate()
+                .map(|(i, (uncapped_credit, any_subsequent_credit))| {
+                    let record_id = RecordId::from(i);
+                    let c = potentially_cap_ctx.clone();
+                    let one = T::share_known_value(&c, F::ONE);
+                    async move {
+                        uncapped_credit
+                            .multiply(&(one - any_subsequent_credit), c, record_id)
+                            .await
+                    }
+                }),
+        )
+        .await?;
 
     let output = input.iter().enumerate().map(move |(i, x)| {
         let credit = if i < capped_credits.len() {
@@ -178,7 +179,7 @@ where
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    seq_try_join_all(
+    ctx.try_join_all(
         input
             .iter()
             .zip(zip(
@@ -344,7 +345,7 @@ where
 
     let last = original_credits.last().ok_or(Error::Internal).cloned();
 
-    seq_join(ACTIVE.unwrap(), capped)
+    seq_join(ctx.active_work(), capped)
         .chain(once(async { last }))
         .try_collect()
         .await

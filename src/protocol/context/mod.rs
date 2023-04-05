@@ -5,6 +5,7 @@ mod semi_honest;
 use crate::{
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{RecordId, Step, Substep},
+    seq_join::SeqJoin,
 };
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
@@ -13,7 +14,7 @@ pub use semi_honest::SemiHonestContext;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
-pub trait Context: Clone + Send + Sync {
+pub trait Context: Clone + Send + Sync + SeqJoin {
     /// The role of this context.
     fn role(&self) -> Role;
 

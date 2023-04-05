@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         buffers::UnorderedReceiver,
         gateway::{receive::UR, send::GatewaySendStream},
-        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
+        ChannelId, GatewayConfig, Message, Role, RoleAssignment, RouteId, Transport,
     },
     protocol::QueryId,
 };
@@ -40,7 +40,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
             .await
     }
 
-    pub(crate) fn receive(&self, channel_id: &ChannelId) -> UR<T> {
+    pub(crate) fn receive<M: Message>(&self, channel_id: &ChannelId) -> UR<T> {
         let peer = self.roles.identity(channel_id.role);
         assert_ne!(
             peer,
@@ -53,7 +53,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
                 self.inner
                     .receive(peer, (self.query_id, channel_id.step.clone())),
             ),
-            self.config.recv_outstanding,
+            self.config.recv_outstanding::<M>(),
         )
     }
 

@@ -1,5 +1,3 @@
-use crate::seq_join::seq_try_join_all;
-
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Serializable},
@@ -266,25 +264,30 @@ where
         .narrow(&Step::CheckTimesCredit)
         .set_total_records(inputs.len());
 
-    let increments = seq_try_join_all(inputs.iter().enumerate().map(
-        |(i, (credit, breakdown_key_bits))| {
-            let c1 = equality_check_context.clone();
-            let c2 = check_times_credit_context.clone();
-            async move {
-                let equality_checks = check_everything(c1.clone(), i, breakdown_key_bits).await?;
-                seq_try_join_all(equality_checks.iter().take(to_take).enumerate().map(
-                    |(check_idx, check)| {
-                        let step = BitOpStep::from(check_idx);
-                        let c = c2.narrow(&step);
-                        let record_id = RecordId::from(i);
-                        async move { check.multiply(credit, c, record_id).await }
-                    },
-                ))
-                .await
-            }
-        },
-    ))
-    .await?;
+    let increments = ctx
+        .try_join_all(
+            inputs
+                .iter()
+                .enumerate()
+                .map(|(i, (credit, breakdown_key_bits))| {
+                    let c1 = equality_check_context.clone();
+                    let c2 = check_times_credit_context.clone();
+                    async move {
+                        let equality_checks =
+                            check_everything(c1.clone(), i, breakdown_key_bits).await?;
+                        c1.try_join_all(equality_checks.iter().take(to_take).enumerate().map(
+                            |(check_idx, check)| {
+                                let step = BitOpStep::from(check_idx);
+                                let c = c2.narrow(&step);
+                                let record_id = RecordId::from(i);
+                                async move { check.multiply(credit, c, record_id).await }
+                            },
+                        ))
+                        .await
+                    }
+                }),
+        )
+        .await?;
     for increments_for_row in increments {
         for (i, increment) in increments_for_row.iter().enumerate() {
             sums[i] += increment;

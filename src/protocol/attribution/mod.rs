@@ -16,7 +16,7 @@ use crate::{
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
     },
-    seq_join::{assert_send, seq_try_join_all},
+    seq_join::{assert_send, SeqJoin},
 };
 use futures::future::try_join;
 
@@ -135,8 +135,8 @@ where
         }
 
         let (stop_bit_updates, credit_updates) = try_join(
-            assert_send(seq_try_join_all(stop_bit_futures)),
-            assert_send(seq_try_join_all(credit_update_futures)),
+            assert_send(ctx.try_join_all(stop_bit_futures)),
+            assert_send(ctx.try_join_all(credit_update_futures)),
         )
         .await?;
 
@@ -219,8 +219,8 @@ where
         }
 
         let (stop_bit_updates, value_updates) = try_join(
-            assert_send(seq_try_join_all(stop_bit_futures)),
-            assert_send(seq_try_join_all(value_update_futures)),
+            assert_send(ctx.try_join_all(stop_bit_futures)),
+            assert_send(ctx.try_join_all(value_update_futures)),
         )
         .await?;
 
@@ -252,7 +252,7 @@ where
         .narrow(&Step::ComputeHelperBits)
         .set_total_records(sorted_match_keys.len() - 1);
 
-    seq_try_join_all(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
+    ctx.try_join_all(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
         let c = narrowed_ctx.clone();
         let record_id = RecordId::from(i);
         async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
@@ -271,19 +271,20 @@ where
         .narrow(&Step::ModConvHelperBits)
         .set_total_records(semi_honest_helper_bits_gf2.len());
 
-    seq_try_join_all(
-        semi_honest_helper_bits_gf2
-            .iter()
-            .enumerate()
-            .map(|(i, gf2_bit)| {
-                let bit_triple: BitConversionTriple<Replicated<F>> =
-                    convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
-                let record_id = RecordId::from(i);
-                let c = hb_mod_conv_ctx.clone();
-                async move { convert_bit(c, record_id, &bit_triple).await }
-            }),
-    )
-    .await
+    sh_ctx
+        .try_join_all(
+            semi_honest_helper_bits_gf2
+                .iter()
+                .enumerate()
+                .map(|(i, gf2_bit)| {
+                    let bit_triple: BitConversionTriple<Replicated<F>> =
+                        convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
+                    let record_id = RecordId::from(i);
+                    let c = hb_mod_conv_ctx.clone();
+                    async move { convert_bit(c, record_id, &bit_triple).await }
+                }),
+        )
+        .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

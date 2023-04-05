@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
-    seq_join::seq_try_join_all,
+    seq_join::SeqJoin,
 };
 use std::iter::repeat;
 
@@ -44,14 +44,15 @@ pub async fn multi_bit_permutation<
 
     let share_of_one = S::share_known_value(&ctx, F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
-    let equality_checks = seq_try_join_all(
-        input
-            .iter()
-            .zip(repeat(ctx.set_total_records(num_records)))
-            .enumerate()
-            .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
-    )
-    .await?;
+    let equality_checks = ctx
+        .try_join_all(
+            input
+                .iter()
+                .zip(repeat(ctx.set_total_records(num_records)))
+                .enumerate()
+                .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
+        )
+        .await?;
 
     // Compute accumulated sum
     let mut prefix_sum = Vec::with_capacity(num_records);
@@ -67,23 +68,24 @@ pub async fn multi_bit_permutation<
     }
 
     // Take sum of products of output of equality check and accumulated sum
-    let mut one_off_permutation = seq_try_join_all(
-        equality_checks
-            .into_iter()
-            .zip(prefix_sum.into_iter())
-            .zip(repeat(ctx.set_total_records(num_records)))
-            .enumerate()
-            .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
-                S::sum_of_products(
-                    ctx,
-                    RecordId::from(i),
-                    eq_checks.as_slice(),
-                    prefix_sums.as_slice(),
-                )
-                .await
-            }),
-    )
-    .await?;
+    let mut one_off_permutation = ctx
+        .try_join_all(
+            equality_checks
+                .into_iter()
+                .zip(prefix_sum.into_iter())
+                .zip(repeat(ctx.set_total_records(num_records)))
+                .enumerate()
+                .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
+                    S::sum_of_products(
+                        ctx,
+                        RecordId::from(i),
+                        eq_checks.as_slice(),
+                        prefix_sums.as_slice(),
+                    )
+                    .await
+                }),
+        )
+        .await?;
     // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
     // protocols expect 0-indexed permutation
     for permutation in &mut one_off_permutation {
@@ -99,7 +101,6 @@ mod tests {
         ff::{Field, Fp31},
         protocol::{context::Context, sort::check_everything},
         secret_sharing::SharedValue,
-        seq_join::seq_try_join_all,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -150,7 +151,7 @@ mod tests {
                 for (i, record) in m_shares.iter().enumerate() {
                     equality_check_futures.push(check_everything(ctx.clone(), i, record));
                 }
-                seq_try_join_all(equality_check_futures).await.unwrap()
+                ctx.try_join_all(equality_check_futures).await.unwrap()
             })
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();

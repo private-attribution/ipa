@@ -7,7 +7,6 @@ use crate::{
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
-    seq_join::seq_try_join_all,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,16 +50,17 @@ where
     let memoize_context = ctx
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let credits = seq_try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
-        let c = memoize_context.clone();
-        let record_id = RecordId::from(i);
-        async move {
-            x.is_trigger_report
-                .multiply(&x.helper_bit, c, record_id)
-                .await
-        }
-    }))
-    .await?;
+    let credits = ctx
+        .try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+            let c = memoize_context.clone();
+            let record_id = RecordId::from(i);
+            async move {
+                x.is_trigger_report
+                    .multiply(&x.helper_bit, c, record_id)
+                    .await
+            }
+        }))
+        .await?;
 
     let output = input.iter().zip(credits).map(|(x, credit)| {
         MCAccumulateCreditOutputRow::new(
@@ -109,14 +109,15 @@ where
     let memoize_context = ctx
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let helper_bits = seq_try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
-        let c = memoize_context.clone();
-        let record_id = RecordId::from(i);
-        let is_trigger_bit = &x.is_trigger_report;
-        let helper_bit = &x.helper_bit;
-        async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
-    }))
-    .await?;
+    let helper_bits = ctx
+        .try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+            let c = memoize_context.clone();
+            let record_id = RecordId::from(i);
+            let is_trigger_bit = &x.is_trigger_report;
+            let helper_bit = &x.helper_bit;
+            async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
+        }))
+        .await?;
 
     let mut credits = input
         .iter()

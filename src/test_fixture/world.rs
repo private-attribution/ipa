@@ -25,7 +25,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
-use std::{fmt::Debug, io::stdout, iter::zip, num::NonZeroUsize};
+use std::{fmt::Debug, io::stdout, iter::zip};
 use tracing::Level;
 
 /// Test environment for protocols to run tests that require communication between helpers.
@@ -54,10 +54,8 @@ pub struct TestWorldConfig {
 impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
-            gateway_config: GatewayConfig {
-                send_outstanding_bytes: NonZeroUsize::new(16).unwrap(),
-                recv_outstanding: NonZeroUsize::new(16).unwrap(),
-            },
+            // Only keep a small amount of active work on hand.
+            gateway_config: GatewayConfig::new(16),
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.
             metrics_level: Level::DEBUG,

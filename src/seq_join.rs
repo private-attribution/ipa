@@ -9,11 +9,6 @@ use std::{
     task::{Context, Poll},
 };
 
-/// The number of active items to maintain.
-/// For IPA, this needs to be at least as large as the number of items that need to be buffered
-/// for sending.
-pub const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(4096);
-
 /// This helper function might be necessary to convince the compiler that
 /// the return value from [`seq_try_join_all`] implements `Send`.
 /// Use this if you get higher-ranked lifetime errors that mention `std::marker::Send`.
@@ -84,6 +79,23 @@ where
     }
 }
 
+/// The `SeqJoin` trait wraps `seq_try_join_all`, providing the `active` parameter
+/// from the provided context so that the value can be made consistent.
+pub trait SeqJoin {
+    /// Call [`seq_try_join_all`] with the `active` parameter set based on the value of [`active_work`].
+    fn try_join_all<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
+    where
+        I: IntoIterator<Item = F> + Send,
+        I::IntoIter: Send,
+        F: Future<Output = Result<O, E>>,
+    {
+        seq_try_join_all(self.active_work(), iterable)
+    }
+
+    /// The amount of active work that is concurrently permitted.
+    fn active_work(&self) -> NonZeroUsize;
+}
+
 type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
@@ -91,13 +103,16 @@ type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
 /// aborting early if any future returns `Result::Err`.
 ///
 /// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
-pub fn seq_try_join_all<I, F, O, E>(iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
+pub fn seq_try_join_all<I, F, O, E>(
+    active: NonZeroUsize,
+    iterable: I,
+) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
     F: Future<Output = Result<O, E>>,
 {
-    seq_join(ACTIVE.unwrap(), iterable).try_collect()
+    seq_join(active, iterable).try_collect()
 }
 
 #[pin_project]
@@ -316,9 +331,13 @@ mod test {
             lazy(move |_| v)
         }
 
-        let res = seq_try_join_all([fut::<Result<_, Infallible>>(Ok(1)), fut(Ok(2)), fut(Ok(3))])
-            .await
-            .unwrap();
+        let active = NonZeroUsize::new(10).unwrap();
+        let res = seq_try_join_all(
+            active,
+            [fut::<Result<_, Infallible>>(Ok(1)), fut(Ok(2)), fut(Ok(3))],
+        )
+        .await
+        .unwrap();
         assert_eq!(vec![1, 2, 3], res);
     }
 
@@ -333,7 +352,10 @@ mod test {
             })
         }
 
-        let err = seq_try_join_all([f(1), f(2), f(3)]).await.unwrap_err();
+        let active = NonZeroUsize::new(10).unwrap();
+        let err = seq_try_join_all(active, [f(1), f(2), f(3)])
+            .await
+            .unwrap_err();
         assert_eq!(err, ERROR);
     }
 }
