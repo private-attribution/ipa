@@ -2,17 +2,16 @@ use crate::{
     error::Error,
     ff::Serializable,
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
-        ByteArrStream, Transport, TransportError, TransportImpl,
+        query::{QueryConfig, QueryInput},
+        ByteArrStream,
     },
-    query::QueryProcessor,
     secret_sharing::IntoShares,
-    sync::Arc,
     test_fixture::network::InMemoryNetwork,
     AppSetup, HelperApp,
 };
-use axum::extract::Query;
-use futures_util::{future::try_join_all, FutureExt};
+
+use crate::test_fixture::network::InMemoryTransport;
+use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
@@ -44,13 +43,14 @@ where
 /// It orchestrates the interaction between several components to drive queries to completion.
 ///
 /// In contrast with [`TestWorld`] which can only run computations tied up to a single query, this
-/// can potentially be used to run multiple queries in parallel.
+/// can potentially be used to run multiple queries in parallel. The guidance is to use `[TestWorld`]
+/// for unit tests and [`TestApp`] for integration/end-to-end tests.
 ///
 /// [`InMemoryNetwork`]: crate::test_fixture::network::InMemoryNetwork
 /// [`TestWorld`]: crate::test_fixture::TestWorld
 pub struct TestApp {
     drivers: [HelperApp; 3],
-    network: InMemoryNetwork,
+    _network: InMemoryNetwork,
 }
 
 fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
@@ -58,8 +58,8 @@ fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
     ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1])
 }
 
-impl TestApp {
-    pub fn new() -> Self {
+impl Default for TestApp {
+    fn default() -> Self {
         let (setup, callbacks) =
             unzip_tuple_array([AppSetup::new(), AppSetup::new(), AppSetup::new()]);
 
@@ -68,15 +68,25 @@ impl TestApp {
             .transports()
             .iter()
             .zip(setup)
-            .map(|(t, s)| s.connect(t.clone()))
+            .map(|(t, s)| s.connect(<InMemoryTransport as Clone>::clone(t)))
             .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| "infallible")
             .unwrap();
 
-        Self { drivers, network }
+        Self {
+            drivers,
+            _network: network,
+        }
     }
+}
 
+impl TestApp {
+    /// Initiates a new query on all helpers and drives it to completion.
+    ///
+    /// ## Errors
+    /// Returns an error if it can't start a query or one or more helpers can't finish the processing.
+    #[allow(clippy::missing_panics_doc)]
     pub async fn execute_query<I, A>(
         &self,
         input: I,

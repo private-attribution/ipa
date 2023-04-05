@@ -27,9 +27,10 @@ impl Default for InMemoryNetwork {
 }
 
 impl InMemoryNetwork {
+    #[must_use]
     pub fn new(callbacks: [TransportCallbacks<'static, InMemoryTransport>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] =
-            HelperIdentity::make_three().map(|id| Setup::new(id));
+            HelperIdentity::make_three().map(Setup::new);
 
         first.connect(&mut second);
         second.connect(&mut third);
@@ -53,13 +54,16 @@ impl InMemoryNetwork {
             .unwrap()
     }
 
+    /// Returns the transport to communicate with the given helper.
+    ///
+    /// ## Panics
+    /// If [`HelperIdentity`] is somehow points to a non-existent helper, which shouldn't happen.
     #[must_use]
     pub fn transport(&self, id: HelperIdentity) -> InMemoryTransport {
         self.transports
             .iter()
             .find(|t| t.identity() == id)
-            .map(Arc::downgrade)
-            .unwrap_or_else(|| panic!("No transport for helper {id:?}"))
+            .map_or_else(|| panic!("No transport for helper {id:?}"), Arc::downgrade)
     }
 
     #[allow(clippy::missing_panics_doc)]

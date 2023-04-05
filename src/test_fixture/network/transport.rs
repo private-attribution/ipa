@@ -16,7 +16,6 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     convert,
     fmt::{Debug, Formatter},
-    future::Future,
     io,
     pin::Pin,
     sync::{Arc, Mutex, Weak},
@@ -26,9 +25,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
 use crate::helpers::{query::PrepareQuery, TransportCallbacks, TransportError};
+use ::tokio::sync::oneshot;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use tokio::sync::oneshot;
 
 type Packet = (
     Addr,
@@ -71,7 +70,7 @@ impl InMemoryTransport {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
-                let this = Arc::downgrade(&self);
+                let this = Arc::downgrade(self);
                 async move {
                     let mut active_queries = HashSet::new();
                     while let Some((addr, stream, ack)) = rx.recv().await {
@@ -80,14 +79,14 @@ impl InMemoryTransport {
                         let result = match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                (callbacks.receive_query)(this.clone(), qc)
-                                    .await
-                                    .map(|query_id| {
+                                (callbacks.receive_query)(Weak::clone(&this), qc).await.map(
+                                    |query_id| {
                                         assert!(
                                             active_queries.insert(query_id),
                                             "the same query id {query_id:?} is generated twice"
                                         );
-                                    })
+                                    },
+                                )
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
@@ -98,11 +97,11 @@ impl InMemoryTransport {
                             }
                             RouteId::PrepareQuery => {
                                 let input = addr.into::<PrepareQuery>();
-                                (callbacks.prepare_query)(this.clone(), input).await
+                                (callbacks.prepare_query)(Weak::clone(&this), input).await
                             }
                         };
 
-                        ack.send(result).unwrap()
+                        ack.send(result).unwrap();
                     }
                 }
             }
@@ -473,6 +472,7 @@ pub struct Setup {
 }
 
 impl Setup {
+    #[must_use]
     pub fn new(identity: HelperIdentity, callbacks: TransportCallbacks) -> Self {
         let (tx, rx) = channel(16);
         Self {
@@ -483,6 +483,10 @@ impl Setup {
         }
     }
 
+    /// Establishes a link between this helper and another one
+    ///
+    /// ## Panics
+    /// Panics if there is a link already.
     pub fn connect(&mut self, other: &mut Self) {
         assert!(self
             .connections
@@ -504,6 +508,7 @@ impl Setup {
         (self.tx, transport)
     }
 
+    #[must_use]
     pub fn start(
         self,
         callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>,
@@ -516,7 +521,6 @@ impl Setup {
 mod tests {
     use super::*;
     use crate::{
-        error::Error,
         ff::{FieldType, Fp31},
         helpers::{query::QueryType, HelperIdentity, OrderingSender},
         protocol::Step,
@@ -532,7 +536,7 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
         rx.await
-            .map_err(|e| TransportError::Io {
+            .map_err(|_e| TransportError::Io {
                 inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
             })
             .and_then(convert::identity)
@@ -545,7 +549,7 @@ mod tests {
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
         let (tx, _transport) =
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
-                receive_query: Box::new(move |transport, query_config| {
+                receive_query: Box::new(move |_transport, query_config| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
                         // this works because callback is only called once
@@ -720,8 +724,7 @@ mod tests {
             NonZeroUsize::new(2).unwrap(),
             NonZeroUsize::new(2).unwrap(),
         ));
-        let rx = tx.clone().as_rc_stream();
-        // let (tx, rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(2).unwrap());
+        let rx = Arc::clone(&tx).as_rc_stream();
         let network = InMemoryNetwork::default();
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);

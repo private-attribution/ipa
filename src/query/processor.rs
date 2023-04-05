@@ -37,6 +37,7 @@ use tokio::sync::oneshot;
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
+#[derive(Default)]
 pub struct Processor {
     queries: RunningQueries,
 }
@@ -84,14 +85,6 @@ pub enum QueryCompletionError {
         #[from]
         source: StateError,
     },
-}
-
-impl Default for Processor {
-    fn default() -> Self {
-        Self {
-            queries: RunningQueries::default(),
-        }
-    }
 }
 
 impl Debug for Processor {
@@ -155,7 +148,7 @@ impl Processor {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    pub async fn prepare<T: Transport>(
+    pub fn prepare<T: Transport>(
         &self,
         transport: &T,
         req: PrepareQuery,
@@ -403,7 +396,7 @@ mod tests {
             let processor = Processor::default();
 
             assert_eq!(None, processor.status(QueryId));
-            processor.prepare(&transport, req).await.unwrap();
+            processor.prepare(&transport, req).unwrap();
             assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
         }
 
@@ -416,7 +409,7 @@ mod tests {
             let processor = Processor::default();
 
             assert!(matches!(
-                processor.prepare(&transport, req).await,
+                processor.prepare(&transport, req),
                 Err(PrepareQueryError::WrongTarget)
             ));
         }
@@ -428,9 +421,9 @@ mod tests {
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]);
             let processor = Processor::default();
-            processor.prepare(&transport, req.clone()).await.unwrap();
+            processor.prepare(&transport, req.clone()).unwrap();
             assert!(matches!(
-                processor.prepare(&transport, req).await,
+                processor.prepare(&transport, req),
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }
@@ -450,7 +443,7 @@ mod tests {
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {
-            let app = TestApp::new();
+            let app = TestApp::default();
             let a = Fp31::truncate_from(4u128);
             let b = Fp31::truncate_from(5u128);
             let results = app
@@ -475,7 +468,7 @@ mod tests {
 
         #[tokio::test]
         async fn complete_query_ipa() -> Result<(), BoxError> {
-            let app = TestApp::new();
+            let app = TestApp::default();
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
                 [
                     { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },

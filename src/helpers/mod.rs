@@ -400,7 +400,7 @@ impl Serializable for PublicKey {
     type Size = typenum::U32;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        buf.copy_from_slice(self.as_bytes())
+        buf.copy_from_slice(self.as_bytes());
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
