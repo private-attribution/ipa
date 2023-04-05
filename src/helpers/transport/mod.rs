@@ -134,7 +134,9 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
 /// Enum to dispatch calls to various [`Transport`] implementations without the need
 /// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
-/// `Gateway` to be generic over it. We want to avoid that as it pollutes our protocol code.
+/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
+///
+/// [`Gateway`]: crate::helpers::Gateway
 #[derive(Clone)]
 pub enum TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
