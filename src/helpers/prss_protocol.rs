@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{Direction, Error},
+    helpers::{ChannelId, Direction, Error, GatewayBase, TotalRecords, Transport},
     protocol::{prss, RecordId, Step, Substep},
 };
 use futures_util::future::try_join4;
@@ -54,5 +54,3 @@ pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
 
     Ok(ep_setup.setup(&recv_left_pk, &recv_right_pk))
 }
-
-use crate::helpers::{ChannelId, GatewayBase, TotalRecords, Transport};
