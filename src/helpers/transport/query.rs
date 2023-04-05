@@ -1,7 +1,7 @@
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{ByteArrStream, NoStep},
+        transport::{ByteArrStream, NoQueryId, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
     protocol::{QueryId, Substep},
@@ -40,6 +40,26 @@ impl Default for QueryConfig {
     }
 }
 
+impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::ReceiveQuery
+    }
+
+    fn query_id(&self) -> NoQueryId {
+        NoQueryId
+    }
+
+    fn step(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
+}
+
 impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     type Params = String;
 
@@ -57,8 +77,6 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
 
     #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
-        // todo: query id will appear twice because of it. Not sure if should care about it
-        // for in-memory runs though.
         serde_json::to_string(self).unwrap()
     }
 
