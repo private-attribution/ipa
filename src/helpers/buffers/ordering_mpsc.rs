@@ -89,7 +89,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
     /// Inserts a new element to the specified position.
     ///
     /// When inserting, `index` needs to be in range.  Values that are in range are within `capacity`
-    /// (as provided to [`new`]) of the last value that was taken with [`take`].
+    /// (as provided to [`ordering_mpsc`]) of the last value that was taken with [`take`].
     ///
     /// ## Panics
     /// Panics if `index` is out of bounds or if something was previously inserted at `index`.
@@ -97,7 +97,6 @@ impl<M: Message> OrderingMpscReceiver<M> {
     /// expect bad things to happen in that case.
     /// In all builds, this panics if `msg` fails to serialize properly, which shouldn't happen.
     ///
-    /// [`new`]: Self::new
     /// [`take`]: Self::take
     fn insert(&mut self, index: usize, msg: &M) {
         #[cfg(debug_assertions)]
