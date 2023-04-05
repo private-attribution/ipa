@@ -99,7 +99,7 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
 
 /// Wrapper for joining three things into an array.
 /// # Panics
-/// Probably never, but the compiler doesn't know that.
+/// If the tasks return `Err`.
 pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
 where
     T: TryFuture,
@@ -111,9 +111,9 @@ where
     [a, b, c]
 }
 
-/// Wrapper for joining three things into an array.
+/// Wrapper for joining three things from an iterator into an array.
 /// # Panics
-/// If `a` is the wrong length.
+/// If the tasks return `Err` or if `a` is the wrong length.
 pub async fn join3v<T, V>(a: V) -> [T::Ok; 3]
 where
     V: IntoIterator<Item = T>,
