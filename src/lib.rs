@@ -26,10 +26,10 @@ pub mod uri;
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
 
-mod tests;
 mod app;
+mod tests;
 
-pub use app::{Setup as AppSetup, HelperApp};
+pub use app::{HelperApp, Setup as AppSetup};
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]

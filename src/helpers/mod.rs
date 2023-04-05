@@ -20,7 +20,8 @@ pub use gateway::{Gateway, GatewayBase, TransportImpl};
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     AlignedByteArrStream, ByteArrStream, Error as TransportError, NoResourceIdentifier,
-    QueryIdBinding, RouteId, RouteParams, StepBinding, Transport, TransportCallbacks, PrepareQueryCallback, ReceiveQueryCallback
+    PrepareQueryCallback, QueryIdBinding, ReceiveQueryCallback, RouteId, RouteParams, StepBinding,
+    Transport, TransportCallbacks,
 };
 
 pub use transport::query;

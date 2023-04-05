@@ -2,7 +2,7 @@ use crate::{
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::ProtocolResult,
-    sync::{Mutex},
+    sync::Mutex,
     task::JoinHandle,
 };
 use std::{

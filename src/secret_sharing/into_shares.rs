@@ -6,7 +6,6 @@ use crate::{
 
 use rand::distributions::{Distribution, Standard};
 
-
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
         self.share_with(&mut thread_rng())

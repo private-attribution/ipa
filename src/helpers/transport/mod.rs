@@ -7,12 +7,12 @@ use futures::Stream;
 use std::{borrow::Borrow, io};
 
 mod bytearrstream;
-pub mod query;
 mod callbacks;
+pub mod query;
 
 use crate::error::BoxError;
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use callbacks::{TransportCallbacks, PrepareQueryCallback, ReceiveQueryCallback};
+pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized

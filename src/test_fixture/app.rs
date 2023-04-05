@@ -1,26 +1,29 @@
-use crate::{HelperApp, AppSetup, error::Error, ff::Serializable, helpers::{
-    query::{QueryConfig, QueryInput},
-    ByteArrStream, Transport, TransportError,
-}, query::QueryProcessor, secret_sharing::IntoShares, test_fixture::{
-    network::{InMemoryNetwork},
-}};
-use futures_util::{future::try_join_all, FutureExt};
-use generic_array::GenericArray;
 use crate::{
-    sync::{Arc},
+    error::Error,
+    ff::Serializable,
+    helpers::{
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        ByteArrStream, Transport, TransportError, TransportImpl,
+    },
+    query::QueryProcessor,
+    secret_sharing::IntoShares,
+    sync::Arc,
+    test_fixture::network::InMemoryNetwork,
+    AppSetup, HelperApp,
 };
 use axum::extract::Query;
+use futures_util::{future::try_join_all, FutureExt};
+use generic_array::GenericArray;
 use typenum::Unsigned;
-use crate::helpers::query::PrepareQuery;
-use crate::helpers::TransportImpl;
 
 pub trait IntoBuf {
     fn into_buf(self) -> Vec<u8>;
 }
 
 impl<I, S> IntoBuf for I
-    where I: IntoIterator<Item=S>,
-          S: Serializable
+where
+    I: IntoIterator<Item = S>,
+    S: Serializable,
 {
     fn into_buf(self) -> Vec<u8> {
         let this = self.into_iter();
@@ -40,7 +43,11 @@ impl<I, S> IntoBuf for I
 /// [`TestApp`] runs IPA queries end-to-end using [`InMemoryNetwork`]
 /// It orchestrates the interaction between several components to drive queries to completion.
 ///
+/// In contrast with [`TestWorld`] which can only run computations tied up to a single query, this
+/// can potentially be used to run multiple queries in parallel.
+///
 /// [`InMemoryNetwork`]: crate::test_fixture::network::InMemoryNetwork
+/// [`TestWorld`]: crate::test_fixture::TestWorld
 pub struct TestApp {
     drivers: [HelperApp; 3],
     network: InMemoryNetwork,
@@ -48,32 +55,26 @@ pub struct TestApp {
 
 fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
     let [v0, v1, v2] = input;
-    (
-        [v0.0, v1.0, v2.0],
-        [v0.1, v1.1, v2.1],
-    )
+    ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1])
 }
 
 impl TestApp {
     pub fn new() -> Self {
-        let (setup, callbacks) = unzip_tuple_array([
-            AppSetup::new(),
-            AppSetup::new(),
-            AppSetup::new(),
-        ]);
+        let (setup, callbacks) =
+            unzip_tuple_array([AppSetup::new(), AppSetup::new(), AppSetup::new()]);
 
         let network = InMemoryNetwork::new(callbacks);
-        let drivers = network.transports().iter().zip(setup)
+        let drivers = network
+            .transports()
+            .iter()
+            .zip(setup)
             .map(|(t, s)| s.connect(t.clone()))
             .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| "infallible")
             .unwrap();
 
-        Self {
-            drivers,
-            network,
-        }
+        Self { drivers, network }
     }
 
     pub async fn execute_query<I, A>(
@@ -81,15 +82,14 @@ impl TestApp {
         input: I,
         query_config: QueryConfig,
     ) -> Result<[Vec<u8>; 3], Error>
-        where
-            I: IntoShares<A>,
-            A: IntoBuf,
+    where
+        I: IntoShares<A>,
+        A: IntoBuf,
     {
         let helpers_input = input.share().map(IntoBuf::into_buf);
 
         // helper 1 initiates the query
-        let query_id = self.drivers[0].start_query(query_config)
-            .await?;
+        let query_id = self.drivers[0].start_query(query_config).await?;
 
         // Send inputs and poll for completion
         let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
@@ -97,9 +97,9 @@ impl TestApp {
                 query_id,
                 input_stream: ByteArrStream::from(input),
             })
-        })).await?;
+        }))
+        .await?;
 
         Ok(<[_; 3]>::try_from(r).unwrap())
     }
 }
-

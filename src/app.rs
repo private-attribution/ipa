@@ -1,9 +1,13 @@
-use crate::error::Error;
-use crate::helpers::query::{PrepareQuery, QueryConfig, QueryInput};
-use crate::helpers::{Transport, TransportCallbacks, TransportError, TransportImpl};
-use crate::protocol::QueryId;
-use crate::query::QueryProcessor;
-use crate::sync::Arc;
+use crate::{
+    error::Error,
+    helpers::{
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        Transport, TransportCallbacks, TransportError, TransportImpl,
+    },
+    protocol::QueryId,
+    query::QueryProcessor,
+    sync::Arc,
+};
 
 pub struct Setup {
     query_processor: Arc<QueryProcessor>,
@@ -31,7 +35,9 @@ impl Setup {
     }
 
     /// Create callbacks that tie up query processor and transport.
-    fn callback(query_processor: Arc<QueryProcessor>) -> TransportCallbacks<'static, TransportImpl> {
+    fn callback(
+        query_processor: Arc<QueryProcessor>,
+    ) -> TransportCallbacks<'static, TransportImpl> {
         let callbacks = TransportCallbacks {
             receive_query: {
                 let processor = query_processor.clone();
@@ -88,15 +94,18 @@ impl HelperApp {
     }
 
     pub async fn start_query(&self, query_config: QueryConfig) -> Result<QueryId, Error> {
-        Ok(self.query_processor.new_query(&self.transport, query_config).await?.query_id)
+        Ok(self
+            .query_processor
+            .new_query(&self.transport, query_config)
+            .await?
+            .query_id)
     }
 
     pub async fn execute_query(&self, input: QueryInput) -> Result<Vec<u8>, Error> {
         let query_id = input.query_id;
-        self.query_processor.receive_inputs(self.transport.clone(), input)?;
+        self.query_processor
+            .receive_inputs(self.transport.clone(), input)?;
 
         Ok(self.query_processor.complete(query_id).await?.into_bytes())
     }
-
 }
-

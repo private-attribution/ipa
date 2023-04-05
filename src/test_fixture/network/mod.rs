@@ -1,12 +1,12 @@
 mod transport;
 
 use crate::{
-    helpers::{HelperIdentity},
+    helpers::HelperIdentity,
     sync::{Arc, Weak},
 };
 
-pub use transport::Setup;
 use crate::helpers::TransportCallbacks;
+pub use transport::Setup;
 
 pub type InMemoryTransport = Weak<transport::InMemoryTransport>;
 

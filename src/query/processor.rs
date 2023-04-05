@@ -1,8 +1,7 @@
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        Gateway, GatewayConfig, Role, RoleAssignment,
-        Transport, TransportError, TransportImpl,
+        Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
     },
     protocol::QueryId,
     query::{
@@ -275,16 +274,13 @@ mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
-        helpers::query::QueryType,
-        test_fixture::network::{
-            InMemoryNetwork
-        },
+        helpers::{query::QueryType, HelperIdentity, PrepareQueryCallback, TransportCallbacks},
+        test_fixture::network::InMemoryNetwork,
     };
     use futures::pin_mut;
-    use futures_util::{future::poll_immediate};
+    use futures_util::future::poll_immediate;
     use std::future::Future;
-    use tokio::{sync::Barrier};
-    use crate::helpers::{HelperIdentity, PrepareQueryCallback, TransportCallbacks};
+    use tokio::sync::Barrier;
 
     fn callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
     where
@@ -447,16 +443,10 @@ mod tests {
             ff::{Field, Fp31},
             helpers::query::IpaQueryConfig,
             ipa_test_input,
-            protocol::{
-                ipa::{IPAInputRow},
-                BreakdownKey, MatchKey,
-            },
+            protocol::{ipa::IPAInputRow, BreakdownKey, MatchKey},
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
-        
-        
-        
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {

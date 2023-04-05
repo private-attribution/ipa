@@ -1,36 +1,39 @@
-use std::future::Future;
-use std::pin::Pin;
-use crate::helpers::query::{PrepareQuery, QueryConfig};
-use crate::helpers::TransportError;
-use crate::protocol::QueryId;
+use crate::{
+    helpers::{
+        query::{PrepareQuery, QueryConfig},
+        TransportError,
+    },
+    protocol::QueryId,
+};
+use std::{future::Future, pin::Pin};
 
 pub trait ReceiveQueryCallback<T>:
-FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
-+ Send
+    FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
+    + Send
 {
 }
 
 impl<T, F> ReceiveQueryCallback<T> for F where
     F: FnMut(
-        T,
-        QueryConfig,
-    ) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
-    + Send
+            T,
+            QueryConfig,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
+        + Send
 {
 }
 
 pub trait PrepareQueryCallback<'a, T>:
-FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
-+ Send
+    FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
+    + Send
 {
 }
 
 impl<'a, T, F> PrepareQueryCallback<'a, T> for F where
     F: FnMut(
-        T,
-        PrepareQuery,
-    ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
-    + Send
+            T,
+            PrepareQuery,
+        ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>>
+        + Send
 {
 }
 
@@ -47,4 +50,3 @@ impl<T> Default for TransportCallbacks<'_, T> {
         }
     }
 }
-

@@ -1,4 +1,4 @@
-use crate::{rand::thread_rng, secret_sharing::replicated::malicious::ExtendableField};
+use crate::{rand::thread_rng, secret_sharing::replicated::malicious::ExtendableField, HelperApp};
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};

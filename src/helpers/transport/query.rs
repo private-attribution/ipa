@@ -8,9 +8,7 @@ use crate::{
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{Debug, Formatter},
-};
+use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
 
 #[derive(Copy, Clone, Debug)]

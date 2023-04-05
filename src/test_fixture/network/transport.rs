@@ -25,16 +25,16 @@ use std::{
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
-use crate::{
-    helpers::{query::PrepareQuery, TransportError},
-};
+use crate::helpers::{query::PrepareQuery, TransportCallbacks, TransportError};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio::sync::oneshot;
-use crate::helpers::TransportCallbacks;
 
-
-type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), TransportError>>);
+type Packet = (
+    Addr,
+    InMemoryStream,
+    oneshot::Sender<Result<(), TransportError>>,
+);
 type ConnectionTx = Sender<Packet>;
 type ConnectionRx = Receiver<Packet>;
 type StreamItem = Vec<u8>;
@@ -516,16 +516,15 @@ impl Setup {
 mod tests {
     use super::*;
     use crate::{
+        error::Error,
         ff::{FieldType, Fp31},
-        helpers::{OrderingSender, query::QueryType, HelperIdentity},
+        helpers::{query::QueryType, HelperIdentity, OrderingSender},
         protocol::Step,
         test_fixture::network::InMemoryNetwork,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
-    use std::{num::NonZeroUsize, panic::AssertUnwindSafe};
-    use std::io::ErrorKind;
+    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe};
     use tokio::sync::{mpsc::channel, oneshot};
-    use crate::error::Error;
 
     const STEP: &str = "in-memory-transport";
 
@@ -533,8 +532,11 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
         rx.await
-            .map_err(|e| TransportError::Io { inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed" )})
-            .and_then(convert::identity).unwrap();
+            .map_err(|e| TransportError::Io {
+                inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
+            })
+            .and_then(convert::identity)
+            .unwrap();
     }
 
     #[tokio::test]
@@ -583,7 +585,8 @@ mod tests {
             poll_immediate(&mut stream).next().await,
             Some(Poll::Pending)
         ));
-        send_and_ack(&tx,
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
@@ -598,7 +601,8 @@ mod tests {
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let expected = vec![vec![1], vec![2]];
 
-        send_and_ack(&tx,
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
@@ -678,7 +682,8 @@ mod tests {
         let transport = Arc::downgrade(&owned_transport);
 
         let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
-        send_and_ack(&tx,
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, step.clone()),
             stream,
         )
@@ -713,7 +718,7 @@ mod tests {
     async fn can_consume_ordering_sender() {
         let tx = Arc::new(OrderingSender::new(
             NonZeroUsize::new(2).unwrap(),
-            NonZeroUsize::new(2).unwrap()
+            NonZeroUsize::new(2).unwrap(),
         ));
         let rx = tx.clone().as_rc_stream();
         // let (tx, rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(2).unwrap());

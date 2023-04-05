@@ -7,7 +7,6 @@ use crate::{
     protocol::QueryId,
 };
 
-
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
 ///
