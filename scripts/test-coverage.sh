@@ -65,7 +65,7 @@ echo "Generating profiling data"
 llvm-profdata merge -sparse -o "$profdata" "$profdir"/*.profraw
 
 echo "Generating HTML report in $profdir"
-test_binary="$(ls -td -I '*.*' ./target/debug/deps/raw_ipa-* | head -1)"
+test_binary="$(ls -td -I '*.*' ./target/debug/deps/ipa-* | head -1)"
 llvm-cov show -Xdemangler=rustfilt "$test_binary" -instr-profile="$profdata" \
     -show-line-counts-or-regions -show-instantiations \
     -ignore-filename-regex="/\.cargo/registry/" \

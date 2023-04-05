@@ -152,7 +152,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
         secret_sharing::SharedValue,
-        seq_join::seq_try_join_all,
+        seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -168,9 +168,8 @@ mod tests {
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
-                let ctx = ctx.set_total_records(COUNT);
-                seq_try_join_all(
-                    repeat(ctx)
+                ctx.try_join_all(
+                    repeat(ctx.set_total_records(COUNT))
                         .take(COUNT)
                         .enumerate()
                         .map(|(i, ctx)| solved_bits(ctx, RecordId::from(i))),

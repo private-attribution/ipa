@@ -247,13 +247,11 @@ where
     /// Wrap a stream for unordered reading.
     ///
     /// The capacity here determines how far ahead a read can be.  In most cases,
-    /// this should be the same as the value given to [`ordering_mpsc`].
+    /// this should be the same as the value given to `ordering_mpsc`.
     ///
     /// # Panics
     ///
     /// The `capacity` needs to be at least 2.
-    ///
-    /// [`ordering_mpsc`]: crate::helpers::buffers::ordering_mpsc::ordering_mpsc
     pub fn new(stream: Pin<Box<S>>, capacity: NonZeroUsize) -> Self {
         // We use `c/2` as a divisor, so `c == 1` would be bad.
         assert!(capacity.get() > 1, "a capacity of 1 is too small");

@@ -34,7 +34,7 @@ pub fn assert_send<'a, O>(
 ///
 /// This API accepts an active stream count and a [`Stream`] instance,
 /// from which `Future`s are drawn.
-/// To replicate the effect of [`join_all`], an input `Iterator` can be adapted using
+/// To replicate the effect of [`try_join_all`], an input `Iterator` can be adapted using
 /// [`futures::stream::iter`]; the output can be collected into a [`Vec`] (or any
 /// collection) using [`StreamExt::collect`], as follows:
 ///
@@ -42,7 +42,7 @@ pub fn assert_send<'a, O>(
 /// # // Ignore because this module is private to the crate.
 /// # async fn join_all() {
 /// # use std::num::NonZeroUsize;
-/// # use raw_ipa::helpers::buffers::seq_join;
+/// # use ipa::seq_join::seq_join;
 /// use futures::stream::{StreamExt, iter};
 ///
 /// let capacity = NonZeroUsize::new(5).unwrap();
@@ -63,8 +63,8 @@ pub fn assert_send<'a, O>(
 /// This will fail to resolve if the progress of any future depends on a future more
 /// than `active` items behind it in the input sequence.
 ///
+/// [`try_join_all`]: futures::future::try_join_all
 /// [`Stream`]: futures::stream::Stream
-/// [`futures::stream::iter`]: futures::stream::iter::iter
 /// [`StreamExt::collect`]: futures::stream::StreamExt::collect
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
 pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I::IntoIter, F>
@@ -83,6 +83,8 @@ where
 /// from the provided context so that the value can be made consistent.
 pub trait SeqJoin {
     /// Call [`seq_try_join_all`] with the `active` parameter set based on the value of [`active_work`].
+    ///
+    /// [`active_work`]: Self::active_work
     fn try_join_all<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
     where
         I: IntoIterator<Item = F> + Send,
@@ -101,8 +103,6 @@ type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
-///
-/// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
 pub fn seq_try_join_all<I, F, O, E>(
     active: NonZeroUsize,
     iterable: I,

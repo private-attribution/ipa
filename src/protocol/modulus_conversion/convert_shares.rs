@@ -12,7 +12,7 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
-    seq_join::{assert_send, seq_try_join_all},
+    seq_join::assert_send,
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -154,20 +154,22 @@ where
     let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
     // The outer loop is concurrent; the inner is fully sequential.
     try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
-        assert_send(seq_try_join_all(
-            zip(locally_converted_bits, repeat(ctx.clone()))
-                .enumerate()
-                .map(move |(idx, (record, ctx))| async move {
-                    convert_bit_list(
-                        ctx.narrow(&IpaProtocolStep::ModulusConversion(
-                            chunk[0].try_into().unwrap(),
-                        )),
-                        &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
-                        RecordId::from(idx),
-                    )
-                    .await
-                }),
-        ))
+        assert_send(
+            ctx.try_join_all(
+                zip(locally_converted_bits, repeat(ctx.clone()))
+                    .enumerate()
+                    .map(move |(idx, (record, ctx))| async move {
+                        convert_bit_list(
+                            ctx.narrow(&IpaProtocolStep::ModulusConversion(
+                                chunk[0].try_into().unwrap(),
+                            )),
+                            &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
+                            RecordId::from(idx),
+                        )
+                        .await
+                    }),
+            ),
+        )
     }))
     .await
 }

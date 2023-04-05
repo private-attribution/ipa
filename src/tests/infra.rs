@@ -7,7 +7,7 @@ use crate::{
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
-    seq_join::seq_try_join_all,
+    seq_join::SeqJoin,
     test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
 use futures::future::try_join;
@@ -20,7 +20,7 @@ fn send_receive_sequential() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
+                    gateway_config: GatewayConfig::new(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -75,7 +75,7 @@ fn send_receive_parallel() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers::<TestField>(input.len()),
+                    gateway_config: GatewayConfig::new(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -97,7 +97,7 @@ fn send_receive_parallel() {
                             futures.push(left_channel.send(record_id, share.left()));
                             futures.push(right_channel.send(record_id, share.right()));
                         }
-                        seq_try_join_all(futures)
+                        ctx.try_join_all(futures)
                             .await
                             .unwrap()
                             .into_iter()
@@ -115,7 +115,7 @@ fn send_receive_parallel() {
                             ));
                         }
 
-                        let result = seq_try_join_all(futures).await.unwrap();
+                        let result = ctx.try_join_all(futures).await.unwrap();
 
                         result.into_iter().map(Replicated::from).collect::<Vec<_>>()
                     })

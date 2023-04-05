@@ -64,7 +64,7 @@ impl MetricsHandle {
         // use this feature.
         // Tests that verify metric values must set the span verbosity level to Info.
         // Tests that don't care will set the verbosity level to Debug. In case if metrics need
-        // to be seen by a human `RUST_LOG=raw_ipa::debug` environment variable must be set to
+        // to be seen by a human `RUST_LOG=ipa::debug` environment variable must be set to
         // print them
         let span = match level {
             Level::INFO => {

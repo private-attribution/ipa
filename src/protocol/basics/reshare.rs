@@ -16,7 +16,6 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
-    seq_join::seq_try_join_all,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -209,7 +208,7 @@ where
     where
         C: 'fut,
     {
-        seq_try_join_all(
+        ctx.try_join_all(
             zip(repeat(ctx.set_total_records(self.len())), self.iter())
                 .enumerate()
                 .map(|(i, (c, x))| async move { x.reshare(c, RecordId::from(i), to_helper).await }),

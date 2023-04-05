@@ -9,6 +9,10 @@ pub mod logging;
 pub mod metrics;
 pub mod network;
 
+pub use crate::test_fixture::ipa::{
+    generate_random_user_records_in_reverse_chronological_order, test_ipa,
+    update_expected_output_for_user, IpaSecurityModel,
+};
 use crate::{
     ff::{Field, Fp31},
     protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
@@ -16,10 +20,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 use futures::TryFuture;
-pub use ipa::{
-    generate_random_user_records_in_reverse_chronological_order, test_ipa,
-    update_expected_output_for_user, IpaSecurityModel,
-};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;

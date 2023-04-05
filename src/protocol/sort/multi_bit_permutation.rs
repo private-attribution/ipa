@@ -3,7 +3,6 @@ use crate::{
     ff::Field,
     protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
-    seq_join::SeqJoin,
 };
 use std::iter::repeat;
 
@@ -101,6 +100,7 @@ mod tests {
         ff::{Field, Fp31},
         protocol::{context::Context, sort::check_everything},
         secret_sharing::SharedValue,
+        seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 

@@ -10,7 +10,7 @@ use crate::{
         replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         IntoShares,
     },
-    seq_futures::try_join_all,
+    seq_join::seq_try_join_all,
     test_fixture::input::GenericReportTestInput,
 };
 use generic_array::GenericArray;
@@ -54,7 +54,7 @@ where
             ByteArrStream::from(r)
         });
 
-    try_join_all(
+    seq_try_join_all(
         inputs
             .into_iter()
             .zip(clients)

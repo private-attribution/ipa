@@ -1,6 +1,5 @@
 use clap::Parser;
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use raw_ipa::{
+use ipa::{
     error::Error,
     ff::Fp32BitPrime,
     helpers::GatewayConfig,
@@ -9,6 +8,7 @@ use raw_ipa::{
         update_expected_output_for_user, IpaSecurityModel, TestWorld, TestWorldConfig,
     },
 };
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
 
 /// A benchmark for the full IPA protocol.

@@ -245,7 +245,7 @@ impl OrderingSender {
     /// This occurs when a message cannot reliably be written to the buffer
     /// because it would overflow the buffer.  The data already in the buffer
     /// might not reach the threshold for sending, which means that progress
-    /// is impossible.  Polling the promise returned by [`send`] will panic if
+    /// is impossible.  Polling the promise returned by `send` will panic if
     /// the spare capacity is insufficient.
     pub fn send<M: Message>(&self, i: usize, m: M) -> Send<'_, M> {
         Send { i, m, sender: self }

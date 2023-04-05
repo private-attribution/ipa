@@ -105,8 +105,7 @@ mod tests {
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
-        seq_join::seq_try_join_all,
-        test_fixture::{join3, Reconstruct, Runner, TestWorld},
+        test_fixture::{join3, join3v, Reconstruct, Runner, TestWorld},
     };
     use std::iter::zip;
 
@@ -190,12 +189,7 @@ mod tests {
         assert_eq!(rbg[0].fallbacks(), rbg[1].fallbacks());
         assert_eq!(rbg[0].fallbacks(), rbg[2].fallbacks());
 
-        let result = <[_; 3]>::try_from(
-            seq_try_join_all(zip(validators, m_result).map(|(v, m)| v.validate(m)))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
+        let result = join3v(zip(validators, m_result).map(|(v, m)| v.validate(m))).await;
         let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
     }
 }

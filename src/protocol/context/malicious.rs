@@ -482,9 +482,9 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 /// record ID and the other can use something like a `BitOpStep`.
 ///
 /// ```no_run
-/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp32BitPrime;
-/// use raw_ipa::secret_sharing::replicated::{
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime;
+/// use ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // Note: Unbound upgrades only work when testing.
@@ -498,9 +498,9 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 /// ```
 ///
 /// ```compile_fail
-/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp32BitPrime;
-/// use raw_ipa::secret_sharing::replicated::{
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime;
+/// use ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // This can't be upgraded with a record-bound context because the record ID

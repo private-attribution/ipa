@@ -13,7 +13,7 @@ use crate::{
         BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Linear as LinearSecretSharing,
-    seq_join::{seq_join, SeqJoin},
+    seq_join::seq_join,
 };
 use futures::{future::try_join_all, stream::once, StreamExt, TryStreamExt};
 use std::iter::{repeat, zip};
