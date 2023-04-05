@@ -93,7 +93,7 @@ impl<M: Message> SendingEnd<M> {
     /// for sending.
     ///
     /// ## Errors
-    /// If send operation fails or [`record_id`] exceeds the channel limit set by [`set_total_records`]
+    /// If send operation fails or `record_id` exceeds the channel limit set by [`set_total_records`]
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records

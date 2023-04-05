@@ -10,6 +10,8 @@ use std::io;
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
+///
+/// [`HelperIdentity`]: crate::helpers::HelperIdentity
 #[derive(Clone)]
 pub(super) struct RoleResolvingTransport<T> {
     pub query_id: QueryId,

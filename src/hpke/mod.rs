@@ -66,8 +66,8 @@ impl From<io::Error> for DecryptionError {
     }
 }
 
-/// Opens the given ciphertext in place by first obtaining the secret key from [`key_registry`]
-/// using epoch and key from [`info`] and then applying [`HPKE decryption`] to the provided ciphertext.
+/// Opens the given ciphertext in place by first obtaining the secret key from `key_registry`
+/// using epoch and key from `info` and then applying [`HPKE decryption`] to the provided ciphertext.
 ///
 /// This function mutates the provided ciphertext slice and replaces it with the plaintext obtained
 /// after opening the ciphertext. The result will contain a pointer to the plaintext slice.
