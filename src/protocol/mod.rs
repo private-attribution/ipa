@@ -106,7 +106,7 @@ impl Step {
     /// Determine if this step is "narrower" than the `other` step.
     ///
     /// ```
-    /// # use raw_ipa::protocol::Step;
+    /// # use ipa::protocol::Step;
     /// let s1 = Step::from("one");
     /// let s2 = s1.narrow("two");
     /// assert!(s2.is_narrower_than(&s1));

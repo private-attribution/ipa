@@ -1,6 +1,6 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use raw_ipa::cli::Verbosity;
+use ipa::cli::Verbosity;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]

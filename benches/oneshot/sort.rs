@@ -1,5 +1,4 @@
-use rand::Rng;
-use raw_ipa::{
+use ipa::{
     error::Error,
     ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
     helpers::GatewayConfig,
@@ -12,6 +11,7 @@ use raw_ipa::{
     secret_sharing::SharedValue,
     test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
+use rand::Rng;
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]

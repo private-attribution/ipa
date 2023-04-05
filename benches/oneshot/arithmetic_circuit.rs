@@ -1,5 +1,5 @@
 use clap::Parser;
-use raw_ipa::{ff::Fp31, secret_sharing::SharedValue, test_fixture::circuit};
+use ipa::{ff::Fp31, secret_sharing::SharedValue, test_fixture::circuit};
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
