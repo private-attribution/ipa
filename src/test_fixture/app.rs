@@ -1,29 +1,27 @@
-use crate::{
-    error::Error,
-    ff::Serializable,
-    helpers::{
-        query::{QueryConfig, QueryInput},
-        ByteArrStream, Transport, TransportError,
-    },
-    query::QueryProcessor,
-    secret_sharing::IntoShares,
-    test_fixture::{
-        network::{InMemoryNetwork, Network, TransportCallbacks},
-    },
-};
+use crate::{HelperApp, AppSetup, error::Error, ff::Serializable, helpers::{
+    query::{QueryConfig, QueryInput},
+    ByteArrStream, Transport, TransportError,
+}, query::QueryProcessor, secret_sharing::IntoShares, test_fixture::{
+    network::{InMemoryNetwork},
+}};
 use futures_util::{future::try_join_all, FutureExt};
 use generic_array::GenericArray;
-
-use std::{
+use crate::{
     sync::{Arc},
 };
+use axum::extract::Query;
 use typenum::Unsigned;
+use crate::helpers::query::PrepareQuery;
+use crate::helpers::TransportImpl;
 
 pub trait IntoBuf {
     fn into_buf(self) -> Vec<u8>;
 }
 
-impl<I: IntoIterator<Item = S>, S: Serializable> IntoBuf for I {
+impl<I, S> IntoBuf for I
+    where I: IntoIterator<Item=S>,
+          S: Serializable
+{
     fn into_buf(self) -> Vec<u8> {
         let this = self.into_iter();
         let (lb, ub) = this.size_hint();
@@ -44,29 +42,36 @@ impl<I: IntoIterator<Item = S>, S: Serializable> IntoBuf for I {
 ///
 /// [`InMemoryNetwork`]: crate::test_fixture::network::InMemoryNetwork
 pub struct TestApp {
-    query_processors: [Arc<QueryProcessor>; 3],
+    drivers: [HelperApp; 3],
     network: InMemoryNetwork,
 }
 
-struct AppDriver<T: Transport> {
-    query_processor: Arc<QueryProcessor>,
-    transport: T,
+fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
+    let [v0, v1, v2] = input;
+    (
+        [v0.0, v1.0, v2.0],
+        [v0.1, v1.1, v2.1],
+    )
 }
 
 impl TestApp {
     pub fn new() -> Self {
-        let processors = [
-            QueryProcessor::default(),
-            QueryProcessor::default(),
-            QueryProcessor::default(),
-        ]
-        .map(Arc::new);
+        let (setup, callbacks) = unzip_tuple_array([
+            AppSetup::new(),
+            AppSetup::new(),
+            AppSetup::new(),
+        ]);
 
-        let callbacks = processors.clone().map(|p| AppDriver::callback(p));
         let network = InMemoryNetwork::new(callbacks);
+        let drivers = network.transports().iter().zip(setup)
+            .map(|(t, s)| s.connect(t.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| "infallible")
+            .unwrap();
 
         Self {
-            query_processors: processors,
+            drivers,
             network,
         }
     }
@@ -76,86 +81,25 @@ impl TestApp {
         input: I,
         query_config: QueryConfig,
     ) -> Result<[Vec<u8>; 3], Error>
-    where
-        I: IntoShares<A>,
-        A: IntoBuf,
+        where
+            I: IntoShares<A>,
+            A: IntoBuf,
     {
         let helpers_input = input.share().map(IntoBuf::into_buf);
-        let transports = self.network.transports();
 
         // helper 1 initiates the query
-        let running_query = self.query_processors[0]
-            .new_query(&transports[0], query_config)
+        let query_id = self.drivers[0].start_query(query_config)
             .await?;
 
         // Send inputs and poll for completion
-        for (i, input) in helpers_input.into_iter().enumerate() {
-            self.query_processors[i].receive_inputs(
-                transports[i].clone(),
-                QueryInput {
-                    query_id: running_query.query_id,
-                    input_stream: ByteArrStream::from(input),
-                },
-            )?;
-        }
-
-        let r = try_join_all(self.query_processors.iter().map(|processor| {
-            processor
-                .complete(running_query.query_id)
-                .map(|r| r.map(|r| r.into_bytes()))
-        }))
-        .await?;
+        let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
+            self.drivers[i].execute_query(QueryInput {
+                query_id,
+                input_stream: ByteArrStream::from(input),
+            })
+        })).await?;
 
         Ok(<[_; 3]>::try_from(r).unwrap())
     }
 }
 
-impl<T: Transport> AppDriver<T> {
-    /// Create callbacks that tie up query processor and transport.
-    fn callback(query_processor: Arc<QueryProcessor>) -> TransportCallbacks<'static, T> {
-        let callbacks = TransportCallbacks {
-            receive_query: {
-                let processor = query_processor.clone();
-                Box::new(move |transport: T, receive_query| {
-                    Box::pin({
-                        // I don't know how to convince Rust compiler that this block owns
-                        // processor
-                        let processor = processor.clone();
-                        async move {
-                            let dest = transport.identity();
-                            let r = processor
-                                .new_query(&transport, receive_query)
-                                .await
-                                .map_err(|e| TransportError::Rejected {
-                                    dest,
-                                    inner: Box::new(e),
-                                })?;
-
-                            Ok(r.query_id)
-                        }
-                    })
-                })
-            },
-            prepare_query: {
-                let processor = query_processor.clone();
-                Box::new(move |transport: T, prepare_query| {
-                    Box::pin({
-                        let processor = processor.clone();
-                        async move {
-                            let dest = transport.identity();
-                            processor
-                                .prepare(&transport, prepare_query)
-                                .await
-                                .map_err(|e| TransportError::Rejected {
-                                    dest,
-                                    inner: Box::new(e),
-                                })
-                        }
-                    })
-                })
-            },
-        };
-
-        callbacks
-    }
-}

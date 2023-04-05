@@ -8,9 +8,11 @@ use std::{borrow::Borrow, io};
 
 mod bytearrstream;
 pub mod query;
+mod callbacks;
 
 use crate::error::BoxError;
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
+pub use callbacks::{TransportCallbacks, PrepareQueryCallback, ReceiveQueryCallback};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized

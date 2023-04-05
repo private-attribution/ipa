@@ -277,15 +277,14 @@ mod tests {
         ff::FieldType,
         helpers::query::QueryType,
         test_fixture::network::{
-            InMemoryNetwork, Network, PrepareQueryCallback,
-            TransportCallbacks,
+            InMemoryNetwork
         },
     };
     use futures::pin_mut;
     use futures_util::{future::poll_immediate};
     use std::future::Future;
     use tokio::{sync::Barrier};
-    use crate::helpers::HelperIdentity;
+    use crate::helpers::{HelperIdentity, PrepareQueryCallback, TransportCallbacks};
 
     fn callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
     where

@@ -27,6 +27,9 @@ pub mod uri;
 pub mod test_fixture;
 
 mod tests;
+mod app;
+
+pub use app::{Setup as AppSetup, HelperApp};
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]

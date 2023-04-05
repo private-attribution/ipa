@@ -27,7 +27,7 @@ use crate::{
 use shuttle::future as tokio;
 
 #[cfg(any(feature = "test-fixture", test))]
-pub type TransportImpl = <crate::test_fixture::network::InMemoryNetwork as crate::test_fixture::network::Network>::Endpoint;
+pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
 #[cfg(not(any(feature = "test-fixture", test)))]
 pub type TransportImpl = crate::helpers::transport::DummyTransport;
 

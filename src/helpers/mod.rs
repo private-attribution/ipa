@@ -20,14 +20,14 @@ pub use gateway::{Gateway, GatewayBase, TransportImpl};
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     AlignedByteArrStream, ByteArrStream, Error as TransportError, NoResourceIdentifier,
-    QueryIdBinding, RouteId, RouteParams, StepBinding, Transport,
+    QueryIdBinding, RouteId, RouteParams, StepBinding, Transport, TransportCallbacks, PrepareQueryCallback, ReceiveQueryCallback
 };
 
 pub use transport::query;
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
-pub use buffers::ordering_mpsc;
+pub use buffers::OrderingSender;
 
 use crate::{
     ff::Serializable,
