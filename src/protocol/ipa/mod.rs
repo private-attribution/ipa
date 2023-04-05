@@ -762,11 +762,11 @@ pub mod tests {
         // Sort the records in chronological order
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
         let config = TestWorldConfig {
             gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
             ..Default::default()
         };
-
         let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {

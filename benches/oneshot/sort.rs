@@ -20,8 +20,10 @@ async fn main() -> Result<(), Error> {
     const NUM_MULTI_BITS: u32 = 3;
     type BenchField = Fp32BitPrime;
 
-    let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::new(BATCHSIZE.clamp(4, 1024));
+    let config = TestWorldConfig {
+        gateway_config: GatewayConfig::new(BATCHSIZE.clamp(4, 1024)),
+        ..TestWorldConfig::default()
+    };
     let world = TestWorld::new_with(config);
     let [ctx0, ctx1, ctx2] = world.contexts();
     let mut rng = rand::thread_rng();

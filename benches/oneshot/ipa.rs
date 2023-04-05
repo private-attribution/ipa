@@ -54,12 +54,14 @@ async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
     let prep_time = Instant::now();
-    let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::new(
-        args.active_work
-            .map(NonZeroUsize::get)
-            .unwrap_or_else(|| args.query_size.clamp(16, 1024)),
-    );
+    let config = TestWorldConfig {
+        gateway_config: GatewayConfig::new(
+            args.active_work
+                .map(NonZeroUsize::get)
+                .unwrap_or_else(|| args.query_size.clamp(16, 1024)),
+        ),
+        ..TestWorldConfig::default()
+    };
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
     println!(

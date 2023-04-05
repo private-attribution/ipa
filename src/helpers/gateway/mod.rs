@@ -5,19 +5,19 @@ mod transport;
 pub use receive::ReceivingEnd;
 pub use send::SendingEnd;
 
-use std::{fmt::Debug, num::NonZeroUsize};
-
 use crate::{
-    helpers::{transport::TransportImpl, ChannelId, Message, Role, RoleAssignment, TotalRecords},
+    helpers::{
+        gateway::{
+            receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
+        },
+        transport::TransportImpl,
+        ChannelId, Message, Role, RoleAssignment, TotalRecords,
+    },
     protocol::QueryId,
-};
-
-use crate::helpers::gateway::{
-    receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use typenum::Unsigned;
+use std::{fmt::Debug, num::NonZeroUsize};
 
 /// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages
 pub struct Gateway {
@@ -71,11 +71,9 @@ impl Gateway {
         channel_id: &ChannelId,
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
-        let (tx, maybe_stream) = self.senders.get_or_create::<M>(
-            channel_id,
-            self.config.send_outstanding_bytes::<M>(),
-            total_records,
-        );
+        let (tx, maybe_stream) =
+            self.senders
+                .get_or_create::<M>(channel_id, self.config.active_work(), total_records);
         if let Some(stream) = maybe_stream {
             tokio::spawn({
                 let channel_id = channel_id.clone();
@@ -96,7 +94,7 @@ impl Gateway {
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<M> {
         ReceivingEnd::new(
             self.receivers
-                .get_or_create::<M, _>(channel_id, || self.transport.receive::<M>(channel_id)),
+                .get_or_create::<M, _>(channel_id, || self.transport.receive(channel_id)),
         )
     }
 }
@@ -118,38 +116,56 @@ impl GatewayConfig {
     pub fn active_work(&self) -> NonZeroUsize {
         self.active
     }
-
-    /// Get the size of the send buffer to use.
-    ///
-    /// ## Panics
-    /// Never.
-    #[must_use]
-    pub fn send_outstanding_bytes<M: Message>(&self) -> NonZeroUsize {
-        self.active
-            .saturating_mul(NonZeroUsize::new(M::Size::USIZE).unwrap())
-    }
-
-    /// Get the size of the receive buffer to use.
-    ///
-    /// ## Panics
-    /// Never.
-    #[must_use]
-    pub fn recv_outstanding<M: Message>(&self) -> NonZeroUsize {
-        self.active
-            .saturating_mul(NonZeroUsize::new(M::Size::USIZE).unwrap())
-    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::GatewayConfig;
+    use super::*;
     use crate::{
-        ff::{Field, Fp31},
-        helpers::Role,
+        ff::{Field, Fp31, Fp32BitPrime, Gf2},
+        helpers::{Direction, GatewayConfig, SendingEnd},
         protocol::{context::Context, RecordId},
-        test_fixture::{TestWorld, TestWorldConfig},
+        test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
-    use futures_util::future::try_join;
+    use futures_util::future::{join, try_join};
+
+    /// Verifies that [`Gateway`] send buffer capacity is adjusted to the message size.
+    /// IPA protocol opens many channels to send values from different fields, while message size
+    /// is set per channel, it does not have to be the same across multiple send channels.
+    ///
+    /// Gateway must be able to deal with it.
+    #[tokio::test]
+    async fn can_handle_heterogeneous_channels() {
+        async fn send<F: Field>(channel: &SendingEnd<F>, i: usize) {
+            channel
+                .send(i.into(), F::truncate_from(u128::try_from(i).unwrap()))
+                .await
+                .unwrap();
+        }
+
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig::new(2),
+            ..Default::default()
+        };
+
+        let world = TestWorld::new_with(config);
+        world
+            .semi_honest((), |ctx, _| async move {
+                let fp2_ctx = ctx.narrow("fp2").set_total_records(100);
+                let fp32_ctx = ctx.narrow("fp32").set_total_records(100);
+                let role = ctx.role();
+
+                let fp2_channel = fp2_ctx.send_channel::<Gf2>(role.peer(Direction::Right));
+                let fp32_channel =
+                    fp32_ctx.send_channel::<Fp32BitPrime>(role.peer(Direction::Right));
+
+                // joins must complete, despite us not closing the send channel.
+                // fp2 channel byte capacity must be set to 2 bytes, fp32 channel can store 8 bytes.
+                join(send(&fp2_channel, 0), send(&fp2_channel, 1)).await;
+                join(send(&fp32_channel, 0), send(&fp32_channel, 1)).await;
+            })
+            .await;
+    }
 
     #[tokio::test]
     pub async fn handles_reordering() {
