@@ -47,6 +47,14 @@ struct Args {
     bench: bool,
 }
 
+impl Args {
+    fn active(&self) -> usize {
+        self.active_work
+            .map(NonZeroUsize::get)
+            .unwrap_or_else(|| self.query_size.clamp(16, 1024))
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
@@ -55,11 +63,7 @@ async fn main() -> Result<(), Error> {
 
     let prep_time = Instant::now();
     let config = TestWorldConfig {
-        gateway_config: GatewayConfig::new(
-            args.active_work
-                .map(NonZeroUsize::get)
-                .unwrap_or_else(|| args.query_size.clamp(16, 1024)),
-        ),
+        gateway_config: GatewayConfig::new(args.active()),
         ..TestWorldConfig::default()
     };
 
