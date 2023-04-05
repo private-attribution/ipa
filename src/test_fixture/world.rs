@@ -11,7 +11,10 @@ use crate::{
         QueryId, Substep,
     },
     rand::thread_rng,
-    secret_sharing::{replicated::malicious::{DowngradeMalicious, ExtendableField}, IntoShares},
+    secret_sharing::{
+        replicated::malicious::{DowngradeMalicious, ExtendableField},
+        IntoShares,
+    },
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,

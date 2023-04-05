@@ -288,7 +288,7 @@ where
     //   }
 
     let capped = zip(
-        repeat(ctx.set_total_records(num_rows - 1)),
+        repeat(ctx.set_total_records(num_rows - 1)).enumerate(),
         zip(
             zip(
                 // Take the original credit at the current line
@@ -301,16 +301,12 @@ where
             input[1..].iter().map(|i| &i.helper_bit),
         ),
     )
-    .enumerate()
     .map(
         |(
-            i,
+            (i, ctx),
             (
-                ctx,
-                (
-                    ((original_credit, next_prefix_summed_credit), exceeds_cap),
-                    next_event_has_same_match_key,
-                ),
+                ((original_credit, next_prefix_summed_credit), exceeds_cap),
+                next_event_has_same_match_key,
             ),
         )| async move {
             let record_id = RecordId::from(i);
@@ -346,10 +342,7 @@ where
         },
     );
 
-    let last = original_credits
-        .last()
-        .map(<T as Clone>::clone)
-        .ok_or(Error::Internal);
+    let last = original_credits.last().ok_or(Error::Internal).cloned();
 
     seq_join(ACTIVE.unwrap(), capped)
         .chain(once(async { last }))
