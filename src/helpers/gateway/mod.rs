@@ -166,6 +166,7 @@ mod tests {
         config.gateway_config.send_outstanding = 2.try_into().unwrap();
 
         let world = Box::leak(Box::new(TestWorld::new_with(config)));
+        let world_ptr = world as *mut _;
         let contexts = world.contexts();
         let sender_ctx = contexts[0].narrow("reordering-test").set_total_records(2);
         let recv_ctx = contexts[1].narrow("reordering-test").set_total_records(2);
@@ -173,7 +174,7 @@ mod tests {
         // send record 1 first and wait for confirmation before sending record 0.
         // when gateway received record 0 it triggers flush so it must make sure record 1 is also
         // sent (same batch or different does not matter here)
-        tokio::spawn(async move {
+        let spawned = tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
             try_join(
                 channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
@@ -195,5 +196,7 @@ mod tests {
             (Fp31::truncate_from(1u128), Fp31::truncate_from(0u128)),
             result
         );
+        spawned.await.unwrap();
+        let _world = unsafe { Box::from_raw(world_ptr) };
     }
 }
