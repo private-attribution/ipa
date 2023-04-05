@@ -517,9 +517,9 @@ pub mod tests {
             input::GenericReportTestInput,
             ipa::{
                 generate_random_user_records_in_reverse_chronological_order, test_ipa,
-                update_expected_output_for_user,
+                update_expected_output_for_user, IpaSecurityModel,
             },
-            IpaSecurityModel, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
     };
     use generic_array::GenericArray;
