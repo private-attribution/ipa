@@ -1,4 +1,3 @@
-mod error;
 mod handlers;
 
 pub use error::Error;

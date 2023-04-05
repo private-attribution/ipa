@@ -1,15 +1,23 @@
 mod error;
 
 pub use error::Error;
+use futures::{Stream, StreamExt};
 
 use crate::{
     config::NetworkConfig,
-    helpers::HelperIdentity,
+    helpers::{
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        ByteArrStream, HelperIdentity,
+    },
     net::http_serde,
     protocol::{QueryId, Step},
 };
 use axum::{body::StreamBody, http::uri};
-use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
+use hyper::{
+    body,
+    client::{HttpConnector, ResponseFuture},
+    Body, Client, Response, Uri,
+};
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
 
@@ -87,7 +95,11 @@ impl MpcHelperClient {
         }
     }
 
-    async fn resp_ok(resp: Response<Body>) -> Result<(), Error> {
+    /// Helper to read a possible error response to a request that returns nothing on success
+    ///
+    /// # Errors
+    /// If there was an error reading the response body or if the request itself failed.
+    pub async fn resp_ok(resp: Response<Body>) -> Result<(), Error> {
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -148,19 +160,18 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     /// # Panics
     /// If messages size > max u32 (unlikely)
-    pub async fn step(
+    #[allow(clippy::unused_async)] // TODO: will need to be async if we want to wait for server acknowledgement
+    pub async fn step<S: Stream<Item = Vec<u8>> + Send + 'static>(
         &self,
         origin: HelperIdentity,
         query_id: QueryId,
         step: &Step,
-        payload: Vec<u8>,
-        offset: u32,
-    ) -> Result<(), Error> {
-        let req =
-            http_serde::query::step::Request::new(origin, query_id, step.clone(), payload, offset);
+        data: S,
+    ) -> Result<ResponseFuture, Error> {
+        let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
+        let req = http_serde::query::step::Request::new(origin, query_id, step.clone(), body);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
-        Self::resp_ok(resp).await
+        Ok(self.client.request(req))
     }
 
     /// Wait for completion of the query and pull the results of this query. This is a blocking

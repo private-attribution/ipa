@@ -15,12 +15,12 @@ pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
 pub trait ResourceIdentifier: Sized {}
-pub trait QueryIdBinding: Sized
+pub trait QueryIdBinding: Send + Sized
 where
     Option<QueryId>: From<Self>,
 {
 }
-pub trait StepBinding: Sized
+pub trait StepBinding: Send + Sync + Sized
 where
     Option<Step>: From<Self>,
 {
@@ -33,7 +33,6 @@ pub struct NoStep;
 #[derive(Debug, Copy, Clone)]
 pub enum RouteId {
     Records,
-    ReceiveQuery,
     PrepareQuery,
 }
 
@@ -58,7 +57,8 @@ impl From<NoStep> for Option<Step> {
 impl StepBinding for NoStep {}
 impl StepBinding for Step {}
 
-pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
+pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>:
+    Send + Sync
 where
     Option<QueryId>: From<Q>,
     Option<Step>: From<S>,

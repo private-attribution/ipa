@@ -1,7 +1,7 @@
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{ByteArrStream, NoQueryId, NoStep},
+        transport::{ByteArrStream, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
     protocol::{QueryId, Substep},
@@ -37,32 +37,6 @@ impl Default for QueryConfig {
             #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
             query_type: QueryType::Ipa(IpaQueryConfig::default()),
         }
-    }
-}
-
-impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
-    type Params = String;
-
-    fn resource_identifier(&self) -> RouteId {
-        RouteId::ReceiveQuery
-    }
-
-    fn query_id(&self) -> NoQueryId {
-        NoQueryId
-    }
-
-    fn step(&self) -> NoStep {
-        NoStep
-    }
-
-    #[cfg(feature = "enable-serde")]
-    fn extra(&self) -> Self::Params {
-        serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 

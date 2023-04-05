@@ -1,8 +1,7 @@
 use crate::{
     helpers::{
-        query::{PrepareQuery, QueryConfig},
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
-        Transport, TransportCallbacks, TransportError,
+        query::PrepareQuery, HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId,
+        RouteParams, StepBinding, Transport, TransportCallbacks, TransportError,
     },
     protocol::{QueryId, Step},
     test_fixture::network::{receive::ReceiveRecords, stream::StreamCollection},
@@ -19,7 +18,7 @@ use serde::de::DeserializeOwned;
 use shuttle::future as tokio;
 use std::{
     borrow::Borrow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     convert,
     fmt::{Debug, Formatter},
     io,
@@ -77,22 +76,10 @@ impl InMemoryTransport {
                 let streams = self.record_streams.clone();
                 let this = Arc::downgrade(self);
                 async move {
-                    let mut active_queries = HashSet::new();
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
                         let result = match addr.route {
-                            RouteId::ReceiveQuery => {
-                                let qc = addr.into::<QueryConfig>();
-                                (callbacks.receive_query)(Weak::clone(&this), qc).await.map(
-                                    |query_id| {
-                                        assert!(
-                                            active_queries.insert(query_id),
-                                            "the same query id {query_id:?} is generated twice"
-                                        );
-                                    },
-                                )
-                            }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
                                 let step = addr.step.unwrap();
@@ -348,7 +335,10 @@ mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{query::QueryType, HelperIdentity, OrderingSender},
+        helpers::{
+            query::{QueryConfig, QueryType},
+            HelperIdentity, OrderingSender, Role, RoleAssignment,
+        },
         protocol::Step,
         test_fixture::network::InMemoryNetwork,
     };
@@ -375,7 +365,7 @@ mod tests {
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
         let (tx, _transport) =
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
-                receive_query: Box::new(move |_transport, query_config| {
+                prepare_query: Box::new(move |_transport, prepare_query| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
                         // this works because callback is only called once
@@ -383,17 +373,21 @@ mod tests {
                             .lock()
                             .unwrap()
                             .take()
-                            .expect("query callback invoked more than once")
-                            .send(query_config)
+                            .expect("callback invoked more than once")
+                            .send(prepare_query)
                             .unwrap();
-                        Ok(QueryId)
+                        Ok(())
                     })
                 }),
                 ..Default::default()
             });
-        let expected = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
+        let expected = PrepareQuery {
+            query_id: QueryId,
+            config: QueryConfig {
+                field_type: FieldType::Fp32BitPrime,
+                query_type: QueryType::TestMultiply,
+            },
+            roles: RoleAssignment::try_from(Role::all().to_owned()).unwrap(),
         };
 
         send_and_ack(

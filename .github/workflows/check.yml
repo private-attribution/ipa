@@ -89,7 +89,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --features enable-benches
+        run: cargo build --benches --no-default-features --features enable-benches
 
       - name: Build concurrency tests
         run: cargo build --release --features shuttle

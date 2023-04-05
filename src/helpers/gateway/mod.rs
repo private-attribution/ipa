@@ -22,7 +22,7 @@ use std::{fmt::Debug, num::NonZeroUsize};
 #[cfg(any(feature = "test-fixture", test))]
 pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
 #[cfg(not(any(feature = "test-fixture", test)))]
-pub type TransportImpl = crate::helpers::transport::DummyTransport;
+pub type TransportImpl = std::sync::Arc<crate::net::HttpTransport>;
 
 pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 
