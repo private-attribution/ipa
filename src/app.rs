@@ -47,7 +47,7 @@ impl Setup {
                 Box::new(move |transport: TransportImpl, receive_query| {
                     Box::pin({
                         // I don't know how to convince Rust compiler that this block owns
-                        // processor. Even clippy agrees with me, but not the rustc.
+                        // processor.
                         let processor = Arc::clone(&processor);
                         async move {
                             let dest = transport.identity();

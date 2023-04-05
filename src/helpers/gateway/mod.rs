@@ -7,19 +7,13 @@ pub use send::SendingEnd;
 use std::{fmt::Debug, num::NonZeroUsize};
 
 use crate::{
-    helpers::{ChannelId, Message, Role, RoleAssignment, TotalRecords},
-    protocol::QueryId,
-};
-
-use crate::{
-    ff::Field,
     helpers::{
         gateway::{
             receive::{GatewayReceivers, ReceivingEnd as ReceivingEndBase},
             send::GatewaySenders,
             transport::RoleResolvingTransport,
         },
-        Transport,
+        ChannelId, Message, Role, RoleAssignment, TotalRecords, Transport,
     },
     protocol::QueryId,
 };
@@ -119,12 +113,10 @@ impl<T: Transport> GatewayBase<T> {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            /// send buffer capacity, in bytes
-            send_outstanding_bytes: NonZeroUsize::new(4096).unwrap(),
+            /// send buffer capacity, defined as number of messages it can hold before flushing
+            /// them downstream
+            send_outstanding: NonZeroUsize::new(1024).unwrap(),
             // receive buffer capacity in total messages it can hold.
-            /// set to match send buffer capacity / [`Fp32`] size
-            ///
-            /// [`Fp32`]: crate::ff::Fp32BitPrime
             recv_outstanding: NonZeroUsize::new(1024).unwrap(),
         }
     }

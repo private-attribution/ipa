@@ -66,7 +66,11 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(&self, mut callbacks: TransportCallbacks<'static, Weak<Self>>, mut rx: ConnectionRx) {
+    fn listen(
+        self: &Arc<Self>,
+        mut callbacks: TransportCallbacks<'static, Weak<Self>>,
+        mut rx: ConnectionRx,
+    ) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -467,13 +471,12 @@ pub struct Setup {
     identity: HelperIdentity,
     tx: ConnectionTx,
     rx: ConnectionRx,
-    callbacks: TransportCallbacks,
     connections: HashMap<HelperIdentity, ConnectionTx>,
 }
 
 impl Setup {
     #[must_use]
-    pub fn new(identity: HelperIdentity, callbacks: TransportCallbacks) -> Self {
+    pub fn new(identity: HelperIdentity) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,

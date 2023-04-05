@@ -275,7 +275,7 @@ mod tests {
     use std::future::Future;
     use tokio::sync::Barrier;
 
-    fn callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
+    fn prepare_query_callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
     where
         F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'a,
         Fut: Future<Output = Result<(), TransportError>> + Send + 'a,
@@ -285,16 +285,17 @@ mod tests {
 
     #[tokio::test]
     async fn new_query() {
-        let barrier: &_ = Box::leak(Box::new(Barrier::new(3)));
+        let barrier: &mut _ = Box::leak(Box::new(Barrier::new(3)));
+        let barrier_ptr = barrier as *mut _;
         let cb2 = TransportCallbacks {
-            prepare_query: callback(|_, _| async {
+            prepare_query: prepare_query_callback(|_, _| async {
                 barrier.wait().await;
                 Ok(())
             }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
-            prepare_query: callback(|_, _| async {
+            prepare_query: prepare_query_callback(|_, _| async {
                 barrier.wait().await;
                 Ok(())
             }),
@@ -327,6 +328,8 @@ mod tests {
             qc
         );
         assert_eq!(Some(QueryStatus::AwaitingInputs), p0.status(QueryId));
+        // SAFETY: nothing is trying to access barrier at this point
+        let _barrier = unsafe { Box::from_raw(barrier_ptr) };
     }
 
     #[tokio::test]
@@ -350,11 +353,11 @@ mod tests {
     #[tokio::test]
     async fn prepare_rejected() {
         let cb2 = TransportCallbacks {
-            prepare_query: callback(|_, _| async { Ok(()) }),
+            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
-            prepare_query: callback(|_, _| async {
+            prepare_query: prepare_query_callback(|_, _| async {
                 Err(TransportError::Rejected {
                     dest: HelperIdentity::THREE,
                     inner: "rejected".into(),
@@ -496,94 +499,5 @@ mod tests {
 
             Ok(())
         }
-        //
-        // #[tokio::test]
-        // async fn ipa() {
-        //     const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
-        //     const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        //     let network = InMemoryNetwork::default();
-        //     let (query_id, mut processors) = start_query(
-        //         &network,
-        //         QueryConfig {
-        //             field_type: FieldType::Fp31,
-        //             query_type: IpaQueryConfig {
-        //                 num_multi_bits: 3,
-        //                 per_user_credit_cap: 3,
-        //                 max_breakdown_key: 3,
-        //                 attribution_window_seconds: 0,
-        //             }
-        //             .into(),
-        //         },
-        //     )
-        //     .await;
-        //
-        //     let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-        //         [
-        //             { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-        //             { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-        //             { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-        //             { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-        //             { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-        //         ];
-        //         (Fp31, MatchKey, BreakdownKey)
-        //     );
-        //     let helper_shares = records
-        //         .share()
-        //         .into_iter()
-        //         .map(|shares| {
-        //             let data = shares
-        //                 .into_iter()
-        //                 .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
-        //                     let mut buf =
-        //                         [0u8; <IPAInputRow::<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
-        //                     share.serialize(GenericArray::from_mut_slice(&mut buf));
-        //
-        //                     buf
-        //                 })
-        //                 .collect::<Vec<_>>();
-        //
-        //             ByteArrStream::from(data)
-        //         })
-        //         .collect::<Vec<_>>();
-        //
-        //     for (i, input_stream) in helper_shares.into_iter().enumerate() {
-        //         let (tx, rx) = oneshot::channel();
-        //         network.transports[i]
-        //             .deliver(QueryCommand::Input(
-        //                 QueryInput {
-        //                     query_id,
-        //                     input_stream,
-        //                 },
-        //                 tx,
-        //             ))
-        //             .await;
-        //         processors[i].handle_next().await;
-        //         rx.await.unwrap();
-        //     }
-        //
-        //     let result: [_; 3] = join_all(processors.map(|mut processor| async move {
-        //         let r = processor.complete(query_id).await.unwrap().into_bytes();
-        //         MCAggregateCreditOutputRow::<Fp31, Replicated<Fp31>, BreakdownKey>::from_byte_slice(
-        //             &r,
-        //         )
-        //         .collect::<Vec<_>>()
-        //     }))
-        //     .await
-        //     .try_into()
-        //     .unwrap();
-        //
-        //     let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-        //         result.reconstruct();
-        //     assert_eq!(result.len(), EXPECTED.len());
-        //     for (i, expected) in EXPECTED.iter().enumerate() {
-        //         assert_eq!(
-        //             *expected,
-        //             [
-        //                 result[i].breakdown_key.as_u128(),
-        //                 result[i].trigger_value.as_u128()
-        //             ]
-        //         );
-        //     }
-        // }
     }
 }
