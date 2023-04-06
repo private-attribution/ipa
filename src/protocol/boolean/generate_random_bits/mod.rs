@@ -14,7 +14,6 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::try_join_all;
 
 mod malicious;
 mod semi_honest;
@@ -64,7 +63,7 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    try_join_all(triples.iter().enumerate().map(|(i, t)| {
+    ctx.parallel_join(triples.iter().enumerate().map(|(i, t)| {
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { convert_bit(c, record_id, t).await }
     }))

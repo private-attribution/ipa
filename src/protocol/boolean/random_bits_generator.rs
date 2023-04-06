@@ -95,8 +95,7 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use futures::future::try_join_all;
-
+    #![allow(clippy::disallowed_methods)]
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
@@ -107,6 +106,7 @@ mod tests {
         },
         test_fixture::{join3, join3v, Reconstruct, Runner, TestWorld},
     };
+    use futures::future::try_join_all;
     use std::iter::zip;
 
     #[tokio::test]

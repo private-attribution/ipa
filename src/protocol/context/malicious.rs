@@ -8,7 +8,7 @@ use std::{
 
 use crate::seq_join::SeqJoin;
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3, try_join_all};
+use futures::future::{try_join, try_join3};
 
 use crate::{
     error::Error,
@@ -412,15 +412,16 @@ impl<'a, F: Field + ExtendableField>
         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
     ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
         let ctx_ref = &self.ctx;
-        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
-            |(idx, bit)| async move {
-                ctx_ref
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                    .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                    .await
-            },
-        ))
-        .await?;
+        let breakdown_key = ctx_ref
+            .parallel_join(input.breakdown_key.into_iter().enumerate().map(
+                |(idx, bit)| async move {
+                    ctx_ref
+                        .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
+                        .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
+                        .await
+                },
+            ))
+            .await?;
 
         let helper_bit = self
             .ctx
@@ -612,7 +613,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        ctx.try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.join(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 ctx: ctx_ref.clone(),
@@ -643,23 +644,26 @@ where
         assert_ne!(num_records, 0);
         let num_columns = input[0].len();
         let ctx = self.ctx.set_total_records(num_records);
+        let ctx_ref = &self.ctx;
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
 
-        ctx.try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
-            |(record_idx, (all_ctx, one_input))| async move {
-                // This inner join is truly concurrent.
-                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
-                    UpgradeContext {
-                        ctx,
-                        record_binding: RecordId::from(record_idx),
-                    }
-                    .upgrade(share)
-                    .await
-                }))
-                .await
-            },
-        ))
-        .await
+        ctx_ref
+            .join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+                |(record_idx, (all_ctx, one_input))| async move {
+                    // This inner join is truly concurrent.
+                    ctx_ref
+                        .parallel_join(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                            UpgradeContext {
+                                ctx,
+                                record_binding: RecordId::from(record_idx),
+                            }
+                            .upgrade(share)
+                            .await
+                        }))
+                        .await
+                },
+            ))
+            .await
     }
 }
 

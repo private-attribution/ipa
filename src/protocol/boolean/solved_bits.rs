@@ -168,7 +168,7 @@ mod tests {
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
-                ctx.try_join_all(
+                ctx.join(
                     repeat(ctx.set_total_records(COUNT))
                         .take(COUNT)
                         .enumerate()

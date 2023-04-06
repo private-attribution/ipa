@@ -139,7 +139,7 @@ mod test {
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                ctx.try_join_all(
+                ctx.join(
                     zip(
                         repeat(ctx.set_total_records(COUNT)),
                         zip(a_shares, b_shares),

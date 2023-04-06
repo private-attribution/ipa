@@ -15,7 +15,7 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
-use futures::{future::try_join_all, stream::once, StreamExt, TryStreamExt};
+use futures::{stream::once, StreamExt, TryStreamExt};
 use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
@@ -127,7 +127,7 @@ where
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
     let ever_any_subsequent_credit = ctx
-        .try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+        .join(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
@@ -140,7 +140,7 @@ where
         .narrow(&Step::IfCurrentExceedsCapOrElse)
         .set_total_records(input.len() - 1);
     let capped_credits = ctx
-        .try_join_all(
+        .join(
             uncapped_credits
                 .iter()
                 .zip(ever_any_subsequent_credit.iter())
@@ -179,7 +179,7 @@ where
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    ctx.try_join_all(
+    ctx.join(
         input
             .iter()
             .zip(zip(
@@ -230,29 +230,31 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
+    let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(prefix_summed_credits.len());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
-    // This can't use `seq_try_join_all` because `greater_than_constant` uses
-    // a `RandomBitsGenerator`
-    try_join_all(
-        prefix_summed_credits
-            .iter()
-            .zip(zip(repeat(ctx), repeat(cap)))
-            .enumerate()
-            .map(|(i, (credit, (ctx, cap)))| {
-                greater_than_constant(
-                    ctx.narrow(&Step::IsCapLessThanCurrentContribution),
-                    RecordId::from(i),
-                    rbg,
-                    credit,
-                    cap.into(),
-                )
-            }),
-    )
-    .await
+    // TODO: This can't use a sequential join because `greater_than_constant` uses
+    // a `RandomBitsGenerator`.  We need to fix that.
+    ctx_ref
+        .parallel_join(
+            prefix_summed_credits
+                .iter()
+                .zip(zip(repeat(ctx), repeat(cap)))
+                .enumerate()
+                .map(|(i, (credit, (ctx, cap)))| {
+                    greater_than_constant(
+                        ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+                        RecordId::from(i),
+                        rbg,
+                        credit,
+                        cap.into(),
+                    )
+                }),
+        )
+        .await
 }
 
 async fn compute_final_credits<F, C, T>(

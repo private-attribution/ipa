@@ -1,5 +1,3 @@
-use futures::future::try_join_all;
-
 use super::xor;
 use crate::{
     error::Error,
@@ -100,12 +98,12 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
+    // This is truly a parallel operation across the bits of the input.
+    ctx.parallel_join(zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { xor(c, record_id, a_bit, b_bit).await }
-    });
-    // True concurrency
-    try_join_all(xor).await
+    }))
+    .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

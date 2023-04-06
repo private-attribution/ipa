@@ -14,7 +14,6 @@ use crate::{
     },
     seq_join::assert_send,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
@@ -153,9 +152,9 @@ where
 
     let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
     // The outer loop is concurrent; the inner is fully sequential.
-    try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
+    ctx.parallel_join(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
         assert_send(
-            ctx.try_join_all(
+            ctx.join(
                 zip(locally_converted_bits, repeat(ctx.clone()))
                     .enumerate()
                     .map(move |(idx, (record, ctx))| async move {
@@ -189,8 +188,8 @@ where
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
     // True concurrency needed here (different contexts).
-    try_join_all(
-        zip(repeat(ctx), locally_converted_bits.iter())
+    ctx.parallel_join(
+        zip(repeat(ctx.clone()), locally_converted_bits.iter())
             .enumerate()
             .map(|(i, (ctx, bit))| async move {
                 convert_bit(

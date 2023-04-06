@@ -135,8 +135,8 @@ where
         }
 
         let (stop_bit_updates, credit_updates) = try_join(
-            assert_send(ctx.try_join_all(stop_bit_futures)),
-            assert_send(ctx.try_join_all(credit_update_futures)),
+            assert_send(ctx.join(stop_bit_futures)),
+            assert_send(ctx.join(credit_update_futures)),
         )
         .await?;
 
@@ -219,8 +219,8 @@ where
         }
 
         let (stop_bit_updates, value_updates) = try_join(
-            assert_send(ctx.try_join_all(stop_bit_futures)),
-            assert_send(ctx.try_join_all(value_update_futures)),
+            assert_send(ctx.join(stop_bit_futures)),
+            assert_send(ctx.join(value_update_futures)),
         )
         .await?;
 
@@ -252,7 +252,7 @@ where
         .narrow(&Step::ComputeHelperBits)
         .set_total_records(sorted_match_keys.len() - 1);
 
-    ctx.try_join_all(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
+    ctx.join(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
         let c = narrowed_ctx.clone();
         let record_id = RecordId::from(i);
         async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
@@ -272,7 +272,7 @@ where
         .set_total_records(semi_honest_helper_bits_gf2.len());
 
     sh_ctx
-        .try_join_all(
+        .join(
             semi_honest_helper_bits_gf2
                 .iter()
                 .enumerate()

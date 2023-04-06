@@ -140,7 +140,7 @@ where
         let ctx_ref = &ctx;
         let ctx = ctx.set_total_records(self.perm.len());
         let revealed_permutation = ctx_ref
-            .try_join_all(zip(repeat(ctx), self.perm.iter()).enumerate().map(
+            .join(zip(repeat(ctx), self.perm.iter()).enumerate().map(
                 |(index, (ctx, value))| async move {
                     let reveal_value = value.reveal(ctx, RecordId::from(index)).await;
 

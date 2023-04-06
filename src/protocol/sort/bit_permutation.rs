@@ -57,7 +57,7 @@ pub async fn bit_permutation<
                 let record_id = RecordId::from(i);
                 x.multiply(&sum, ctx, record_id).await
             });
-    let mut mult_output = ctx_ref.try_join_all(async_multiply).await?;
+    let mut mult_output = ctx_ref.join(async_multiply).await?;
 
     debug_assert!(mult_output.len() == input.len() * 2);
     // Generate permutation location

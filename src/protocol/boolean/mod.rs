@@ -21,7 +21,6 @@ mod xor;
 
 pub use bit_decomposition::BitDecomposition;
 pub use comparison::greater_than_constant;
-use futures::future::try_join_all;
 pub use generate_random_bits::RandomBits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
@@ -71,7 +70,8 @@ where
             ));
             mult_count += 1;
         }
-        let mut results = try_join_all(multiplications).await?;
+        // This needs to happen in parallel.
+        let mut results = ctx.parallel_join(multiplications).await?;
         if shares_to_multiply.len() % 2 == 1 {
             results.push(shares_to_multiply.pop().unwrap());
         }
