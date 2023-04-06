@@ -385,6 +385,7 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::disallowed_methods)] // It's a test without a context to use.
     use super::OrderingSender;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},

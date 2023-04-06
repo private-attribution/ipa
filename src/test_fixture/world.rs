@@ -202,6 +202,7 @@ impl Runner for TestWorld {
     {
         let contexts = self.contexts();
         let input_shares = input.share_with(&mut thread_rng());
+        #[allow(clippy::disallowed_methods)] // It's just 3 items.
         let output =
             join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
         <[_; 3]>::try_from(output).unwrap()

@@ -1,0 +1,4 @@
+disallowed-methods = [
+  "futures::future::join_all",
+  "futures::future::try_join_all",
+]

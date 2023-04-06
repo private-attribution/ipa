@@ -289,6 +289,8 @@ where
 {
     type Target = Vec<<T as Downgrade>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        // TODO: validate that the vector here is truly small.
+        #[allow(clippy::disallowed_methods)]
         let result = join_all(
             self.into_iter()
                 .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
