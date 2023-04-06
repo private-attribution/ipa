@@ -12,8 +12,8 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
+    seq_join::assert_send,
 };
-use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
@@ -151,20 +151,23 @@ where
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
     let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
-    try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
-        try_join_all(
-            zip(locally_converted_bits, repeat(ctx.clone()))
-                .enumerate()
-                .map(|(idx, (record, ctx))| async move {
-                    convert_bit_list(
-                        ctx.narrow(&IpaProtocolStep::ModulusConversion(
-                            chunk[0].try_into().unwrap(),
-                        )),
-                        &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
-                        RecordId::from(idx),
-                    )
-                    .await
-                }),
+    // The outer loop is concurrent; the inner is fully sequential.
+    ctx.parallel_join(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
+        assert_send(
+            ctx.join(
+                zip(locally_converted_bits, repeat(ctx.clone()))
+                    .enumerate()
+                    .map(move |(idx, (record, ctx))| async move {
+                        convert_bit_list(
+                            ctx.narrow(&IpaProtocolStep::ModulusConversion(
+                                chunk[0].try_into().unwrap(),
+                            )),
+                            &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
+                            RecordId::from(idx),
+                        )
+                        .await
+                    }),
+            ),
         )
     }))
     .await
@@ -184,8 +187,9 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    try_join_all(
-        zip(repeat(ctx), locally_converted_bits.iter())
+    // True concurrency needed here (different contexts).
+    ctx.parallel_join(
+        zip(repeat(ctx.clone()), locally_converted_bits.iter())
             .enumerate()
             .map(|(i, (ctx, bit))| async move {
                 convert_bit(

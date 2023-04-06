@@ -1,14 +1,11 @@
-use std::iter::{repeat, zip};
-
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
+use std::iter::{repeat, zip};
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
@@ -41,6 +38,7 @@ pub async fn bit_permutation<
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, Error> {
+    let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(2 * input.len());
     let share_of_one = S::share_known_value(&ctx, F::ONE);
 
@@ -59,7 +57,7 @@ pub async fn bit_permutation<
                 let record_id = RecordId::from(i);
                 x.multiply(&sum, ctx, record_id).await
             });
-    let mut mult_output = try_join_all(async_multiply).await?;
+    let mut mult_output = ctx_ref.join(async_multiply).await?;
 
     debug_assert!(mult_output.len() == input.len() * 2);
     // Generate permutation location
