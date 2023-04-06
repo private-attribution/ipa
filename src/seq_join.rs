@@ -67,12 +67,16 @@ pub trait SeqJoin {
     /// [`parallel_join`] is better suited to smaller batches, such as iterating over
     /// the bits of a value for a single record.
     ///
+    /// Note that the join functions from the [`futures`] crate, such as [`join3`],
+    /// are also parallel and can be used where you have a small, fixed number of tasks.
+    ///
     /// Be especially careful if you use the random bits generator with this.
     /// The random bits generator can produce values out of sequence.
     /// You might need to use [`parallel_join`] for that.
     ///
     /// [`active_work`]: Self::active_work
     /// [`parallel_join`]: Self::parallel_join
+    /// [`join3`]: futures::future::join3
     fn join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
     where
         I: IntoIterator<Item = F> + Send,
