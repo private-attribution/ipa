@@ -1,4 +1,4 @@
 disallowed-methods = [
-  "futures::future::join_all",
-  "futures::future::try_join_all",
+  { path = "futures::future::join_all", reason = "We don't have a replacement for this method yet. Consider extending `SeqJoin` trait." },
+  { path = "futures::future::try_join_all", reason = "Use Context.join instead." },
 ]
