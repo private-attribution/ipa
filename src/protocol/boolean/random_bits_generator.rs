@@ -95,7 +95,6 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    #![allow(clippy::disallowed_methods)]
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
