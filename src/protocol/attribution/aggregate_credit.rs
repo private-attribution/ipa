@@ -265,7 +265,7 @@ where
         .set_total_records(inputs.len());
 
     let increments = ctx
-        .join(
+        .try_join(
             inputs
                 .iter()
                 .enumerate()
@@ -275,7 +275,7 @@ where
                     async move {
                         let equality_checks =
                             check_everything(c1.clone(), i, breakdown_key_bits).await?;
-                        c1.join(equality_checks.iter().take(to_take).enumerate().map(
+                        c1.try_join(equality_checks.iter().take(to_take).enumerate().map(
                             |(check_idx, check)| {
                                 let step = BitOpStep::from(check_idx);
                                 let c = c2.narrow(&step);

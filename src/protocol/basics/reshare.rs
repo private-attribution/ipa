@@ -208,7 +208,7 @@ where
     where
         C: 'fut,
     {
-        ctx.join(
+        ctx.try_join(
             zip(repeat(ctx.set_total_records(self.len())), self.iter())
                 .enumerate()
                 .map(|(i, (c, x))| async move { x.reshare(c, RecordId::from(i), to_helper).await }),

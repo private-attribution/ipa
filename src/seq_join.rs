@@ -77,7 +77,7 @@ pub trait SeqJoin {
     /// [`active_work`]: Self::active_work
     /// [`parallel_join`]: Self::parallel_join
     /// [`join3`]: futures::future::join3
-    fn join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
+    fn try_join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
     where
         I: IntoIterator<Item = F> + Send,
         I::IntoIter: Send,

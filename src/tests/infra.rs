@@ -97,7 +97,11 @@ fn send_receive_parallel() {
                             futures.push(left_channel.send(record_id, share.left()));
                             futures.push(right_channel.send(record_id, share.right()));
                         }
-                        ctx.join(futures).await.unwrap().into_iter().for_each(drop);
+                        ctx.try_join(futures)
+                            .await
+                            .unwrap()
+                            .into_iter()
+                            .for_each(drop);
 
                         // receive all shares from the left peer in parallel
                         let left_channel = left_ctx.recv_channel::<Fp32BitPrime>(left_peer);
@@ -111,7 +115,7 @@ fn send_receive_parallel() {
                             ));
                         }
 
-                        let result = ctx.join(futures).await.unwrap();
+                        let result = ctx.try_join(futures).await.unwrap();
 
                         result.into_iter().map(Replicated::from).collect::<Vec<_>>()
                     })

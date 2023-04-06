@@ -51,7 +51,7 @@ where
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
     let credits = ctx
-        .join(input.iter().skip(1).enumerate().map(|(i, x)| {
+        .try_join(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = memoize_context.clone();
             let record_id = RecordId::from(i);
             async move {
@@ -110,7 +110,7 @@ where
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
     let helper_bits = ctx
-        .join(input.iter().skip(1).enumerate().map(|(i, x)| {
+        .try_join(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = memoize_context.clone();
             let record_id = RecordId::from(i);
             let is_trigger_bit = &x.is_trigger_report;
