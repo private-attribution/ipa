@@ -62,7 +62,17 @@ pub trait SeqJoin {
     /// This uses [`seq_join`], with the current state of the associated object
     /// being used to determine the number of active items to track (see [`active_work`]).
     ///
+    /// A rough rule of thumb for how to decide between this and [`parallel_join`] is
+    /// that this should be used whenever you are iterating over different records.
+    /// [`parallel_join`] is better suited to smaller batches, such as iterating over
+    /// the bits of a value for a single record.
+    ///
+    /// Be especially careful if you use the random bits generator with this.
+    /// The random bits generator can produce values out of sequence.
+    /// You might need to use [`parallel_join`] for that.
+    ///
     /// [`active_work`]: Self::active_work
+    /// [`parallel_join`]: Self::parallel_join
     fn join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
     where
         I: IntoIterator<Item = F> + Send,
