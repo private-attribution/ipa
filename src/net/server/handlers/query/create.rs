@@ -1,33 +1,32 @@
-use crate::net::{http_serde, server::Error};
+use crate::{
+    helpers::Transport,
+    net::{http_serde, Error, HttpTransport},
+    query::NewQueryError,
+    sync::Arc,
+};
 use axum::{routing::post, Extension, Json, Router};
-use tokio::sync::{mpsc, oneshot};
+use hyper::StatusCode;
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`].
 async fn handler(
-    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
+    transport: Extension<Arc<HttpTransport>>,
     req: http_serde::query::create::Request,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
-    let permit = transport_sender.reserve().await?;
-
-    // prepare command data
-    let (tx, rx) = oneshot::channel();
-
-    // send command, receive response
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Create(req.query_config, tx)),
-    };
-    permit.send(command);
-    let query_id = rx.await?;
-
-    Ok(Json(http_serde::query::create::ResponseBody { query_id }))
+    let transport = Transport::clone_ref(&*transport);
+    match transport.receive_query(req.query_config).await {
+        Ok(query_id) => Ok(Json(http_serde::query::create::ResponseBody { query_id })),
+        Err(err @ NewQueryError::State { .. }) => {
+            Err(Error::application(StatusCode::CONFLICT, err))
+        }
+        Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
+    }
 }
 
-pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::create::AXUM_PATH, post(handler))
-        .layer(Extension(transport_sender))
+        .layer(Extension(transport))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -42,6 +41,7 @@ mod tests {
     use axum::http::Request;
     use futures::{future::poll_immediate, pin_mut};
     use hyper::{Body, StatusCode};
+    use tokio::sync::mpsc;
 
     async fn create_test(expected_query_config: QueryConfig) {
         let (tx, mut rx) = mpsc::channel(1);

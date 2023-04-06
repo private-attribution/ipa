@@ -1,91 +1,106 @@
 use crate::{
-    config::{NetworkConfig, ServerConfig},
+    config::NetworkConfig,
     helpers::{
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
-        Transport, TransportCallbacks,
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        CompleteQueryResult, HelperIdentity, NoResourceIdentifier, PrepareQueryResult,
+        QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams,
+        StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    net::{client::MpcHelperClient, error::Error},
+    net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{QueryId, Step},
     sync::Arc,
-    task::JoinHandle,
 };
 use async_trait::async_trait;
-use futures::{Stream, TryFutureExt};
-use std::{
-    borrow::Borrow,
-    net::{SocketAddr, TcpListener},
-};
-use tokio_stream::Empty;
+use axum::{body::Bytes, extract::BodyStream};
+use futures::{stream::Map, Stream, StreamExt, TryFutureExt};
+use std::borrow::Borrow;
 
+type HttpRecordsStreamInner = Map<BodyStream, fn(Result<Bytes, axum::Error>) -> Vec<u8>>;
+
+// TODO: this can likely be improved
+type HttpRecordsStream =
+    ReceiveRecords<HttpRecordsStreamInner, BodyStream, fn(BodyStream) -> HttpRecordsStreamInner>;
+
+/// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
-    _conf: Arc<NetworkConfig>,
-    #[cfg(never)]
-    subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
-    #[cfg(never)]
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-    #[cfg(never)]
-    server: MpcHelperServer,
+    _network_config: Arc<NetworkConfig>, // TODO: make this not an Arc?
+    callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
+    record_streams: StreamCollection<BodyStream>,
 }
 
 impl HttpTransport {
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)] // TODO: remove when ServerConfig is used
     pub fn new(
         identity: HelperIdentity,
-        _server_conf: ServerConfig,
-        network_conf: Arc<NetworkConfig>,
-        _callbacks: TransportCallbacks<Arc<Self>>,
+        //server_config: ServerConfig,
+        network_config: Arc<NetworkConfig>,
+        callbacks: TransportCallbacks<Arc<HttpTransport>>,
+    ) -> (Arc<Self>, MpcHelperServer) {
+        let transport = Self::new_internal(identity, network_config, callbacks);
+        let server = MpcHelperServer::new(Arc::clone(&transport));
+        (transport, server)
+    }
+
+    fn new_internal(
+        identity: HelperIdentity,
+        network_config: Arc<NetworkConfig>,
+        callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> Arc<Self> {
-        #[cfg(never)]
-        let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
-        #[cfg(never)]
-        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
-        #[cfg(never)]
-        let server = MpcHelperServer::new(subscribe_sender, Arc::clone(&ongoing_queries));
-        let clients = MpcHelperClient::from_conf(&network_conf);
+        let clients = MpcHelperClient::from_conf(&network_config);
         Arc::new(Self {
             identity,
-            _conf: network_conf,
-            #[cfg(never)]
-            subscribe_receiver: Arc::new(Mutex::new(Some(subscribe_receiver))),
-            #[cfg(never)]
-            ongoing_queries,
-            #[cfg(never)]
-            server,
+            _network_config: network_config,
+            callbacks,
             clients,
+            record_streams: StreamCollection::default(),
         })
     }
 
-    #[allow(clippy::missing_panics_doc, clippy::unused_async)] // TODO: temporary
-    pub async fn from_tcp(&self, _socket: TcpListener) {
-        /*
-        tracing::info!("starting server");
-        self.server.bind(BindTarget::HttpListener(socket)).await;
-        */
-        todo!(); // TODO(server)
+    pub fn receive_query(self: Arc<Self>, req: QueryConfig) -> ReceiveQueryResult {
+        (Arc::clone(&self).callbacks.receive_query)(self, req)
     }
 
-    /// Binds self to port described in `peers_conf`.
-    /// # Panics
-    /// if self id not found in `peers_conf`
-    #[allow(clippy::unused_async)] // TODO: temporary
-    pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
-        /*
-        let this_conf = &self.conf.peers()[self.id];
-        let port = this_conf.origin.port().unwrap();
-        let target = BindTarget::Http(format!("0.0.0.0:{}", port.as_str()).parse().unwrap());
-        tracing::info!("starting server; binding to port {}", port.as_str());
-        self.server.bind(target).await
-        */
-        todo!(); // TODO(server)
+    pub fn prepare_query(self: Arc<Self>, req: PrepareQuery) -> PrepareQueryResult {
+        (Arc::clone(&self).callbacks.prepare_query)(self, req)
     }
+
+    pub fn query_input(self: Arc<Self>, req: QueryInput) -> QueryInputResult {
+        (Arc::clone(&self).callbacks.query_input)(self, req)
+    }
+
+    pub fn complete_query(self: Arc<Self>, query_id: QueryId) -> CompleteQueryResult {
+        (Arc::clone(&self).callbacks.complete_query)(self, query_id)
+    }
+
+    /// Connect an inbound stream of MPC record data.
+    ///
+    /// This is called by peer helpers via the HTTP server.
+    pub fn receive_stream(
+        self: Arc<Self>,
+        query_id: QueryId,
+        step: Step,
+        from: HelperIdentity,
+        stream: BodyStream,
+    ) {
+        self.record_streams
+            .add_stream((query_id, from, step), stream);
+    }
+}
+
+fn unwrap_body_chunk(chunk: Result<Bytes, axum::Error>) -> Vec<u8> {
+    // TODO: need to propagate this error somewhere
+    chunk.unwrap().into()
+}
+
+fn unwrap_body_chunks(stream: BodyStream) -> HttpRecordsStreamInner {
+    stream.map(unwrap_body_chunk)
 }
 
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
-    type RecordsStream = Empty<Vec<u8>>; // TODO(server): resolve placeholder
+    type RecordsStream = HttpRecordsStream;
     type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
@@ -115,7 +130,7 @@ impl Transport for Arc<HttpTransport> {
                     .expect("query_id required when sending records");
                 let step =
                     <Option<Step>>::from(route.step()).expect("step required when sending records");
-                let resp_future = self.clients[dest].step(dest, query_id, &step, data)?;
+                let resp_future = self.clients[dest].step(self.identity, query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
                         .map_err(Into::into)
@@ -140,16 +155,14 @@ impl Transport for Arc<HttpTransport> {
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
         &self,
-        _from: HelperIdentity,
-        _route: R,
+        from: HelperIdentity,
+        route: R,
     ) -> Self::RecordsStream {
-        /*
-        ReceiveRecords::new(
+        ReceiveRecords::mapped(
             (route.query_id(), from, route.step()),
             self.record_streams.clone(),
+            unwrap_body_chunks,
         )
-        */
-        todo!() // TODO(server)
     }
 }
 

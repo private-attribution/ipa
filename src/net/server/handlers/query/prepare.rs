@@ -1,27 +1,31 @@
-use crate::net::{http_serde, server::Error};
-use axum::{routing::post, Extension, Router};
-use tokio::sync::{mpsc, oneshot};
+use std::sync::Arc;
 
+use crate::{
+    net::{http_serde, HttpTransport},
+    query::PrepareQueryError,
+};
+use axum::{response::IntoResponse, routing::post, Extension, Router};
+use hyper::StatusCode;
+
+/// Called by whichever peer helper is the leader for an individual query, to initiatialize
+/// processing of that query.
 async fn handler(
+    transport: Extension<Arc<HttpTransport>>,
     req: http_serde::query::prepare::Request,
-    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
-) -> Result<(), Error> {
-    let permit = transport_sender.reserve().await?;
-    let (tx, rx) = oneshot::channel();
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Helper(req.origin),
-        payload: TransportCommand::Query(QueryCommand::Prepare(req.data, tx)),
-    };
-    permit.send(command);
-
-    rx.await?;
-    Ok(())
+) -> Result<(), PrepareQueryError> {
+    Arc::clone(&transport).prepare_query(req.data).await
 }
 
-pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
+impl IntoResponse for PrepareQueryError {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+    }
+}
+
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::prepare::AXUM_PATH, post(handler))
-        .layer(Extension(transport_sender))
+        .layer(Extension(transport))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

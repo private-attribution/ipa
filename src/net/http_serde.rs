@@ -1,5 +1,7 @@
 // there isn't an easy way to compose const strings at compile time, so we will hard-code
 // everything
+// I'm not sure what the preceding comment was referring to hard coding, but the way
+// to compose const strings at compile time is concat!()
 
 pub mod echo {
     use crate::net::Error;
@@ -72,7 +74,6 @@ pub mod echo {
         }
     }
 
-    #[cfg(never)]
     pub const AXUM_PATH: &str = "/echo";
 }
 
@@ -271,7 +272,6 @@ pub mod query {
             pub query_id: QueryId,
         }
 
-        #[cfg(never)]
         pub const AXUM_PATH: &str = "/";
     }
 
@@ -357,7 +357,6 @@ pub mod query {
             roles: RoleAssignment,
         }
 
-        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id";
     }
 
@@ -441,7 +440,6 @@ pub mod query {
             }
         }
 
-        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/input";
     }
 
@@ -456,7 +454,7 @@ pub mod query {
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{FromRequest, Path, RequestParts},
+            extract::{BodyStream, FromRequest, Path, RequestParts},
             http::uri,
         };
 
@@ -511,13 +509,22 @@ pub mod query {
 
         /// Convert from axum request. Used on server side.
         #[async_trait]
-        impl<B: Send> FromRequest<B> for Request<B> {
+        impl<B> FromRequest<B> for Request<BodyStream>
+        where
+            B: Send,
+            BodyStream: FromRequest<B>,
+            Error: From<<BodyStream as FromRequest<B>>::Rejection>,
+        {
             type Rejection = Error;
 
+            // Rust pedantry: letting Rust infer the type parameter for the first `extract()` call
+            // from the LHS of the assignment kind of works, but it requires additional guidance (in
+            // the form of trait bounds on the impl) to see that PathRejection can be converted to
+            // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let Path((query_id, step)) = req.extract().await?;
+                let Path((query_id, step)) = req.extract::<Path<_>>().await?;
                 let origin_header = req.extract::<OriginHeader>().await?;
-                let body = req.take_body().unwrap();
+                let body = req.extract::<BodyStream>().await?;
                 Ok(Self {
                     origin: origin_header.origin,
                     query_id,
@@ -527,7 +534,6 @@ pub mod query {
             }
         }
 
-        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/step/*step";
     }
 
@@ -576,7 +582,6 @@ pub mod query {
             }
         }
 
-        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/complete";
     }
 }

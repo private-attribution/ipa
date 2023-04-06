@@ -131,7 +131,8 @@ impl Processor {
             transport.send(left, &prepare_request, stream::empty()),
             transport.send(right, &prepare_request, stream::empty()),
         )
-        .await?;
+        .await
+        .map_err(NewQueryError::Transport)?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 

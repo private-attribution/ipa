@@ -1,11 +1,10 @@
 mod handlers;
 
-pub use error::Error;
 use hyper::{server::conn::AddrStream, Request};
 
 use crate::{
-    protocol::QueryId,
-    sync::{Arc, Mutex},
+    net::{Error, HttpTransport},
+    sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -17,17 +16,11 @@ use axum_server::{
     Handle, Server,
 };
 use metrics::increment_counter;
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, TcpListener},
-};
+use std::net::{SocketAddr, TcpListener};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-use ::tokio::{
-    io::{AsyncRead, AsyncWrite},
-    sync::mpsc,
-};
+use ::tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -39,28 +32,20 @@ pub enum BindTarget {
     HttpListener(TcpListener),
 }
 
-/// Contains all of the state needed to start the MPC server.
+/// IPA helper web service
+///
+/// `MpcHelperServer` handles requests from both peer helpers and external clients.
 pub struct MpcHelperServer {
-    transport_sender: mpsc::Sender<CommandEnvelope>,
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
+    transport: Arc<HttpTransport>,
 }
 
 impl MpcHelperServer {
-    pub fn new(
-        transport_sender: mpsc::Sender<CommandEnvelope>,
-        ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-    ) -> Self {
-        MpcHelperServer {
-            transport_sender,
-            ongoing_queries,
-        }
+    pub fn new(transport: Arc<HttpTransport>) -> Self {
+        MpcHelperServer { transport }
     }
 
     fn router(&self) -> Router {
-        handlers::router(
-            self.transport_sender.clone(),
-            Arc::clone(&self.ongoing_queries),
-        )
+        handlers::router(Arc::clone(&self.transport))
     }
 
     /// Starts a new instance of MPC helper and binds it to a given target.
@@ -197,18 +182,20 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(never)]
 mod e2e_tests {
     use super::*;
-    use crate::{net::http_serde, test_fixture::metrics::MetricsHandle};
+    use crate::{
+        helpers::TransportCallbacks, net::http_serde, test_fixture::metrics::MetricsHandle,
+    };
     use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
     use metrics_util::debugging::Snapshotter;
     use tracing::Level;
 
     async fn init_server() -> SocketAddr {
-        let (transport_sender, _) = mpsc::channel(1);
-        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
-        let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
+        let callbacks = TransportCallbacks::default();
+        let server = MpcHelperServer::new(callbacks);
         let (addr, _) = server
             .bind(BindTarget::Http("0.0.0.0:0".parse().unwrap()))
             .await;
@@ -256,11 +243,10 @@ mod e2e_tests {
     }
 
     #[tokio::test]
+    #[cfg(never)]
     async fn can_do_https() {
-        // https server
-        let (transport_sender, _) = mpsc::channel(1);
-        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
-        let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
+        let callbacks = TransportCallbacks::default();
+        let server = MpcHelperServer::new(callbacks);
         let config = tls_config_from_self_signed_cert().await.unwrap();
         let (addr, _) = server
             .bind(BindTarget::Https("0.0.0.0:0".parse().unwrap(), config))

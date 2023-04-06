@@ -1,32 +1,29 @@
-use crate::net::{http_serde, server::Error};
+use std::sync::Arc;
+
+use crate::{
+    helpers::Transport,
+    net::{http_serde, server::Error, HttpTransport},
+};
 use axum::{routing::get, Extension, Router};
-use tokio::sync::{mpsc, oneshot};
+use hyper::StatusCode;
 
 /// Handles the completion of the query by blocking the sender until query is completed.
 async fn handler(
+    transport: Extension<Arc<HttpTransport>>,
     req: http_serde::query::results::Request,
-    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
 ) -> Result<Vec<u8>, Error> {
-    let permit = transport_sender.reserve().await?;
-
-    // prepare command data
-    let (tx, rx) = oneshot::channel();
-
-    // send command, receive response
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Results(req.query_id, tx)),
-    };
-    permit.send(command);
-    let results = rx.await?;
-
-    Ok(results.into_bytes())
+    // TODO: we may be able to stream the response
+    let transport = Transport::clone_ref(&*transport);
+    match transport.complete_query(req.query_id).await {
+        Ok(result) => Ok(result.into_bytes()),
+        Err(e) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
 }
 
-pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::results::AXUM_PATH, get(handler))
-        .layer(Extension(transport_sender))
+        .layer(Extension(transport))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

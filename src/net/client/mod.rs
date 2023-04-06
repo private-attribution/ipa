@@ -146,6 +146,8 @@ impl MpcHelperClient {
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         let req = http_serde::query::input::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
+        // Not sure why we are using an axum body type here. Can probably use
+        // `hyper::Body::wrap_stream` instead.
         let resp = self.streaming_client.request(req).await?;
         Self::resp_ok(resp).await
     }

@@ -1,27 +1,26 @@
-use crate::net::{http_serde, server::Error};
+use crate::{
+    helpers::Transport,
+    net::{http_serde, Error, HttpTransport},
+    sync::Arc,
+};
 use axum::{routing::post, Extension, Router};
-use tokio::sync::{mpsc, oneshot};
+use hyper::StatusCode;
 
 async fn handler(
+    transport: Extension<Arc<HttpTransport>>,
     req: http_serde::query::input::Request,
-    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
 ) -> Result<(), Error> {
-    let permit = transport_sender.reserve().await?;
-
-    let (tx, rx) = oneshot::channel();
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Input(req.query_input, tx)),
-    };
-    permit.send(command);
-    rx.await?;
-    Ok(())
+    let transport = Transport::clone_ref(&*transport);
+    transport
+        .query_input(req.query_input)
+        .await
+        .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
-pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::input::AXUM_PATH, post(handler))
-        .layer(Extension(transport_sender))
+        .layer(Extension(transport))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -36,6 +35,7 @@ mod tests {
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
     use hyper::{Body, StatusCode};
+    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn input_test() {
