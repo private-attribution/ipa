@@ -26,6 +26,7 @@ pub mod uri;
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
 
+mod seq_join;
 mod tests;
 
 extern crate core;

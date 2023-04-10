@@ -1,5 +1,5 @@
 [package]
-name = "raw-ipa"
+name = "ipa"
 version = "0.1.0"
 rust-version = "1.64.0"
 edition = "2021"
@@ -82,7 +82,7 @@ lto = "thin"
 debug-assertions = true
 
 [lib]
-name = "raw_ipa"
+name = "ipa"
 path = "src/lib.rs"
 bench = false
 

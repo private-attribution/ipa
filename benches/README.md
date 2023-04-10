@@ -35,7 +35,7 @@ Execute the following command to enable step-level metrics. It is possible to us
 `TestWorld` to set up the environment.
 
 ```bash
-RUST_LOG=raw_ipa=DEBUG cargo bench --bench oneshot_sort --no-default-features --features="enable-benches debug-trace"
+RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_sort --no-default-features --features="enable-benches debug-trace"
 ```
 
 The output would look similar to this:

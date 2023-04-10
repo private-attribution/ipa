@@ -8,7 +8,7 @@ use crate::{
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
-use futures_util::future::try_join_all;
+use futures::future::try_join_all;
 use generic_array::{ArrayLength, GenericArray};
 use std::{fmt::Debug, ops::Add};
 use typenum::Unsigned;

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use raw_ipa::cli::Verbosity;
+use ipa::cli::Verbosity;
 use std::{fmt::Debug, path::PathBuf};
 
 #[derive(Debug, Parser)]

@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
 };
-use raw_ipa::{ff::Fp31, test_fixture::circuit};
+use ipa::{ff::Fp31, test_fixture::circuit};
 use tokio::runtime::Builder;
 
 pub fn criterion_benchmark(c: &mut Criterion) {

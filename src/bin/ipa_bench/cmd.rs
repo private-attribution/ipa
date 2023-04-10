@@ -3,8 +3,8 @@ use crate::sample::Sample;
 use super::gen_events::generate_events;
 
 use clap::Parser;
+use ipa::cli::Verbosity;
 use rand::{rngs::StdRng, SeedableRng};
-use raw_ipa::cli::Verbosity;
 use std::{
     fs::File,
     io,

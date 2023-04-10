@@ -557,9 +557,9 @@ pub mod tests {
             input::GenericReportTestInput,
             ipa::{
                 generate_random_user_records_in_reverse_chronological_order, test_ipa,
-                update_expected_output_for_user,
+                update_expected_output_for_user, IpaSecurityModel,
             },
-            IpaSecurityModel, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
     };
     use generic_array::GenericArray;
@@ -802,13 +802,11 @@ pub mod tests {
         // Sort the records in chronological order
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::symmetric_buffers::<TestField>(
-                raw_data.len().clamp(4, 1024),
-            ),
+            gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
             ..Default::default()
         };
-
         let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {

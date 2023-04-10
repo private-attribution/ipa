@@ -9,9 +9,9 @@ use crate::{
     secret_sharing::replicated::malicious::{
         AdditiveShare as MaliciousReplicated, ExtendableField,
     },
+    seq_join::SeqJoin,
 };
 use async_trait::async_trait;
-use futures::future::try_join_all;
 
 #[async_trait]
 impl<F: PrimeField + ExtendableField> RandomBits<F> for MaliciousContext<'_, F> {
@@ -21,11 +21,11 @@ impl<F: PrimeField + ExtendableField> RandomBits<F> for MaliciousContext<'_, F> 
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
         let triples = random_bits_triples::<F, _>(&self, record_id);
 
-        // upgrade the replicated shares to malicious
+        // Upgrade the replicated shares to malicious, in parallel,
         let c = self.narrow(&Step::UpgradeBitTriples);
         let ctx = &c;
-        let malicious_triples =
-            try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
+        let malicious_triples = ctx
+            .parallel_join(triples.into_iter().enumerate().map(|(i, t)| async move {
                 ctx.narrow(&BitOpStep::from(i))
                     .upgrade_for(record_id, t)
                     .await
