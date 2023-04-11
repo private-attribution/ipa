@@ -40,6 +40,7 @@ pub struct TransportCallbacks<T> {
     pub prepare_query: Box<dyn PrepareQueryCallback<T>>,
 }
 
+#[cfg(any(test, feature = "test-fixture"))]
 impl<T> Default for TransportCallbacks<T> {
     fn default() -> Self {
         Self {
