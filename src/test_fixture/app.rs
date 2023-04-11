@@ -1,4 +1,3 @@
-use std::iter::zip;
 use crate::{
     error::Error,
     ff::Serializable,
@@ -10,6 +9,7 @@ use crate::{
     test_fixture::network::{InMemoryNetwork, InMemoryTransport},
     AppSetup, HelperApp,
 };
+use std::iter::zip;
 
 use generic_array::GenericArray;
 use typenum::Unsigned;

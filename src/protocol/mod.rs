@@ -15,9 +15,8 @@ use crate::{
 use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
-    ops::AddAssign,
+    ops::{Add, AddAssign},
 };
-use std::ops::Add;
 
 pub use basics::BasicProtocols;
 

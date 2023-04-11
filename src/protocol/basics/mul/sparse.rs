@@ -197,7 +197,7 @@ pub(in crate::protocol) mod test {
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             context::Context,
             malicious::MaliciousValidator,
-            BitOpStep,
+            BitOpStep, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
@@ -209,7 +209,6 @@ pub(in crate::protocol) mod test {
     use futures::future::try_join;
     use rand::distributions::{Distribution, Standard};
     use std::{borrow::Borrow, iter::zip};
-    use crate::protocol::RecordId;
 
     #[derive(Clone, Copy)]
     pub struct SparseField<F> {

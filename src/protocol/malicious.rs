@@ -265,8 +265,11 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
             helper_right.send(RecordId::FIRST + 1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) =
-            try_join(helper_left.receive(RecordId::FIRST), helper_left.receive(RecordId::FIRST + 1)).await?;
+        let (u_left, w_left): (F::ExtendedField, F::ExtendedField) = try_join(
+            helper_left.receive(RecordId::FIRST),
+            helper_left.receive(RecordId::FIRST + 1),
+        )
+        .await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))

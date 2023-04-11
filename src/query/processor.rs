@@ -275,7 +275,7 @@ mod tests {
     use std::{future::Future, sync::Arc};
     use tokio::sync::Barrier;
 
-    fn prepare_query_callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
+    fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
     where
         F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), TransportError>> + Send + 'static,

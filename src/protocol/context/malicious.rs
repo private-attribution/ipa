@@ -698,7 +698,7 @@ where
         };
         UpgradeContext {
             ctx,
-            record_binding: RecordId::FIRST
+            record_binding: RecordId::FIRST,
         }
         .upgrade(input)
         .await
