@@ -6,7 +6,6 @@ use crate::{
         ByteArrStream,
     },
     secret_sharing::IntoShares,
-    seq_join::seq_try_join_all,
     test_fixture::network::{InMemoryNetwork, InMemoryTransport},
     AppSetup, HelperApp,
 };
@@ -95,15 +94,17 @@ impl TestApp {
         I: IntoShares<A>,
         A: IntoBuf,
     {
+        // Shuttle executor may resolve futures out of order, so as long as seq_try_join_all
+        // panics when that happens, it can't be used here
+        use futures::future::try_join_all;
         let helpers_input = input.share().map(IntoBuf::into_buf);
 
         // helper 1 initiates the query
         let query_id = self.drivers[0].start_query(query_config).await?;
 
         // Send inputs and poll for completion
-        let r = seq_try_join_all(
-            helpers_input.len().try_into().unwrap(),
-            helpers_input.into_iter().enumerate().map(|(i, input)| {
+        #[allow(clippy::disallowed_methods)]
+        let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
                 self.drivers[i].execute_query(QueryInput {
                     query_id,
                     input_stream: ByteArrStream::from(input),
