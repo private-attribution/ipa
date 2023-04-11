@@ -1,3 +1,4 @@
+use std::iter::zip;
 use crate::{
     error::Error,
     ff::Serializable,
@@ -20,18 +21,16 @@ pub trait IntoBuf {
 impl<I, S> IntoBuf for I
 where
     I: IntoIterator<Item = S>,
+    I::IntoIter: ExactSizeIterator,
     S: Serializable,
 {
     fn into_buf(self) -> Vec<u8> {
         let this = self.into_iter();
-        let (lb, ub) = this.size_hint();
-        let cnt = ub.unwrap_or(lb);
         let item_size: usize = <S as Serializable>::Size::USIZE;
 
-        let mut buf = vec![0u8; cnt * item_size];
-        for (i, item) in this.enumerate() {
-            let sl = &mut buf[i * item_size..(i + 1) * item_size];
-            item.serialize(GenericArray::from_mut_slice(sl));
+        let mut buf = vec![0u8; this.len() * item_size];
+        for (item, chunk) in zip(this, buf.chunks_mut(item_size)) {
+            item.serialize(GenericArray::from_mut_slice(chunk));
         }
         buf
     }
