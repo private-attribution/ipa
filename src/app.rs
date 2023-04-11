@@ -29,7 +29,7 @@ impl Setup {
         };
 
         // TODO: weak reference to query processor to prevent mem leak
-        (this, Self::callback(&query_processor))
+        (this, Self::callbacks(&query_processor))
     }
 
     /// Instantiate [`HelperApp`] by connecting it to the provided transport implementation
@@ -38,49 +38,40 @@ impl Setup {
     }
 
     /// Create callbacks that tie up query processor and transport.
-    fn callback(
+    fn callbacks(
         query_processor: &Arc<QueryProcessor>,
-    ) -> TransportCallbacks<'static, TransportImpl> {
-        TransportCallbacks {
-            receive_query: {
-                let processor = Arc::clone(query_processor);
-                Box::new(move |transport: TransportImpl, receive_query| {
-                    Box::pin({
-                        // I don't know how to convince Rust compiler that this block owns
-                        // processor.
-                        let processor = Arc::clone(&processor);
-                        async move {
-                            let dest = transport.identity();
-                            let r = processor
-                                .new_query(&transport, receive_query)
-                                .await
-                                .map_err(|e| TransportError::Rejected {
-                                    dest,
-                                    inner: Box::new(e),
-                                })?;
+    ) -> TransportCallbacks< 'static, TransportImpl> {
+        let rqp = Arc::clone(query_processor);
+        let pqp = Arc::clone(query_processor);
 
-                            Ok(r.query_id)
+        TransportCallbacks {
+            receive_query: Box::new(move |transport: TransportImpl, receive_query| {
+                let processor = Arc::clone(&rqp);
+                Box::pin(async move {
+                    let dest = transport.identity();
+                    let r = processor
+                        .new_query(&transport, receive_query)
+                        .await
+                        .map_err(|e| TransportError::Rejected {
+                            dest,
+                            inner: Box::new(e),
+                        })?;
+
+                    Ok(r.query_id)
+                })
+            }),
+            prepare_query: Box::new(move |transport: TransportImpl, prepare_query| {
+                let processor = Arc::clone(&pqp);
+                Box::pin(async move {
+                    let dest = transport.identity();
+                    processor.prepare(&transport, prepare_query).map_err(|e| {
+                        TransportError::Rejected {
+                            dest,
+                            inner: Box::new(e),
                         }
                     })
                 })
-            },
-            prepare_query: {
-                let processor = Arc::clone(query_processor);
-                Box::new(move |transport: TransportImpl, prepare_query| {
-                    Box::pin({
-                        let processor = Arc::clone(&processor);
-                        async move {
-                            let dest = transport.identity();
-                            processor.prepare(&transport, prepare_query).map_err(|e| {
-                                TransportError::Rejected {
-                                    dest,
-                                    inner: Box::new(e),
-                                }
-                            })
-                        }
-                    })
-                })
-            },
+            }),
         }
     }
 }
