@@ -272,32 +272,39 @@ mod tests {
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
-    use std::future::Future;
+    use std::{future::Future, sync::Arc};
     use tokio::sync::Barrier;
 
-    fn prepare_query_callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<'a, T> + 'a>
+    fn prepare_query_callback<'a, T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
     where
-        F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'a,
-        Fut: Future<Output = Result<(), TransportError>> + Send + 'a,
+        F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), TransportError>> + Send + 'static,
     {
         Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
     }
 
     #[tokio::test]
     async fn new_query() {
-        let barrier: &mut _ = Box::leak(Box::new(Barrier::new(3)));
-        let barrier_ptr = barrier as *mut _;
+        let barrier = Arc::new(Barrier::new(3));
+        let cb2_barrier = Arc::clone(&barrier);
+        let cb3_barrier = Arc::clone(&barrier);
         let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                barrier.wait().await;
-                Ok(())
+            prepare_query: prepare_query_callback(move |_, _| {
+                let barrier = Arc::clone(&cb2_barrier);
+                async move {
+                    barrier.wait().await;
+                    Ok(())
+                }
             }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                barrier.wait().await;
-                Ok(())
+            prepare_query: prepare_query_callback(move |_, _| {
+                let barrier = Arc::clone(&cb3_barrier);
+                async move {
+                    barrier.wait().await;
+                    Ok(())
+                }
             }),
             ..Default::default()
         };
@@ -328,8 +335,6 @@ mod tests {
             qc
         );
         assert_eq!(Some(QueryStatus::AwaitingInputs), p0.status(QueryId));
-        // SAFETY: nothing is trying to access barrier at this point
-        let _barrier = unsafe { Box::from_raw(barrier_ptr) };
     }
 
     #[tokio::test]

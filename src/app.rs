@@ -22,7 +22,7 @@ pub struct HelperApp {
 
 impl Setup {
     #[must_use]
-    pub fn new() -> (Self, TransportCallbacks<'static, TransportImpl>) {
+    pub fn new() -> (Self, TransportCallbacks<TransportImpl>) {
         let query_processor = Arc::new(QueryProcessor::default());
         let this = Self {
             query_processor: Arc::clone(&query_processor),
@@ -38,9 +38,7 @@ impl Setup {
     }
 
     /// Create callbacks that tie up query processor and transport.
-    fn callbacks(
-        query_processor: &Arc<QueryProcessor>,
-    ) -> TransportCallbacks< 'static, TransportImpl> {
+    fn callbacks(query_processor: &Arc<QueryProcessor>) -> TransportCallbacks<TransportImpl> {
         let rqp = Arc::clone(query_processor);
         let pqp = Arc::clone(query_processor);
 

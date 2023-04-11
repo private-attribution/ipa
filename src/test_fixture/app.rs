@@ -105,12 +105,11 @@ impl TestApp {
         // Send inputs and poll for completion
         #[allow(clippy::disallowed_methods)]
         let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
-                self.drivers[i].execute_query(QueryInput {
-                    query_id,
-                    input_stream: ByteArrStream::from(input),
-                })
-            }),
-        )
+            self.drivers[i].execute_query(QueryInput {
+                query_id,
+                input_stream: ByteArrStream::from(input),
+            })
+        }))
         .await?;
 
         Ok(<[_; 3]>::try_from(r).unwrap())

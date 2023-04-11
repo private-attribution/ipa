@@ -69,7 +69,7 @@ impl InMemoryTransport {
     /// so I'll leave it as is for now.
     fn listen(
         self: &Arc<Self>,
-        mut callbacks: TransportCallbacks<'static, Weak<Self>>,
+        mut callbacks: TransportCallbacks<Weak<Self>>,
         mut rx: ConnectionRx,
     ) {
         tokio::spawn(
@@ -326,7 +326,7 @@ impl Setup {
 
     fn into_active_conn(
         self,
-        callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>,
+        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
     ) -> (ConnectionTx, Arc<InMemoryTransport>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(callbacks, self.rx);
@@ -337,7 +337,7 @@ impl Setup {
     #[must_use]
     pub fn start(
         self,
-        callbacks: TransportCallbacks<'static, Weak<InMemoryTransport>>,
+        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
     ) -> Arc<InMemoryTransport> {
         self.into_active_conn(callbacks).1
     }
