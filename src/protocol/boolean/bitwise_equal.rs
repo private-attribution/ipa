@@ -8,7 +8,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use futures::future::try_join_all;
 use std::iter::zip;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
@@ -99,11 +98,12 @@ where
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
+    // This is truly a parallel operation across the bits of the input.
+    ctx.parallel_join(zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { xor(c, record_id, a_bit, b_bit).await }
-    });
-    try_join_all(xor).await
+    }))
+    .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -192,16 +192,19 @@ mod tests {
         let b_fp31 = get_bits::<Fp31>(b, num_bits);
 
         let answer_fp31 = world
-            .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| async move {
-                bitwise_equal(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_bits,
-                    &b_bits,
-                )
-                .await
-                .unwrap()
-            })
+            .semi_honest(
+                (a_fp31, b_fp31),
+                |ctx, (a_bits, b_bits): (Vec<_>, Vec<_>)| async move {
+                    bitwise_equal(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_bits,
+                        &b_bits,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 

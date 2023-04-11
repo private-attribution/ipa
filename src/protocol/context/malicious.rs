@@ -3,10 +3,12 @@ use std::{
     fmt::{Debug, Formatter},
     iter::{repeat, zip},
     marker::PhantomData,
+    num::NonZeroUsize,
 };
 
+use crate::seq_join::SeqJoin;
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join, try_join3};
 
 use crate::{
     error::Error,
@@ -247,6 +249,12 @@ impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
     }
 }
 
+impl<'a, F: Field + ExtendableField> SeqJoin for MaliciousContext<'a, F> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.gateway.config().active_work()
+    }
+}
+
 /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
@@ -404,15 +412,16 @@ impl<'a, F: Field + ExtendableField>
         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
     ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
         let ctx_ref = &self.ctx;
-        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
-            |(idx, bit)| async move {
-                ctx_ref
-                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                    .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                    .await
-            },
-        ))
-        .await?;
+        let breakdown_key = ctx_ref
+            .parallel_join(input.breakdown_key.into_iter().enumerate().map(
+                |(idx, bit)| async move {
+                    ctx_ref
+                        .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
+                        .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
+                        .await
+                },
+            ))
+            .await?;
 
         let helper_bit = self
             .ctx
@@ -474,9 +483,9 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 /// record ID and the other can use something like a `BitOpStep`.
 ///
 /// ```no_run
-/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp32BitPrime;
-/// use raw_ipa::secret_sharing::replicated::{
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime;
+/// use ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // Note: Unbound upgrades only work when testing.
@@ -490,9 +499,9 @@ impl<'a, F: Field + ExtendableField> ContextInner<'a, F> {
 /// ```
 ///
 /// ```compile_fail
-/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
-/// use raw_ipa::ff::Fp32BitPrime;
-/// use raw_ipa::secret_sharing::replicated::{
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime;
+/// use ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 /// };
 /// // This can't be upgraded with a record-bound context because the record ID
@@ -530,28 +539,25 @@ impl<'a, F: Field + ExtendableField>
         input: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         let [v0, v1, v2] = input.0;
-        Ok(BitConversionTriple(
-            try_join_all([
-                self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
-                    self.record_binding,
-                    v0,
-                    ZeroPositions::Pvzz,
-                ),
-                self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
-                    self.record_binding,
-                    v1,
-                    ZeroPositions::Pzvz,
-                ),
-                self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
-                    self.record_binding,
-                    v2,
-                    ZeroPositions::Pzzv,
-                ),
-            ])
-            .await?
-            .try_into()
-            .unwrap(),
-        ))
+        let (t0, t1, t2) = try_join3(
+            self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
+                self.record_binding,
+                v0,
+                ZeroPositions::Pvzz,
+            ),
+            self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
+                self.record_binding,
+                v1,
+                ZeroPositions::Pzvz,
+            ),
+            self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
+                self.record_binding,
+                v2,
+                ZeroPositions::Pzzv,
+            ),
+        )
+        .await?;
+        Ok(BitConversionTriple([t0, t1, t2]))
     }
 }
 
@@ -607,7 +613,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.join(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 ctx: ctx_ref.clone(),
@@ -638,22 +644,26 @@ where
         assert_ne!(num_records, 0);
         let num_columns = input[0].len();
         let ctx = self.ctx.set_total_records(num_records);
+        let ctx_ref = &self.ctx;
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
 
-        try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
-            |(record_idx, (all_ctx, one_input))| async move {
-                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
-                    UpgradeContext {
-                        ctx,
-                        record_binding: RecordId::from(record_idx),
-                    }
-                    .upgrade(share)
-                    .await
-                }))
-                .await
-            },
-        ))
-        .await
+        ctx_ref
+            .join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+                |(record_idx, (all_ctx, one_input))| async move {
+                    // This inner join is truly concurrent.
+                    ctx_ref
+                        .parallel_join(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                            UpgradeContext {
+                                ctx,
+                                record_binding: RecordId::from(record_idx),
+                            }
+                            .upgrade(share)
+                            .await
+                        }))
+                        .await
+                },
+            ))
+            .await
     }
 }
 

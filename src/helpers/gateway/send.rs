@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use typenum::Unsigned;
 
 use crate::{
     helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
@@ -92,13 +93,11 @@ impl<M: Message> SendingEnd<M> {
     /// for sending.
     ///
     /// ## Errors
-    /// If send operation fails or [`record_id`] exceeds the channel limit set by [`set_total_records`]
+    /// If send operation fails or `record_id` exceeds the channel limit set by [`set_total_records`]
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
-        use typenum::Unsigned;
-
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
             STEP => self.channel_id.step.as_ref().to_string(),
@@ -135,7 +134,14 @@ impl GatewaySenders {
             let write_size = if total_records.is_indeterminate() {
                 NonZeroUsize::new(1).unwrap()
             } else {
+                // capacity is defined in terms of number of elements, while sender wants bytes
+                // so perform the conversion here
                 capacity
+                    .checked_mul(
+                        NonZeroUsize::new(M::Size::USIZE)
+                            .expect("Message size should be greater than 0"),
+                    )
+                    .expect("capacity should not overflow")
             };
 
             let sender = Arc::new(GatewaySender::new(
