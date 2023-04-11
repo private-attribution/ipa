@@ -24,7 +24,6 @@ pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
 #[cfg(not(any(feature = "test-fixture", test)))]
 pub type TransportImpl = crate::helpers::transport::DummyTransport;
 
-pub type Gateway = GatewayBase<TransportImpl>;
 pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 
 /// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages.
@@ -32,7 +31,7 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 /// used to avoid carrying `T` over.
 ///
 /// [`Gateway`]: crate::helpers::Gateway
-pub struct GatewayBase<T: Transport> {
+pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
     senders: GatewaySenders,
@@ -46,7 +45,7 @@ pub struct GatewayConfig {
     active: NonZeroUsize,
 }
 
-impl<T: Transport> GatewayBase<T> {
+impl<T: Transport> Gateway<T> {
     #[must_use]
     pub fn new(
         query_id: QueryId,

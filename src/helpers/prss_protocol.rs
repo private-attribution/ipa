@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{ChannelId, Direction, Error, GatewayBase, TotalRecords, Transport},
+    helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
     protocol::{prss, RecordId, Step, Substep},
 };
 use futures_util::future::try_join4;
@@ -22,7 +22,7 @@ impl Substep for PrssExchangeStep {}
 /// # Errors
 /// if communication with other helpers fails
 pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
-    gateway: &GatewayBase<T>,
+    gateway: &Gateway<T>,
     step: &Step,
     rng: &mut R,
 ) -> Result<prss::Endpoint, Error> {

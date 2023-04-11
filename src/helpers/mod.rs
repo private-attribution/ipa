@@ -15,7 +15,7 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{Gateway, GatewayBase, TransportImpl};
+pub use gateway::{Gateway, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
