@@ -27,6 +27,7 @@ pub mod uri;
 pub mod test_fixture;
 
 mod app;
+mod seq_join;
 mod tests;
 
 pub use app::{HelperApp, Setup as AppSetup};

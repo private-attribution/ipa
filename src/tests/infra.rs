@@ -10,9 +10,10 @@ use crate::{
     secret_sharing::replicated::{
         semi_honest, semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
+    seq_join::SeqJoin,
     test_fixture::{Reconstruct, Runner, TestApp, TestWorld, TestWorldConfig},
 };
-use futures_util::future::{try_join, try_join_all};
+use futures::future::try_join;
 use rand_core::RngCore;
 use shuttle_crate::rand::thread_rng;
 
@@ -24,7 +25,7 @@ fn send_receive_sequential() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
+                    gateway_config: GatewayConfig::new(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -79,7 +80,7 @@ fn send_receive_parallel() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(TestField::truncate_from).collect::<Vec<_>>();
                 let config = TestWorldConfig {
-                    gateway_config: GatewayConfig::symmetric_buffers(input.len()),
+                    gateway_config: GatewayConfig::new(input.len()),
                     ..Default::default()
                 };
                 let world = TestWorld::new_with(config);
@@ -101,11 +102,7 @@ fn send_receive_parallel() {
                             futures.push(left_channel.send(record_id, share.left()));
                             futures.push(right_channel.send(record_id, share.right()));
                         }
-                        try_join_all(futures)
-                            .await
-                            .unwrap()
-                            .into_iter()
-                            .for_each(drop);
+                        ctx.join(futures).await.unwrap().into_iter().for_each(drop);
 
                         // receive all shares from the left peer in parallel
                         let left_channel = left_ctx.recv_channel::<Fp32BitPrime>(left_peer);
@@ -119,7 +116,7 @@ fn send_receive_parallel() {
                             ));
                         }
 
-                        let result = try_join_all(futures).await.unwrap();
+                        let result = ctx.join(futures).await.unwrap();
 
                         result.into_iter().map(Replicated::from).collect::<Vec<_>>()
                     })

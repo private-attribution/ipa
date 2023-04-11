@@ -13,9 +13,13 @@ use crate::{
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
+    seq_join::SeqJoin,
     sync::Arc,
 };
-use std::fmt::{Debug, Formatter};
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -133,6 +137,12 @@ impl<'a> Context for SemiHonestContext<'a> {
         self.inner
             .gateway
             .get_receiver(&ChannelId::new(role, self.step.clone()))
+    }
+}
+
+impl SeqJoin for SemiHonestContext<'_> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.gateway.config().active_work()
     }
 }
 

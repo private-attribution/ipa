@@ -271,6 +271,7 @@ impl OrderingMpscEnd {
 
 #[cfg(test)]
 mod fixture {
+    #![allow(clippy::disallowed_methods)] // It's a test without a context to use.
     use crate::{
         ff::{Fp32BitPrime, Serializable},
         helpers::buffers::ordering_mpsc::{

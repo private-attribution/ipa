@@ -54,7 +54,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
                 self.inner
                     .receive(peer, (self.query_id, channel_id.step.clone())),
             ),
-            self.config.recv_outstanding,
+            self.config.active_work(),
         )
     }
 

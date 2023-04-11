@@ -95,6 +95,7 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    #![allow(clippy::disallowed_methods)]
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
@@ -103,7 +104,7 @@ mod tests {
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
         },
-        test_fixture::{join3, Reconstruct, Runner, TestWorld},
+        test_fixture::{join3, join3v, Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
     use std::iter::zip;
@@ -144,6 +145,7 @@ mod tests {
                     let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
+                        // This can't use `seq_try_join_all` because this isn't sequential.
                         try_join_all((0..INNER).map(|i| rbg.generate(RecordId::from(i))))
                             .await
                             .unwrap(),
@@ -187,12 +189,7 @@ mod tests {
         assert_eq!(rbg[0].fallbacks(), rbg[1].fallbacks());
         assert_eq!(rbg[0].fallbacks(), rbg[2].fallbacks());
 
-        let result = <[_; 3]>::try_from(
-            try_join_all(zip(validators, m_result).map(|(v, m)| v.validate(m)))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
+        let result = join3v(zip(validators, m_result).map(|(v, m)| v.validate(m))).await;
         let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
     }
 }

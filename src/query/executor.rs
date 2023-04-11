@@ -1,4 +1,5 @@
 use crate::{
+    error::Error,
     ff::{Field, FieldType, Fp31, GaloisField, PrimeField, Serializable},
     helpers::{
         negotiate_prss,
@@ -68,7 +69,7 @@ where
 async fn execute_test_multiply<F: Field>(
     ctx: SemiHonestContext<'_>,
     mut input: AlignedByteArrStream,
-) -> Vec<Replicated<F>>
+) -> std::result::Result<Vec<Replicated<F>>, Error>
 where
     Replicated<F>: Serializable,
 {
@@ -97,14 +98,14 @@ where
         assert!(a.is_none());
     }
 
-    results
+    Ok(results)
 }
 
 async fn execute_ipa<F: PrimeField, MK: GaloisField, BK: GaloisField>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
-) -> Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>
+) -> std::result::Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     IPAInputRow<F, MK, BK>: Serializable,
     Replicated<F>: Serializable,
@@ -123,7 +124,6 @@ where
         query_config.num_multi_bits,
     )
     .await
-    .unwrap()
 }
 
 #[allow(unused)]
@@ -149,7 +149,8 @@ pub fn start_query(
                         TotalRecords::Indeterminate,
                     );
                     let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
-                    Box::new(execute_test_multiply::<Fp31>(ctx, input).await) as Box<dyn Result>
+                    Box::new(execute_test_multiply::<Fp31>(ctx, input).await.unwrap())
+                        as Box<dyn Result>
                 }
                 QueryType::Ipa(config) => {
                     let ctx = SemiHonestContext::new_with_total_records(
@@ -161,8 +162,11 @@ pub fn start_query(
                     let input = input.align(
                         <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE,
                     );
-                    Box::new(execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, config, input).await)
-                        as Box<dyn Result>
+                    Box::new(
+                        execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, config, input)
+                            .await
+                            .unwrap(),
+                    ) as Box<dyn Result>
                 }
             },
             FieldType::Fp32BitPrime => {
@@ -179,9 +183,8 @@ mod tests {
         ipa_test_input,
         protocol::context::Context,
         secret_sharing::IntoShares,
-        test_fixture::{input::GenericReportTestInput, Reconstruct, TestWorld},
+        test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
     };
-    use futures_util::future::join_all;
     use generic_array::GenericArray;
     use typenum::Unsigned;
 
@@ -211,15 +214,13 @@ mod tests {
             ByteArrStream::from(r).align(SIZE)
         });
 
-        let results: [_; 3] = join_all(
+        let results = join3v(
             helper_shares
                 .into_iter()
                 .zip(contexts)
                 .map(|(shares, context)| execute_test_multiply::<Fp31>(context, shares)),
         )
-        .await
-        .try_into()
-        .unwrap();
+        .await;
 
         let results = results.reconstruct();
 
@@ -264,7 +265,7 @@ mod tests {
 
         let world = TestWorld::default();
         let contexts = world.contexts();
-        let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
+        let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
@@ -275,9 +276,7 @@ mod tests {
                 .align(<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
             execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, query_config, input)
         }))
-        .await
-        .try_into()
-        .unwrap();
+        .await;
 
         let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
             results.reconstruct();

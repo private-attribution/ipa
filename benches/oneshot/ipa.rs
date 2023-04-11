@@ -12,7 +12,7 @@ use ipa::{
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::time::Instant;
+use std::{num::NonZeroUsize, time::Instant};
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -39,9 +39,20 @@ struct Args {
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
+    /// The amount of active items to concurrently track.
+    #[arg(short = 'a', long)]
+    active_work: Option<NonZeroUsize>,
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
+}
+
+impl Args {
+    fn active(&self) -> usize {
+        self.active_work
+            .map(NonZeroUsize::get)
+            .unwrap_or_else(|| self.query_size.clamp(16, 1024))
+    }
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
@@ -51,8 +62,10 @@ async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
     let prep_time = Instant::now();
-    let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::symmetric_buffers(args.query_size.clamp(16, 1024));
+    let config = TestWorldConfig {
+        gateway_config: GatewayConfig::new(args.active()),
+        ..TestWorldConfig::default()
+    };
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
     println!(

@@ -4,8 +4,6 @@ mod transport;
 
 pub use send::SendingEnd;
 
-use std::{fmt::Debug, num::NonZeroUsize};
-
 use crate::{
     helpers::{
         gateway::{
@@ -19,6 +17,7 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use std::{fmt::Debug, num::NonZeroUsize};
 
 #[cfg(any(feature = "test-fixture", test))]
 pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
@@ -42,10 +41,9 @@ pub struct GatewayBase<T: Transport> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// The maximum number of items that can be outstanding for sending.
-    pub send_outstanding: NonZeroUsize,
-    /// The maximum number of items that can be outstanding for receiving.
-    pub recv_outstanding: NonZeroUsize,
+    /// The number of items that can be active at the one time.  
+    /// This is used to determine the size of sending and receiving buffers.
+    active: NonZeroUsize,
 }
 
 impl<T: Transport> GatewayBase<T> {
@@ -75,16 +73,19 @@ impl<T: Transport> GatewayBase<T> {
     }
 
     #[must_use]
+    pub fn config(&self) -> &GatewayConfig {
+        &self.config
+    }
+
+    #[must_use]
     pub fn get_sender<M: Message>(
         &self,
         channel_id: &ChannelId,
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
-        let (tx, maybe_stream) = self.senders.get_or_create::<M>(
-            channel_id,
-            self.config.send_outstanding,
-            total_records,
-        );
+        let (tx, maybe_stream) =
+            self.senders
+                .get_or_create::<M>(channel_id, self.config.active_work(), total_records);
         if let Some(stream) = maybe_stream {
             tokio::spawn({
                 let channel_id = channel_id.clone();
@@ -112,26 +113,26 @@ impl<T: Transport> GatewayBase<T> {
 
 impl Default for GatewayConfig {
     fn default() -> Self {
-        Self {
-            /// send buffer capacity, defined as number of messages it can hold before flushing
-            /// them downstream
-            send_outstanding: NonZeroUsize::new(1024).unwrap(),
-            // receive buffer capacity in total messages it can hold.
-            recv_outstanding: NonZeroUsize::new(1024).unwrap(),
-        }
+        Self::new(1024)
     }
 }
 
 impl GatewayConfig {
-    /// Config for symmetric send and receive buffers. Capacity must not be zero.
+    /// Generate a new configuration with the given active limit.
+    ///
     /// ## Panics
-    /// if capacity is set to be 0.
+    /// If `active` is 0.
     #[must_use]
-    pub fn symmetric_buffers(capacity: usize) -> Self {
+    pub fn new(active: usize) -> Self {
         Self {
-            send_outstanding: NonZeroUsize::new(capacity).unwrap(),
-            recv_outstanding: NonZeroUsize::new(capacity).unwrap(),
+            active: NonZeroUsize::new(active).unwrap(),
         }
+    }
+
+    /// The configured amount of active work.
+    #[must_use]
+    pub fn active_work(&self) -> NonZeroUsize {
+        self.active
     }
 }
 
@@ -161,7 +162,7 @@ mod tests {
         }
 
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::symmetric_buffers(2),
+            gateway_config: GatewayConfig::new(2),
             ..Default::default()
         };
 
@@ -186,9 +187,10 @@ mod tests {
 
     #[tokio::test]
     pub async fn handles_reordering() {
-        let mut config = TestWorldConfig::default();
-        config.gateway_config.send_outstanding = 2.try_into().unwrap();
-
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig::new(2),
+            ..TestWorldConfig::default()
+        };
         let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let world_ptr = world as *mut _;
         let contexts = world.contexts();

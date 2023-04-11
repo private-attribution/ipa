@@ -42,6 +42,12 @@ pub enum Error {
     QueryCompletionError(#[from] crate::query::QueryCompletionError),
 }
 
+impl Default for Error {
+    fn default() -> Self {
+        Self::Internal
+    }
+}
+
 impl Error {
     #[must_use]
     pub fn path_parse_error(source: &str) -> Error {

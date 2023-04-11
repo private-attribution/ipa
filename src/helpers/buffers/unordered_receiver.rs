@@ -298,6 +298,8 @@ where
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::disallowed_methods)] // A parallel join is needed to test without a context.
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
@@ -491,6 +493,7 @@ mod test {
         run(|| {
             let recv = receiver(vec![DATA.to_vec()]);
             async move {
+                // True concurrency is needed here.
                 try_join_all(DATA.iter().enumerate().rev().map(|(i, &v)| {
                     spawn({
                         let recv = recv.clone();

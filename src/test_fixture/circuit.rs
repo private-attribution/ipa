@@ -8,6 +8,8 @@ use crate::{
 };
 use futures_util::future::join_all;
 
+use super::join3v;
+
 /// Creates an arithmetic circuit with the given width and depth.
 ///
 /// # Panics
@@ -21,6 +23,7 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
         multiplications.push(circuit_result);
     }
 
+    #[allow(clippy::disallowed_methods)] // Just for testing purposes.
     let results = join_all(multiplications).await;
     let mut sum = 0;
     for line in results {
@@ -49,13 +52,7 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
                 coll.push(mul);
             }
 
-            join_all(coll)
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-                .try_into()
-                .unwrap()
+            join3v(coll).await
         }
         .await;
     }

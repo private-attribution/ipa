@@ -6,12 +6,11 @@ use crate::{
         ByteArrStream,
     },
     secret_sharing::IntoShares,
-    test_fixture::network::InMemoryNetwork,
+    seq_join::seq_try_join_all,
+    test_fixture::network::{InMemoryNetwork, InMemoryTransport},
     AppSetup, HelperApp,
 };
 
-use crate::test_fixture::network::InMemoryTransport;
-use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
@@ -102,12 +101,15 @@ impl TestApp {
         let query_id = self.drivers[0].start_query(query_config).await?;
 
         // Send inputs and poll for completion
-        let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
-            self.drivers[i].execute_query(QueryInput {
-                query_id,
-                input_stream: ByteArrStream::from(input),
-            })
-        }))
+        let r = seq_try_join_all(
+            helpers_input.len().try_into().unwrap(),
+            helpers_input.into_iter().enumerate().map(|(i, input)| {
+                self.drivers[i].execute_query(QueryInput {
+                    query_id,
+                    input_stream: ByteArrStream::from(input),
+                })
+            }),
+        )
         .await?;
 
         Ok(<[_; 3]>::try_from(r).unwrap())

@@ -10,9 +10,9 @@ use crate::{
         replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         IntoShares,
     },
+    seq_join::seq_try_join_all,
     test_fixture::input::GenericReportTestInput,
 };
-use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution};
 use std::fmt::Debug;
@@ -54,7 +54,7 @@ where
             ByteArrStream::from(r)
         });
 
-    try_join_all(
+    seq_try_join_all(
         inputs
             .into_iter()
             .zip(clients)

@@ -17,7 +17,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 pub use app::TestApp;
-use futures::{future::try_join_all, TryFuture};
+use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
@@ -101,7 +101,7 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
 
 /// Wrapper for joining three things into an array.
 /// # Panics
-/// Probably never, but the compiler doesn't know that.
+/// If the tasks return `Err`.
 pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
 where
     T: TryFuture,
@@ -109,13 +109,13 @@ where
     T::Ok: Debug,
     T::Error: Debug,
 {
-    let x = try_join_all([a, b, c]).await.unwrap();
-    <[_; 3]>::try_from(x).unwrap()
+    let (a, b, c) = futures::future::try_join3(a, b, c).await.unwrap();
+    [a, b, c]
 }
 
-/// Wrapper for joining three things into an array.
+/// Wrapper for joining three things from an iterator into an array.
 /// # Panics
-/// If `a` is the wrong length.
+/// If the tasks return `Err` or if `a` is the wrong length.
 pub async fn join3v<T, V>(a: V) -> [T::Ok; 3]
 where
     V: IntoIterator<Item = T>,
