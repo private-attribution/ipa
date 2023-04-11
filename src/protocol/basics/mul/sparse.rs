@@ -197,7 +197,7 @@ pub(in crate::protocol) mod test {
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             context::Context,
             malicious::MaliciousValidator,
-            BitOpStep, RECORD_0,
+            BitOpStep, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
@@ -385,7 +385,7 @@ pub(in crate::protocol) mod test {
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        v_a.multiply_sparse(&v_b, ctx.set_total_records(1), RECORD_0, (a, b))
+                        v_a.multiply_sparse(&v_b, ctx.set_total_records(1), RecordId::FIRST, (a, b))
                             .await
                             .unwrap()
                     })
@@ -421,7 +421,7 @@ pub(in crate::protocol) mod test {
                         .unwrap();
 
                         let m_ab = m_a
-                            .multiply_sparse(&m_b, m_ctx, RECORD_0, (a, b))
+                            .multiply_sparse(&m_b, m_ctx, RecordId::FIRST, (a, b))
                             .await
                             .unwrap();
 

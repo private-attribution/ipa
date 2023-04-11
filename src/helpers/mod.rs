@@ -11,18 +11,24 @@ mod time;
 mod transport;
 
 pub use error::{Error, Result};
-pub use gateway::{Gateway, GatewayConfig, ReceivingEnd, SendingEnd};
+pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
+
+// TODO: this type should only be available within infra. Right now several infra modules
+// are exposed at the root level. That makes it impossible to have a proper hierarchy here.
+pub use gateway::{Gateway, TransportImpl};
+
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
-    RouteParams, StepBinding, Transport, TransportImpl,
+    AlignedByteArrStream, ByteArrStream, Error as TransportError, NoResourceIdentifier,
+    PrepareQueryCallback, QueryIdBinding, ReceiveQueryCallback, RouteId, RouteParams, StepBinding,
+    Transport, TransportCallbacks,
 };
 
 pub use transport::query;
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
-pub use buffers::ordering_mpsc;
+pub use buffers::OrderingSender;
 
 use crate::{
     ff::Serializable,
@@ -33,8 +39,10 @@ use crate::{
     protocol::{RecordId, Step},
     secret_sharing::SharedValue,
 };
+use generic_array::GenericArray;
 use std::ops::{Index, IndexMut};
 use typenum::{Unsigned, U8};
+use x25519_dalek::PublicKey;
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
@@ -387,6 +395,20 @@ pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
 /// Any shared value can be send as a message
 impl<V: SharedValue> Message for V {}
+
+impl Serializable for PublicKey {
+    type Size = typenum::U32;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf.copy_from_slice(self.as_bytes());
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        Self::from(<[u8; 32]>::from(*buf))
+    }
+}
+
+impl Message for PublicKey {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {

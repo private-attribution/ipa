@@ -1,16 +1,21 @@
 #![cfg(all(feature = "shuttle", test))]
 
 use crate::{
-    ff::{Field, Fp32BitPrime},
-    helpers::{Direction, GatewayConfig},
+    ff::{Field, FieldType, Fp31, Fp32BitPrime},
+    helpers::{
+        query::{QueryConfig, QueryType},
+        Direction, GatewayConfig,
+    },
     protocol::{context::Context, RecordId},
     secret_sharing::replicated::{
-        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        semi_honest, semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
-    test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+    test_fixture::{Reconstruct, Runner, TestApp, TestWorld, TestWorldConfig},
 };
 use futures::future::try_join;
+use rand_core::RngCore;
+use shuttle_crate::rand::thread_rng;
 
 #[test]
 fn send_receive_sequential() {
@@ -119,6 +124,46 @@ fn send_receive_parallel() {
                     .reconstruct();
 
                 assert_eq!(input, output);
+            });
+        },
+        1000,
+    );
+}
+
+#[test]
+fn execute_query() {
+    shuttle::check_random(
+        || {
+            shuttle::future::block_on(async {
+                let app = TestApp::default();
+                let inputs = std::iter::repeat_with(|| u128::from(thread_rng().next_u64()))
+                    .take(20)
+                    .map(Fp31::truncate_from)
+                    .collect::<Vec<_>>();
+                assert_eq!(0, inputs.len() % 2);
+
+                let expected = inputs
+                    .as_slice()
+                    .chunks(2)
+                    .map(|chunk| chunk[0] * chunk[1])
+                    .collect::<Vec<_>>();
+
+                let results = app
+                    .execute_query(
+                        inputs,
+                        QueryConfig {
+                            field_type: FieldType::Fp31,
+                            query_type: QueryType::TestMultiply,
+                        },
+                    )
+                    .await
+                    .unwrap();
+
+                let results = results.map(|bytes| {
+                    semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+                });
+
+                assert_eq!(expected, results.reconstruct());
             });
         },
         1000,

@@ -4,12 +4,15 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::io;
+use std::{borrow::Borrow, io};
 
 mod bytearrstream;
+mod callbacks;
 pub mod query;
 
+use crate::error::BoxError;
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
+pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -31,6 +34,7 @@ pub struct NoStep;
 pub enum RouteId {
     Records,
     ReceiveQuery,
+    PrepareQuery,
 }
 
 impl ResourceIdentifier for NoResourceIdentifier {}
@@ -59,14 +63,18 @@ where
     Option<QueryId>: From<Q>,
     Option<Step>: From<S>,
 {
+    type Params: Borrow<str>;
+
     fn resource_identifier(&self) -> R;
     fn query_id(&self) -> Q;
     fn step(&self) -> S;
 
-    fn extra(&self) -> &str;
+    fn extra(&self) -> Self::Params;
 }
 
 impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
+    type Params = &'static str;
+
     fn resource_identifier(&self) -> NoResourceIdentifier {
         NoResourceIdentifier
     }
@@ -79,12 +87,14 @@ impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
         self.1.clone()
     }
 
-    fn extra(&self) -> &str {
+    fn extra(&self) -> Self::Params {
         ""
     }
 }
 
 impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
+    type Params = &'static str;
+
     fn resource_identifier(&self) -> RouteId {
         self.0
     }
@@ -97,9 +107,24 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
         self.2.clone()
     }
 
-    fn extra(&self) -> &str {
+    fn extra(&self) -> Self::Params {
         ""
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Io {
+        #[from]
+        inner: io::Error,
+    },
+    #[error("Error from remote helper {dest:?}: {inner:?}")]
+    Rejected {
+        dest: HelperIdentity,
+        #[source]
+        inner: BoxError,
+    },
 }
 
 /// Transport that supports per-query,per-step channels
@@ -109,12 +134,11 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     fn identity(&self) -> HelperIdentity;
 
-    async fn send<D, Q, S, R>(
-        &self,
-        dest: HelperIdentity,
-        route: R,
-        data: D,
-    ) -> Result<(), io::Error>
+    /// Sends a new request to the given destination helper party.
+    /// The contract for this method requires it to block until the request is acknowledged by
+    /// the remote party. For streaming requests where body is large, only request headers are
+    /// expected to be acknowledged)
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -132,44 +156,20 @@ pub trait Transport: Clone + Send + Sync + 'static {
     ) -> Self::RecordsStream;
 }
 
-/// Enum to dispatch calls to various [`Transport`] implementations without the need
-/// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
-/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
-///
-/// [`Gateway`]: crate::helpers::Gateway
+/// Until we have proper HTTP transport
 #[derive(Clone)]
-pub enum TransportImpl {
-    #[cfg(any(test, feature = "test-fixture"))]
-    InMemory(std::sync::Weak<crate::test_fixture::network::InMemoryTransport>),
-    #[cfg(not(any(test, feature = "test-fixture")))]
-    RealWorld,
-}
+pub struct DummyTransport;
 
 #[async_trait]
 #[allow(unused_variables)]
-impl Transport for TransportImpl {
-    #[cfg(any(test, feature = "test-fixture"))]
-    type RecordsStream = <std::sync::Weak<crate::test_fixture::network::InMemoryTransport> as Transport>::RecordsStream;
-    #[cfg(not(any(test, feature = "test-fixture")))]
-    type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
+impl Transport for DummyTransport {
+    type RecordsStream = Box<dyn Stream<Item = Vec<u8>> + Send + Unpin>;
 
     fn identity(&self) -> HelperIdentity {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(ref inner) => inner.identity(),
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 
-    async fn send<D, Q, S, R>(
-        &self,
-        dest: HelperIdentity,
-        route: R,
-        data: D,
-    ) -> Result<(), std::io::Error>
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -178,14 +178,7 @@ impl Transport for TransportImpl {
         R: RouteParams<RouteId, Q, S>,
         D: Stream<Item = Vec<u8>> + Send + 'static,
     {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -193,13 +186,6 @@ impl Transport for TransportImpl {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
-        match self {
-            #[cfg(any(test, feature = "test-fixture"))]
-            TransportImpl::InMemory(inner) => inner.receive(from, route),
-            #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => {
-                unimplemented!()
-            }
-        }
+        unimplemented!()
     }
 }

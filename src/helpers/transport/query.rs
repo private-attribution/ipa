@@ -1,6 +1,9 @@
 use crate::{
     ff::FieldType,
-    helpers::{transport::ByteArrStream, RoleAssignment},
+    helpers::{
+        transport::{ByteArrStream, NoQueryId, NoStep},
+        RoleAssignment, RouteId, RouteParams,
+    },
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
@@ -18,10 +21,75 @@ pub struct QueryConfig {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+impl Default for QueryConfig {
+    fn default() -> Self {
+        Self {
+            field_type: FieldType::Fp32BitPrime,
+            #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+            query_type: QueryType::TestMultiply,
+            #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
+            query_type: QueryType::Ipa(IpaQueryConfig::default()),
+        }
+    }
+}
+
+impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::ReceiveQuery
+    }
+
+    fn query_id(&self) -> NoQueryId {
+        NoQueryId
+    }
+
+    fn step(&self) -> NoStep {
+        NoStep
+    }
+
+    #[cfg(feature = "enable-serde")]
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
+
+    #[cfg(not(feature = "enable-serde"))]
+    fn extra(&self) -> Self::Params {
+        unimplemented!()
+    }
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::PrepareQuery
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    fn step(&self) -> NoStep {
+        NoStep
+    }
+
+    #[cfg(feature = "enable-serde")]
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
+
+    #[cfg(not(feature = "enable-serde"))]
+    fn extra(&self) -> Self::Params {
+        unimplemented!()
+    }
 }
 
 pub struct QueryInput {
@@ -89,7 +157,7 @@ impl QueryCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    IPA(IpaQueryConfig),
+    Ipa(IpaQueryConfig),
 }
 
 impl QueryType {
@@ -103,7 +171,7 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::IPA(_) => Self::IPA_STR,
+            QueryType::Ipa(_) => Self::IPA_STR,
         }
     }
 }
@@ -119,8 +187,19 @@ pub struct IpaQueryConfig {
     pub num_multi_bits: u32,
 }
 
+impl Default for IpaQueryConfig {
+    fn default() -> Self {
+        Self {
+            per_user_credit_cap: 1,
+            max_breakdown_key: 64,
+            attribution_window_seconds: 0,
+            num_multi_bits: 3,
+        }
+    }
+}
+
 impl From<IpaQueryConfig> for QueryType {
     fn from(value: IpaQueryConfig) -> Self {
-        QueryType::IPA(value)
+        QueryType::Ipa(value)
     }
 }

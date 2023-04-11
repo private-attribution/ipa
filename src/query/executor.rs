@@ -152,7 +152,7 @@ pub fn start_query(
                     Box::new(execute_test_multiply::<Fp31>(ctx, input).await.unwrap())
                         as Box<dyn Result>
                 }
-                QueryType::IPA(config) => {
+                QueryType::Ipa(config) => {
                     let ctx = SemiHonestContext::new_with_total_records(
                         &prss,
                         &gateway,
