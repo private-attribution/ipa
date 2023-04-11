@@ -6,7 +6,7 @@ use crate::{
         basics::{check_zero, Reveal},
         context::{Context, MaliciousContext, SemiHonestContext},
         prss::SharedRandomness,
-        RecordId, RECORD_0, RECORD_1, RECORD_2,
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
@@ -182,10 +182,10 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RECORD_0);
+        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RecordId::FIRST);
         let prss = ctx.prss();
-        let u: F::ExtendedField = prss.zero(RECORD_1);
-        let w: F::ExtendedField = prss.zero(RECORD_2);
+        let u: F::ExtendedField = prss.zero(RecordId::FIRST + 1);
+        let w: F::ExtendedField = prss.zero(RecordId::FIRST + 2);
         let state = AccumulatorState::new(u, w);
 
         let u_and_w = Arc::new(Mutex::new(state));
@@ -228,14 +228,14 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = self.r_share.reveal(narrow_ctx, RECORD_0).await?;
+        let r = self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?;
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(1);
-        let is_valid = check_zero(check_zero_ctx, RECORD_0, &t).await?;
+        let is_valid = check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
@@ -261,12 +261,12 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
             (state.u, state.w)
         };
         try_join(
-            helper_right.send(RECORD_0, u_local),
-            helper_right.send(RECORD_1, w_local),
+            helper_right.send(RecordId::FIRST, u_local),
+            helper_right.send(RecordId::FIRST + 1, w_local),
         )
         .await?;
         let (u_left, w_left): (F::ExtendedField, F::ExtendedField) =
-            try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
+            try_join(helper_left.receive(RecordId::FIRST), helper_left.receive(RecordId::FIRST + 1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))

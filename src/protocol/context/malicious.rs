@@ -698,7 +698,7 @@ where
         };
         UpgradeContext {
             ctx,
-            record_binding: crate::protocol::RECORD_0,
+            record_binding: RecordId::FIRST
         }
         .upgrade(input)
         .await

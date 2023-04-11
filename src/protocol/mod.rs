@@ -17,6 +17,7 @@ use std::{
     hash::Hash,
     ops::AddAssign,
 };
+use std::ops::Add;
 
 pub use basics::BasicProtocols;
 
@@ -286,11 +287,6 @@ impl TryFrom<&str> for QueryId {
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
-pub const RECORD_0: RecordId = RecordId(0);
-pub const RECORD_1: RecordId = RecordId(1);
-pub const RECORD_2: RecordId = RecordId(2);
-pub const RECORD_3: RecordId = RecordId(3);
-
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
         RecordId(v)
@@ -333,6 +329,14 @@ impl From<RecordId> for u32 {
 impl From<RecordId> for usize {
     fn from(r: RecordId) -> Self {
         r.0 as usize
+    }
+}
+
+impl Add<usize> for RecordId {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        RecordId::from(usize::try_from(self.0).unwrap() + rhs)
     }
 }
 

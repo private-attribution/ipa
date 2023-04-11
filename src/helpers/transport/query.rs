@@ -55,8 +55,14 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
         NoStep
     }
 
+    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
+    }
+
+    #[cfg(not(feature = "enable-serde"))]
+    fn extra(&self) -> Self::Params {
+        unimplemented!()
     }
 }
 

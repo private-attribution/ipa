@@ -119,7 +119,7 @@ pub enum Error {
         #[from]
         inner: io::Error,
     },
-    #[error("Request rejected by remote {dest:?}: {inner:?}")]
+    #[error("Error from remote helper {dest:?}: {inner:?}")]
     Rejected {
         dest: HelperIdentity,
         #[source]
