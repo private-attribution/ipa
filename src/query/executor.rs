@@ -115,15 +115,7 @@ where
         input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
     }
 
-    ipa(
-        ctx,
-        input_vec.as_slice(),
-        query_config.per_user_credit_cap,
-        query_config.max_breakdown_key,
-        query_config.attribution_window_seconds,
-        query_config.num_multi_bits,
-    )
-    .await
+    ipa(ctx, input_vec.as_slice(), query_config).await
 }
 
 #[allow(unused)]

@@ -9,6 +9,7 @@ use super::{
 use crate::{
     error::Error,
     ff::{GaloisField, Gf2, PrimeField, Serializable},
+    helpers::query::IpaQueryConfig,
     protocol::{
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
@@ -26,17 +27,13 @@ use std::iter::zip;
 ///
 /// # Errors
 /// propagates errors from multiplications
-#[allow(clippy::too_many_arguments)]
 pub async fn secure_attribution<'a, F, BK>(
     sh_ctx: SemiHonestContext<'a>,
     malicious_validator: MaliciousValidator<'a, F>,
     binary_malicious_validator: MaliciousValidator<'a, Gf2>,
     sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
     F: PrimeField + ExtendableField,
@@ -69,14 +66,14 @@ where
     let accumulated_credits = accumulate_credit(
         m_ctx.narrow(&Step::AccumulateCredit),
         &attribution_input_rows,
-        per_user_credit_cap,
+        config.per_user_credit_cap,
     )
     .await?;
 
     let user_capped_credits = credit_capping(
         m_ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
-        per_user_credit_cap,
+        config.per_user_credit_cap,
     )
     .await?;
 
@@ -84,8 +81,8 @@ where
         malicious_validator,
         sh_ctx,
         user_capped_credits.into_iter(),
-        max_breakdown_key,
-        num_multi_bits,
+        config.max_breakdown_key,
+        config.num_multi_bits,
     )
     .await?;
 
