@@ -1,6 +1,7 @@
 use super::TestWorld;
 use crate::{
     ff::{GaloisField, PrimeField, Serializable},
+    helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{
         ipa::{ipa, ipa_malicious},
@@ -144,10 +145,12 @@ pub async fn test_ipa<F>(
                 ipa_malicious::<F, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    per_user_cap,
-                    max_breakdown_key,
-                    attribution_window_seconds,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        per_user_cap,
+                        max_breakdown_key,
+                        attribution_window_seconds,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -159,10 +162,12 @@ pub async fn test_ipa<F>(
                 ipa::<F, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    per_user_cap,
-                    max_breakdown_key,
-                    attribution_window_seconds,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        per_user_cap,
+                        max_breakdown_key,
+                        attribution_window_seconds,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()

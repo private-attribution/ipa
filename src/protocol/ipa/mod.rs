@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
-    helpers::Role,
+    helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
         basics::Reshare,
@@ -255,10 +255,7 @@ where
 pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_>,
     input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: PrimeField,
@@ -290,7 +287,7 @@ where
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &convert_all_bits_local::<F, MK>(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
-        num_multi_bits,
+        config.num_multi_bits,
     )
     .await
     .unwrap();
@@ -332,16 +329,7 @@ where
     .await
     .unwrap();
 
-    semi_honest::secure_attribution(
-        ctx,
-        sorted_match_keys,
-        sorted_rows,
-        per_user_credit_cap,
-        max_breakdown_key,
-        attribution_window_seconds,
-        num_multi_bits,
-    )
-    .await
+    semi_honest::secure_attribution(ctx, sorted_match_keys, sorted_rows, config).await
 }
 
 /// Malicious IPA
@@ -354,10 +342,7 @@ where
 pub async fn ipa_malicious<'a, F, MK, BK>(
     sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: PrimeField + ExtendableField,
@@ -381,7 +366,7 @@ where
             .upgrade(convert_all_bits_local(m_ctx.role(), mk_shares.into_iter()))
             .await?,
         MK::BITS,
-        num_multi_bits,
+        config.num_multi_bits,
     )
     .await
     .unwrap();
@@ -469,10 +454,7 @@ where
         binary_validator,
         sorted_match_keys,
         sorted_rows,
-        per_user_credit_cap,
-        max_breakdown_key,
-        attribution_window_seconds,
-        num_multi_bits,
+        config,
     )
     .await
 }
@@ -505,7 +487,7 @@ pub mod tests {
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
-        helpers::GatewayConfig,
+        helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
@@ -568,10 +550,12 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -619,10 +603,12 @@ pub mod tests {
                 ipa_malicious::<_, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -680,10 +666,12 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -708,10 +696,12 @@ pub mod tests {
                 ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -841,6 +831,7 @@ pub mod tests {
     /// It is possible to increase the number too if there is a good reason for it. This is a
     /// "catch all" type of test to make sure we don't miss an accidental regression.
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     pub async fn communication_baseline() {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
@@ -886,10 +877,12 @@ pub mod tests {
                     ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
-                        per_user_cap,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
+                        IpaQueryConfig::new(
+                            per_user_cap,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
                     )
                     .await
                     .unwrap()
@@ -925,10 +918,12 @@ pub mod tests {
                     ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
-                        per_user_cap,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
+                        IpaQueryConfig::new(
+                            per_user_cap,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
                     )
                     .await
                     .unwrap()
