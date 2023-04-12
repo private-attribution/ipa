@@ -15,12 +15,12 @@ pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
 pub trait ResourceIdentifier: Sized {}
-pub trait QueryIdBinding: Send + Sized
+pub trait QueryIdBinding: Sized
 where
     Option<QueryId>: From<Self>,
 {
 }
-pub trait StepBinding: Send + Sync + Sized
+pub trait StepBinding: Sized
 where
     Option<Step>: From<Self>,
 {
@@ -57,8 +57,7 @@ impl From<NoStep> for Option<Step> {
 impl StepBinding for NoStep {}
 impl StepBinding for Step {}
 
-pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>:
-    Send + Sync
+pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
 where
     Option<QueryId>: From<Q>,
     Option<Step>: From<S>,
@@ -154,38 +153,4 @@ pub trait Transport: Clone + Send + Sync + 'static {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream;
-}
-
-/// Until we have proper HTTP transport
-#[derive(Clone)]
-pub struct DummyTransport;
-
-#[async_trait]
-#[allow(unused_variables)]
-impl Transport for DummyTransport {
-    type RecordsStream = Box<dyn Stream<Item = Vec<u8>> + Send + Unpin>;
-
-    fn identity(&self) -> HelperIdentity {
-        unimplemented!()
-    }
-
-    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S>,
-        D: Stream<Item = Vec<u8>> + Send + 'static,
-    {
-        unimplemented!()
-    }
-
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
-        &self,
-        from: HelperIdentity,
-        route: R,
-    ) -> Self::RecordsStream {
-        unimplemented!()
-    }
 }

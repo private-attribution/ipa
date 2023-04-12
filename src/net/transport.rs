@@ -109,15 +109,13 @@ impl Transport for Arc<HttpTransport> {
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
     {
-        match route.resource_identifier() {
+        let route_id = route.resource_identifier();
+        match route_id {
             RouteId::Records => {
+                let query_id = <Option<QueryId>>::from(route.query_id()).expect("TODO");
+                let step = <Option<Step>>::from(route.step()).expect("TODO");
                 let resp_future = self.clients[dest]
-                    .step(
-                        dest,
-                        <Option<QueryId>>::from(route.query_id()).expect("TODO"),
-                        <Option<Step>>::from(route.step()).as_ref().expect("TODO"),
-                        data,
-                    )
+                    .step(dest, query_id, &step, data)
                     .await
                     .map_err(|_e| {
                         io::Error::new::<String>(

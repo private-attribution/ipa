@@ -465,7 +465,7 @@ pub mod query {
 
         // When this type is used on the client side, `B` is `hyper::Body`. When this type
         // is used on the server side, `B` can be any body type supported by axum.
-        #[derive(Debug, Clone)]
+        #[derive(Debug)]
         pub struct Request<B> {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
