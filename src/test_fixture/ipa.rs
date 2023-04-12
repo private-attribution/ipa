@@ -18,6 +18,8 @@ use rand::{
 };
 use std::cmp::min;
 
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum IpaSecurityModel {
     SemiHonest,
     Malicious,

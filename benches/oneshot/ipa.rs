@@ -42,6 +42,9 @@ struct Args {
     /// The amount of active items to concurrently track.
     #[arg(short = 'a', long)]
     active_work: Option<NonZeroUsize>,
+    /// Desired security model for IPA protocol
+    #[arg(short = 'm', long, value_enum, default_value_t=IpaSecurityModel::Malicious)]
+    mode: IpaSecurityModel,
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
@@ -109,11 +112,12 @@ async fn main() -> Result<(), Error> {
         args.per_user_cap,
         args.breakdown_keys,
         args.attribution_window,
-        IpaSecurityModel::Malicious,
+        args.mode,
     )
     .await;
     println!(
-        "IPA for {q} records took {t:?}",
+        "{m:?} IPA for {q} records took {t:?}",
+        m = args.mode,
         q = args.query_size,
         t = protocol_time.elapsed()
     );
