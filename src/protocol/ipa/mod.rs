@@ -794,6 +794,73 @@ pub mod tests {
         }
     }
 
+    /// Test for the "wrapping-add" attack (issue #520).
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn random_wrapping_add_attack() {
+        const PER_USER_CAP: u32 = 2;
+        const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const NUM_MULTI_BITS: u32 = 3;
+        const RECORD_COUNT: usize = 8;
+
+        let random_seed = thread_rng().gen();
+        println!("Using random seed: {random_seed}");
+        let mut rng = StdRng::seed_from_u64(random_seed);
+        let mut records = Vec::with_capacity(RECORD_COUNT * 2);
+
+        // Generate 8 pairs of (source event, trigger event) tuple, each having a random trigger_value between [4, 31).
+        // This ensures there's at least one wrap around at user-level, and catch if the contribution ever exceeds the cap.
+        for _ in 0..RECORD_COUNT {
+            let mut record = ipa_test_input!(
+                [
+                    { match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
+                    { match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            records.append(&mut record);
+        }
+
+        let world = TestWorld::default();
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+        assert_eq!(MAX_BREAKDOWN_KEY as usize, result.len());
+        println!(
+            "actual results: {:#?}",
+            result
+                .iter()
+                .map(|x| x.trigger_value.as_u128())
+                .collect::<Vec<_>>(),
+        );
+
+        // Check that
+        //   * the contribution never exceeds the cap.
+        //   * the credit is attributed to at most one breakdown key.
+        let mut count = 0;
+        for x in &result {
+            assert!(x.trigger_value.as_u128() <= u128::from(PER_USER_CAP));
+
+            if x.trigger_value.as_u128() > 0 {
+                count += 1;
+            }
+        }
+        assert_eq!(count, 1);
+    }
+
     fn serde_internal(
         match_key: u64,
         trigger_bit: u128,
@@ -847,13 +914,13 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14517;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48780;
+        /// empirical value as of Apr 11, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18054;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 62928;
 
-        /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36543;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 136_884;
+        /// empirical value as of Apr 11, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 45633;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 173_244;
 
         /// empirical value as of Mar 24, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;

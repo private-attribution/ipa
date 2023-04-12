@@ -23,6 +23,9 @@ use std::iter::{repeat, zip};
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
+/// ## Panics
+/// Panics if the `cap` is larger than 1/2 of the prime number.
+///
 pub async fn credit_capping<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
@@ -40,6 +43,9 @@ where
     }
     let input_len = input.len();
 
+    // The cap must be 1/2 of the prime number to avoid overflow.
+    assert!(F::PRIME.into() > (cap * 2).into());
+
     //
     // Step 1. Initialize a local vector for the capping computation.
     //
@@ -48,13 +54,18 @@ where
     let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
-    // Step 2. Compute user-level reversed prefix-sums
+    // Step 2. Cap each report's value to `cap`
     //
-    let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
+    let capped_credits = report_level_capping(ctx.clone(), &original_credits, cap).await?;
 
     //
-    // 3. Compute `prefix_summed_credits` >? `cap`
+    // Step 3. Compute user-level reversed prefix-sums
+    //
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, capped_credits.iter()).await?;
+
+    //
+    // Step 4. Compute `prefix_summed_credits` >? `cap`
     //
     // `exceeds_cap_bits` = 1 if `prefix_summed_credits` > `cap`
     //
@@ -62,7 +73,7 @@ where
         is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap).await?;
 
     //
-    // 4. Compute the `final_credit`
+    // Step 5. Compute the `final_credit`
     //
     // We compute capped credits in the method, and writes to `original_credits`.
     //
@@ -71,7 +82,7 @@ where
         input,
         &prefix_summed_credits,
         &exceeds_cap_bits,
-        &original_credits,
+        &capped_credits,
         cap,
     )
     .await?;
@@ -194,6 +205,43 @@ where
             }),
     )
     .await
+}
+
+async fn report_level_capping<F, C, T>(
+    ctx: C,
+    original_credits: &[T],
+    cap: u32,
+) -> Result<Vec<T>, Error>
+where
+    F: PrimeField,
+    C: Context + RandomBits<F, Share = T>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+{
+    let share_of_cap = T::share_known_value(&ctx, F::truncate_from(cap));
+    let cap_ref = &share_of_cap;
+    let exceeds_cap_bits =
+        is_credit_larger_than_cap(ctx.narrow(&Step::ReportLevelCapping), original_credits, cap)
+            .await?;
+
+    let if_else_ctx = ctx
+        .narrow(&Step::IfReportCreditExceedsCapOrElse)
+        .set_total_records(original_credits.len());
+
+    ctx
+        .join(
+            original_credits
+                .iter()
+                .zip(exceeds_cap_bits.iter())
+                .enumerate()
+                .map(|(i, (original_credit, exceeds_cap_bit))| {
+                    let record_id = RecordId::from(i);
+                    let c = if_else_ctx.clone();
+                    async move {
+                        if_else(c, record_id, exceeds_cap_bit, cap_ref, original_credit).await
+                    }
+                }),
+        )
+        .await
 }
 
 async fn credit_prefix_sum<'a, F, C, T, I>(
@@ -356,6 +404,8 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     MaskSourceCredits,
+    ReportLevelCapping,
+    IfReportCreditExceedsCapOrElse,
     RandomBitsForComparison,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
@@ -370,6 +420,8 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::MaskSourceCredits => "mask_source_credits",
+            Self::ReportLevelCapping => "report_level_capping",
+            Self::IfReportCreditExceedsCapOrElse => "if_report_credit_exceeds_cap_or_else",
             Self::RandomBitsForComparison => "random_bits_for_comparison",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
@@ -384,22 +436,63 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         accumulation_test_input,
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime, PrimeField},
         protocol::{
             attribution::{
                 credit_capping::credit_capping,
-                input::{CreditCappingInputRow, MCCreditCappingInputRow},
+                input::{CreditCappingInputRow, MCCreditCappingInputRow, MCCreditCappingOutputRow},
             },
             context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             BreakdownKey, MatchKey,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
 
+    async fn run_credit_capping_test(
+        input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
+        cap: u32,
+    ) -> [Vec<MCCreditCappingOutputRow<Fp32BitPrime, AdditiveShare<Fp32BitPrime>>>; 3] {
+        let world = TestWorld::default();
+        world
+            .semi_honest(
+                input,
+                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
+
+                    let mut converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        BreakdownKey::BITS,
+                        BreakdownKey::BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+                    let modulus_converted_shares = input
+                        .iter()
+                        .zip(converted_bk_shares)
+                        .map(|(row, bk)| {
+                            MCCreditCappingInputRow::new(
+                                row.is_trigger_report.clone(),
+                                row.helper_bit.clone(),
+                                bk,
+                                row.trigger_value.clone(),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+
+                    credit_capping(ctx, &modulus_converted_shares, cap)
+                        .await
+                        .unwrap()
+                },
+            )
+            .await
+    }
+
     #[tokio::test]
-    pub async fn cap() {
+    pub async fn basic() {
         const CAP: u32 = 18;
         const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 19] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
@@ -430,41 +523,91 @@ mod tests {
         );
         let input_len = input.len();
 
-        let world = TestWorld::default();
-        let result = world
-            .semi_honest(
-                input,
-                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
-                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
+        let result = run_credit_capping_test(input, CAP).await;
 
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
-                    let modulus_converted_shares = input
-                        .iter()
-                        .zip(converted_bk_shares)
-                        .map(|(row, bk)| {
-                            MCCreditCappingInputRow::new(
-                                row.is_trigger_report.clone(),
-                                row.helper_bit.clone(),
-                                bk,
-                                row.trigger_value.clone(),
-                            )
-                        })
-                        .collect::<Vec<_>>();
+        assert_eq!(result[0].len(), input_len);
+        assert_eq!(result[1].len(), input_len);
+        assert_eq!(result[2].len(), input_len);
+        assert_eq!(result[0].len(), EXPECTED.len());
 
-                    credit_capping(ctx, &modulus_converted_shares, CAP)
-                        .await
-                        .unwrap()
-                },
-            )
-            .await;
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            let v = [
+                &result[0][i].credit,
+                &result[1][i].credit,
+                &result[2][i].credit,
+            ]
+            .reconstruct();
+            assert_eq!(v.as_u128(), *expected);
+        }
+    }
+
+    // This test case is to test where `exceeds_cap_bit` yields alternating {0, 1} bits.
+    // See #520 for more details.
+    #[tokio::test]
+    pub async fn wrapping_add_attack_case_1() {
+        const MINUS_TWO: u32 = Fp32BitPrime::PRIME - 2;
+        const CAP: u32 = 2;
+        const NUM_MULTI_BITS: u32 = 3;
+        const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
+
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+            [
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 2 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: MINUS_TWO },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: MINUS_TWO },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: 2 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: MINUS_TWO },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: MINUS_TWO },
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+        let input_len = input.len();
+
+        let result = run_credit_capping_test(input, CAP).await;
+
+        assert_eq!(result[0].len(), input_len);
+        assert_eq!(result[1].len(), input_len);
+        assert_eq!(result[2].len(), input_len);
+        assert_eq!(result[0].len(), EXPECTED.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            let v = [
+                &result[0][i].credit,
+                &result[1][i].credit,
+                &result[2][i].credit,
+            ]
+            .reconstruct();
+            assert_eq!(v.as_u128(), *expected);
+        }
+    }
+
+    // This test case is to test where `exceeds_cap_bit` yields all 0's.
+    // See #520 for more details.
+    #[tokio::test]
+    pub async fn wrapping_add_attack_case_2() {
+        const MINUS_TWO: u32 = Fp32BitPrime::PRIME - 2;
+        const CAP: u32 = 2;
+        const NUM_MULTI_BITS: u32 = 3;
+        const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
+
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+            [
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: MINUS_TWO },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: MINUS_TWO },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: 2 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: MINUS_TWO },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: MINUS_TWO },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: 2 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+        let input_len = input.len();
+
+        let result = run_credit_capping_test(input, CAP).await;
 
         assert_eq!(result[0].len(), input_len);
         assert_eq!(result[1].len(), input_len);
