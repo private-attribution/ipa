@@ -111,9 +111,7 @@ pub async fn test_ipa<F>(
     world: &TestWorld,
     records: &[TestRawDataRecord],
     expected_results: &[u32],
-    per_user_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
+    config: IpaQueryConfig,
     security_model: IpaSecurityModel,
 ) where
     semi_honest::AdditiveShare<F>: Serializable,
@@ -122,8 +120,6 @@ pub async fn test_ipa<F>(
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     Standard: Distribution<F>,
 {
-    const NUM_MULTI_BITS: u32 = 3;
-
     let records = records
         .iter()
         .map(|x| {
@@ -142,41 +138,26 @@ pub async fn test_ipa<F>(
     let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
         IpaSecurityModel::Malicious => world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<F, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        per_user_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        NUM_MULTI_BITS,
-                    ),
-                )
-                .await
-                .unwrap()
+                ipa_malicious::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                    .await
+                    .unwrap()
             })
             .await
             .reconstruct(),
         IpaSecurityModel::SemiHonest => world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<F, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        per_user_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        NUM_MULTI_BITS,
-                    ),
-                )
-                .await
-                .unwrap()
+                ipa::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                    .await
+                    .unwrap()
             })
             .await
             .reconstruct(),
     };
 
-    assert_eq!(max_breakdown_key, u32::try_from(result.len()).unwrap());
+    assert_eq!(
+        config.max_breakdown_key,
+        u32::try_from(result.len()).unwrap()
+    );
 
     for (i, expected) in expected_results.iter().enumerate() {
         assert_eq!(

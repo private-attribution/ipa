@@ -775,9 +775,12 @@ pub mod tests {
                 &world,
                 &raw_data,
                 &expected_results,
-                per_user_cap,
-                MAX_BREAKDOWN_KEY,
-                ATTRIBUTION_WINDOW_SECONDS,
+                IpaQueryConfig::new(
+                    per_user_cap,
+                    MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
+                    NUM_MULTI_BITS,
+                ),
                 IpaSecurityModel::SemiHonest,
             )
             .await;
