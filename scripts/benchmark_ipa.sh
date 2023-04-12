@@ -10,8 +10,13 @@ if [ "$#" -ne 1 ]; then
     exit
 fi
 
-temp_file=".benchmark_result$num_rows.csv"
-RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features -- -n $num_rows > $temp_file
+temp_file=`mktemp -q /tmp/ipa-bench.XXXXXX`
+ if [ $? -ne 0 ]; then
+         echo "$0: Can't create temp file, exiting..."
+         exit 1
+ fi
+ 
+ RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features -- -n $num_rows > $temp_file
  
 until_now_records=0
 until_now_bytes=0
