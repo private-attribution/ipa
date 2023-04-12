@@ -23,17 +23,17 @@ until_now_bytes=0
 
 echo "Step,Bytes sent,Records Sent"
 step_mapping=( 
-        "mod_conv_breakdown_key\|mod_conv_match_key:Verify"
-        "apply_sort_permutation\|gen_sort_permutation_from_match_keys:Sort"
-	"accumulate_credit\|compute_helper_bits:Attribution"
+    "mod_conv_breakdown_key\|mod_conv_match_key:Verify"
+    "apply_sort_permutation\|gen_sort_permutation_from_match_keys:Sort"
+    "accumulate_credit\|compute_helper_bits:Attribution"
   	"user_capping:Capping"
-        "check_times_credit\|compute_equality_checks:Aggregation"
+    "check_times_credit\|compute_equality_checks:Aggregation"
 )
         
 
 for step in "${step_mapping[@]}" ; do
-    key=${step%%:*}
-    value=${step#*:}
+    key="${step%%:*}"
+    value="${step#*:}"
     records_sent=`grep "$key" $temp_file | awk -F, '{sum+=$2;}END{print sum;}'`
     bytes_sent=`grep "$key" $temp_file | awk -F, '{sum+=$3;}END{print sum;}'`
 
