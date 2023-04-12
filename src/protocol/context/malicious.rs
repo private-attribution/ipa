@@ -317,6 +317,7 @@ impl AsRef<str> for UpgradeTripleStep {
 enum UpgradeModConvStep {
     V1,
     V2,
+    V3,
 }
 
 impl crate::protocol::Substep for UpgradeModConvStep {}
@@ -326,6 +327,7 @@ impl AsRef<str> for UpgradeModConvStep {
         match self {
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
+            Self::V3 => "upgrade_mod_conv3",
         }
     }
 }
@@ -363,7 +365,7 @@ impl<'a, F: Field + ExtendableField>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let (is_trigger_bit, trigger_value) = try_join(
+        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
             self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
                 self.record_binding,
                 input.is_trigger_bit,
@@ -374,10 +376,16 @@ impl<'a, F: Field + ExtendableField>
                 input.trigger_value,
                 ZeroPositions::Pvvv,
             ),
+            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
+                self.record_binding,
+                input.timestamp,
+                ZeroPositions::Pvvv,
+            ),
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRowWrapper::new(
+            timestamp,
             is_trigger_bit,
             trigger_value,
         ))
@@ -385,14 +393,16 @@ impl<'a, F: Field + ExtendableField>
 }
 
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
+    pub timestamp: T,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
-    pub fn new(is_trigger_bit: T, trigger_value: T) -> Self {
+    pub fn new(timestamp: T, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
+            timestamp,
             is_trigger_bit,
             trigger_value,
             _marker: PhantomData,

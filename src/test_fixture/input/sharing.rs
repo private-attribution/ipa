@@ -185,18 +185,21 @@ where
 
         [
             IPAInputRow {
+                timestamp: s0.timestamp.unwrap(),
                 mk_shares: s0.match_key.unwrap(),
                 is_trigger_bit: s0.is_trigger_report.unwrap(),
                 breakdown_key: s0.breakdown_key,
                 trigger_value: s0.trigger_value,
             },
             IPAInputRow {
+                timestamp: s1.timestamp.unwrap(),
                 mk_shares: s1.match_key.unwrap(),
                 is_trigger_bit: s1.is_trigger_report.unwrap(),
                 breakdown_key: s1.breakdown_key,
                 trigger_value: s1.trigger_value,
             },
             IPAInputRow {
+                timestamp: s2.timestamp.unwrap(),
                 mk_shares: s2.match_key.unwrap(),
                 is_trigger_bit: s2.is_trigger_report.unwrap(),
                 breakdown_key: s2.breakdown_key,

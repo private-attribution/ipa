@@ -32,11 +32,11 @@ pub struct GenericReportTestInput<F: Field, MK: GaloisField, BK: GaloisField> {
 
 #[macro_export]
 macro_rules! ipa_test_input {
-    ( { match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bk:expr, trigger_value: $tv:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+    ( { timestamp: $ts:expr, match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bk:expr, trigger_value: $tv:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         GenericReportTestInput {
             match_key: Some(<$mk_bit_array as $crate::ff::Field>::truncate_from(u128::try_from($mk).unwrap())),
             attribution_constraint_id: None,
-            timestamp: None,
+            timestamp: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($ts).unwrap())),
             is_trigger_report: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($itr).unwrap())),
             breakdown_key: <$bk_bit_array as $crate::ff::Field>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($tv).unwrap()),
@@ -45,9 +45,9 @@ macro_rules! ipa_test_input {
         }
     };
 
-    ( [ $({ match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bk:expr, trigger_value: $tv:expr $(,)? }),* $(,)? ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+    ( [ $({ timestamp: $ts:expr, match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bk:expr, trigger_value: $tv:expr $(,)? }),* $(,)? ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         vec![
-            $(ipa_test_input!({ match_key: $mk, is_trigger_report: $itr, breakdown_key: $bk, trigger_value: $tv }; ($field, $mk_bit_array, $bk_bit_array))),*
+            $(ipa_test_input!({ timestamp: $ts, match_key: $mk, is_trigger_report: $itr, breakdown_key: $bk, trigger_value: $tv }; ($field, $mk_bit_array, $bk_bit_array))),*
         ]
     };
 }
