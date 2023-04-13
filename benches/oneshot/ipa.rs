@@ -40,6 +40,10 @@ struct Args {
     /// The size of the attribution window, in seconds.
     #[arg(short = 'w', long, default_value = "0")]
     attribution_window: u32,
+    /// The number of sequential bits of breakdown key and match key to process in parallel
+    /// while doing modulus conversion and attribution
+    #[arg(long, default_value = "3")]
+    num_multi_bits: u32,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
@@ -65,8 +69,6 @@ impl Args {
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
-
-    const NUM_MULTI_BITS: u32 = 3;
 
     let args = Args::parse();
 
@@ -119,7 +121,7 @@ async fn main() -> Result<(), Error> {
             args.per_user_cap,
             args.breakdown_keys,
             args.attribution_window,
-            NUM_MULTI_BITS,
+            args.num_multi_bits,
         ),
         args.mode,
     )
