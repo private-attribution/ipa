@@ -236,10 +236,8 @@ where
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
-    // TODO: This can't use a sequential join because `greater_than_constant` uses
-    // a `RandomBitsGenerator`.  We need to fix that.
     ctx_ref
-        .parallel_join(
+        .try_join(
             prefix_summed_credits
                 .iter()
                 .zip(zip(repeat(ctx), repeat(cap)))
