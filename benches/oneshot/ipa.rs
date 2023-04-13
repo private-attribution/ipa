@@ -14,6 +14,10 @@ use ipa::{
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
 
+#[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
 #[command(about, long_about = None)]
