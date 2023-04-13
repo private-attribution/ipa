@@ -1,7 +1,7 @@
 use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     ff::Field,
-    helpers::{Gateway, GatewayConfig, Role, RoleAssignment, TransportImpl},
+    helpers::{Gateway, GatewayConfig, Role, RoleAssignment},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
@@ -101,7 +101,7 @@ impl TestWorld {
                 QueryId,
                 config.gateway_config,
                 role_assignment,
-                TransportImpl::InMemory(Arc::downgrade(transport)),
+                Arc::downgrade(transport),
             );
             let role = gateway.role();
             gateways[role] = Some(gateway);

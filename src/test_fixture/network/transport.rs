@@ -1,34 +1,42 @@
-#![allow(dead_code)] // TODO: remove once migrated to new transports
-
 use crate::{
     helpers::{
-        query::QueryConfig, HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId,
-        RouteParams, StepBinding, Transport,
+        query::{PrepareQuery, QueryConfig},
+        HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
+        Transport, TransportCallbacks, TransportError,
     },
     protocol::{QueryId, Step},
+    test_fixture::network::{receive::ReceiveRecords, stream::StreamCollection},
 };
-use ::tokio::sync::mpsc::{channel, Receiver, Sender};
+use ::tokio::sync::{
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
+
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use futures_util::stream;
 use serde::de::DeserializeOwned;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+    convert,
     fmt::{Debug, Formatter},
-    future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex, Weak},
-    task::{Context, Poll, Waker},
+    sync::{Arc, Weak},
+    task::{Context, Poll},
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
-
-type ConnectionTx = Sender<(Addr, InMemoryStream)>;
-type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
+type Packet = (
+    Addr,
+    InMemoryStream,
+    oneshot::Sender<Result<(), TransportError>>,
+);
+type ConnectionTx = Sender<Packet>;
+type ConnectionRx = Receiver<Packet>;
 type StreamItem = Vec<u8>;
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
@@ -41,11 +49,6 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
-    #[must_use]
-    pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup {
-        Setup::new(identity, stub_callbacks())
-    }
-
     #[must_use]
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
         Self {
@@ -64,33 +67,46 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(&self, mut callbacks: TransportCallbacks, mut rx: ConnectionRx) {
+    fn listen(
+        self: &Arc<Self>,
+        mut callbacks: TransportCallbacks<Weak<Self>>,
+        mut rx: ConnectionRx,
+    ) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
+                let this = Arc::downgrade(self);
                 async move {
                     let mut active_queries = HashSet::new();
-                    while let Some((addr, stream)) = rx.recv().await {
+                    while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
-                        match addr.route {
+                        let result = match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                let query_id = (callbacks.receive_query)(qc)
-                                    .await
-                                    .expect("Should be able to receive a new query request");
-                                assert!(
-                                    active_queries.insert(query_id),
-                                    "the same query id {query_id:?} is generated twice"
-                                );
+                                (callbacks.receive_query)(Weak::clone(&this), qc).await.map(
+                                    |query_id| {
+                                        assert!(
+                                            active_queries.insert(query_id),
+                                            "the same query id {query_id:?} is generated twice"
+                                        );
+                                    },
+                                )
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
                                 let step = addr.step.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, step), stream);
+                                Ok(())
                             }
-                        }
+                            RouteId::PrepareQuery => {
+                                let input = addr.into::<PrepareQuery>();
+                                (callbacks.prepare_query)(Weak::clone(&this), input).await
+                            }
+                        };
+
+                        ack.send(result).unwrap();
                     }
                 }
             }
@@ -129,21 +145,30 @@ impl Transport for Weak<InMemoryTransport> {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), io::Error>
+    ) -> Result<(), TransportError>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
-        let addr = Addr::from_route(this.identity, &route);
+        let addr = Addr::from_route(this.identity, route);
+        let (ack_tx, ack_rx) = oneshot::channel();
 
         channel
-            .send((addr, InMemoryStream::wrap(data)))
+            .send((addr, InMemoryStream::wrap(data), ack_tx))
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
+            })?;
+
+        ack_rx
+            .await
+            .map_err(|_recv_error| TransportError::Rejected {
+                dest,
+                inner: "channel closed".into(),
             })
+            .and_then(convert::identity)
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -158,30 +183,6 @@ impl Transport for Weak<InMemoryTransport> {
     }
 }
 
-/// Represents a stream of records.
-/// If stream is not received yet, each poll generates a waker that is used internally to wake up
-/// the task when stream is received.
-/// Once stream is received, it is moved to this struct and it acts as a proxy to it.
-pub struct ReceiveRecords<S> {
-    inner: ReceiveRecordsInner<S>,
-}
-
-impl<S> ReceiveRecords<S> {
-    fn new(key: StreamKey, coll: StreamCollection<S>) -> Self {
-        Self {
-            inner: ReceiveRecordsInner::Pending(key, coll),
-        }
-    }
-}
-
-impl<S: Stream + Unpin> Stream for ReceiveRecords<S> {
-    type Item = S::Item;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::get_mut(self).inner.poll_next_unpin(cx)
-    }
-}
-
 /// Convenience struct to support heterogeneous in-memory streams
 pub struct InMemoryStream {
     /// There is only one reason for this to have dynamic dispatch: tests that use from_iter method.
@@ -189,6 +190,7 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
+    #[cfg(all(test, not(feature = "shuttle")))]
     fn empty() -> Self {
         Self::from_iter(std::iter::empty())
     }
@@ -199,11 +201,13 @@ impl InMemoryStream {
         }
     }
 
+    #[cfg(all(test, not(feature = "shuttle")))]
     fn from_iter<I>(input: I) -> Self
     where
         I: IntoIterator<Item = StreamItem>,
         I::IntoIter: Send + 'static,
     {
+        use futures_util::stream;
         Self {
             inner: Box::pin(stream::iter(input.into_iter())),
         }
@@ -242,9 +246,10 @@ struct Addr {
 }
 
 impl Addr {
+    #[allow(clippy::needless_pass_by_value)] // to avoid using double-reference at callsites
     fn from_route<Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
         origin: HelperIdentity,
-        route: &R,
+        route: R,
     ) -> Self
     where
         Option<QueryId>: From<Q>,
@@ -255,7 +260,7 @@ impl Addr {
             origin: Some(origin),
             query_id: route.query_id().into(),
             step: route.step().into(),
-            params: route.extra().to_string(),
+            params: route.extra().borrow().to_string(),
         }
     }
 
@@ -263,16 +268,7 @@ impl Addr {
         serde_json::from_str(&self.params).unwrap()
     }
 
-    fn receive_query(config: QueryConfig) -> Self {
-        Self {
-            route: RouteId::ReceiveQuery,
-            origin: None,
-            query_id: None,
-            step: None,
-            params: serde_json::to_string(&config).unwrap(),
-        }
-    }
-
+    #[cfg(all(test, not(feature = "shuttle")))]
     fn records(from: HelperIdentity, query_id: QueryId, step: Step) -> Self {
         Self {
             route: RouteId::Records,
@@ -294,197 +290,29 @@ impl Debug for Addr {
     }
 }
 
-/// Each stream is indexed by query id, the identity of helper where stream is originated from
-/// and step.
-type StreamKey = (QueryId, HelperIdentity, Step);
-
-/// Thread-safe append-only collection of homogeneous record streams.
-/// Streams are indexed by [`StreamKey`] and the lifecycle of each stream is described by the
-/// [`RecordsStream`] struct.
-///
-/// Each stream can be inserted and taken away exactly once, any deviation from this behaviour will
-/// result in panic.
-struct StreamCollection<S> {
-    inner: Arc<Mutex<HashMap<StreamKey, RecordsStream<S>>>>,
-}
-
-impl<S> Default for StreamCollection<S> {
-    fn default() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(HashMap::default())),
-        }
-    }
-}
-
-impl<S> Clone for StreamCollection<S> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
-    }
-}
-
-impl<S: Stream> StreamCollection<S> {
-    /// Adds a new stream associated with the given key.
-    ///
-    /// ## Panics
-    /// If there was another stream associated with the same key some time in the past.
-    pub fn add_stream(&self, key: StreamKey, stream: S) {
-        let mut streams = self.inner.lock().unwrap();
-        match streams.entry(key) {
-            Entry::Occupied(mut entry) => match entry.get_mut() {
-                rs @ RecordsStream::Waiting(_) => {
-                    let RecordsStream::Waiting(waker) = std::mem::replace(rs, RecordsStream::Ready(stream)) else {
-                            unreachable!()
-                        };
-                    waker.wake();
-                }
-                rs @ (RecordsStream::Ready(_) | RecordsStream::Completed) => {
-                    let state = format!("{rs:?}");
-                    let key = entry.key().clone();
-                    drop(streams);
-                    panic!("{key:?} entry state expected to be waiting, got {state:?}");
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(RecordsStream::Ready(stream));
-            }
-        }
-    }
-
-    /// Adds a new waker to notify when the stream is ready. If stream is ready, this method takes
-    /// it out, leaving a tombstone in its place, and returns it.
-    ///
-    /// ## Panics
-    /// If [`Waker`] that exists already inside this collection will not wake the given one.
-    pub fn add_waker(&self, key: &StreamKey, waker: &Waker) -> Option<S> {
-        let mut streams = self.inner.lock().unwrap();
-
-        match streams.entry(key.clone()) {
-            Entry::Occupied(mut entry) => {
-                match entry.get_mut() {
-                    RecordsStream::Waiting(old_waker) => {
-                        let will_wake = old_waker.will_wake(waker);
-                        drop(streams); // avoid mutex poisoning
-                        assert!(will_wake);
-                        None
-                    }
-                    rs @ RecordsStream::Ready(_) => {
-                        let RecordsStream::Ready(stream) = std::mem::replace(rs, RecordsStream::Completed) else {
-                            unreachable!();
-                        };
-
-                        Some(stream)
-                    }
-                    RecordsStream::Completed => {
-                        drop(streams);
-                        panic!("{key:?} stream has been consumed already")
-                    }
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(RecordsStream::Waiting(waker.clone()));
-                None
-            }
-        }
-    }
-}
-
-/// Describes the lifecycle of records stream inside [`StreamCollection`]
-enum RecordsStream<S> {
-    /// There was a request to receive this stream, but it hasn't arrived yet
-    Waiting(Waker),
-    /// Stream is ready to be consumed
-    Ready(S),
-    /// Stream was successfully received and taken away from [`StreamCollection`].
-    /// It may not be requested or received again.
-    Completed,
-}
-
-impl<S> Debug for RecordsStream<S> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RecordsStream::Waiting(_) => {
-                write!(f, "Waiting")
-            }
-            RecordsStream::Ready(_) => {
-                write!(f, "Ready")
-            }
-            RecordsStream::Completed => {
-                write!(f, "Completed")
-            }
-        }
-    }
-}
-
-/// Inner state for [`ReceiveRecords`] struct
-enum ReceiveRecordsInner<S> {
-    Pending(StreamKey, StreamCollection<S>),
-    Ready(S),
-}
-
-impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
-    type Item = S::Item;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = Pin::get_mut(self);
-        loop {
-            match this {
-                Self::Pending(key, streams) => {
-                    if let Some(stream) = streams.add_waker(key, cx.waker()) {
-                        *this = Self::Ready(stream);
-                    } else {
-                        return Poll::Pending;
-                    }
-                }
-                Self::Ready(stream) => return stream.poll_next_unpin(cx),
-            }
-        }
-    }
-}
-
-pub trait ReceiveQueryCallback:
-    FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
-{
-}
-
-impl<F> ReceiveQueryCallback for F where
-    F: FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
-        + Send
-        + 'static
-{
-}
-
-pub struct TransportCallbacks {
-    pub(crate) receive_query: Box<dyn ReceiveQueryCallback>,
-}
-
-fn stub_callbacks() -> TransportCallbacks {
-    TransportCallbacks {
-        receive_query: Box::new(move |_| Box::pin(async { unimplemented!() })),
-    }
-}
-
 pub struct Setup {
     identity: HelperIdentity,
     tx: ConnectionTx,
     rx: ConnectionRx,
-    callbacks: TransportCallbacks,
     connections: HashMap<HelperIdentity, ConnectionTx>,
 }
 
 impl Setup {
-    pub fn new(identity: HelperIdentity, callbacks: TransportCallbacks) -> Self {
+    #[must_use]
+    pub fn new(identity: HelperIdentity) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
             tx,
             rx,
-            callbacks,
             connections: HashMap::default(),
         }
     }
 
+    /// Establishes a link between this helper and another one
+    ///
+    /// ## Panics
+    /// Panics if there is a link already.
     pub fn connect(&mut self, other: &mut Self) {
         assert!(self
             .connections
@@ -496,15 +324,22 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(self) -> (ConnectionTx, Arc<InMemoryTransport>) {
-        let transport = InMemoryTransport::new(self.identity, self.connections);
-        transport.listen(self.callbacks, self.rx);
+    fn into_active_conn(
+        self,
+        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
+    ) -> (ConnectionTx, Arc<InMemoryTransport>) {
+        let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
+        transport.listen(callbacks, self.rx);
 
-        (self.tx, Arc::new(transport))
+        (self.tx, transport)
     }
 
-    pub fn start(self) -> Arc<InMemoryTransport> {
-        self.into_active_conn().1
+    #[must_use]
+    pub fn start(
+        self,
+        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
+    ) -> Arc<InMemoryTransport> {
+        self.into_active_conn(callbacks).1
     }
 }
 
@@ -513,24 +348,34 @@ mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{ordering_mpsc, query::QueryType, HelperIdentity},
+        helpers::{query::QueryType, HelperIdentity, OrderingSender},
         protocol::Step,
         test_fixture::network::InMemoryNetwork,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
-    use std::{num::NonZeroUsize, panic::AssertUnwindSafe};
+    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
     use tokio::sync::{mpsc::channel, oneshot};
 
     const STEP: &str = "in-memory-transport";
+
+    async fn send_and_ack(sender: &ConnectionTx, addr: Addr, data: InMemoryStream) {
+        let (tx, rx) = oneshot::channel();
+        sender.send((addr, data, tx)).await.unwrap();
+        rx.await
+            .map_err(|_e| TransportError::Io {
+                inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
+            })
+            .and_then(convert::identity)
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn callback_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) = Setup::new(
-            HelperIdentity::ONE,
-            TransportCallbacks {
-                receive_query: Box::new(move |query_config| {
+        let (tx, _transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
+                receive_query: Box::new(move |_transport, query_config| {
                     let signal_tx = Arc::clone(&signal_tx);
                     Box::pin(async move {
                         // this works because callback is only called once
@@ -544,23 +389,27 @@ mod tests {
                         Ok(QueryId)
                     })
                 }),
-            },
-        )
-        .into_active_conn();
+                ..Default::default()
+            });
         let expected = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
-        tx.send((Addr::receive_query(expected), InMemoryStream::empty()))
-            .await
-            .unwrap();
+
+        send_and_ack(
+            &tx,
+            Addr::from_route(HelperIdentity::TWO, &expected),
+            InMemoryStream::empty(),
+        )
+        .await;
 
         assert_eq!(expected, signal_rx.await.unwrap());
     }
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let (tx, transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
@@ -571,27 +420,29 @@ mod tests {
             poll_immediate(&mut stream).next().await,
             Some(Poll::Pending)
         ));
-        tx.send((
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
-        ))
-        .await
-        .unwrap();
+        )
+        .await;
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let (tx, transport) =
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let expected = vec![vec![1], vec![2]];
 
-        tx.send((
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
-        ))
-        .await
-        .unwrap();
+        )
+        .await;
+
         let stream =
             Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
 
@@ -640,13 +491,13 @@ mod tests {
             assert!(matches!(poll_immediate(&mut recv).next().await, None));
         }
 
-        let mut setup1 = Setup::new(HelperIdentity::ONE, stub_callbacks());
-        let mut setup2 = Setup::new(HelperIdentity::TWO, stub_callbacks());
+        let mut setup1 = Setup::new(HelperIdentity::ONE);
+        let mut setup2 = Setup::new(HelperIdentity::TWO);
 
         setup1.connect(&mut setup2);
 
-        let transport1 = setup1.start();
-        let transport2 = setup2.start();
+        let transport1 = setup1.start(TransportCallbacks::default());
+        let transport2 = setup2.start(TransportCallbacks::default());
         let transports = HashMap::from([
             (HelperIdentity::ONE, Arc::downgrade(&transport1)),
             (HelperIdentity::TWO, Arc::downgrade(&transport2)),
@@ -659,19 +510,20 @@ mod tests {
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
-            Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
         let step = Step::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
 
         let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
-        tx.send((
+        send_and_ack(
+            &tx,
             Addr::records(HelperIdentity::TWO, QueryId, step.clone()),
             stream,
-        ))
-        .await
-        .unwrap();
+        )
+        .await;
+
         stream_tx.send(vec![4, 5, 6]).await.unwrap();
         assert_eq!(vec![4, 5, 6], recv_stream.next().await.unwrap());
 
@@ -698,11 +550,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn can_consume_unordered_recv() {
-        let (tx, rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(2).unwrap());
+    async fn can_consume_ordering_sender() {
+        let tx = Arc::new(OrderingSender::new(
+            NonZeroUsize::new(2).unwrap(),
+            NonZeroUsize::new(2).unwrap(),
+        ));
+        let rx = Arc::clone(&tx).as_rc_stream();
         let network = InMemoryNetwork::default();
-        let transport1 = network.transport(HelperIdentity::ONE).unwrap();
-        let transport2 = network.transport(HelperIdentity::TWO).unwrap();
+        let transport1 = network.transport(HelperIdentity::ONE);
+        let transport2 = network.transport(HelperIdentity::TWO);
 
         let step = Step::from(STEP);
         transport1
@@ -715,15 +571,16 @@ mod tests {
             .unwrap();
         let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, step));
 
-        tx.send(0, Fp31::try_from(0_u128).unwrap()).await.unwrap();
-        // can't receive the value at index 0 because of buffering inside ordering mpsc
+        tx.send(0, Fp31::try_from(0_u128).unwrap()).await;
+        // can't receive the value at index 0 because of buffering inside the sender
         assert_eq!(Some(Poll::Pending), poll_immediate(&mut recv).next().await);
 
-        // make the head of mpsc receiver ready to be consumed by filling the gap
-        tx.send(1, Fp31::try_from(1_u128).unwrap()).await.unwrap();
-        drop(tx);
+        // make the sender ready
+        tx.send(1, Fp31::try_from(1_u128).unwrap()).await;
+        tx.close(2).await;
+        // drop(tx);
 
         // must be received by now
-        assert_eq!(vec![vec![0], vec![1]], recv.collect::<Vec<_>>().await);
+        assert_eq!(vec![vec![0, 1]], recv.collect::<Vec<_>>().await);
     }
 }

@@ -10,6 +10,7 @@ use super::{
 use crate::{
     error::Error,
     ff::{GaloisField, Gf2, PrimeField, Serializable},
+    helpers::query::IpaQueryConfig,
     protocol::{
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
@@ -27,10 +28,7 @@ pub async fn secure_attribution<F, BK>(
     ctx: SemiHonestContext<'_>,
     sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where
     F: PrimeField,
@@ -58,29 +56,29 @@ where
     let windowed_reports = apply_attribution_window(
         ctx.narrow(&Step::ApplyAttributionWindow),
         &attribution_input_rows,
-        attribution_window_seconds,
+        config.attribution_window_seconds,
     )
     .await?;
 
     let accumulated_credits = accumulate_credit(
         ctx.narrow(&Step::AccumulateCredit),
         &windowed_reports,
-        per_user_credit_cap,
+        config.per_user_credit_cap,
     )
     .await?;
 
     let user_capped_credits = credit_capping(
         ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
-        per_user_credit_cap,
+        config.per_user_credit_cap,
     )
     .await?;
 
     aggregate_credit::<F, BK>(
         ctx.narrow(&Step::AggregateCredit),
         user_capped_credits.into_iter(),
-        max_breakdown_key,
-        num_multi_bits,
+        config.max_breakdown_key,
+        config.num_multi_bits,
     )
     .await
 }

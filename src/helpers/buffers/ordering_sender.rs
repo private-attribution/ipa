@@ -223,6 +223,7 @@ pub struct OrderingSender {
 
 impl OrderingSender {
     /// Make an `OrderingSender` with a capacity of `capacity` (in bytes).
+    #[must_use]
     pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize) -> Self {
         Self {
             next: AtomicUsize::new(0),
@@ -294,6 +295,9 @@ impl OrderingSender {
 
     /// Take the next chunk of data that the sender has produced.
     /// This function implements most of what [`OrderedStream`] needs.
+    ///
+    /// ## Panics
+    /// If the internal mutex is poisoned or locked by this thread already.
     pub fn take_next(&self, cx: &Context<'_>) -> Poll<Option<Vec<u8>>> {
         let mut b = self.state.lock().unwrap();
 
@@ -385,7 +389,6 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::disallowed_methods)] // It's a test without a context to use.
     use super::OrderingSender;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},

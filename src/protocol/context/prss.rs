@@ -6,13 +6,13 @@ use crate::{
         prss::{IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness},
         Step,
     },
+    sync::Arc,
     telemetry::{
         labels::{ROLE, STEP},
         metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED},
     },
 };
 use rand_core::{Error, RngCore};
-use std::sync::Arc;
 
 /// Wrapper around `IndexedSharedRandomness` that instrument calls to `generate_values`
 pub struct InstrumentedIndexedSharedRandomness<'a> {
