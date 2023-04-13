@@ -39,17 +39,19 @@ pub type Epoch = u16;
 type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
-/// Event type enum as described ['ipa-issue']
+/// Event type as described ['ipa-issue']
 /// Initially we will just support trigger vs source event types but could extend to others in
 /// the future.
 ///
 /// ['ipa-issue']: https://github.com/patcg-individual-drafts/ipa/issues/38
+///
+/// For now implementing as a `pub type` but could in the future make an enum
+pub type EventType = u8;
 // pub enum EventType {
 //     Trigger,
 //     Source
 // }
 
-pub type EventType = u8;
 
 
 /// match key size, in bytes
@@ -216,7 +218,7 @@ mod tests {
             let info = Info::new(
                 key_id,
                 self.epoch,
-                self.event_type,
+                event_type,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
@@ -235,7 +237,7 @@ mod tests {
             let info = Info::new(
                 key_id,
                 self.epoch,
-                self.event_type,
+                event_type,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
