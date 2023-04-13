@@ -43,8 +43,11 @@ where
     }
     let input_len = input.len();
 
-    // The cap must be 1/2 of the prime number to avoid overflow.
-    assert!(F::PRIME.into() > (cap * 2).into());
+    if (u128::from(cap) * 2) >= F::PRIME.into() {
+        return Err(crate::error::Error::InvalidQueryParameter(format!(
+            "The cap {cap} must be less than 1/2 of the prime number to avoid overflow.",
+        )));
+    }
 
     //
     // Step 1. Initialize a local vector for the capping computation.
@@ -227,21 +230,14 @@ where
         .narrow(&Step::IfReportCreditExceedsCapOrElse)
         .set_total_records(original_credits.len());
 
-    ctx
-        .join(
-            original_credits
-                .iter()
-                .zip(exceeds_cap_bits.iter())
-                .enumerate()
-                .map(|(i, (original_credit, exceeds_cap_bit))| {
-                    let record_id = RecordId::from(i);
-                    let c = if_else_ctx.clone();
-                    async move {
-                        if_else(c, record_id, exceeds_cap_bit, cap_ref, original_credit).await
-                    }
-                }),
-        )
-        .await
+    ctx.join(zip(original_credits, exceeds_cap_bits.iter()).enumerate().map(
+        |(i, (original_credit, exceeds_cap_bit))| {
+            let record_id = RecordId::from(i);
+            let c = if_else_ctx.clone();
+            async move { if_else(c, record_id, exceeds_cap_bit, cap_ref, original_credit).await }
+        },
+    ))
+    .await
 }
 
 async fn credit_prefix_sum<'a, F, C, T, I>(
@@ -494,7 +490,6 @@ mod tests {
     #[tokio::test]
     pub async fn basic() {
         const CAP: u32 = 18;
-        const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 19] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
@@ -541,13 +536,27 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    #[should_panic]
+    pub async fn invalid_cap_value() {
+        // Input doesn't matter here, since the test should panic before the computation starts.
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+            [
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 2 },
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+
+        // This should panic because the cap value is greater than the (prime / 2).
+        run_credit_capping_test(input, (Fp32BitPrime::PRIME / 2) + 1).await;
+    }
+
     // This test case is to test where `exceeds_cap_bit` yields alternating {0, 1} bits.
     // See #520 for more details.
     #[tokio::test]
     pub async fn wrapping_add_attack_case_1() {
         const MINUS_TWO: u32 = Fp32BitPrime::PRIME - 2;
         const CAP: u32 = 2;
-        const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
@@ -589,7 +598,6 @@ mod tests {
     pub async fn wrapping_add_attack_case_2() {
         const MINUS_TWO: u32 = Fp32BitPrime::PRIME - 2;
         const CAP: u32 = 2;
-        const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(

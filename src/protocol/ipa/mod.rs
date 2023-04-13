@@ -838,27 +838,21 @@ pub mod tests {
             })
             .await
             .reconstruct();
-        assert_eq!(MAX_BREAKDOWN_KEY as usize, result.len());
-        println!(
-            "actual results: {:#?}",
-            result
-                .iter()
-                .map(|x| x.trigger_value.as_u128())
-                .collect::<Vec<_>>(),
-        );
+
+        let trigger_values = result
+            .into_iter()
+            .map(|x| x.trigger_value.as_u128())
+            .collect::<Vec<_>>();
+        assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
+        println!("actual results: {trigger_values:#?}");
 
         // Check that
         //   * the contribution never exceeds the cap.
         //   * the credit is attributed to at most one breakdown key.
-        let mut count = 0;
-        for x in &result {
-            assert!(x.trigger_value.as_u128() <= u128::from(PER_USER_CAP));
-
-            if x.trigger_value.as_u128() > 0 {
-                count += 1;
-            }
-        }
-        assert_eq!(count, 1);
+        assert!(trigger_values
+            .iter()
+            .all(|v| *v <= u128::from(PER_USER_CAP)));
+        assert_eq!(1, trigger_values.into_iter().filter(|v| *v > 0).count());
     }
 
     fn serde_internal(
