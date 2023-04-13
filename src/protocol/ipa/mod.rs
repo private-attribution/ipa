@@ -756,10 +756,10 @@ pub mod tests {
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
             ];
             (Fp31, MatchKey, BreakdownKey)
         );

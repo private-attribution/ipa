@@ -56,7 +56,6 @@ where
         .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
         .collect::<Vec<_>>();
 
-    // stop_bit = is_trigger_bit * helper_bit
     let is_trigger_bits = sorted_rows
         .iter()
         .map(|x| x.is_trigger_bit.clone())
