@@ -669,6 +669,120 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn semi_honest_with_attribution_window() {
+        const COUNT: usize = 7;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 0],
+            [1, 0],
+            [2, 3],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+        const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malicious_with_attribution_window() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_malicious::<_, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn cap_of_one() {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
@@ -878,37 +992,37 @@ pub mod tests {
     #[allow(clippy::too_many_lines)]
     pub async fn communication_baseline() {
         const MAX_BREAKDOWN_KEY: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
         // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 14_571;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 48_996;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_258;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_744;
 
         // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 36_678;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 137_424;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_068;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_984;
 
         // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10_902;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34_320;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 49_068;
 
         // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27_324;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 100_008;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_714;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_568;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
