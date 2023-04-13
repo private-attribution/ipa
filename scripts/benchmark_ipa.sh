@@ -10,43 +10,38 @@ if [ "$#" -ne 1 ]; then
     exit
 fi
 
-temp_file=`mktemp -q /tmp/ipa-bench.XXXXXX`
- if [ $? -ne 0 ]; then
-         echo "$0: Can't create temp file, exiting..."
-         exit 1
- fi
- 
- RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features -- -n $num_rows > $temp_file
- 
-until_now_records=0
-until_now_bytes=0
+echo "Step,Records,Bytes"
 
-echo "Step,Bytes sent,Records Sent"
-step_mapping=( 
-    "mod_conv_breakdown_key\|mod_conv_match_key:Verify"
-    "apply_sort_permutation\|gen_sort_permutation_from_match_keys:Sort"
-    "accumulate_credit\|compute_helper_bits:Attribution"
-  	"user_capping:Capping"
-    "check_times_credit\|compute_equality_checks:Aggregation"
-)
-        
+DISPLAY_STAGE=("Verify" "Sort" "Attribution" "Capping" "Aggregation" "Others")
 
-for step in "${step_mapping[@]}" ; do
-    key="${step%%:*}"
-    value="${step#*:}"
-    records_sent=`grep "$key" $temp_file | awk -F, '{sum+=$2;}END{print sum;}'`
-    bytes_sent=`grep "$key" $temp_file | awk -F, '{sum+=$3;}END{print sum;}'`
+records=
+bytes=
 
-    echo "$value,$bytes_sent,$records_sent"
-    until_now_records=$(($until_now_records+$records_sent))
-    until_now_bytes=$(($until_now_bytes+$bytes_sent))
+for i in "${DISPLAY_STAGE[@]}"; do 
+  records+=(0); 
+  bytes+=(0);
 done
 
-total_bytes=`cat $temp_file | awk -F, '{sum+=$3;}END{print sum;}'`
-total_records=`cat $temp_file | awk -F, '{sum+=$2}END{print sum;}'`
-echo "Others,$(($total_bytes-$until_now_bytes)),$(($total_records-$until_now_records))"
-echo "Total,$total_bytes,$total_records"
+while IFS=, read -d ' ' actual_step_name a b c d; do
+    if [[ $actual_step_name != *"protocol"* ]]; then 
+      continue
+    fi
 
-rm $temp_file
+    # In case you add a new stage to DISPLAY_STAGE, please add corresponding step 
+    # in below case to match expected DISPLAY_STAGE array index
+    case "$actual_step_name" in
+      */mod_conv_breakdown_key/*|*/mod_conv_match_key/*) step=0 ;;
+      */apply_sort_permutation/*|*/gen_sort_permutation_from_match_keys/*) step=1 ;;
+      */accumulate_credit/*|*/compute_helper_bits/*) step=2 ;;
+      */user_capping/*) step=3 ;;
+      */check_times_credit/*|*/compute_equality_checks/*) step=4 ;;
+      *) step=5 ;;
+    esac
+    records[$step]=$((${records[$step]} + $a))
+    bytes[$step]=$((${bytes[$step]} + $b))
+done <<< $(RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features -- -n $num_rows 2> /dev/null)
 
+for step in "${!DISPLAY_STAGE[@]}"; do 
+    echo "${DISPLAY_STAGE[$step]},${records[$step]},${bytes[$step]}"
+done
 
