@@ -744,10 +744,10 @@ pub mod tests {
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -996,21 +996,21 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_258;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_744;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_234;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_648;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_068;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_984;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_020;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_792;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 49_068;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_565;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 48_972;
 
-        // empirical value as of Mar 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_714;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_568;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_666;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_376;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [

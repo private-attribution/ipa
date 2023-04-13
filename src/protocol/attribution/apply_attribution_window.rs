@@ -23,6 +23,7 @@ use std::iter::{repeat, zip};
 pub async fn apply_attribution_window<F, C, T>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, T>],
+    stop_bits: &[T],
     attribution_window_seconds: u32,
 ) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, T>>, Error>
 where
@@ -45,7 +46,7 @@ where
             .collect::<Vec<_>>());
     }
 
-    let mut t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
+    let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
 
     let trigger_values =
         zero_out_expired_trigger_values(&ctx, input, &mut t_deltas, attribution_window_seconds)
@@ -72,6 +73,7 @@ where
 async fn prefix_sum_time_deltas<F, C, T>(
     ctx: &C,
     input: &[MCApplyAttributionWindowInputRow<F, T>],
+    stop_bits: &[T],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
@@ -79,26 +81,6 @@ where
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
-
-    // Pre-compute `is_trigger_bit * helper_bit'.
-    // Later in the prefix-sum loop, this vector is updated in each iteration to help
-    // accumulate timedeltas and determine when to stop accumulating.
-    let stop_bit_context = ctx
-        .narrow(&Step::IsTriggerBitTimesHelperBit)
-        .set_total_records(num_rows - 1);
-    // `empty().chain()` keeps `try_join_all().await?` as iterator. Is there a better way of doing this?
-    let stop_bits = std::iter::empty().chain(
-        ctx.try_join(input.iter().skip(1).enumerate().map(|(i, x)| {
-            let c = stop_bit_context.clone();
-            let record_id = RecordId::from(i);
-            async move {
-                x.is_trigger_report
-                    .multiply(&x.helper_bit, c, record_id)
-                    .await
-            }
-        }))
-        .await?,
-    );
 
     // First, create a vector of timedeltas. This vector contains non-zero values only for
     // rows with `stop_bit` = 1, meaning that the row is a trigger event, and has the same
@@ -110,13 +92,13 @@ where
         .chain(
             ctx.try_join(
                 zip(input.iter(), input.iter().skip(1))
-                    .zip(stop_bits.clone())
+                    .zip(stop_bits)
                     .enumerate()
                     .map(|(i, ((prev, curr), b))| {
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
                         let delta = curr.timestamp.clone() - &prev.timestamp;
-                        async move { delta.multiply(&b, c, record_id).await }
+                        async move { delta.multiply(b, c, record_id).await }
                     }),
             )
             .await?,
@@ -125,7 +107,12 @@ where
         .collect::<Vec<_>>();
 
     // TODO: Change the input/output to iterators
-    do_the_binary_tree_thing(ctx.clone(), stop_bits.rev().collect(), &mut t_delta).await?;
+    do_the_binary_tree_thing(
+        ctx.clone(),
+        stop_bits.iter().rev().cloned().collect(),
+        &mut t_delta,
+    )
+    .await?;
     t_delta.reverse();
 
     Ok(t_delta)
@@ -182,7 +169,6 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    IsTriggerBitTimesHelperBit,
     InitializeTimeDelta,
     RandomBitsForBitDecomposition,
     TimeDeltaLessThanCap,
@@ -194,7 +180,6 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::IsTriggerBitTimesHelperBit => "is_trigger_bit_times_helper_bit",
             Self::InitializeTimeDelta => "initialize_time_delta",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::TimeDeltaLessThanCap => "time_delta_less_than_cap",
@@ -211,6 +196,7 @@ mod tests {
         protocol::{
             attribution::{
                 apply_attribution_window::apply_attribution_window,
+                compute_stop_bits,
                 input::{
                     ApplyAttributionWindowInputRow, MCApplyAttributionWindowInputRow,
                     MCApplyAttributionWindowOutputRow,
@@ -280,18 +266,21 @@ mod tests {
                     let converted_bk_shares =
                     converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
-                        .into_iter()
+                        .iter()
                         .zip(converted_bk_shares)
                         .map(|(row, bk)| MCApplyAttributionWindowInputRow::new(
-                            row.timestamp,
-                            row.is_trigger_report,
-                            row.helper_bit,
+                            row.timestamp.clone(),
+                            row.is_trigger_report.clone(),
+                            row.helper_bit.clone(),
                             bk,
-                            row.trigger_value,
+                            row.trigger_value.clone(),
                         ))
                         .collect::<Vec<_>>();
 
-                    apply_attribution_window(ctx, &modulus_converted_shares, ATTRIBUTION_WINDOW)
+                    let (itb, hb): (Vec<_>, Vec<_>) = input.iter().map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone())).unzip();
+                    let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb).await.unwrap().collect::<Vec<_>>();
+
+                    apply_attribution_window(ctx, &modulus_converted_shares, &stop_bits, ATTRIBUTION_WINDOW)
                         .await
                         .unwrap()
                 },
