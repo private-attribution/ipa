@@ -623,7 +623,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        ctx.join(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.try_join(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 ctx: ctx_ref.clone(),
@@ -658,7 +658,7 @@ where
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
 
         ctx_ref
-            .join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+            .try_join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
                 |(record_idx, (all_ctx, one_input))| async move {
                     // This inner join is truly concurrent.
                     ctx_ref

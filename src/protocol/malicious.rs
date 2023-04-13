@@ -459,7 +459,7 @@ mod tests {
                 let m_input = m_ctx.upgrade(input_shares).await.unwrap();
 
                 let m_results = m_ctx
-                    .join(
+                    .try_join(
                         zip(
                             repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
                             zip(m_input.iter(), m_input.iter().skip(1)),
