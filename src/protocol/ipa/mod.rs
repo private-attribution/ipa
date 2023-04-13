@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
-    helpers::Role,
+    helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
         basics::Reshare,
@@ -31,7 +31,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join3;
+use futures::future::try_join4;
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -64,6 +64,7 @@ impl AsRef<str> for Step {
 }
 
 pub enum IPAInputRowResharableStep {
+    Timestamp,
     MatchKeyShares,
     TriggerBit,
     BreakdownKey,
@@ -75,6 +76,7 @@ impl Substep for IPAInputRowResharableStep {}
 impl AsRef<str> for IPAInputRowResharableStep {
     fn as_ref(&self) -> &str {
         match self {
+            Self::Timestamp => "timestamp",
             Self::MatchKeyShares => "match_key_shares",
             Self::TriggerBit => "is_trigger_bit",
             Self::BreakdownKey => "breakdown_key",
@@ -86,6 +88,7 @@ impl AsRef<str> for IPAInputRowResharableStep {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
+    pub timestamp: Replicated<F>,
     pub mk_shares: Replicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: Replicated<BK>,
@@ -111,18 +114,31 @@ where
             >>::Output,
         >>::Output,
     >,
-    <<Replicated<MK> as Serializable>::Size as Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
+    <Replicated<F> as Serializable>::Size: Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
+            >>::Output,
+        >>::Output,
+    >,
+    <<Replicated<F> as Serializable>::Size as Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
             >>::Output,
         >>::Output,
     >>::Output: ArrayLength<u8>,
 {
-    type Size = <<Replicated<MK> as Serializable>::Size as Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
+    type Size = <<Replicated<F> as Serializable>::Size as Add<
+        <<Replicated<MK> as Serializable>::Size as Add<
+            <<Replicated<F> as Serializable>::Size as Add<
+                <<Replicated<BK> as Serializable>::Size as Add<
+                    <Replicated<F> as Serializable>::Size,
+                >>::Output,
             >>::Output,
         >>::Output,
     >>::Output;
@@ -132,15 +148,18 @@ where
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
+        self.timestamp
+            .serialize(GenericArray::from_mut_slice(&mut buf[..f_sz]));
         self.mk_shares
-            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
-        self.is_trigger_bit
-            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + f_sz]));
+            .serialize(GenericArray::from_mut_slice(&mut buf[f_sz..f_sz + mk_sz]));
+        self.is_trigger_bit.serialize(GenericArray::from_mut_slice(
+            &mut buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
+        ));
         self.breakdown_key.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+            &mut buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
         ));
         self.trigger_value.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + f_sz + bk_sz..],
+            &mut buf[f_sz + mk_sz + f_sz + bk_sz..],
         ));
     }
 
@@ -149,15 +168,20 @@ where
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let mk_shares = Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
-        let is_trigger_bit =
-            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + f_sz]));
-        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
-            &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]));
+        let mk_shares =
+            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
+        let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
         ));
-        let trigger_value =
-            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz + f_sz + bk_sz..]));
+        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
+        ));
+        let trigger_value = Replicated::<F>::deserialize(GenericArray::from_slice(
+            &buf[f_sz + mk_sz + f_sz + bk_sz..],
+        ));
         Self {
+            timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
@@ -188,6 +212,7 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
+    pub timestamp: T,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
@@ -195,8 +220,9 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
+    pub fn new(timestamp: T, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
         Self {
+            timestamp,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -221,6 +247,11 @@ where
     where
         C: 'fut,
     {
+        let f_timestamp = self.timestamp.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::Timestamp),
+            record_id,
+            to_helper,
+        );
         let f_is_trigger_bit = self.is_trigger_bit.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
@@ -237,10 +268,16 @@ where
             to_helper,
         );
 
-        let (breakdown_key, is_trigger_bit, trigger_value) =
-            try_join3(f_breakdown_key, f_is_trigger_bit, f_trigger_value).await?;
+        let (breakdown_key, timestamp, is_trigger_bit, trigger_value) = try_join4(
+            f_breakdown_key,
+            f_timestamp,
+            f_is_trigger_bit,
+            f_trigger_value,
+        )
+        .await?;
 
         Ok(IPAModulusConvertedInputRow::new(
+            timestamp,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
@@ -255,10 +292,7 @@ where
 pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_>,
     input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: PrimeField,
@@ -290,7 +324,7 @@ where
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &convert_all_bits_local::<F, MK>(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
-        num_multi_bits,
+        config.num_multi_bits,
     )
     .await
     .unwrap();
@@ -309,6 +343,7 @@ where
         .zip(input_rows)
         .map(|(bk_shares, input_row)| {
             IPAModulusConvertedInputRow::new(
+                input_row.timestamp.clone(),
                 input_row.is_trigger_bit.clone(),
                 bk_shares,
                 input_row.trigger_value.clone(),
@@ -332,16 +367,7 @@ where
     .await
     .unwrap();
 
-    semi_honest::secure_attribution(
-        ctx,
-        sorted_match_keys,
-        sorted_rows,
-        per_user_credit_cap,
-        max_breakdown_key,
-        attribution_window_seconds,
-        num_multi_bits,
-    )
-    .await
+    semi_honest::secure_attribution(ctx, sorted_match_keys, sorted_rows, config).await
 }
 
 /// Malicious IPA
@@ -354,10 +380,7 @@ where
 pub async fn ipa_malicious<'a, F, MK, BK>(
     sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u32,
-    attribution_window_seconds: u32,
-    num_multi_bits: u32,
+    config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: PrimeField + ExtendableField,
@@ -381,7 +404,7 @@ where
             .upgrade(convert_all_bits_local(m_ctx.role(), mk_shares.into_iter()))
             .await?,
         MK::BITS,
-        num_multi_bits,
+        config.num_multi_bits,
     )
     .await
     .unwrap();
@@ -426,6 +449,7 @@ where
         .iter()
         .map(|input_row| {
             IPAModulusConvertedInputRowWrapper::new(
+                input_row.timestamp.clone(),
                 input_row.is_trigger_bit.clone(),
                 input_row.trigger_value.clone(),
             )
@@ -439,6 +463,7 @@ where
         .zip(converted_bk_shares)
         .map(
             |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+                timestamp: one_row.timestamp,
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
                 breakdown_key: bk_shares,
@@ -469,10 +494,7 @@ where
         binary_validator,
         sorted_match_keys,
         sorted_rows,
-        per_user_credit_cap,
-        max_breakdown_key,
-        attribution_window_seconds,
-        num_multi_bits,
+        config,
     )
     .await
 }
@@ -505,7 +527,7 @@ pub mod tests {
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
-        helpers::GatewayConfig,
+        helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
@@ -554,11 +576,11 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -568,10 +590,12 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -605,11 +629,11 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 4, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -619,10 +643,126 @@ pub mod tests {
                 ipa_malicious::<_, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn semi_honest_with_attribution_window() {
+        const COUNT: usize = 7;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 0],
+            [1, 0],
+            [2, 3],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+        const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malicious_with_attribution_window() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_malicious::<_, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -654,22 +794,22 @@ pub mod tests {
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
-                { match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
-                { match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
-                { match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
-                { match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                { timestamp: 0, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                { timestamp: 0, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
+                { timestamp: 0, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                { timestamp: 0, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
 
             ];
             (Fp31, MatchKey, BreakdownKey)
@@ -680,10 +820,12 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -708,10 +850,12 @@ pub mod tests {
                 ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -785,9 +929,12 @@ pub mod tests {
                 &world,
                 &raw_data,
                 &expected_results,
-                per_user_cap,
-                MAX_BREAKDOWN_KEY,
-                ATTRIBUTION_WINDOW_SECONDS,
+                IpaQueryConfig::new(
+                    per_user_cap,
+                    MAX_BREAKDOWN_KEY,
+                    ATTRIBUTION_WINDOW_SECONDS,
+                    NUM_MULTI_BITS,
+                ),
                 IpaSecurityModel::SemiHonest,
             )
             .await;
@@ -814,8 +961,8 @@ pub mod tests {
         for _ in 0..RECORD_COUNT {
             let mut record = ipa_test_input!(
                 [
-                    { match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
-                    { match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
                 ];
                 (Fp31, MatchKey, BreakdownKey)
             );
@@ -828,10 +975,12 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
                 )
                 .await
                 .unwrap()
@@ -856,6 +1005,7 @@ pub mod tests {
     }
 
     fn serde_internal(
+        timestamp: u128,
         match_key: u64,
         trigger_bit: u128,
         breakdown_key: u128,
@@ -866,7 +1016,7 @@ pub mod tests {
         let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
         let reports: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
+                { timestamp: timestamp, match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
@@ -890,8 +1040,8 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn serde(match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
-            serde_internal(match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
+            serde_internal(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
         }
     }
 
@@ -902,39 +1052,40 @@ pub mod tests {
     /// It is possible to increase the number too if there is a good reason for it. This is a
     /// "catch all" type of test to make sure we don't miss an accidental regression.
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     pub async fn communication_baseline() {
         const MAX_BREAKDOWN_KEY: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        /// empirical value as of Apr 11, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18054;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 62928;
+        /// empirical value as of Apr 13, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_771;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 77_796;
 
-        /// empirical value as of Apr 11, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 45633;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 173_244;
+        /// empirical value as of Apr 13, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 55_110;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 211_152;
 
-        /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 10848;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 34104;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_565;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 48_972;
 
-        /// empirical value as of Mar 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 27189;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 99468;
+        // empirical value as of Mar 30, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_666;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_376;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
@@ -947,10 +1098,12 @@ pub mod tests {
                     ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
-                        per_user_cap,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
+                        IpaQueryConfig::new(
+                            per_user_cap,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
                     )
                     .await
                     .unwrap()
@@ -986,10 +1139,12 @@ pub mod tests {
                     ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
-                        per_user_cap,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
+                        IpaQueryConfig::new(
+                            per_user_cap,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
                     )
                     .await
                     .unwrap()

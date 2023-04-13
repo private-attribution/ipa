@@ -141,7 +141,7 @@ where
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
     let ever_any_subsequent_credit = ctx
-        .join(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+        .try_join(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
@@ -154,7 +154,7 @@ where
         .narrow(&Step::IfCurrentExceedsCapOrElse)
         .set_total_records(input.len() - 1);
     let capped_credits = ctx
-        .join(
+        .try_join(
             uncapped_credits
                 .iter()
                 .zip(ever_any_subsequent_credit.iter())
@@ -193,7 +193,7 @@ where
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    ctx.join(
+    ctx.try_join(
         input
             .iter()
             .zip(zip(
@@ -230,7 +230,7 @@ where
         .narrow(&Step::IfReportCreditExceedsCapOrElse)
         .set_total_records(original_credits.len());
 
-    ctx.join(zip(original_credits, exceeds_cap_bits.iter()).enumerate().map(
+    ctx.try_join(zip(original_credits, exceeds_cap_bits.iter()).enumerate().map(
         |(i, (original_credit, exceeds_cap_bit))| {
             let record_id = RecordId::from(i);
             let c = if_else_ctx.clone();

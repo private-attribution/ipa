@@ -3,6 +3,7 @@ use crate::{
     rand::{thread_rng, Rng},
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
+
 use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {

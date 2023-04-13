@@ -36,6 +36,12 @@ pub enum Error {
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
     InvalidQueryParameter(String),
+    #[error(transparent)]
+    NewQueryError(#[from] crate::query::NewQueryError),
+    #[error(transparent)]
+    QueryInputError(#[from] crate::query::QueryInputError),
+    #[error(transparent)]
+    QueryCompletionError(#[from] crate::query::QueryCompletionError),
 }
 
 impl Default for Error {

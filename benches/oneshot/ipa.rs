@@ -2,7 +2,7 @@ use clap::Parser;
 use ipa::{
     error::Error,
     ff::Fp32BitPrime,
-    helpers::GatewayConfig,
+    helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
         ipa::{
             generate_random_user_records_in_reverse_chronological_order, test_ipa,
@@ -13,6 +13,10 @@ use ipa::{
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
+
+#[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -58,6 +62,8 @@ impl Args {
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
+
+    const NUM_MULTI_BITS: u32 = 3;
 
     let args = Args::parse();
 
@@ -106,9 +112,12 @@ async fn main() -> Result<(), Error> {
         &world,
         &raw_data,
         &expected_results,
-        args.per_user_cap,
-        args.breakdown_keys,
-        args.attribution_window,
+        IpaQueryConfig::new(
+            args.per_user_cap,
+            args.breakdown_keys,
+            args.attribution_window,
+            NUM_MULTI_BITS,
+        ),
         IpaSecurityModel::Malicious,
     )
     .await;

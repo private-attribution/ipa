@@ -2,6 +2,7 @@ pub mod input;
 mod sharing;
 mod world;
 
+mod app;
 pub mod circuit;
 pub mod config;
 pub mod ipa;
@@ -15,6 +16,7 @@ use crate::{
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
+pub use app::TestApp;
 use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
