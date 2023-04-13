@@ -5,24 +5,9 @@ use super::{
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{context::Context, BasicProtocols},
     secret_sharing::Linear as LinearSecretSharing,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
-    MemoizeIsTriggerBitTimesHelperBit,
-}
-
-impl crate::protocol::Substep for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::MemoizeIsTriggerBitTimesHelperBit => "memoize_is_trigger_bit_times_helper_bit",
-        }
-    }
-}
 
 ///
 /// When `PER_USER_CAP` is set to one, this function is called
@@ -36,38 +21,23 @@ impl AsRef<str> for Step {
 ///
 /// This method implements "last touch" attribution, so only the last `source report` before a `trigger report`
 /// will receive any credit.
-async fn accumulate_credit_cap_one<F, C, T>(
-    ctx: C,
-    input: &[MCAccumulateCreditInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + '_, Error>
+#[allow(clippy::unused_async)] // TODO: Remove this line in the next PR
+async fn accumulate_credit_cap_one<'a, F, C, T>(
+    _ctx: C, // TODO: Remove the "_" prefix. We still need the context to be passed in for the next PR
+    input: &'a [MCAccumulateCreditInputRow<F, T>],
+    stop_bits: &'a [T],
+) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + 'a, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let num_rows = input.len();
-
-    let memoize_context = ctx
-        .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
-        .set_total_records(num_rows - 1);
-    let credits = ctx
-        .join(input.iter().skip(1).enumerate().map(|(i, x)| {
-            let c = memoize_context.clone();
-            let record_id = RecordId::from(i);
-            async move {
-                x.is_trigger_report
-                    .multiply(&x.helper_bit, c, record_id)
-                    .await
-            }
-        }))
-        .await?;
-
-    let output = input.iter().zip(credits).map(|(x, credit)| {
+    let output = input.iter().zip(stop_bits).map(|(x, credit)| {
         MCAccumulateCreditOutputRow::new(
             x.is_trigger_report.clone(),
             x.helper_bit.clone(),
             x.breakdown_key.clone(),
-            credit,
+            credit.clone(),
         )
     });
 
@@ -88,6 +58,7 @@ where
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
+    stop_bits: &[T],
     per_user_credit_cap: u32,
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
@@ -96,28 +67,10 @@ where
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
-        return Ok(accumulate_credit_cap_one(ctx, input)
+        return Ok(accumulate_credit_cap_one(ctx, input, stop_bits)
             .await?
             .collect::<Vec<_>>());
     }
-    let num_rows = input.len();
-
-    // For every row, compute:
-    // input[i].is_triger_bit * input[i].helper_bit
-    // Save this value as it will be used on every iteration.
-    // We can skip the very first row, since there is no row above that will check it as a "sibling"
-    let memoize_context = ctx
-        .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
-        .set_total_records(num_rows - 1);
-    let helper_bits = ctx
-        .join(input.iter().skip(1).enumerate().map(|(i, x)| {
-            let c = memoize_context.clone();
-            let record_id = RecordId::from(i);
-            let is_trigger_bit = &x.is_trigger_report;
-            let helper_bit = &x.helper_bit;
-            async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
-        }))
-        .await?;
 
     let mut credits = input
         .iter()
@@ -139,7 +92,7 @@ where
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(ctx, stop_bits.to_vec(), &mut credits).await?;
 
     let output = input
         .iter()
@@ -168,6 +121,7 @@ mod tests {
         protocol::{
             attribution::{
                 accumulate_credit::accumulate_credit,
+                compute_stop_bits,
                 input::{
                     AccumulateCreditInputRow, MCAccumulateCreditInputRow,
                     MCAccumulateCreditOutputRow,
@@ -236,17 +190,20 @@ mod tests {
                     let converted_bk_shares =
                     converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
-                        .into_iter()
+                        .iter()
                         .zip(converted_bk_shares)
                         .map(|(row, bk)| MCAccumulateCreditInputRow::new(
-                             row.is_trigger_report,
-                             row.helper_bit,
+                             row.is_trigger_report.clone(),
+                             row.helper_bit.clone(),
                              bk,
-                             row.trigger_value,
+                             row.trigger_value.clone(),
                         ))
                         .collect::<Vec<_>>();
 
-                    accumulate_credit(ctx, &modulus_converted_shares, 12345) // cap can be anything but one
+                    let (itb, hb): (Vec<_>, Vec<_>) = input.iter().map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone())).unzip();
+                    let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb).await.unwrap().collect::<Vec<_>>();
+
+                    accumulate_credit(ctx, &modulus_converted_shares, &stop_bits, 12345) // cap can be anything but one
                         .await
                         .unwrap()
                 },

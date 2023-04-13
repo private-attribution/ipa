@@ -115,15 +115,7 @@ where
         input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
     }
 
-    ipa(
-        ctx,
-        input_vec.as_slice(),
-        query_config.per_user_credit_cap,
-        query_config.max_breakdown_key,
-        query_config.attribution_window_seconds,
-        query_config.num_multi_bits,
-    )
-    .await
+    ipa(ctx, input_vec.as_slice(), query_config).await
 }
 
 #[allow(unused)]
@@ -236,11 +228,11 @@ mod tests {
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );

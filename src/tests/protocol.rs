@@ -2,6 +2,7 @@
 
 use crate::{
     ff::Fp32BitPrime,
+    helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{
         ipa::{ipa, ipa_malicious},
@@ -31,10 +32,11 @@ fn semi_honest_ipa() {
                     .map(|_| {
                         ipa_test_input!(
                             {
-                                    match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                    is_trigger_report: rng.gen::<u32>(),
-                                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+                                timestamp: 0,
+                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
+                                is_trigger_report: rng.gen::<u32>(),
+                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
                             };
                             (Fp32BitPrime, MatchKey, BreakdownKey)
                         )
@@ -47,10 +49,12 @@ fn semi_honest_ipa() {
                             ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                                 ctx,
                                 &input_rows,
-                                PER_USER_CAP,
-                                MAX_BREAKDOWN_KEY,
-                                ATTRIBUTION_WINDOW_SECONDS,
-                                NUM_MULTI_BITS,
+                                IpaQueryConfig::new(
+                                    PER_USER_CAP,
+                                    MAX_BREAKDOWN_KEY,
+                                    ATTRIBUTION_WINDOW_SECONDS,
+                                    NUM_MULTI_BITS,
+                                ),
                             )
                             .await
                             .unwrap()
@@ -77,10 +81,11 @@ fn malicious_ipa() {
                     .map(|_| {
                         ipa_test_input!(
                             {
-                                    match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                    is_trigger_report: rng.gen::<u32>(),
-                                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+                                timestamp: 0,
+                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
+                                is_trigger_report: rng.gen::<u32>(),
+                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
                             };
                             (Fp32BitPrime, MatchKey, BreakdownKey)
                         )
@@ -93,10 +98,12 @@ fn malicious_ipa() {
                             ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                                 ctx,
                                 &input_rows,
-                                PER_USER_CAP,
-                                MAX_BREAKDOWN_KEY,
-                                ATTRIBUTION_WINDOW_SECONDS,
-                                NUM_MULTI_BITS,
+                                IpaQueryConfig::new(
+                                    PER_USER_CAP,
+                                    MAX_BREAKDOWN_KEY,
+                                    ATTRIBUTION_WINDOW_SECONDS,
+                                    NUM_MULTI_BITS,
+                                ),
                             )
                             .await
                             .unwrap()

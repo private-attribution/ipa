@@ -190,10 +190,27 @@ pub struct IpaQueryConfig {
 impl Default for IpaQueryConfig {
     fn default() -> Self {
         Self {
-            per_user_credit_cap: 1,
+            per_user_credit_cap: 3,
             max_breakdown_key: 64,
             attribution_window_seconds: 0,
             num_multi_bits: 3,
+        }
+    }
+}
+
+impl IpaQueryConfig {
+    #[must_use]
+    pub fn new(
+        per_user_credit_cap: u32,
+        max_breakdown_key: u32,
+        attribution_window_seconds: u32,
+        num_multi_bits: u32,
+    ) -> Self {
+        Self {
+            per_user_credit_cap,
+            max_breakdown_key,
+            attribution_window_seconds,
+            num_multi_bits,
         }
     }
 }
