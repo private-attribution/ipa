@@ -100,7 +100,7 @@ impl<'a> Info<'a> {
         r.push(self.key_id);
         // Spec dictates epoch to be encoded in BE
         r.extend_from_slice(&self.epoch.to_be_bytes());
-        r.extend_from_slice(&self.event_type.to_be_bytes());
+        r.push((&self.event_type).into());
 
         debug_assert_eq!(r.len(), info_len, "HPKE Info length estimation is incorrect and leads to extra allocation or wasted memory");
 
