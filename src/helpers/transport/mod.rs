@@ -33,6 +33,7 @@ pub struct NoStep;
 #[derive(Debug, Copy, Clone)]
 pub enum RouteId {
     Records,
+    ReceiveQuery,
     PrepareQuery,
 }
 

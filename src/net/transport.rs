@@ -86,6 +86,15 @@ impl HttpTransport {
     }
 }
 
+fn extract_route_param<T, U: Into<Option<T>>>(val: U, name: &str) -> Result<T, io::Error> {
+    val.into().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("expected {name} in request"),
+        )
+    })
+}
+
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
     type RecordsStream = Empty<Vec<u8>>; // TODO(server): resolve placeholder
@@ -112,16 +121,14 @@ impl Transport for Arc<HttpTransport> {
         let route_id = route.resource_identifier();
         match route_id {
             RouteId::Records => {
-                let query_id = <Option<QueryId>>::from(route.query_id()).expect("TODO");
-                let step = <Option<Step>>::from(route.step()).expect("TODO");
+                // TODO(600): These fallible extractions aren't really necessary.
+                let query_id = extract_route_param(route.query_id(), "query_id")?;
+                let step = extract_route_param(route.step(), "step")?;
                 let resp_future = self.clients[dest]
                     .step(dest, query_id, &step, data)
                     .await
                     .map_err(|_e| {
-                        io::Error::new::<String>(
-                            io::ErrorKind::ConnectionAborted,
-                            "channel closed".into(),
-                        )
+                        io::Error::new(io::ErrorKind::ConnectionAborted, "channel closed")
                     })?;
                 tokio::spawn(async move {
                     resp_future
@@ -130,11 +137,9 @@ impl Transport for Arc<HttpTransport> {
                         .await
                         .expect("failed to stream records");
                 });
-                // TODO: error handling here needs to be improved.
-                //  * We are supposed to wait until the stream has been successfully opened with the remote
-                //    peer before returning. Not clear how to do that with hyper. Note, also, that the
-                //    caller of this function (`GatewayBase::get_sender`) currently panics on errors.
-                //  * We need to do something better than panic if there is an error sending the data.
+                // TODO(600): We need to do something better than panic if there is an error sending the
+                // data. Note, also, that the caller of this function (`GatewayBase::get_sender`)
+                // currently panics on errors.
                 Ok(())
             }
             RouteId::PrepareQuery => {
@@ -146,6 +151,15 @@ impl Transport for Arc<HttpTransport> {
                         dest,
                         inner: Box::new(e),
                     })
+            }
+            RouteId::ReceiveQuery => {
+                // TODO(600): Can we eliminate cases for client requests from this function
+                // entirely?
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "can't send ReceiveQuery to another helper",
+                )
+                .into())
             }
         }
     }

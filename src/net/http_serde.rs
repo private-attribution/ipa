@@ -501,7 +501,7 @@ pub mod query {
                         self.step.as_ref()
                     ))
                     .build()?;
-                // TODO: this is a misuse of the origin header, and is insecure.
+                // TODO(597): this is a misuse of the origin header, and is insecure.
                 // need to authenticate clients with TLS.
                 let origin_header = OriginHeader {
                     origin: self.origin,
