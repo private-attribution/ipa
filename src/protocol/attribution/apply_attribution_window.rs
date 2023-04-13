@@ -92,7 +92,7 @@ where
         .set_total_records(num_rows - 1);
     let mut t_delta = std::iter::once(T::ZERO)
         .chain(
-            ctx.join(
+            ctx.try_join(
                 zip(input.iter(), input.iter().skip(1))
                     .zip(stop_bits)
                     .enumerate()
@@ -150,7 +150,7 @@ where
 
     // Compare the accumulated timestamp deltas with the specified attribution window
     // cap value, and zero-out trigger event values that exceed the cap.
-    ctx.join(
+    ctx.try_join(
         zip(input, time_delta)
             .zip(repeat(T::share_known_value(&ctx, F::ONE)))
             .enumerate()

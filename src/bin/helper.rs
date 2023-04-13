@@ -2,6 +2,10 @@ use clap::Parser;
 use hyper::http::uri::Scheme;
 use ipa::cli::Verbosity;
 
+#[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Debug, Parser)]
 #[clap(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]
 struct Args {

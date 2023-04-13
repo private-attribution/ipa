@@ -42,7 +42,7 @@ where
         let memoize_context = ctx
             .narrow(&Step::ActiveBitTimesStopBit)
             .set_total_records(input.len() - 1);
-        ctx.join(
+        ctx.try_join(
             input
                 .iter()
                 .skip(1)

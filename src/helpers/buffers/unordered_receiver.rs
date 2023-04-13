@@ -298,8 +298,6 @@ where
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::disallowed_methods)] // A parallel join is needed to test without a context.
-
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},
         helpers::buffers::unordered_receiver::UnorderedReceiver,

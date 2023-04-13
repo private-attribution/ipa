@@ -3,6 +3,9 @@
 // code with allow annotations. Disabling them once per project here
 #![allow(clippy::similar_names)]
 #![allow(clippy::module_name_repetitions)]
+// In unit tests, it is ok to use methods discouraged to use in prod code. Most of the time it is
+// because of performance implications which shouldn't be a concern for unit testing.
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 pub mod chunkscan;
 #[cfg(feature = "cli")]
@@ -26,8 +29,11 @@ pub mod uri;
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
 
+mod app;
 mod seq_join;
 mod tests;
+
+pub use app::{HelperApp, Setup as AppSetup};
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]

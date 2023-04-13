@@ -34,6 +34,12 @@ pub enum Error {
     InfraError(#[from] crate::helpers::Error),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
+    #[error(transparent)]
+    NewQueryError(#[from] crate::query::NewQueryError),
+    #[error(transparent)]
+    QueryInputError(#[from] crate::query::QueryInputError),
+    #[error(transparent)]
+    QueryCompletionError(#[from] crate::query::QueryCompletionError),
 }
 
 impl Default for Error {

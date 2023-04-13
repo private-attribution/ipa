@@ -154,7 +154,7 @@ where
     // The outer loop is concurrent; the inner is fully sequential.
     ctx.parallel_join(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
         assert_send(
-            ctx.join(
+            ctx.try_join(
                 zip(locally_converted_bits, repeat(ctx.clone()))
                     .enumerate()
                     .map(move |(idx, (record, ctx))| async move {

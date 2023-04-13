@@ -44,7 +44,7 @@ pub async fn multi_bit_permutation<
     let share_of_one = S::share_known_value(&ctx, F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = ctx
-        .join(
+        .try_join(
             input
                 .iter()
                 .zip(repeat(ctx.set_total_records(num_records)))
@@ -68,7 +68,7 @@ pub async fn multi_bit_permutation<
 
     // Take sum of products of output of equality check and accumulated sum
     let mut one_off_permutation = ctx
-        .join(
+        .try_join(
             equality_checks
                 .into_iter()
                 .zip(prefix_sum.into_iter())
@@ -151,7 +151,7 @@ mod tests {
                 for (i, record) in m_shares.iter().enumerate() {
                     equality_check_futures.push(check_everything(ctx.clone(), i, record));
                 }
-                ctx.join(equality_check_futures).await.unwrap()
+                ctx.try_join(equality_check_futures).await.unwrap()
             })
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();
