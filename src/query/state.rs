@@ -1,14 +1,14 @@
-#![allow(unused)]
-#![cfg(never)]
-
 use crate::{
-    helpers::{query::QueryConfig, Gateway},
+    helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::ProtocolResult,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     task::JoinHandle,
 };
-use std::collections::{hash_map::Entry, HashMap};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::{Debug, Formatter},
+};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -32,7 +32,7 @@ impl From<&QueryState> for QueryStatus {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing(_) => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
+            QueryState::AwaitingInputs(_, _, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
             QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
         }
@@ -43,7 +43,7 @@ impl From<&QueryState> for QueryStatus {
 pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
-    AwaitingInputs(QueryConfig, Gateway),
+    AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
     Running(JoinHandle<Box<dyn ProtocolResult>>),
     AwaitingCompletion,
 }
@@ -55,9 +55,8 @@ impl QueryState {
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing(_) | AwaitingInputs(_, _)) | (Preparing(_), AwaitingInputs(_, _)) => {
-                Ok(new_state)
-            }
+            (Empty, Preparing(_) | AwaitingInputs(_, _, _))
+            | (Preparing(_), AwaitingInputs(_, _, _)) => Ok(new_state),
             (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),
@@ -77,14 +76,20 @@ pub enum StateError {
 
 /// Keeps track of queries running on this helper.
 pub struct RunningQueries {
-    pub inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
+    pub inner: Mutex<HashMap<QueryId, QueryState>>,
 }
 
 impl Default for RunningQueries {
     fn default() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HashMap::default())),
+            inner: Mutex::new(HashMap::default()),
         }
+    }
+}
+
+impl Debug for RunningQueries {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RunningQueries[{}]", self.inner.lock().unwrap().len())
     }
 }
 

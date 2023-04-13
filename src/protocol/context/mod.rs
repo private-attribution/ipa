@@ -65,7 +65,6 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    #![allow(clippy::disallowed_methods)] // It's a test with a toy implementation.
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::Direction,
