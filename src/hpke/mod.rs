@@ -39,6 +39,19 @@ pub type Epoch = u16;
 type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
+/// Event type enum as described ['ipa-issue']
+/// Initially we will just support trigger vs source event types but could extend to others in
+/// the future.
+///
+/// ['ipa-issue']: https://github.com/patcg-individual-drafts/ipa/issues/38
+// pub enum EventType {
+//     Trigger,
+//     Source
+// }
+
+pub type EventType = u8;
+
+
 /// match key size, in bytes
 const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
 
@@ -197,11 +210,13 @@ mod tests {
         pub fn seal(
             &mut self,
             key_id: KeyIdentifier,
+            event_type: EventType,
             match_key: &XorReplicated,
         ) -> MatchKeyEncryption<'static> {
             let info = Info::new(
                 key_id,
                 self.epoch,
+                self.event_type,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
@@ -214,11 +229,13 @@ mod tests {
         pub fn open(
             &self,
             key_id: KeyIdentifier,
+            event_type: EventType,
             mut enc: MatchKeyEncryption<'_>,
         ) -> Result<XorReplicated, DecryptionError> {
             let info = Info::new(
                 key_id,
                 self.epoch,
+                self.event_type,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
@@ -247,9 +264,9 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, "mkp_origin", "foo", "bar").unwrap();
+        let aad = Info::new(255, 32767, 1,"mkp_origin", "foo", "bar").unwrap();
         assert_eq!(
-            b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff",
+            b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff\x01",
             aad.into_bytes().as_ref()
         );
     }
@@ -260,8 +277,8 @@ mod tests {
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
 
-        let enc = suite.seal(0, &match_key);
-        let r = suite.open(0, enc).unwrap();
+        let enc = suite.seal(0, 0, &match_key);
+        let r = suite.open(0, 0, enc).unwrap();
 
         assert_eq!(match_key, r);
     }
@@ -271,10 +288,10 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, &match_key);
+        let enc = suite.seal(0, 0, &match_key);
         suite.advance_epoch();
 
-        let _ = suite.open(0, enc).unwrap_err();
+        let _ = suite.open(0, 0, enc).unwrap_err();
     }
 
     #[test]
@@ -282,8 +299,8 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(10, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, &match_key);
-        let _ = suite.open(1, enc).unwrap_err();
+        let enc = suite.seal(0, 0, &match_key);
+        let _ = suite.open(1, 0, enc).unwrap_err();
     }
 
     #[test]
@@ -291,10 +308,10 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, &match_key);
+        let enc = suite.seal(0, 0, &match_key);
 
         assert!(matches!(
-            suite.open(1, enc),
+            suite.open(1, 0, enc),
             Err(DecryptionError::NoSuchKey(1))
         ));
     }
@@ -310,10 +327,10 @@ mod tests {
             fn arbitrary_ct_corruption(bad_byte in 0..23_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, &new_share(0, 0));
+                let mut encryption = suite.seal(0, 0, &new_share(0, 0));
 
                 encryption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, encryption).unwrap_err();
+                let _ = suite.open(0, 0, encryption).unwrap_err();
             }
         }
 
@@ -323,10 +340,10 @@ mod tests {
             fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, &new_share(0, 0));
+                let mut encryption = suite.seal(0, 0, &new_share(0, 0));
 
                 encryption.enc.as_mut()[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, encryption).unwrap_err();
+                let _ = suite.open(0, 0, encryption).unwrap_err();
             }
         }
 
@@ -364,7 +381,7 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_info_corruption(corrupted_info_field in 1..5,
+            fn arbitrary_info_corruption(corrupted_info_field in 1..6,
                                          mkp_origin in "[a-z]{10}",
                                          site_domain in "[a-z]{10}",
                                          helper_origin in "[a-z]{10}",
@@ -373,7 +390,7 @@ mod tests {
                 let mut suite = EncryptionSuite::new(10, rng.clone());
                 // keep the originals, in case if we need to damage them
                 let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
-                let info = Info::new(0, 0, &mkp_origin, &site_domain, &helper_origin).unwrap();
+                let info = Info::new(0, 0, 0, &mkp_origin, &site_domain, &helper_origin).unwrap();
                 let mut encryption = suite.seal_with_info(info, &new_share(0, 0));
 
                 let info = match corrupted_info_field {
@@ -385,7 +402,11 @@ mod tests {
                         epoch: encryption.info.epoch + 1,
                         ..encryption.info
                     },
-                    3 => {
+                    3 => Info {
+                        event_type: encryption.info.event_type + 1,
+                        ..encryption.info
+                    },
+                    4 => {
                         corrupt_str(&mut mkp_clone, &mut rng);
 
                         Info {
@@ -393,7 +414,7 @@ mod tests {
                             ..encryption.info
                         }
                     }
-                    4 => {
+                    5 => {
                         corrupt_str(&mut site_domain_clone, &mut rng);
 
                         Info {
@@ -401,7 +422,7 @@ mod tests {
                             ..encryption.info
                         }
                     },
-                    5 => {
+                    6 => {
                         corrupt_str(&mut helper_clone, &mut rng);
 
                         Info {
@@ -409,7 +430,7 @@ mod tests {
                             ..encryption.info
                         }
                     }
-                    _ => panic!("bad test setup: only 5 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
+                    _ => panic!("bad test setup: only 6 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
                 let _ = open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();
