@@ -32,7 +32,7 @@ pub type KeyIdentifier = u8;
 /// match keys we would have to heap allocate.
 type XorReplicated = AdditiveShare<Gf40Bit>;
 
-/// Event epoch as described [`ipa-spec`]
+/// Event epoch as described ['ipa-spec']
 /// For the purposes of this module, epochs are used to authenticate match key encryption. As
 /// report collectors may submit queries with events spread across multiple epochs, decryption context
 /// needs to know which epoch to use for each individual event.
