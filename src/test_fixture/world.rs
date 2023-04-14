@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
 use std::{fmt::Debug, io::stdout, iter::zip};
-use tracing::Level;
+use tracing::{Instrument, Level};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -202,9 +202,10 @@ impl Runner for TestWorld {
     {
         let contexts = self.contexts();
         let input_shares = input.share_with(&mut thread_rng());
-        #[allow(clippy::disallowed_methods)] // It's just 3 items.
         let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares)))
+                .instrument(self.metrics_handle.span())
+                .await;
         <[_; 3]>::try_from(output).unwrap()
     }
 

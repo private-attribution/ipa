@@ -13,6 +13,7 @@ use ipa::{
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
+use tokio::runtime::Builder;
 
 #[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
 #[global_allocator]
@@ -22,6 +23,9 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[derive(Parser)]
 #[command(about, long_about = None)]
 struct Args {
+    /// The number of threads to use for running IPA.
+    #[arg(short = 'j', long, default_value = "3")]
+    threads: usize,
     /// The total number of records to process.
     #[arg(short = 'n', long, default_value = "1000")]
     query_size: usize,
@@ -64,13 +68,19 @@ impl Args {
             .map(NonZeroUsize::get)
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
     }
+
+    fn config(&self) -> IpaQueryConfig {
+        IpaQueryConfig::new(
+            self.per_user_cap,
+            self.breakdown_keys,
+            self.attribution_window,
+            self.num_multi_bits,
+        )
+    }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
-async fn main() -> Result<(), Error> {
+async fn run(args: Args) -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
-
-    let args = Args::parse();
 
     let prep_time = Instant::now();
     let config = TestWorldConfig {
@@ -117,12 +127,7 @@ async fn main() -> Result<(), Error> {
         &world,
         &raw_data,
         &expected_results,
-        IpaQueryConfig::new(
-            args.per_user_cap,
-            args.breakdown_keys,
-            args.attribution_window,
-            args.num_multi_bits,
-        ),
+        args.config(),
         args.mode,
     )
     .await;
@@ -133,4 +138,16 @@ async fn main() -> Result<(), Error> {
         t = protocol_time.elapsed()
     );
     Ok(())
+}
+
+fn main() -> Result<(), Error> {
+    let args = Args::parse();
+    let rt = Builder::new_multi_thread()
+        .worker_threads(args.threads)
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = rt.enter();
+    let task = rt.spawn(run(args));
+    rt.block_on(task)?
 }

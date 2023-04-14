@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -27,6 +28,8 @@ pub enum Error {
     MaliciousRevealFailed,
     #[error("problem during IO: {0}")]
     Io(#[from] std::io::Error),
+    #[error("runtime error")]
+    RuntimeError(#[from] JoinError),
     #[error("failed to parse json: {0}")]
     #[cfg(feature = "enable-serde")]
     Serde(#[from] serde_json::Error),
