@@ -117,6 +117,47 @@ where
     seq_join(active, iterable).try_collect()
 }
 
+enum ActiveItem<F: IntoFuture> {
+    Pending(Pin<Box<F::IntoFuture>>),
+    Resolved(F::Output),
+    Done,
+}
+
+impl<F: IntoFuture> ActiveItem<F> {
+    /// Drives this item to resolved state when value is ready to be taken out. Has no effect
+    /// if the value is ready.
+    ///
+    /// ## Panics
+    /// Panics if polled after completion.
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        match self {
+            ActiveItem::Pending(f) => {
+                if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
+                    *self = ActiveItem::Resolved(v);
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            }
+            ActiveItem::Resolved(_) => Poll::Ready(()),
+            ActiveItem::Done => panic!("Polled after completion"),
+        }
+    }
+
+    /// Takes the resolved value out
+    ///
+    /// ## Panics
+    /// if the value has been taken out already, or not ready yet.
+    #[must_use]
+    fn take(&mut self) -> F::Output {
+        if let ActiveItem::Resolved(v) = std::mem::replace(self, ActiveItem::Done) {
+            v
+        } else {
+            panic!("No value to take out")
+        }
+    }
+}
+
 #[pin_project]
 pub struct SequentialFutures<I, F>
 where
@@ -124,7 +165,7 @@ where
     F: IntoFuture,
 {
     iter: Fuse<I>,
-    active: VecDeque<Pin<Box<F::IntoFuture>>>,
+    active: VecDeque<ActiveItem<F>>,
 }
 
 impl<I, F> Stream for SequentialFutures<I, F>
@@ -140,20 +181,22 @@ where
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
             if let Some(f) = this.iter.next() {
-                this.active.push_back(Box::pin(f.into_future()));
+                this.active
+                    .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
             } else {
                 break;
             }
         }
 
-        if let Some(f) = this.active.front_mut() {
-            if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
+        if let Some(item) = this.active.front_mut() {
+            if item.poll(cx).is_ready() {
+                let v = item.take();
                 drop(this.active.pop_front());
                 Poll::Ready(Some(v))
             } else {
+                #[allow(unused_must_use)]
                 for f in this.active.iter_mut().skip(1) {
-                    let res = Future::poll(Pin::as_mut(f), cx);
-                    assert!(res.is_pending(), "future resolved out of order");
+                    f.poll(cx);
                 }
                 Poll::Pending
             }
@@ -177,10 +220,11 @@ where
 mod test {
     use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{
-        future::{lazy, pending, BoxFuture},
+        future::{lazy, BoxFuture},
         Future, StreamExt,
     };
-    use std::{convert::Infallible, iter::once, num::NonZeroUsize};
+    use futures_util::stream::poll_immediate;
+    use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -202,13 +246,23 @@ mod test {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "future resolved out of order")]
     async fn out_of_order() {
         let capacity = NonZeroUsize::new(3).unwrap();
-        let unresolved: BoxFuture<'_, u32> = Box::pin(pending());
+        let barrier = tokio::sync::Barrier::new(2);
+        let unresolved: BoxFuture<'_, u32> = Box::pin(async {
+            barrier.wait().await;
+            0
+        });
         let it = once(unresolved)
-            .chain((0..3_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        drop(seq_join(capacity, it).collect::<Vec<_>>().await);
+            .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
+        let mut seq_futures = seq_join(capacity, it);
+
+        assert_eq!(
+            Some(Poll::Pending),
+            poll_immediate(&mut seq_futures).next().await
+        );
+        barrier.wait().await;
+        assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
     }
 
     #[tokio::test]
