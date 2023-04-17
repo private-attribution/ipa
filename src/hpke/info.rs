@@ -1,5 +1,5 @@
-use std::fmt::{Display, Formatter};
 use crate::hpke::EventType;
+use std::fmt::{Display, Formatter};
 
 use super::{Epoch, KeyIdentifier};
 

@@ -2,13 +2,11 @@
 //!
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
 
+use core::fmt::{Display, Formatter};
 use hpke::{
     aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached, OpModeR,
 };
 use std::io;
-use core::fmt::Display;
-use core::fmt::Formatter;
-
 
 mod info;
 mod registry;
@@ -32,7 +30,7 @@ pub type KeyIdentifier = u8;
 /// match keys we would have to heap allocate.
 type XorReplicated = AdditiveShare<Gf40Bit>;
 
-/// Event epoch as described ['ipa-spec']
+/// Event epoch as described [`ipa-spec`]
 /// For the purposes of this module, epochs are used to authenticate match key encryption. As
 /// report collectors may submit queries with events spread across multiple epochs, decryption context
 /// needs to know which epoch to use for each individual event.
@@ -50,7 +48,7 @@ type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 #[derive(Copy, Clone)]
 pub enum EventType {
     Trigger,
-    Source
+    Source,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,7 +56,11 @@ pub struct ParseEventTypeError(u8);
 
 impl Display for ParseEventTypeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Illegal trigger bit value: {v}, only 0 and 1 are accepted", v = self.0)
+        write!(
+            f,
+            "Illegal trigger bit value: {v}, only 0 and 1 are accepted",
+            v = self.0
+        )
     }
 }
 
@@ -69,7 +71,7 @@ impl TryFrom<u8> for EventType {
         match value {
             0 => Ok(Self::Source),
             1 => Ok(Self::Trigger),
-            _ => Err(ParseEventTypeError(value))
+            _ => Err(ParseEventTypeError(value)),
         }
     }
 }
@@ -82,9 +84,6 @@ impl From<&EventType> for u8 {
         }
     }
 }
-
-
-
 
 /// match key size, in bytes
 const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
@@ -298,7 +297,7 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, EventType::Trigger,"mkp_origin", "foo", "bar").unwrap();
+        let aad = Info::new(255, 32767, EventType::Trigger, "mkp_origin", "foo", "bar").unwrap();
         assert_eq!(
             b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff\x01",
             aad.into_bytes().as_ref()
@@ -371,7 +370,7 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
+             fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
                 let mut encryption = suite.seal(0, EventType::Source, &new_share(0, 0));
@@ -419,12 +418,13 @@ mod tests {
                                          mkp_origin in "[a-z]{10}",
                                          site_domain in "[a-z]{10}",
                                          helper_origin in "[a-z]{10}",
+                                         trigger_bit in 0_u8..=1,
                                          seed: [u8; 32]) {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
                 // keep the originals, in case if we need to damage them
                 let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
-                let info = Info::new(0, 0, EventType::Source, &mkp_origin, &site_domain, &helper_origin).unwrap();
+                let info = Info::new(0, 0, EventType::try_from(trigger_bit).unwrap(), &mkp_origin, &site_domain, &helper_origin).unwrap();
                 let mut encryption = suite.seal_with_info(info, &new_share(0, 0));
 
                 let info = match corrupted_info_field {
@@ -437,7 +437,7 @@ mod tests {
                         ..encryption.info
                     },
                     3 => Info {
-                        event_type: EventType::Trigger,
+                        event_type: EventType::try_from(trigger_bit ^ 1).unwrap(),
                         ..encryption.info
                     },
                     4 => {
