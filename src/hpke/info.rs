@@ -85,7 +85,7 @@ impl<'a> Info<'a> {
             + 4 // account for 4 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch)
-            + std::mem::size_of_val( &self.event_type);
+            + std::mem::size_of_val(&self.event_type);
         let mut r = Vec::with_capacity(info_len);
 
         r.extend_from_slice(DOMAIN.as_bytes());
