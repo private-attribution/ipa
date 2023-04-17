@@ -17,7 +17,7 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng,
 };
-use std::cmp::min;
+use std::{cmp::min, iter::zip};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -29,20 +29,20 @@ pub enum IpaSecurityModel {
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
     pub user_id: usize,
-    pub timestamp: usize,
+    pub timestamp: u32,
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
 }
 
-pub fn generate_random_user_records_in_reverse_chronological_order(
+pub fn generate_random_user_records_in_chronological_order(
     rng: &mut impl Rng,
     max_records_per_user: usize,
     max_breakdown_key: u32,
     max_trigger_value: u32,
 ) -> Vec<TestRawDataRecord> {
     const MAX_USER_ID: usize = 1_000_000_000_000;
-    const SECONDS_IN_EPOCH: usize = 604_800;
+    const SECONDS_IN_EPOCH: u32 = 604_800;
 
     let random_user_id = rng.gen_range(0..MAX_USER_ID);
     let num_records_for_user = min(
@@ -72,29 +72,47 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
         });
     }
 
-    // sort in reverse time order
-    records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    // sort in time order
+    records_for_user.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
     records_for_user
 }
 
-/// Assumes records all belong to the same user, and are in reverse chronological order
+/// Assumes records all belong to the same user, and are in chronological order
 /// Will give incorrect results if this is not true
 #[allow(clippy::missing_panics_doc)]
 pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
     per_user_cap: u32,
-    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
+    attribution_window_seconds: u32,
 ) {
+    // Calculate time deltas from the nearest source report to the current trigger report.
+    let time_delta = records_for_user
+        .iter()
+        .scan(0, |source_ts, x| {
+            if x.is_trigger_report {
+                Some(x.timestamp - *source_ts)
+            } else {
+                *source_ts = x.timestamp;
+                Some(0)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // reverse the records so we can iterate from the most recent to the oldest
+    let mut reversed_records = records_for_user.to_vec();
+    reversed_records.reverse();
+
     let mut pending_trigger_value = 0;
     let mut total_contribution = 0;
-    for record in records_for_user {
+    for (record, delta) in zip(reversed_records, time_delta.into_iter().rev()) {
         if total_contribution >= per_user_cap {
             break;
         }
 
-        if record.is_trigger_report {
+        // only count trigger reports that are within the attribution window
+        if record.is_trigger_report && delta <= attribution_window_seconds {
             pending_trigger_value += record.trigger_value;
         } else if pending_trigger_value > 0 {
             let delta_to_per_user_cap = per_user_cap - total_contribution;

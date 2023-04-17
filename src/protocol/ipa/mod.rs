@@ -538,7 +538,7 @@ pub mod tests {
         test_fixture::{
             input::GenericReportTestInput,
             ipa::{
-                generate_random_user_records_in_reverse_chronological_order, test_ipa,
+                generate_random_user_records_in_chronological_order, test_ipa,
                 update_expected_output_for_user, IpaSecurityModel,
             },
             Reconstruct, Runner, TestWorld, TestWorldConfig,
@@ -977,7 +977,7 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 86_400;
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
@@ -986,7 +986,7 @@ pub mod tests {
 
         let mut random_user_records = Vec::with_capacity(NUM_USERS);
         for _ in 0..NUM_USERS {
-            let records_for_user = generate_random_user_records_in_reverse_chronological_order(
+            let records_for_user = generate_random_user_records_in_chronological_order(
                 &mut rng,
                 MAX_RECORDS_PER_USER,
                 MAX_BREAKDOWN_KEY,

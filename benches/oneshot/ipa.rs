@@ -5,7 +5,7 @@ use ipa::{
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
         ipa::{
-            generate_random_user_records_in_reverse_chronological_order, test_ipa,
+            generate_random_user_records_in_chronological_order, test_ipa,
             update_expected_output_for_user, IpaSecurityModel,
         },
         TestWorld, TestWorldConfig,
@@ -38,7 +38,7 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "0")]
+    #[arg(short = 'w', long, default_value = "86400")]
     attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
@@ -85,11 +85,10 @@ async fn main() -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // for args.per_user_cap in [1, 3] {
     let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
-        let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
+        let mut records_for_user = generate_random_user_records_in_chronological_order(
             &mut rng,
             args.records_per_user,
             args.breakdown_keys,
