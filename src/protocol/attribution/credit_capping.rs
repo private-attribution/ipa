@@ -381,7 +381,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        accumulation_test_input,
+        credit_capping_test_input,
         ff::{Field, Fp32BitPrime},
         protocol::{
             attribution::{
@@ -402,7 +402,7 @@ mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 19] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
 
-        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(
             [
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 },
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 4, credit: 0 },
