@@ -126,7 +126,6 @@ impl Transport for Arc<HttpTransport> {
                 let step = extract_route_param(route.step(), "step")?;
                 let resp_future = self.clients[dest]
                     .step(dest, query_id, &step, data)
-                    .await
                     .map_err(|_e| {
                         io::Error::new(io::ErrorKind::ConnectionAborted, "channel closed")
                     })?;
@@ -153,13 +152,7 @@ impl Transport for Arc<HttpTransport> {
                     })
             }
             RouteId::ReceiveQuery => {
-                // TODO(600): Can we eliminate cases for client requests from this function
-                // entirely?
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "can't send ReceiveQuery to another helper",
-                )
-                .into())
+                unimplemented!("attempting to send ReceiveQuery to another helper")
             }
         }
     }

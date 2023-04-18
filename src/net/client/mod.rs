@@ -160,8 +160,7 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     /// # Panics
     /// If messages size > max u32 (unlikely)
-    #[allow(clippy::unused_async)] // TODO: will need to be async if we want to wait for server acknowledgement
-    pub async fn step<S: Stream<Item = Vec<u8>> + Send + 'static>(
+    pub fn step<S: Stream<Item = Vec<u8>> + Send + 'static>(
         &self,
         origin: HelperIdentity,
         query_id: QueryId,
