@@ -1038,7 +1038,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_wrapping_add_attack() {
-        const PER_USER_CAP: u32 = 2;
+        const PER_USER_CAP: u32 = 15;
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
@@ -1153,12 +1153,12 @@ pub mod tests {
         const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
         /// empirical value as of Apr 13, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_771;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 77_796;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_936;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 78_456;
 
         /// empirical value as of Apr 13, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 55_110;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 211_152;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 55_440;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 212_472;
 
         // empirical value as of Apr 6, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;

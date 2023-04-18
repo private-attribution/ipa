@@ -21,11 +21,8 @@ use std::iter::{repeat, zip};
 /// User-level credit capping protocol.
 ///
 /// ## Errors
-/// Fails if the multiplication protocol fails.
-///
-/// ## Panics
-/// Panics if the `cap` is larger than 1/2 of the prime number.
-///
+/// Fails if the multiplication protocol fails, or if the `cap` is larger than
+/// 1/2 of the prime number.
 pub async fn credit_capping<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
@@ -76,7 +73,13 @@ where
         is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap).await?;
 
     //
-    // Step 5. Compute the `final_credit`
+    // Step 5. Compute the reversed prefix-OR of `exceeds_cap_bits`
+    //
+    let prefix_or_exceeds_cap_bits =
+        comp_bits_prefix_or(ctx.clone(), input, exceeds_cap_bits).await?;
+
+    //
+    // Step 6. Compute the `final_credit`
     //
     // We compute capped credits in the method, and writes to `original_credits`.
     //
@@ -84,7 +87,7 @@ where
         ctx,
         input,
         &prefix_summed_credits,
-        &exceeds_cap_bits,
+        &prefix_or_exceeds_cap_bits,
         &capped_credits,
         cap,
     )
@@ -135,7 +138,8 @@ where
         .collect::<Vec<_>>();
 
     let prefix_ors =
-        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..]).await?;
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..], true)
+            .await?;
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
@@ -210,6 +214,25 @@ where
     .await
 }
 
+/// Returns a vector of report values that are capped at `cap`. The cap is known to be
+/// less than 1/2 of the prime number used for the field.
+///
+/// This initial capping step is applied to each report value individually, rather than
+/// to the prefixed sum of matching report values in the later steps. This is required to
+/// detect a possible overflow in the `credit_prefix_sum` step, which leads to an individual's
+/// contribution to exceed the cap. (issue #520)
+///
+/// This step ensures that the prefixed summed report values computed in `credit_prefix_sum`
+/// step will have at least one row with a value that is larger than the cap and less than
+/// the prime number, if overflows were to happen.
+///
+/// For example, if the prime number is 31 and the cap is 15, then the reversed prefixed sum
+/// of [].., 15, 15, 15] will be [..., 15, 30, 15]. Then `is_credit_larger_than_cap` step will
+/// catch that the second to last row is larger than the cap.
+///
+/// This step alone does not prevent the overflow from happening, but if we compute the
+/// reversed prefix-OR of the `is_credit_larger_than_cap` step, then we can apply the cap to
+/// all rows that precede the most recent row with a value larger than the cap.
 async fn report_level_capping<F, C, T>(
     ctx: C,
     original_credits: &[T],
@@ -297,6 +320,35 @@ where
                 }),
         )
         .await
+}
+
+/// Returns a reversed prefix-OR'ed vector of `exceeds_cap_bits`.
+///
+/// This step ensures that once the comparison "credit > cap" is true, then the true value
+/// will be propagated to all the rows that precede the row with the true value. The next
+/// step `compute_final_credits` will then check these bits and set the credit to zero.
+async fn comp_bits_prefix_or<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+    exceeds_cap_bits: Vec<T>,
+) -> Result<Vec<T>, Error>
+where
+    F: PrimeField,
+    C: Context + RandomBits<F, Share = T>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+{
+    let helper_bits = input
+        .iter()
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
+
+    prefix_or_binary_tree_style(
+        ctx.narrow(&Step::PrefixOrCompareBits),
+        &helper_bits[1..],
+        &exceeds_cap_bits,
+        false,
+    )
+    .await
 }
 
 async fn compute_final_credits<F, C, T>(
@@ -406,6 +458,7 @@ enum Step {
     IfNextExceedsCapOrElse,
     IfNextEventHasSameMatchKeyOrElse,
     PrefixOrTimesHelperBit,
+    PrefixOrCompareBits,
 }
 
 impl Substep for Step {}
@@ -422,6 +475,7 @@ impl AsRef<str> for Step {
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
             Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
             Self::PrefixOrTimesHelperBit => "prefix_or_times_helper_bit",
+            Self::PrefixOrCompareBits => "prefix_or_compare_bits",
         }
     }
 }

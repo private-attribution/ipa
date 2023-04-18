@@ -69,6 +69,7 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
     ctx: C,
     stop_bits: &[S],
     uncapped_credits: &[S],
+    should_add_on_first_iteration: bool,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -119,7 +120,7 @@ where
                 let credit_update = current_stop_bit
                     .multiply(sibling_credit, c1, record_id)
                     .await?;
-                if first_iteration {
+                if first_iteration && should_add_on_first_iteration {
                     Ok(credit_update + current_credit)
                 } else {
                     or(c3, record_id, current_credit, &credit_update).await
