@@ -34,9 +34,9 @@ where
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     // if `attribution_window_seconds` is 0, we use `stop_bits` directly. Otherwise, we need to invalidate
-    // credits that are outside the attribution window by multiplying them by `active_bit`. active_bit is
+    // reports that are outside the attribution window by multiplying them by `active_bit`. active_bit is
     // 0 if the trigger report's time-delta to the nearest source report is greater than the attribution window.
-    let credits = if attribution_window_seconds == 0 {
+    let attributed_trigger_reports_in_window = if attribution_window_seconds == 0 {
         stop_bits.to_vec()
     } else {
         let memoize_context = ctx
@@ -57,14 +57,17 @@ where
         .await?
     };
 
-    let output = input.iter().zip(credits).map(|(x, credit)| {
-        MCAccumulateCreditOutputRow::new(
-            x.is_trigger_report.clone(),
-            x.helper_bit.clone(),
-            x.breakdown_key.clone(),
-            credit,
-        )
-    });
+    let output = input
+        .iter()
+        .zip(attributed_trigger_reports_in_window)
+        .map(|(x, bit)| {
+            MCAccumulateCreditOutputRow::new(
+                x.is_trigger_report.clone(),
+                x.helper_bit.clone(),
+                x.breakdown_key.clone(),
+                bit,
+            )
+        });
 
     Ok(output)
 }
