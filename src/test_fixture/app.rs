@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    app::Error,
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},

@@ -1,8 +1,9 @@
 use crate::{
+    error::BoxError,
     helpers::{
         query::{PrepareQuery, QueryConfig},
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
-        Transport, TransportCallbacks, TransportError,
+        Transport, TransportCallbacks,
     },
     protocol::{QueryId, Step},
     test_fixture::network::{receive::ReceiveRecords, stream::StreamCollection},
@@ -30,14 +31,25 @@ use std::{
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
-type Packet = (
-    Addr,
-    InMemoryStream,
-    oneshot::Sender<Result<(), TransportError>>,
-);
+type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
 type ConnectionTx = Sender<Packet>;
 type ConnectionRx = Receiver<Packet>;
 type StreamItem = Vec<u8>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Io {
+        #[from]
+        inner: io::Error,
+    },
+    #[error("Request rejected by remote {dest:?}: {inner:?}")]
+    Rejected {
+        dest: HelperIdentity,
+        #[source]
+        inner: BoxError,
+    },
+}
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
@@ -76,6 +88,7 @@ impl InMemoryTransport {
             {
                 let streams = self.record_streams.clone();
                 let this = Arc::downgrade(self);
+                let dest = this.identity();
                 async move {
                     let mut active_queries = HashSet::new();
                     while let Some((addr, stream, ack)) = rx.recv().await {
@@ -84,14 +97,18 @@ impl InMemoryTransport {
                         let result = match addr.route {
                             RouteId::ReceiveQuery => {
                                 let qc = addr.into::<QueryConfig>();
-                                (callbacks.receive_query)(Weak::clone(&this), qc).await.map(
-                                    |query_id| {
+                                (callbacks.receive_query)(Transport::clone_ref(&this), qc)
+                                    .await
+                                    .map(|query_id| {
                                         assert!(
                                             active_queries.insert(query_id),
                                             "the same query id {query_id:?} is generated twice"
                                         );
-                                    },
-                                )
+                                    })
+                                    .map_err(|e| Error::Rejected {
+                                        dest,
+                                        inner: Box::new(e),
+                                    })
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
@@ -102,7 +119,12 @@ impl InMemoryTransport {
                             }
                             RouteId::PrepareQuery => {
                                 let input = addr.into::<PrepareQuery>();
-                                (callbacks.prepare_query)(Weak::clone(&this), input).await
+                                (callbacks.prepare_query)(Transport::clone_ref(&this), input)
+                                    .await
+                                    .map_err(|e| Error::Rejected {
+                                        dest,
+                                        inner: Box::new(e),
+                                    })
                             }
                         };
 
@@ -130,6 +152,7 @@ impl InMemoryTransport {
 #[async_trait]
 impl Transport for Weak<InMemoryTransport> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
+    type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
         self.upgrade().unwrap().identity
@@ -145,7 +168,7 @@ impl Transport for Weak<InMemoryTransport> {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), TransportError>
+    ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -164,7 +187,7 @@ impl Transport for Weak<InMemoryTransport> {
 
         ack_rx
             .await
-            .map_err(|_recv_error| TransportError::Rejected {
+            .map_err(|_recv_error| Error::Rejected {
                 dest,
                 inner: "channel closed".into(),
             })
@@ -362,7 +385,7 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
         rx.await
-            .map_err(|_e| TransportError::Io {
+            .map_err(|_e| Error::Io {
                 inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
             })
             .and_then(convert::identity)

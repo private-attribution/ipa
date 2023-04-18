@@ -1,6 +1,3 @@
-mod error;
-
-pub use error::Error;
 use futures::{Stream, StreamExt};
 
 use crate::{
@@ -9,7 +6,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         ByteArrStream, HelperIdentity,
     },
-    net::http_serde,
+    net::{http_serde, Error},
     protocol::{QueryId, Step},
 };
 use axum::{body::StreamBody, http::uri};
@@ -86,7 +83,7 @@ impl MpcHelperClient {
             let http_serde::echo::Request {
                 mut query_params, ..
             } = serde_json::from_slice(&result)?;
-            query_params.remove(FOO).ok_or(Error::FailedRequest {
+            query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
                 status,
                 reason: "did not receive mirrored response".into(),
             })
