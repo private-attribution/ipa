@@ -1,6 +1,15 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use ipa::cli::Verbosity;
+use ipa::{
+    cli::Verbosity,
+    config::{NetworkConfig, ServerConfig},
+    helpers::HelperIdentity,
+    net::HttpTransport,
+    AppSetup,
+};
+use std::{error::Error, sync::Arc};
+
+use tracing::info;
 
 #[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
 #[global_allocator]
@@ -26,40 +35,58 @@ struct Args {
     scheme: Scheme,
 }
 
-fn main() {
-    unimplemented!();
+fn config() -> (NetworkConfig, ServerConfig) {
+    let config_str = r#"
+# H1
+[[peers]]
+origin = "http://localhost:3000
+
+[peers.tls]
+public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
+
+# H2
+[[peers]]
+origin = "http://localhost:3001"
+
+[peers.tls]
+public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
+
+# H3
+[[peers]]
+origin = "http://localhost:3002"
+
+[peers.tls]
+public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
+"#;
+
+    let network = NetworkConfig::from_toml_str(&config_str).unwrap();
+    let server = ServerConfig::with_http_and_port(3000);
+
+    (network, server)
 }
 
 #[tokio::main]
-#[cfg(never)]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
-    // TODO: the config should be loaded from a file, possibly with some values merged from the
+    // TODO(596): the config should be loaded from a file, possibly with some values merged from the
     // command line arguments.
-    let config = TestConfigBuilder::with_default_test_ports().build();
+    let (network_config, server_config) = config();
 
     let my_identity = HelperIdentity::try_from(args.identity).unwrap();
+    info!("configured with identity {:?}", my_identity);
+
+    let (setup, callbacks) = AppSetup::new();
+
     let transport = HttpTransport::new(
         my_identity,
-        config.servers[my_identity].clone(),
-        Arc::new(config.network),
+        server_config,
+        Arc::new(network_config),
+        callbacks,
     );
 
-    let query_handle = tokio::spawn({
-        let transport = transport.clone();
-        async move {
-            let my_identity = transport.identity();
-            let mut query_processor = Processor::new(transport).await;
-            loop {
-                tracing::debug!(
-                    "Query processor is active and listening as {:?}",
-                    my_identity
-                );
-                query_processor.handle_next().await;
-            }
-        }
-    });
+    let _app = setup.connect(transport.clone());
+
     let (addr, server_handle) = transport.bind().await;
 
     info!(
@@ -68,7 +95,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let _ = std::io::stdin().read_line(&mut String::new())?;
     server_handle.abort();
-    query_handle.abort();
 
     Ok(())
 }
