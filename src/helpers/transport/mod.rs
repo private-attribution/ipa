@@ -135,9 +135,8 @@ pub trait Transport: Clone + Send + Sync + 'static {
     fn identity(&self) -> HelperIdentity;
 
     /// Sends a new request to the given destination helper party.
-    /// The contract for this method requires it to block until the request is acknowledged by
-    /// the remote party. For streaming requests where body is large, only request headers are
-    /// expected to be acknowledged)
+    /// Depending on the specific request, it may or may not require acknowledgment by the remote
+    /// party
     async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,

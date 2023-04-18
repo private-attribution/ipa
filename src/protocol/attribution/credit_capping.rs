@@ -280,10 +280,8 @@ where
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
-    // TODO: This can't use a sequential join because `greater_than_constant` uses
-    // a `RandomBitsGenerator`.  We need to fix that.
     ctx_ref
-        .parallel_join(
+        .try_join(
             prefix_summed_credits
                 .iter()
                 .zip(zip(repeat(ctx), repeat(cap)))
@@ -431,7 +429,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        accumulation_test_input,
+        credit_capping_test_input,
         ff::{Field, Fp32BitPrime, PrimeField},
         protocol::{
             attribution::{
@@ -492,7 +490,7 @@ mod tests {
         const CAP: u32 = 18;
         const EXPECTED: &[u128; 19] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
 
-        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(
             [
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 },
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 4, credit: 0 },
@@ -540,7 +538,7 @@ mod tests {
     #[should_panic]
     pub async fn invalid_cap_value() {
         // Input doesn't matter here, since the test should panic before the computation starts.
-        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(
             [
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 2 },
             ];
@@ -559,7 +557,7 @@ mod tests {
         const CAP: u32 = 2;
         const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
 
-        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(
             [
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 2 },
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
@@ -600,7 +598,7 @@ mod tests {
         const CAP: u32 = 2;
         const EXPECTED: &[u128; 8] = &[0, 0, 0, 0, 0, 0, 2, 0];
 
-        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(
             [
                 { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: MINUS_TWO },
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: MINUS_TWO },

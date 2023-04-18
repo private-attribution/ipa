@@ -40,12 +40,19 @@ struct Args {
     /// The size of the attribution window, in seconds.
     #[arg(short = 'w', long, default_value = "0")]
     attribution_window: u32,
+    /// The number of sequential bits of breakdown key and match key to process in parallel
+    /// while doing modulus conversion and attribution
+    #[arg(long, default_value = "3")]
+    num_multi_bits: u32,
     /// The random seed to use.
     #[arg(short = 's', long)]
     random_seed: Option<u64>,
     /// The amount of active items to concurrently track.
     #[arg(short = 'a', long)]
     active_work: Option<NonZeroUsize>,
+    /// Desired security model for IPA protocol
+    #[arg(short = 'm', long, value_enum, default_value_t=IpaSecurityModel::Malicious)]
+    mode: IpaSecurityModel,
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
@@ -62,8 +69,6 @@ impl Args {
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
-
-    const NUM_MULTI_BITS: u32 = 3;
 
     let args = Args::parse();
 
@@ -116,13 +121,14 @@ async fn main() -> Result<(), Error> {
             args.per_user_cap,
             args.breakdown_keys,
             args.attribution_window,
-            NUM_MULTI_BITS,
+            args.num_multi_bits,
         ),
-        IpaSecurityModel::Malicious,
+        args.mode,
     )
     .await;
     println!(
-        "IPA for {q} records took {t:?}",
+        "{m:?} IPA for {q} records took {t:?}",
+        m = args.mode,
         q = args.query_size,
         t = protocol_time.elapsed()
     );
