@@ -59,6 +59,12 @@ where
 /// Stops as soon as `helper_bits` indicates the following rows are not from
 /// the same `match key`.
 ///
+/// If the caller has foreknowledge that there will never be any two adjacent
+/// rows, *both* containing a 1, then it is safe to pass `true`, which will
+/// simply add values on the first iteration (thereby saving one multiplication
+/// per row). If the caller does not know of any such guarantee, `false` should
+/// be passed.
+///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
