@@ -1090,11 +1090,14 @@ pub mod tests {
 
         // Check that
         //   * the contribution never exceeds the cap.
-        //   * the credit is attributed to at most one breakdown key.
+        //   * the sum of all contributions = cap.
         assert!(trigger_values
             .iter()
             .all(|v| *v <= u128::from(PER_USER_CAP)));
-        assert_eq!(1, trigger_values.into_iter().filter(|v| *v > 0).count());
+        assert_eq!(
+            u128::from(PER_USER_CAP),
+            trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
+        );
     }
 
     fn serde_internal(

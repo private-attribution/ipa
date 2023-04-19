@@ -42,7 +42,7 @@ where
 
     if (u128::from(cap) * 2) >= F::PRIME.into() {
         return Err(crate::error::Error::InvalidQueryParameter(format!(
-            "The cap {cap} must be less than 1/2 of the prime number to avoid overflow.",
+            "The cap {cap} must be less than 1/2 of the prime modulus to make overflow detectable, and propagable."
         )));
     }
 
@@ -55,6 +55,26 @@ where
 
     //
     // Step 2. Cap each report's value to `cap`
+    //
+    // Returns a vector of report values that are capped at `cap`. The cap is known to be
+    // less than 1/2 of the prime number used for the field.
+    //
+    // This initial capping step is applied to each report value individually, rather than
+    // to the prefixed sum of matching report values in the later steps. This is required to
+    // detect a possible overflow in the `credit_prefix_sum` step, which leads to an individual's
+    // contribution to exceed the cap. (issue #520)
+    //
+    // This step ensures that the prefixed summed report values computed in `credit_prefix_sum`
+    // step will have at least one row with a value that is larger than the cap and less than
+    // the prime number, if overflows were to happen.
+    //
+    // For example, if the prime number is 31 and the cap is 15, then the reversed prefixed sum
+    // of [].., 15, 15, 15] will be [..., 15, 30, 15]. Then `is_credit_larger_than_cap` step will
+    // catch that the second to last row is larger than the cap.
+    //
+    // This step alone does not prevent the overflow from happening, but if we compute the
+    // reversed prefix-OR of the `is_credit_larger_than_cap` step, then we can apply the cap to
+    // all rows that precede the most recent row with a value larger than the cap.
     //
     let capped_credits = report_level_capping(ctx.clone(), &original_credits, cap).await?;
 
@@ -75,13 +95,21 @@ where
     //
     // Step 5. Compute the reversed prefix-OR of `exceeds_cap_bits`
     //
+    //
+    // This step ensures that once the comparison "credit > cap" is true, then the true value
+    // will be propagated to all the rows that precede the row with the true value. The next
+    // step `compute_final_credits` will then check these bits and set the credit to zero.
+    //
     let prefix_or_exceeds_cap_bits =
-        comp_bits_prefix_or(ctx.clone(), input, exceeds_cap_bits).await?;
+        propagate_overflow_detection(ctx.clone(), input, exceeds_cap_bits).await?;
 
     //
-    // Step 6. Compute the `final_credit`
+    // Step 6. Compute user-level capped credits.
     //
-    // We compute capped credits in the method, and writes to `original_credits`.
+    // This protocol caps the user-level credits from the oldest report to the newest report,
+    // meaning that older reports will be capped if the user's contribution has already exceeded
+    // the cap. We can change the logic to do the opposite, i.e. cap the newest reports first, by
+    // reversing the order of the input.
     //
     let final_credits = compute_final_credits(
         ctx,
@@ -214,25 +242,6 @@ where
     .await
 }
 
-/// Returns a vector of report values that are capped at `cap`. The cap is known to be
-/// less than 1/2 of the prime number used for the field.
-///
-/// This initial capping step is applied to each report value individually, rather than
-/// to the prefixed sum of matching report values in the later steps. This is required to
-/// detect a possible overflow in the `credit_prefix_sum` step, which leads to an individual's
-/// contribution to exceed the cap. (issue #520)
-///
-/// This step ensures that the prefixed summed report values computed in `credit_prefix_sum`
-/// step will have at least one row with a value that is larger than the cap and less than
-/// the prime number, if overflows were to happen.
-///
-/// For example, if the prime number is 31 and the cap is 15, then the reversed prefixed sum
-/// of [].., 15, 15, 15] will be [..., 15, 30, 15]. Then `is_credit_larger_than_cap` step will
-/// catch that the second to last row is larger than the cap.
-///
-/// This step alone does not prevent the overflow from happening, but if we compute the
-/// reversed prefix-OR of the `is_credit_larger_than_cap` step, then we can apply the cap to
-/// all rows that precede the most recent row with a value larger than the cap.
 async fn report_level_capping<F, C, T>(
     ctx: C,
     original_credits: &[T],
@@ -322,12 +331,7 @@ where
         .await
 }
 
-/// Returns a reversed prefix-OR'ed vector of `exceeds_cap_bits`.
-///
-/// This step ensures that once the comparison "credit > cap" is true, then the true value
-/// will be propagated to all the rows that precede the row with the true value. The next
-/// step `compute_final_credits` will then check these bits and set the credit to zero.
-async fn comp_bits_prefix_or<F, C, T>(
+async fn propagate_overflow_detection<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
     exceeds_cap_bits: Vec<T>,
