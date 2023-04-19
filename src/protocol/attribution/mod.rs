@@ -59,6 +59,7 @@ where
 /// Stops as soon as `helper_bits` indicates the following rows are not from
 /// the same `match key`.
 ///
+/// `should_add_on_first_iteration` is a performance optimization.
 /// If the caller has foreknowledge that there will never be any two adjacent
 /// rows, *both* containing a 1, then it is safe to pass `true`, which will
 /// simply add values on the first iteration (thereby saving one multiplication
