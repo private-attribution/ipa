@@ -34,6 +34,8 @@ pub enum Error {
     InfraError(#[from] crate::helpers::Error),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
+    #[error("Invalid query parameter: {0}")]
+    InvalidQueryParameter(String),
     #[error(transparent)]
     NewQueryError(#[from] crate::query::NewQueryError),
     #[error(transparent)]
