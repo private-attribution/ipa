@@ -68,7 +68,7 @@ where
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
         let mult_result = if last_carry_known_to_be_zero {
             // TODO: this makes me sad
-            let _ = S::ZERO
+            S::ZERO
                 .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
                 .await?;
 

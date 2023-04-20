@@ -83,17 +83,14 @@ mod test {
     #[tokio::test]
     async fn basic() {
         let world = TestWorld::default();
-        assert_eq!(11, sop_sync::<Fp31>(&world, &[7], &[6]).await);
-        assert_eq!(3, sop_sync::<Fp31>(&world, &[6, 2], &[5, 2]).await);
-        assert_eq!(28, sop_sync::<Fp31>(&world, &[5, 3], &[5, 1]).await);
-        assert_eq!(16, sop_sync::<Fp31>(&world, &[7, 1, 4], &[1, 1, 2]).await);
-        assert_eq!(
-            13,
-            sop_sync::<Fp31>(&world, &[0, 4, 7, 2], &[14, 0, 6, 1]).await
-        );
+        assert_eq!(11, sop_sync(&world, &[7], &[6]).await);
+        assert_eq!(3, sop_sync(&world, &[6, 2], &[5, 2]).await);
+        assert_eq!(28, sop_sync(&world, &[5, 3], &[5, 1]).await);
+        assert_eq!(16, sop_sync(&world, &[7, 1, 4], &[1, 1, 2]).await);
+        assert_eq!(13, sop_sync(&world, &[0, 4, 7, 2], &[14, 0, 6, 1]).await);
         assert_eq!(
             15,
-            sop_sync::<Fp31>(&world, &[7, 5, 4, 2, 1], &[10, 3, 2, 3, 9]).await
+            sop_sync(&world, &[7, 5, 4, 2, 1], &[10, 3, 2, 3, 9]).await
         );
     }
 
@@ -133,11 +130,7 @@ mod test {
         assert_eq!(expected, res.reconstruct());
     }
 
-    async fn sop_sync<F>(world: &TestWorld, a: &[u128], b: &[u128]) -> u128
-    where
-        F: Field,
-        (F, F): Sized,
-    {
+    async fn sop_sync(world: &TestWorld, a: &[u128], b: &[u128]) -> u128 {
         let a: Vec<_> = a.iter().map(|x| Fp31::try_from(*x).unwrap()).collect();
         let b: Vec<_> = b.iter().map(|x| Fp31::try_from(*x).unwrap()).collect();
 

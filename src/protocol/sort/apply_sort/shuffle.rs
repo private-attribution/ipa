@@ -144,7 +144,6 @@ mod tests {
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
-            const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
             let world = TestWorld::default();
             let mut rng = thread_rng();
