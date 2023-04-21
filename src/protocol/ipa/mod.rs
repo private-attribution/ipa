@@ -973,7 +973,7 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 86_400;
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();

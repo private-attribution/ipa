@@ -29,7 +29,7 @@ pub enum IpaSecurityModel {
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
     pub user_id: usize,
-    pub timestamp: usize,
+    pub timestamp: u32,
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
@@ -42,7 +42,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
     max_trigger_value: u32,
 ) -> Vec<TestRawDataRecord> {
     const MAX_USER_ID: usize = 1_000_000_000_000;
-    const SECONDS_IN_EPOCH: usize = 604_800;
+    const SECONDS_IN_EPOCH: u32 = 604_800;
 
     let random_user_id = rng.gen_range(0..MAX_USER_ID);
     let num_records_for_user = min(
@@ -85,9 +85,9 @@ pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
     per_user_cap: u32,
-    _attribution_window_seconds: u32, // TODO(taikiy): compute the output with the attribution window
+    attribution_window_seconds: u32,
 ) {
-    let mut pending_trigger_value = 0;
+    let mut pending_trigger_reports = Vec::new();
     let mut total_contribution = 0;
     for record in records_for_user {
         if total_contribution >= per_user_cap {
@@ -95,14 +95,24 @@ pub fn update_expected_output_for_user(
         }
 
         if record.is_trigger_report {
-            pending_trigger_value += record.trigger_value;
-        } else if pending_trigger_value > 0 {
-            let delta_to_per_user_cap = per_user_cap - total_contribution;
-            let capped_contribution = std::cmp::min(delta_to_per_user_cap, pending_trigger_value);
-            let bk: usize = record.breakdown_key.try_into().unwrap();
-            expected_results[bk] += capped_contribution;
-            total_contribution += capped_contribution;
-            pending_trigger_value = 0;
+            pending_trigger_reports.push(record);
+        } else if !pending_trigger_reports.is_empty() {
+            for trigger_report in &pending_trigger_reports {
+                let time_delta_to_source_report = trigger_report.timestamp - record.timestamp;
+
+                // only count trigger reports that are within the attribution window
+                if time_delta_to_source_report > attribution_window_seconds {
+                    continue;
+                }
+
+                let delta_to_per_user_cap = per_user_cap - total_contribution;
+                let capped_contribution =
+                    std::cmp::min(delta_to_per_user_cap, trigger_report.trigger_value);
+                let bk: usize = record.breakdown_key.try_into().unwrap();
+                expected_results[bk] += capped_contribution;
+                total_contribution += capped_contribution;
+            }
+            pending_trigger_reports.clear();
         }
     }
 }
