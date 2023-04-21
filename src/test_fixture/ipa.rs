@@ -17,7 +17,7 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng,
 };
-use std::{cmp::min, iter::zip};
+use std::cmp::min;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -35,7 +35,7 @@ pub struct TestRawDataRecord {
     pub trigger_value: u32,
 }
 
-pub fn generate_random_user_records_in_chronological_order(
+pub fn generate_random_user_records_in_reverse_chronological_order(
     rng: &mut impl Rng,
     max_records_per_user: usize,
     max_breakdown_key: u32,
@@ -72,13 +72,13 @@ pub fn generate_random_user_records_in_chronological_order(
         });
     }
 
-    // sort in time order
-    records_for_user.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    // sort in reverse time order
+    records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
     records_for_user
 }
 
-/// Assumes records all belong to the same user, and are in chronological order
+/// Assumes records all belong to the same user, and are in reverse chronological order
 /// Will give incorrect results if this is not true
 #[allow(clippy::missing_panics_doc)]
 pub fn update_expected_output_for_user(
@@ -88,39 +88,48 @@ pub fn update_expected_output_for_user(
     attribution_window_seconds: u32,
 ) {
     // Calculate time deltas from the nearest source report to the current trigger report.
-    let time_delta = records_for_user
-        .iter()
-        .scan(0, |source_ts, x| {
-            if x.is_trigger_report {
-                Some(x.timestamp - *source_ts)
-            } else {
-                *source_ts = x.timestamp;
-                Some(0)
-            }
-        })
-        .collect::<Vec<_>>();
+    // let time_delta = records_for_user
+    //     .iter()
+    //     .scan(0, |source_ts, x| {
+    //         if x.is_trigger_report {
+    //             Some(x.timestamp - *source_ts)
+    //         } else {
+    //             *source_ts = x.timestamp;
+    //             Some(0)
+    //         }
+    //     })
+    //     .collect::<Vec<_>>();
 
-    // reverse the records so we can iterate from the most recent to the oldest
-    let mut reversed_records = records_for_user.to_vec();
-    reversed_records.reverse();
+    // // reverse the records so we can iterate from the most recent to the oldest
+    // let mut reversed_records = records_for_user.to_vec();
+    // reversed_records.reverse();
 
-    let mut pending_trigger_value = 0;
+    let mut pending_trigger_reports = Vec::new();
     let mut total_contribution = 0;
-    for (record, delta) in zip(reversed_records, time_delta.into_iter().rev()) {
+    for record in records_for_user {
         if total_contribution >= per_user_cap {
             break;
         }
 
-        // only count trigger reports that are within the attribution window
-        if record.is_trigger_report && delta <= attribution_window_seconds {
-            pending_trigger_value += record.trigger_value;
-        } else if pending_trigger_value > 0 {
-            let delta_to_per_user_cap = per_user_cap - total_contribution;
-            let capped_contribution = std::cmp::min(delta_to_per_user_cap, pending_trigger_value);
-            let bk: usize = record.breakdown_key.try_into().unwrap();
-            expected_results[bk] += capped_contribution;
-            total_contribution += capped_contribution;
-            pending_trigger_value = 0;
+        if record.is_trigger_report {
+            pending_trigger_reports.push(record);
+        } else if !pending_trigger_reports.is_empty() {
+            for trigger_report in &pending_trigger_reports {
+                let time_delta_to_source_report = trigger_report.timestamp - record.timestamp;
+
+                // only count trigger reports that are within the attribution window
+                if time_delta_to_source_report > attribution_window_seconds {
+                    continue;
+                }
+
+                let delta_to_per_user_cap = per_user_cap - total_contribution;
+                let capped_contribution =
+                    std::cmp::min(delta_to_per_user_cap, trigger_report.trigger_value);
+                let bk: usize = record.breakdown_key.try_into().unwrap();
+                expected_results[bk] += capped_contribution;
+                total_contribution += capped_contribution;
+            }
+            pending_trigger_reports.clear();
         }
     }
 }
