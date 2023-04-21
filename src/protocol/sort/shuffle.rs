@@ -167,17 +167,17 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::{
         protocol::{sort::shuffle::get_two_of_three_random_permutations, Step},
         test_fixture::{make_participants, permutation_valid},
     };
+    use rand::thread_rng;
 
     #[test]
     fn random_sequence_generated() {
         const BATCH_SIZE: u32 = 10000;
 
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = make_participants(&mut thread_rng());
         let step = Step::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.sequential(&step));
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.sequential(&step));
