@@ -70,7 +70,7 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 typenum = "1.16.0"
 x25519-dalek = "2.0.0-pre.1"
 
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"
 
 [dev-dependencies]
