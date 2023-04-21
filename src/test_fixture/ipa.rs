@@ -87,23 +87,6 @@ pub fn update_expected_output_for_user(
     per_user_cap: u32,
     attribution_window_seconds: u32,
 ) {
-    // Calculate time deltas from the nearest source report to the current trigger report.
-    // let time_delta = records_for_user
-    //     .iter()
-    //     .scan(0, |source_ts, x| {
-    //         if x.is_trigger_report {
-    //             Some(x.timestamp - *source_ts)
-    //         } else {
-    //             *source_ts = x.timestamp;
-    //             Some(0)
-    //         }
-    //     })
-    //     .collect::<Vec<_>>();
-
-    // // reverse the records so we can iterate from the most recent to the oldest
-    // let mut reversed_records = records_for_user.to_vec();
-    // reversed_records.reverse();
-
     let mut pending_trigger_reports = Vec::new();
     let mut total_contribution = 0;
     for record in records_for_user {
