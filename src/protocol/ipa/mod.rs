@@ -556,7 +556,6 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -618,7 +617,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -670,7 +668,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn semi_honest_with_attribution_window() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -732,7 +729,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious_with_attribution_window() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -1153,7 +1149,6 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
-        const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
         /// empirical value as of Apr 13, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_936;
