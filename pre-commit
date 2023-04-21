@@ -68,7 +68,7 @@ error() {
    exit 1
 }
 
-cargo build --benches --no-default-features --features "enable-benches" || error "Benchmarks compilation errors"
+cargo build --benches --features "enable-benches" || error "Benchmarks compilation errors"
 
 cargo clippy --tests -- -D warnings || error "Clippy errors"
 

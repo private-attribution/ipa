@@ -2,7 +2,7 @@
 // everything
 
 pub mod echo {
-    use crate::net::{client, Error};
+    use crate::net::Error;
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
     use hyper::http::uri;
@@ -29,7 +29,7 @@ pub mod echo {
             self,
             scheme: uri::Scheme,
             authority: uri::Authority,
-        ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+        ) -> Result<hyper::Request<hyper::Body>, Error> {
             let qps = self
                 .query_params
                 .iter()
@@ -219,7 +219,6 @@ pub mod query {
         use crate::{
             helpers::query::QueryConfig,
             net::{
-                client,
                 http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
                 Error,
             },
@@ -243,7 +242,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Builder::new()
                     .scheme(scheme)
                     .authority(authority)
@@ -280,7 +279,6 @@ pub mod query {
         use crate::{
             helpers::{query::PrepareQuery, HelperIdentity, RoleAssignment},
             net::{
-                client,
                 http_serde::query::{OriginHeader, QueryConfigQueryParams, BASE_AXUM_PATH},
                 Error,
             },
@@ -307,7 +305,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -366,7 +364,7 @@ pub mod query {
     pub mod input {
         use crate::{
             helpers::{query::QueryInput, ByteArrStream},
-            net::{client, http_serde::query::BASE_AXUM_PATH, Error},
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
         };
         use async_trait::async_trait;
         use axum::{
@@ -395,7 +393,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, client::Error> {
+            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -451,7 +449,6 @@ pub mod query {
         use crate::{
             helpers::HelperIdentity,
             net::{
-                client,
                 http_serde::query::{OriginHeader, BASE_AXUM_PATH},
                 Error,
             },
@@ -490,7 +487,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -555,7 +552,7 @@ pub mod query {
                 self,
                 scheme: axum::http::uri::Scheme,
                 authority: axum::http::uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, crate::net::client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = axum::http::uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)

@@ -6,6 +6,7 @@ use crate::{
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
+/// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("An error occurred while sending data to {channel:?}: {inner}")]

@@ -1,12 +1,10 @@
-#[cfg(never)]
-use crate::protocol::QueryId;
 use crate::{
     config::{NetworkConfig, ServerConfig},
     helpers::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
-        Transport, TransportCallbacks, TransportError,
+        Transport, TransportCallbacks,
     },
-    net::client::MpcHelperClient,
+    net::{client::MpcHelperClient, error::Error},
     protocol::{QueryId, Step},
     sync::Arc,
     task::JoinHandle,
@@ -15,7 +13,6 @@ use async_trait::async_trait;
 use futures::{Stream, TryFutureExt};
 use std::{
     borrow::Borrow,
-    io,
     net::{SocketAddr, TcpListener},
 };
 use tokio_stream::Empty;
@@ -86,18 +83,10 @@ impl HttpTransport {
     }
 }
 
-fn extract_route_param<T, U: Into<Option<T>>>(val: U, name: &str) -> Result<T, io::Error> {
-    val.into().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("expected {name} in request"),
-        )
-    })
-}
-
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
     type RecordsStream = Empty<Vec<u8>>; // TODO(server): resolve placeholder
+    type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
         self.identity
@@ -113,7 +102,7 @@ impl Transport for Arc<HttpTransport> {
         dest: HelperIdentity,
         route: R,
         data: D,
-    ) -> Result<(), TransportError>
+    ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -122,13 +111,11 @@ impl Transport for Arc<HttpTransport> {
         match route_id {
             RouteId::Records => {
                 // TODO(600): These fallible extractions aren't really necessary.
-                let query_id = extract_route_param(route.query_id(), "query_id")?;
-                let step = extract_route_param(route.step(), "step")?;
-                let resp_future = self.clients[dest]
-                    .step(dest, query_id, &step, data)
-                    .map_err(|_e| {
-                        io::Error::new(io::ErrorKind::ConnectionAborted, "channel closed")
-                    })?;
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id required when sending records");
+                let step =
+                    <Option<Step>>::from(route.step()).expect("step required when sending records");
+                let resp_future = self.clients[dest].step(dest, query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
                         .map_err(Into::into)
@@ -143,13 +130,7 @@ impl Transport for Arc<HttpTransport> {
             }
             RouteId::PrepareQuery => {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[dest]
-                    .prepare_query(self.identity, req)
-                    .await
-                    .map_err(|e| TransportError::Rejected {
-                        dest,
-                        inner: Box::new(e),
-                    })
+                self.clients[dest].prepare_query(self.identity, req).await
             }
             RouteId::ReceiveQuery => {
                 unimplemented!("attempting to send ReceiveQuery to another helper")

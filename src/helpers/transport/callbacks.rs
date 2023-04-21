@@ -1,16 +1,13 @@
 use crate::{
-    helpers::{
-        query::{PrepareQuery, QueryConfig},
-        TransportError,
-    },
+    helpers::query::{PrepareQuery, QueryConfig},
     protocol::QueryId,
+    query::{NewQueryError, PrepareQueryError},
 };
 use std::{future::Future, pin::Pin};
 
 /// Called when helper receives a new query request from an external party.
 pub trait ReceiveQueryCallback<T>:
-    FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
-    + Send
+    FnMut(T, QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, NewQueryError>> + Send>> + Send
 {
 }
 
@@ -18,19 +15,22 @@ impl<T, F> ReceiveQueryCallback<T> for F where
     F: FnMut(
             T,
             QueryConfig,
-        ) -> Pin<Box<dyn Future<Output = Result<QueryId, TransportError>> + Send>>
+        ) -> Pin<Box<dyn Future<Output = Result<QueryId, NewQueryError>> + Send>>
         + Send
 {
 }
 
 /// Called when helper receives a request from the coordinator to start working on a new query.
 pub trait PrepareQueryCallback<T>:
-    FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send>> + Send
+    FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), PrepareQueryError>> + Send>> + Send
 {
 }
 
 impl<T, F> PrepareQueryCallback<T> for F where
-    F: FnMut(T, PrepareQuery) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send>>
+    F: FnMut(
+            T,
+            PrepareQuery,
+        ) -> Pin<Box<dyn Future<Output = Result<(), PrepareQueryError>> + Send>>
         + Send
 {
 }
