@@ -3,23 +3,19 @@
 use crate::{
     cli::playbook::InputSource,
     ff::{Field, GaloisField, Serializable},
-    helpers::{query::QueryInput, transport::ByteArrStream},
+    helpers::{query::QueryInput, ByteArrStream},
     net::MpcHelperClient,
     protocol::{attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
-    secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-        IntoShares,
-    },
-    seq_join::seq_try_join_all,
+    secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::input::GenericReportTestInput,
 };
+use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution};
 use std::fmt::Debug;
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol
-/// `(a, b)` will produce `a` * `b`.
 #[allow(clippy::missing_panics_doc)]
 pub async fn semi_honest<F, MK, BK>(
     input: InputSource,
@@ -27,12 +23,12 @@ pub async fn semi_honest<F, MK, BK>(
     query_id: QueryId,
 ) -> [Vec<impl Send + Debug>; 3]
 where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    F: Field + IntoShares<AdditiveShare<F>>,
+    MK: GaloisField + IntoShares<AdditiveShare<MK>>,
+    BK: GaloisField + IntoShares<AdditiveShare<BK>>,
     Standard: Distribution<F>,
     IPAInputRow<F, MK, BK>: Serializable,
-    Replicated<F>: Serializable,
+    AdditiveShare<F>: Serializable,
 {
     // prepare inputs
     let inputs = input
@@ -54,7 +50,7 @@ where
             ByteArrStream::from(r)
         });
 
-    seq_try_join_all(
+    try_join_all(
         inputs
             .into_iter()
             .zip(clients)
@@ -76,7 +72,7 @@ where
         .unwrap();
 
     results.map(|bytes| {
-        MCAggregateCreditOutputRow::<F, Replicated<F>, BK>::from_byte_slice(&bytes)
+        MCAggregateCreditOutputRow::<F, AdditiveShare<F>, BK>::from_byte_slice(&bytes)
             .collect::<Vec<_>>()
     })
 }

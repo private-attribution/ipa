@@ -3,7 +3,7 @@
 use crate::{
     cli::playbook::InputSource,
     ff::{Field, Serializable},
-    helpers::{query::QueryInput, transport::ByteArrStream},
+    helpers::{query::QueryInput, ByteArrStream},
     net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
