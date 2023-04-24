@@ -22,66 +22,50 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-#[cfg(never)]
 mod tests {
+    use std::{future::ready, task::Poll};
+
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
-        protocol::Step,
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::{body_stream, TestServer},
+        },
+        protocol::{QueryId, Step},
     };
     use axum::http::Request;
-    use futures_util::future::poll_immediate;
+    use futures::{
+        stream::{once, poll_immediate},
+        StreamExt,
+    };
     use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
 
-    #[allow(clippy::type_complexity)] // it's a hashmap
-    fn filled_ongoing_queries() -> (
-        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-        mpsc::Receiver<CommandEnvelope>,
-    ) {
-        let (tx, rx) = mpsc::channel(1);
-        (Arc::new(Mutex::new(HashMap::from([(QueryId, tx)]))), rx)
-    }
-
     #[tokio::test]
-    async fn collect_req() {
-        for offset in 0..10 {
-            let req = http_serde::query::step::Request::new(
-                HelperIdentity::try_from(2).unwrap(),
-                QueryId,
-                Step::default().narrow("test"),
-                vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset,
-            );
+    async fn step() {
+        let TestServer { transport, .. } = TestServer::builder().build().await;
 
-            let (ongoing_queries, mut rx) = filled_ongoing_queries();
+        let step = Step::default().narrow("test");
+        let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
+        let req = http_serde::query::step::Request::new(
+            HelperIdentity::TWO,
+            QueryId,
+            step.clone(),
+            body_stream(Box::new(once(ready(Ok(payload.clone().into()))))).await,
+        );
 
-            poll_immediate(handler(req.clone(), Extension(ongoing_queries)))
-                .await
-                .unwrap()
-                .expect("request should succeed");
-            let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
+        handler(Extension(Arc::clone(&transport)), req)
+            .await
+            .unwrap();
 
-            assert_eq!(res.origin, CommandOrigin::Helper(req.origin));
-            match res.payload {
-                TransportCommand::StepData {
-                    query_id,
-                    step,
-                    payload,
-                    offset,
-                } => {
-                    assert_eq!(req.query_id, query_id);
-                    assert_eq!(req.step, step);
-                    assert_eq!(req.payload, payload);
-                    assert_eq!(req.offset, offset);
-                }
-                other @ TransportCommand::Query(_) => {
-                    panic!("expected command to be `StepData`, but found {other:?}")
-                }
-            }
-        }
+        let mut stream = Arc::clone(&transport).receive(HelperIdentity::TWO, (QueryId, step));
+
+        assert_eq!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Ready(payload))
+        );
     }
 
     struct OverrideReq {
@@ -89,7 +73,6 @@ mod tests {
         query_id: String,
         step: Step,
         payload: Vec<u8>,
-        offset: u32,
     }
 
     impl IntoFailingReq for OverrideReq {
@@ -102,7 +85,6 @@ mod tests {
                 self.step.as_ref()
             );
             hyper::Request::post(uri)
-                .header("offset", self.offset)
                 .header("origin", u32::from(self.origin))
                 .body(hyper::Body::from(self.payload))
                 .unwrap()
@@ -116,7 +98,6 @@ mod tests {
                 query_id: QueryId.as_ref().to_string(),
                 step: Step::default().narrow("test"),
                 payload: vec![1; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset: 0,
             }
         }
     }
@@ -134,24 +115,6 @@ mod tests {
     async fn malformed_query_id_fails() {
         let req = OverrideReq {
             query_id: "not-a-query-id".into(),
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn wrong_payload_size_is_rejected() {
-        let req = OverrideReq {
-            payload: vec![0; MESSAGE_PAYLOAD_SIZE_BYTES + 1],
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_payload_fails() {
-        let req = OverrideReq {
-            payload: vec![0, 7],
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;

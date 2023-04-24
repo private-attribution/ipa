@@ -34,16 +34,9 @@ pub fn h2h_router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test_helpers {
-    use crate::{
-        helpers::TransportCallbacks,
-        net::MpcHelperServer,
-        protocol::QueryId,
-        sync::{Arc, Mutex},
-    };
+    use crate::net::test::TestServer;
     use futures_util::future::poll_immediate;
     use hyper::{service::Service, StatusCode};
-    use std::collections::HashMap;
-    use tokio::sync::mpsc;
     use tower::ServiceExt;
 
     /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
@@ -56,8 +49,7 @@ pub mod test_helpers {
     /// bad request via `IntoFailingReq`, get a response from the server, and compare its
     /// [`StatusCode`] with what is expected.
     pub async fn assert_req_fails_with<I: IntoFailingReq>(req: I, expected_status: StatusCode) {
-        let callbacks = TransportCallbacks::default();
-        let server = MpcHelperServer::new(callbacks);
+        let TestServer { server, .. } = TestServer::default().await;
 
         let mut router = server.router();
         let ready = poll_immediate(router.ready()).await.unwrap().unwrap();

@@ -30,19 +30,22 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::future::ready;
+
     use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
             query::{PrepareQuery, QueryConfig, QueryType},
-            HelperIdentity, RoleAssignment,
+            HelperIdentity, RoleAssignment, TransportCallbacks,
         },
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::TestServer,
+        },
         protocol::QueryId,
     };
     use axum::http::Request;
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
     use hyper::{Body, StatusCode};
 
     #[tokio::test]
@@ -58,24 +61,17 @@ mod tests {
                 roles: RoleAssignment::new(HelperIdentity::make_three()),
             },
         );
+        let expected_prepare_query = req.data.clone();
 
-        let (tx, mut rx) = mpsc::channel(1);
-        let handle = handler(req.clone(), Extension(tx));
-        pin_mut!(handle);
-
-        // should be pending while waiting for `rx`
-        assert!(matches!(poll_immediate(&mut handle).await, None));
-        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
-        assert_eq!(res.origin, CommandOrigin::Helper(req.origin));
-        match res.payload {
-            TransportCommand::Query(QueryCommand::Prepare(prepare_query, responder)) => {
-                assert_eq!(prepare_query, req.data);
-                responder.send(()).unwrap();
-            }
-            other => panic!("expected create command, but got {other:?}"),
-        }
-
-        poll_immediate(handle).await.unwrap().unwrap();
+        let cb = TransportCallbacks {
+            prepare_query: Box::new(move |_transport, prepare_query| {
+                assert_eq!(prepare_query, expected_prepare_query);
+                Box::pin(ready(Ok(())))
+            }),
+            ..Default::default()
+        };
+        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        handler(Extension(transport), req.clone()).await.unwrap();
     }
 
     // since we tested `QueryType` with `create`, skip it here

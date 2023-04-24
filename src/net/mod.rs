@@ -2,6 +2,8 @@ mod client;
 mod error;
 mod http_serde;
 mod server;
+#[cfg(all(test, not(feature = "shuttle")))]
+mod test;
 mod transport;
 
 pub use client::MpcHelperClient;

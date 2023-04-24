@@ -30,7 +30,7 @@ mod real {
         cli::Verbosity,
         config::{NetworkConfig, ServerConfig},
         helpers::HelperIdentity,
-        net::{BindTarget, HttpTransport},
+        net::{BindTarget, HttpTransport, MpcHelperClient},
         AppSetup,
     };
     use std::{error::Error, sync::Arc};
@@ -111,10 +111,12 @@ public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 
         let (setup, callbacks) = AppSetup::new();
 
+        let clients = MpcHelperClient::from_conf(&network_config);
+
         let (transport, server) = HttpTransport::new(
             my_identity,
             //server_config,
-            Arc::new(network_config),
+            clients,
             callbacks,
         );
 

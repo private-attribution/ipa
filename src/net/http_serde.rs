@@ -367,7 +367,6 @@ pub mod query {
         };
         use async_trait::async_trait;
         use axum::{
-            body::StreamBody,
             extract::{BodyStream, FromRequest, Path, RequestParts},
             http::uri,
         };
@@ -392,7 +391,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, Error> {
+            ) -> Result<hyper::Request<Body>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -402,9 +401,10 @@ pub mod query {
                         self.query_input.query_id.as_ref(),
                     ))
                     .build()?;
+                let body = Body::wrap_stream(self.query_input.input_stream);
                 Ok(hyper::Request::post(uri)
                     .header(CONTENT_TYPE, "application/octet-stream")
-                    .body(StreamBody::new(self.query_input.input_stream))?)
+                    .body(body)?)
             }
         }
 

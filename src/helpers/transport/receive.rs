@@ -1,7 +1,7 @@
 use crate::helpers::transport::stream::{StreamCollection, StreamKey};
 use futures::Stream;
 use futures_util::StreamExt;
-#[cfg(any(not(feature = "web-app"), feature = "test-fixture"))]
+#[cfg(any(not(feature = "web-app"), feature = "test-fixture", test))]
 use std::convert::identity;
 use std::{
     pin::Pin,
@@ -20,7 +20,7 @@ where
 }
 
 impl<S> ReceiveRecords<S, S, fn(S) -> S> {
-    #[cfg(any(not(feature = "web-app"), feature = "test-fixture"))]
+    #[cfg(any(not(feature = "web-app"), feature = "test-fixture", test))]
     pub(crate) fn new(key: StreamKey, coll: StreamCollection<S>) -> Self {
         Self {
             inner: ReceiveRecordsInner::Pending(key, coll, Some(identity)),

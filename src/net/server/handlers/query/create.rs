@@ -34,34 +34,31 @@ mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+        helpers::{
+            query::{IpaQueryConfig, QueryConfig, QueryType},
+            TransportCallbacks,
+        },
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::TestServer,
+        },
         protocol::QueryId,
     };
     use axum::http::Request;
-    use futures::{future::poll_immediate, pin_mut};
     use hyper::{Body, StatusCode};
-    use tokio::sync::mpsc;
+    use std::future::ready;
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let (tx, mut rx) = mpsc::channel(1);
-        let req = http_serde::query::create::Request::new(expected_query_config);
-        let handle = handler(Extension(tx), req);
-        pin_mut!(handle);
-        // should return pending upon awaiting response
-        assert!(matches!(poll_immediate(&mut handle).await, None));
-
-        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
-        assert_eq!(res.origin, CommandOrigin::Other);
-        match res.payload {
-            TransportCommand::Query(QueryCommand::Create(query_config, responder)) => {
+        let cb = TransportCallbacks {
+            receive_query: Box::new(move |_transport, query_config| {
                 assert_eq!(query_config, expected_query_config);
-                responder.send(QueryId).unwrap();
-            }
-            other => panic!("expected create command, but got {other:?}"),
-        }
-
-        let Json(resp) = poll_immediate(handle).await.unwrap().unwrap();
+                Box::pin(ready(Ok(QueryId)))
+            }),
+            ..Default::default()
+        };
+        let req = http_serde::query::create::Request::new(expected_query_config);
+        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        let Json(resp) = handler(Extension(transport), req).await.unwrap();
         assert_eq!(resp.query_id, QueryId);
     }
 

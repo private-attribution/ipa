@@ -1,5 +1,4 @@
 use crate::{
-    config::NetworkConfig,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         CompleteQueryResult, HelperIdentity, NoResourceIdentifier, PrepareQueryResult,
@@ -24,7 +23,7 @@ type HttpRecordsStream =
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
-    _network_config: Arc<NetworkConfig>, // TODO: make this not an Arc?
+    //_network_config: Arc<NetworkConfig>, // TODO: make this not an Arc?
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
     record_streams: StreamCollection<BodyStream>,
@@ -35,23 +34,23 @@ impl HttpTransport {
     pub fn new(
         identity: HelperIdentity,
         //server_config: ServerConfig,
-        network_config: Arc<NetworkConfig>,
+        //network_config: Arc<NetworkConfig>,
+        clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> (Arc<Self>, MpcHelperServer) {
-        let transport = Self::new_internal(identity, network_config, callbacks);
+        let transport = Self::new_internal(identity, clients, callbacks);
         let server = MpcHelperServer::new(Arc::clone(&transport));
         (transport, server)
     }
 
     fn new_internal(
         identity: HelperIdentity,
-        network_config: Arc<NetworkConfig>,
+        clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> Arc<Self> {
-        let clients = MpcHelperClient::from_conf(&network_config);
+        //let clients = MpcHelperClient::from_conf(&network_config);
         Arc::new(Self {
             identity,
-            _network_config: network_config,
             callbacks,
             clients,
             record_streams: StreamCollection::default(),
@@ -167,133 +166,91 @@ impl Transport for Arc<HttpTransport> {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-#[cfg(never)]
 mod e2e_tests {
-    use std::{iter::zip, net::TcpListener};
-
     use super::*;
     use crate::{
-        config::PeerConfig,
-        ff::{FieldType, Fp31, Serializable},
-        helpers::{
-            network::{ChannelId, Network},
-            query::{QueryConfig, QueryInput, QueryType},
-            transport::ByteArrStream,
-            Role, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
-        },
+        net::test::{body_stream, TestServer},
         protocol::Step,
-        query::Processor,
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-        test_fixture::{config::TestConfigBuilder, Reconstruct},
     };
-    use futures::stream::StreamExt;
-    use futures_util::{
-        future::{join_all, try_join_all},
-        join,
-    };
-    use generic_array::GenericArray;
-    use typenum::Unsigned;
+    use futures::stream::{poll_immediate, StreamExt};
+    use once_cell::sync::Lazy;
+    use std::task::Poll;
+    use tokio::sync::mpsc::channel;
+    use tokio_stream::wrappers::ReceiverStream;
 
-    fn select_first<T>(value: [T; 3]) -> T {
-        let [first, _, _] = value;
-        first
-    }
+    static STEP: Lazy<Step> = Lazy::new(|| Step::from("http-transport"));
 
     #[tokio::test]
-    async fn succeeds_when_subscribed() {
-        let expected_query_id = QueryId;
-        let expected_message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
-            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+    async fn receive_stream() {
+        let (tx, rx) = channel::<Result<Bytes, Box<dyn std::error::Error + Send + Sync>>>(1);
+        let expected_chunk1 = vec![0u8, 1, 2, 3];
+        let expected_chunk2 = vec![255u8, 254, 253, 252];
+
+        let TestServer { transport, .. } = TestServer::default().await;
+
+        let body = body_stream(Box::new(ReceiverStream::new(rx))).await;
+
+        // Register the stream with the transport (normally called by step data HTTP API handler)
+        Arc::clone(&transport).receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);
+
+        // Request step data reception (normally called by protocol)
+        let mut stream =
+            Arc::clone(&transport).receive(HelperIdentity::TWO, (QueryId, STEP.clone()));
+
+        // make sure it is not ready as it hasn't received any data yet.
+        assert!(matches!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Pending)
+        ));
+
+        // send and verify first chunk
+        tx.send(Ok(expected_chunk1.clone().into())).await.unwrap();
+
+        assert_eq!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Ready(expected_chunk1))
         );
 
-        let identities = HelperIdentity::make_three();
-        let h1_index = 0usize;
-        let h1_identity = identities[h1_index];
-        let mut conf = TestConfigBuilder::with_open_ports().build();
-        let transport = HttpTransport::new(
-            h1_identity,
-            conf.servers[h1_index].clone(),
-            Arc::new(conf.network),
-        );
-        let socket = select_first(conf.sockets.take().unwrap());
-        transport.from_tcp(socket).await;
-        let network = Network::new(
-            Arc::clone(&transport),
-            expected_query_id,
-            RoleAssignment::new(identities),
-        );
-        let mut message_chunks_stream = network.recv_stream().await;
+        // send and verify second chunk
+        tx.send(Ok(expected_chunk2.clone().into())).await.unwrap();
 
-        let command = TransportCommand::StepData {
-            query_id: expected_query_id,
-            step: expected_message_chunks.0.step.clone(),
-            payload: expected_message_chunks.1.clone(),
-            offset: 0,
-        };
-        let res = transport.send(h1_identity, command).await;
-        assert!(matches!(res, Ok(())));
-
-        let message_chunks = message_chunks_stream.next().await;
-        assert_eq!(message_chunks, Some(expected_message_chunks));
+        assert_eq!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Ready(expected_chunk2))
+        );
     }
 
-    #[tokio::test]
-    async fn fails_if_not_subscribed() {
-        let expected_query_id = QueryId;
-        let expected_step = Step::default().narrow("no-subscribe");
-        let expected_payload = vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
+    // TODO: write a test for an error while reading the body (after error handling is finalized)
 
-        let identities = HelperIdentity::make_three();
-        let h1_index = 0;
-        let h1_identity = identities[h1_index];
-        let mut conf = TestConfigBuilder::with_open_ports().build();
-        let transport = HttpTransport::new(
-            h1_identity,
-            conf.servers[h1_index].clone(),
-            Arc::new(conf.network),
-        );
-        let socket = select_first(conf.sockets.take().unwrap());
-        transport.from_tcp(socket).await;
-        let command = TransportCommand::StepData {
-            query_id: expected_query_id,
-            step: expected_step.clone(),
-            payload: expected_payload.clone(),
-            offset: 0,
-        };
-
-        // with the below code missing, there will be nothing listening for data for this `QueryId`.
-        // Since there aren't any subscribers for this data, it should fail to send:
-        // let network = Network::new(
-        //     Arc::clone(&transport),
-        //     expected_query_id,
-        //     RoleAssignment::new(identities),
-        // );
-        // let mut message_chunks_stream = network.recv_stream().await;
-
-        let res = transport.send(h1_identity, command).await;
-        assert!(res.unwrap_err().to_string().contains("query id not found"));
-    }
-
-    async fn make_processors(
+    #[cfg(feature = "test-http")]
+    async fn make_helpers(
         ids: [HelperIdentity; 3],
         sockets: [TcpListener; 3],
-        server_conf: [ServerConfig; 3],
-        network_conf: Arc<NetworkConfig>,
-    ) -> [Processor<Arc<HttpTransport>>; 3] {
-        let network_conf = &network_conf;
-        join_all(zip(ids, zip(sockets, server_conf)).map(
+        server_config: [ServerConfig; 3],
+        network_config: &NetworkConfig,
+    ) -> [HelperApp; 3] {
+        use crate::net::BindTarget;
+
+        join_all(zip(ids, zip(sockets, server_config)).map(
             |(id, (socket, server_conf))| async move {
-                let transport = HttpTransport::new(id, server_conf, Arc::clone(network_conf));
-                transport.from_tcp(socket).await;
-                Processor::new(transport).await
+                let (setup, callbacks) = AppSetup::new();
+                let client_config = network_config.clone();
+                let clients = TestClients::builder()
+                    .with_network_config(client_config)
+                    .build();
+                let (transport, server) = HttpTransport::new(id, clients, callbacks);
+                server.bind(BindTarget::HttpListener(socket)).await;
+                let app = setup.connect(transport);
+                app
             },
         ))
         .await
         .try_into()
+        .ok()
         .unwrap()
     }
 
+    #[cfg(feature = "test-http")]
     fn make_clients(confs: &[PeerConfig; 3]) -> [MpcHelperClient; 3] {
         confs
             .iter()
@@ -303,29 +260,18 @@ mod e2e_tests {
             .unwrap()
     }
 
-    async fn handle_all_next(processors: &mut [Processor<Arc<HttpTransport>>; 3]) {
-        let mut handles = Vec::with_capacity(processors.len());
-        for processor in processors {
-            handles.push(processor.handle_next());
-        }
-        join_all(handles).await;
-    }
-
+    #[cfg(feature = "test-http")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
         const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
         let mut conf = TestConfigBuilder::with_open_ports().build();
-        let ids: [HelperIdentity; 3] = [
-            HelperIdentity::try_from(1usize).unwrap(),
-            HelperIdentity::try_from(2usize).unwrap(),
-            HelperIdentity::try_from(3usize).unwrap(),
-        ];
+        let ids = HelperIdentity::make_three();
         let clients = make_clients(conf.network.peers());
-        let mut processors = make_processors(
+        let _helpers = make_helpers(
             ids,
             conf.sockets.take().unwrap(),
             conf.servers,
-            Arc::new(conf.network),
+            &conf.network,
         )
         .await;
 
@@ -337,15 +283,11 @@ mod e2e_tests {
         };
 
         // create query
-        let create_query = leader_client.create_query(create_data);
-        let handle_next = handle_all_next(&mut processors);
-        let (query_id, _) = join!(create_query, handle_next);
-
-        let query_id = query_id.unwrap();
+        let query_id = leader_client.create_query(create_data).await.unwrap();
 
         // send input
-        let a = Fp31::from(4u128);
-        let b = Fp31::from(5u128);
+        let a = Fp31::try_from(4u128).unwrap();
+        let b = Fp31::try_from(5u128).unwrap();
 
         let helper_shares = (a, b).share().map(|(a, b)| {
             let mut vec = vec![0u8; 2 * SZ];
@@ -362,12 +304,10 @@ mod e2e_tests {
             };
             handle_resps.push(clients[i].query_input(data));
         }
-        let handle_next = handle_all_next(&mut processors);
-        let (resps, _) = join!(try_join_all(handle_resps), handle_next);
-        resps.unwrap();
+        try_join_all(handle_resps).await.unwrap();
 
-        let result: [_; 3] = join_all(processors.map(|mut processor| async move {
-            let r = processor.complete(query_id).await.unwrap().into_bytes();
+        let result: [_; 3] = join_all(clients.map(|client| async move {
+            let r = client.query_results(query_id).await.unwrap();
             Replicated::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
         }))
         .await
@@ -375,6 +315,6 @@ mod e2e_tests {
         .unwrap();
 
         let res = result.reconstruct();
-        assert_eq!(Fp31::from(20u128), res[0]);
+        assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
     }
 }

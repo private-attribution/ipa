@@ -42,18 +42,19 @@ macro_rules! callbacks {
 }
 
 callbacks! {
-    /// Called when helper receives a new query request from an external party.
+    /// Called by clients to initiate a new query.
     (ReceiveQueryCallback, ReceiveQueryResult):
         async fn(T, QueryConfig) -> Result<QueryId, NewQueryError>;
 
-    /// Called when helper receives a request from the coordinator to start working on a new query.
+    /// Called by the leader helper to set up followers for a new query.
     (PrepareQueryCallback, PrepareQueryResult):
         async fn(T, PrepareQuery) -> Result<(), PrepareQueryError>;
 
+    /// Called by clients to deliver query input data.
     (QueryInputCallback, QueryInputResult):
         async fn(T, QueryInput) -> Result<(), QueryInputError>;
 
-    /// Called to drive query to completion and return results.
+    /// Called by clients to drive query to completion and retrieve results.
     (CompleteQueryCallback, CompleteQueryResult):
         async fn(T, QueryId) -> Result<Box<dyn ProtocolResult>, QueryCompletionError>;
 }
@@ -68,11 +69,23 @@ pub struct TransportCallbacks<T> {
 #[cfg(any(test, feature = "test-fixture"))]
 impl<T> Default for TransportCallbacks<T> {
     fn default() -> Self {
+        // `TransportCallbacks::default()` is commonly used with struct update syntax
+        // (`..Default::default()`) to fill out the callbacks that aren't relevant to a particular
+        // test. In that scenario, a call that does occur is "unexpected" in the sense the term
+        // is used by mocks.
         Self {
-            receive_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
-            prepare_query: Box::new(move |_, _| Box::pin(async { Ok(()) })),
-            query_input: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
-            complete_query: Box::new(move |_, _| Box::pin(async { unimplemented!() })),
+            receive_query: Box::new(move |_, _| {
+                Box::pin(async { panic!("unexpected call to receive_query") })
+            }),
+            prepare_query: Box::new(move |_, _| {
+                Box::pin(async { panic!("unexpected call to prepare_query") })
+            }),
+            query_input: Box::new(move |_, _| {
+                Box::pin(async { panic!("unexpected call to query_input") })
+            }),
+            complete_query: Box::new(move |_, _| {
+                Box::pin(async { panic!("unexpected call to complete_query") })
+            }),
         }
     }
 }

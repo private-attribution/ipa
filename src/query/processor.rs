@@ -338,11 +338,11 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let network = InMemoryNetwork::new([
-            TransportCallbacks::default(),
-            TransportCallbacks::default(),
-            TransportCallbacks::default(),
-        ]);
+        let cb = [0, 1, 2].map(|_| TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
+            ..Default::default()
+        });
+        let network = InMemoryNetwork::new(cb);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = QueryConfig::default();

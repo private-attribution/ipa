@@ -28,46 +28,43 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::future::ready;
+
     use super::*;
     use crate::{
         ff::Fp31,
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+        helpers::TransportCallbacks,
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::TestServer,
+        },
         protocol::QueryId,
         query::ProtocolResult,
-        secret_sharing::replicated::{
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
-        },
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     };
     use axum::http::Request;
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
     use hyper::StatusCode;
 
     #[tokio::test]
     async fn results_test() {
+        let expected_results = Box::new(vec![Replicated::from((
+            Fp31::try_from(1u128).unwrap(),
+            Fp31::try_from(2u128).unwrap(),
+        ))]);
+        let expected_query_id = QueryId;
+        let raw_results = expected_results.to_vec();
+        let cb = TransportCallbacks {
+            complete_query: Box::new(move |_transport, query_id| {
+                let results: Box<dyn ProtocolResult> = Box::new(raw_results.clone());
+                assert_eq!(query_id, expected_query_id);
+                Box::pin(ready(Ok(results)))
+            }),
+            ..Default::default()
+        };
+        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
         let req = http_serde::query::results::Request::new(QueryId);
-        let (tx, mut rx) = mpsc::channel(1);
-        let handle = handler(req.clone(), Extension(tx));
-        pin_mut!(handle);
-
-        // should be pending while waiting for `rx`
-        assert!(matches!(poll_immediate(&mut handle).await, None));
-        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
-        assert_eq!(res.origin, CommandOrigin::Other);
-
-        let expected_resp = vec![Replicated::new(Fp31::from(1u128), Fp31::from(2u128))];
-        match res.payload {
-            TransportCommand::Query(QueryCommand::Results(query_id, responder)) => {
-                assert_eq!(query_id, req.query_id);
-                responder
-                    .send(Box::new(expected_resp.clone()) as Box<dyn ProtocolResult>)
-                    .unwrap();
-            }
-            other => panic!("expected create command, but got {other:?}"),
-        }
-        let resp_bytes = poll_immediate(handle).await.unwrap().unwrap();
-        let resp = Replicated::<Fp31>::from_byte_slice(&resp_bytes).collect::<Vec<_>>();
-        assert_eq!(resp, expected_resp);
+        let results = handler(Extension(transport), req.clone()).await.unwrap();
+        assert_eq!(results, expected_results.into_bytes());
     }
 
     struct OverrideReq {

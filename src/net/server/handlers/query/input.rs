@@ -27,48 +27,36 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use super::*;
     use crate::{
-        helpers::query::QueryInput,
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+        helpers::{query::QueryInput, TransportCallbacks},
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::TestServer,
+        },
         protocol::QueryId,
     };
     use axum::http::Request;
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
     use hyper::{Body, StatusCode};
-    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn input_test() {
         let expected_query_id = QueryId;
-        let expected_input = vec![4u8; 4];
+        let expected_input = &[4u8; 4];
+        let cb = TransportCallbacks {
+            query_input: Box::new(move |_transport, query_input| {
+                Box::pin(async move {
+                    assert_eq!(query_input.query_id, expected_query_id);
+                    assert_eq!(&query_input.input_stream.to_vec().await, expected_input);
+                    Ok(())
+                })
+            }),
+            ..Default::default()
+        };
+        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
         let req = http_serde::query::input::Request::new(QueryInput {
             query_id: expected_query_id,
-            input_stream: expected_input.clone().into(),
+            input_stream: expected_input.to_vec().into(),
         });
-        let (tx, mut rx) = mpsc::channel(1);
-        let handle = handler(req, Extension(tx));
-        pin_mut!(handle);
-        // should be pending while waiting for `rx`
-        assert!(matches!(poll_immediate(&mut handle).await, None));
-        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
-        assert_eq!(res.origin, CommandOrigin::Other);
-        match res.payload {
-            TransportCommand::Query(QueryCommand::Input(
-                QueryInput {
-                    query_id,
-                    input_stream,
-                },
-                responder,
-            )) => {
-                assert_eq!(query_id, expected_query_id);
-                let input = input_stream.to_vec().await;
-                assert_eq!(input, expected_input);
-                responder.send(()).unwrap();
-            }
-            other => panic!("expected input command, but got {other:?}"),
-        }
-
-        poll_immediate(handle).await.unwrap().unwrap();
+        handler(Extension(transport), req).await.unwrap();
     }
 
     struct OverrideReq {
