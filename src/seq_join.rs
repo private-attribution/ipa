@@ -128,20 +128,22 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// if the value is ready.
     ///
     /// ## Panics
-    /// Panics if polled after completion.
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+    /// Panics if this item is completed
+    fn check_ready(&mut self, cx: &mut Context<'_>) -> bool {
+        let mut ready = true;
         match self {
             ActiveItem::Pending(f) => {
                 if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
                     *self = ActiveItem::Resolved(v);
-                    Poll::Ready(())
                 } else {
-                    Poll::Pending
+                    ready = false;
                 }
             }
-            ActiveItem::Resolved(_) => Poll::Ready(()),
+            ActiveItem::Resolved(_) => {}
             ActiveItem::Done => panic!("Polled after completion"),
         }
+
+        ready
     }
 
     /// Takes the resolved value out
@@ -189,14 +191,13 @@ where
         }
 
         if let Some(item) = this.active.front_mut() {
-            if item.poll(cx).is_ready() {
+            if item.check_ready(cx) {
                 let v = item.take();
                 drop(this.active.pop_front());
                 Poll::Ready(Some(v))
             } else {
-                #[allow(unused_must_use)]
                 for f in this.active.iter_mut().skip(1) {
-                    f.poll(cx);
+                    f.check_ready(cx);
                 }
                 Poll::Pending
             }
