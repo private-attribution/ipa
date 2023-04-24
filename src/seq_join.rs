@@ -120,7 +120,6 @@ where
 enum ActiveItem<F: IntoFuture> {
     Pending(Pin<Box<F::IntoFuture>>),
     Resolved(F::Output),
-    Done,
 }
 
 impl<F: IntoFuture> ActiveItem<F> {
@@ -140,7 +139,6 @@ impl<F: IntoFuture> ActiveItem<F> {
                 }
             }
             ActiveItem::Resolved(_) => {}
-            ActiveItem::Done => panic!("Polled after completion"),
         }
 
         ready
@@ -151,8 +149,8 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// ## Panics
     /// if the value has been taken out already, or not ready yet.
     #[must_use]
-    fn take(&mut self) -> F::Output {
-        if let ActiveItem::Resolved(v) = std::mem::replace(self, ActiveItem::Done) {
+    fn take(self) -> F::Output {
+        if let ActiveItem::Resolved(v) = self {
             v
         } else {
             panic!("No value to take out")
@@ -192,9 +190,8 @@ where
 
         if let Some(item) = this.active.front_mut() {
             if item.check_ready(cx) {
-                let v = item.take();
-                drop(this.active.pop_front());
-                Poll::Ready(Some(v))
+                let v = this.active.pop_front().map(ActiveItem::take);
+                Poll::Ready(v)
             } else {
                 for f in this.active.iter_mut().skip(1) {
                     f.check_ready(cx);
