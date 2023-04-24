@@ -12,6 +12,12 @@
 # https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
 # and an active AWS account with credentials configured for it to use
 # https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+#
+# ## SSH access
+# To be able to connect to the newly created instance, a key pair must exist and the public key must be present on the
+# instance and registered inside `.ssh/authorized_keys` file. If `--key-name` argument is provided, it will be used to
+# provide ssh access, otherwise this script will generate a fresh key pair and upload the newly created public key to
+# the provisioned instance.
 
 set -e
 
