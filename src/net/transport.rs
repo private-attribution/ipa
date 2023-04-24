@@ -1,27 +1,30 @@
 use crate::{
     config::{NetworkConfig, ServerConfig},
-    helpers::{query::QueryCommand, HelperIdentity},
-    net::{
-        client::MpcHelperClient,
-        server::{BindTarget, MpcHelperServer},
+    helpers::{
+        HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
+        Transport, TransportCallbacks,
     },
-    protocol::QueryId,
-    sync::{Arc, Mutex},
+    net::{client::MpcHelperClient, error::Error},
+    protocol::{QueryId, Step},
+    sync::Arc,
     task::JoinHandle,
 };
 use async_trait::async_trait;
+use futures::{Stream, TryFutureExt};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    borrow::Borrow,
     net::{SocketAddr, TcpListener},
 };
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::Empty;
 
 pub struct HttpTransport {
-    id: HelperIdentity,
-    conf: Arc<NetworkConfig>,
+    identity: HelperIdentity,
+    _conf: Arc<NetworkConfig>,
+    #[cfg(never)]
     subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
+    #[cfg(never)]
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
+    #[cfg(never)]
     server: MpcHelperServer,
     clients: [MpcHelperClient; 3],
 }
@@ -30,115 +33,123 @@ impl HttpTransport {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // TODO: remove when ServerConfig is used
     pub fn new(
-        id: HelperIdentity,
+        identity: HelperIdentity,
         _server_conf: ServerConfig,
         network_conf: Arc<NetworkConfig>,
+        _callbacks: TransportCallbacks<Arc<Self>>,
     ) -> Arc<Self> {
+        #[cfg(never)]
         let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
+        #[cfg(never)]
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
+        #[cfg(never)]
         let server = MpcHelperServer::new(subscribe_sender, Arc::clone(&ongoing_queries));
         let clients = MpcHelperClient::from_conf(&network_conf);
         Arc::new(Self {
-            id,
-            conf: network_conf,
+            identity,
+            _conf: network_conf,
+            #[cfg(never)]
             subscribe_receiver: Arc::new(Mutex::new(Some(subscribe_receiver))),
+            #[cfg(never)]
             ongoing_queries,
+            #[cfg(never)]
             server,
             clients,
         })
     }
 
-    pub async fn from_tcp(&self, socket: TcpListener) {
+    #[allow(clippy::missing_panics_doc, clippy::unused_async)] // TODO: temporary
+    pub async fn from_tcp(&self, _socket: TcpListener) {
+        /*
         tracing::info!("starting server");
         self.server.bind(BindTarget::HttpListener(socket)).await;
+        */
+        todo!(); // TODO(server)
     }
 
     /// Binds self to port described in `peers_conf`.
     /// # Panics
     /// if self id not found in `peers_conf`
+    #[allow(clippy::unused_async)] // TODO: temporary
     pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
+        /*
         let this_conf = &self.conf.peers()[self.id];
         let port = this_conf.origin.port().unwrap();
         let target = BindTarget::Http(format!("0.0.0.0:{}", port.as_str()).parse().unwrap());
         tracing::info!("starting server; binding to port {}", port.as_str());
         self.server.bind(target).await
+        */
+        todo!(); // TODO(server)
     }
 }
 
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
-    type CommandStream = ReceiverStream<CommandEnvelope>;
+    type RecordsStream = Empty<Vec<u8>>; // TODO(server): resolve placeholder
+    type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
-        self.id
+        self.identity
     }
 
-    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
-        match subscription {
-            SubscriptionType::QueryManagement => ReceiverStream::new(
-                self.subscribe_receiver
-                    .lock()
-                    .unwrap()
-                    .take()
-                    .expect("subscribe should only be called once"),
-            ),
-            SubscriptionType::Query(query_id) => {
-                let mut ongoing_queries = self.ongoing_queries.lock().unwrap();
-                match ongoing_queries.entry(query_id) {
-                    Entry::Occupied(_) => {
-                        panic!("attempted to subscribe to commands for query id {}, but there is already a previous subscriber", query_id.as_ref())
-                    }
-                    Entry::Vacant(entry) => {
-                        let (tx, rx) = mpsc::channel(1);
-                        entry.insert(tx);
-                        ReceiverStream::new(rx)
-                    }
-                }
-            }
-        }
-    }
-
-    async fn send<C: Send + Into<TransportCommand>>(
+    async fn send<
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+    >(
         &self,
-        destination: HelperIdentity,
-        command: C,
-    ) -> Result<(), TransportError> {
-        let client = &self.clients[destination];
-        let command = command.into();
-        let command_name = command.name();
-        match command {
-            TransportCommand::Query(QueryCommand::Prepare(data, resp)) => {
-                let query_id = data.query_id;
-                client.prepare_query(self.id, data).await.map_err(|inner| {
-                    TransportError::SendFailed {
-                        command_name: Some(command_name),
-                        query_id: Some(query_id),
-                        inner: inner.into(),
-                    }
-                })?;
-                // since client has returned, go ahead and respond to query
-                resp.send(()).unwrap();
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+    {
+        let route_id = route.resource_identifier();
+        match route_id {
+            RouteId::Records => {
+                // TODO(600): These fallible extractions aren't really necessary.
+                let query_id = <Option<QueryId>>::from(route.query_id())
+                    .expect("query_id required when sending records");
+                let step =
+                    <Option<Step>>::from(route.step()).expect("step required when sending records");
+                let resp_future = self.clients[dest].step(dest, query_id, &step, data)?;
+                tokio::spawn(async move {
+                    resp_future
+                        .map_err(Into::into)
+                        .and_then(MpcHelperClient::resp_ok)
+                        .await
+                        .expect("failed to stream records");
+                });
+                // TODO(600): We need to do something better than panic if there is an error sending the
+                // data. Note, also, that the caller of this function (`GatewayBase::get_sender`)
+                // currently panics on errors.
                 Ok(())
             }
-            TransportCommand::StepData {
-                query_id,
-                step,
-                payload,
-                offset,
-            } => client
-                .step(self.id, query_id, &step, payload, offset)
-                .await
-                .map_err(|err| TransportError::SendFailed {
-                    command_name: Some(command_name),
-                    query_id: Some(query_id),
-                    inner: err.into(),
-                }),
-            TransportCommand::Query(
-                QueryCommand::Create(_, _)
-                | QueryCommand::Input(_, _)
-                | QueryCommand::Results(_, _),
-            ) => Err(TransportError::ExternalCommandSent { command_name }),
+            RouteId::PrepareQuery => {
+                let req = serde_json::from_str(route.extra().borrow()).unwrap();
+                self.clients[dest].prepare_query(self.identity, req).await
+            }
+            RouteId::ReceiveQuery => {
+                unimplemented!("attempting to send ReceiveQuery to another helper")
+            }
         }
+    }
+
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+        &self,
+        _from: HelperIdentity,
+        _route: R,
+    ) -> Self::RecordsStream {
+        /*
+        ReceiveRecords::new(
+            (route.query_id(), from, route.step()),
+            self.record_streams.clone(),
+        )
+        */
+        todo!() // TODO(server)
     }
 }
 

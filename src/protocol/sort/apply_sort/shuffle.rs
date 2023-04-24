@@ -144,7 +144,6 @@ mod tests {
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
-            const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
             let world = TestWorld::default();
             let mut rng = thread_rng();
@@ -156,6 +155,7 @@ mod tests {
                     {
                         is_trigger_report: rng.gen::<u8>(),
                         helper_bit: rng.gen::<u8>(),
+                        active_bit: rng.gen::<u8>(),
                         breakdown_key: rng.gen::<u8>(),
                         credit: rng.gen::<u8>(),
                     };
@@ -200,6 +200,7 @@ mod tests {
                                 MCAccumulateCreditInputRow::new(
                                     row.is_trigger_report,
                                     row.helper_bit,
+                                    row.active_bit,
                                     bk,
                                     row.trigger_value,
                                 )

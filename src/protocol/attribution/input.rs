@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::{try_join, try_join3, try_join4};
 use generic_array::GenericArray;
 use std::marker::PhantomData;
 use typenum::Unsigned;
@@ -70,6 +70,7 @@ pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F,
 pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
+    pub active_bit: AdditiveShare<F>,
     pub breakdown_key: AdditiveShare<BK>,
     pub trigger_value: AdditiveShare<F>,
 }
@@ -78,12 +79,54 @@ pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
 pub struct MCAccumulateCreditInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
+    pub active_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
+    pub fn new(
+        is_trigger_report: T,
+        helper_bit: T,
+        active_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            is_trigger_report,
+            helper_bit,
+            active_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData,
+        }
+    }
+}
+
+pub type AccumulateCreditOutputRow<F, BK> = CreditCappingInputRow<F, BK>;
+pub type MCAccumulateCreditOutputRow<F, T> = MCCreditCappingInputRow<F, T>;
+
+//
+// `credit_capping` protocol
+//
+pub struct CreditCappingInputRow<F: Field, BK: GaloisField> {
+    pub is_trigger_report: AdditiveShare<F>,
+    pub helper_bit: AdditiveShare<F>,
+    pub breakdown_key: AdditiveShare<BK>,
+    pub trigger_value: AdditiveShare<F>,
+}
+
+#[derive(Debug)]
+pub struct MCCreditCappingInputRow<F: Field, T: LinearSecretSharing<F>> {
+    pub is_trigger_report: T,
+    pub helper_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
@@ -99,14 +142,6 @@ impl<F: Field, T: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
         }
     }
 }
-
-pub type MCAccumulateCreditOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
-
-//
-// `credit_capping` protocol
-//
-pub type CreditCappingInputRow<F, BK> = AccumulateCreditInputRow<F, BK>;
-pub type MCCreditCappingInputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 #[derive(Debug)]
 pub struct MCCreditCappingOutputRow<F: Field, T: LinearSecretSharing<F>> {
@@ -303,16 +338,22 @@ where
             record_id,
             to_helper,
         );
+        let f_active_bit = self.active_bit.reshare(
+            ctx.narrow(&AttributionResharableStep::ActiveBit),
+            record_id,
+            to_helper,
+        );
 
-        let (breakdown_key, (is_trigger_report, helper_bit, trigger_value)) = try_join(
+        let (breakdown_key, (is_trigger_report, helper_bit, trigger_value, active_bit)) = try_join(
             f_breakdown_key,
-            try_join3(f_trigger_bit, f_helper_bit, f_value),
+            try_join4(f_trigger_bit, f_helper_bit, f_value, f_active_bit),
         )
         .await?;
 
         Ok(MCAccumulateCreditInputRow::new(
             is_trigger_report,
             helper_bit,
+            active_bit,
             breakdown_key,
             trigger_value,
         ))
@@ -378,6 +419,7 @@ pub enum AttributionResharableStep {
     BreakdownKey,
     TriggerValue,
     AggregationBit,
+    ActiveBit,
 }
 
 impl Substep for AttributionResharableStep {}
@@ -390,6 +432,7 @@ impl AsRef<str> for AttributionResharableStep {
             Self::BreakdownKey => "breakdown_key",
             Self::TriggerValue => "trigger_value",
             Self::AggregationBit => "aggregation_bit",
+            Self::ActiveBit => "active_bit",
         }
     }
 }

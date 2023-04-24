@@ -497,7 +497,7 @@ pub mod test {
 
         let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
-        let _ = p1.sequential(&step);
+        let _: (_, _) = p1.sequential(&step);
     }
 
     #[test]
@@ -506,7 +506,7 @@ pub mod test {
         let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
-        let _ = p1.sequential(&step);
+        let _: (_, _) = p1.sequential(&step);
         drop(p1.indexed(&step));
     }
 
@@ -519,7 +519,7 @@ pub mod test {
         let indexed_prss = p2.indexed(&step);
 
         for index in indices {
-            let _ = indexed_prss.random_u128(index);
+            let _: u128 = indexed_prss.random_u128(index);
         }
     }
 
@@ -530,7 +530,7 @@ pub mod test {
         let [p1, _p2, _p3] = make_participants();
         let step = Step::default().narrow("test");
 
-        let _ = p1.indexed(&step).random_u128(100_u128);
-        let _ = p1.indexed(&step).random_u128(100_u128);
+        let _: u128 = p1.indexed(&step).random_u128(100_u128);
+        let _: u128 = p1.indexed(&step).random_u128(100_u128);
     }
 }

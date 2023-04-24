@@ -19,11 +19,22 @@ use crate::{
 use shuttle::future as tokio;
 use std::{fmt::Debug, num::NonZeroUsize};
 
+/// Alias for the currently configured transport.
+///
+/// To avoid proliferation of type parameters, most code references this concrete type alias, rather
+/// than a type parameter `T: Transport`. Where this gets tricky is code enabled by the `web-app`
+/// feature, which may want to reference `HttpTransport` even when `TransportImpl` is referring to
+/// `InMemoryTransport`. Although it is not possible to produce a functioning web server compiled
+/// with both the `web-app` and `test-fixture` features, it is important that the code compile that
+/// way, for tests of `web-app` functionality. When the result of this is nonsensical (in
+/// particular, the `helper` binary, which references this comment), such a build will fail at
+/// runtime.
 #[cfg(any(feature = "test-fixture", test))]
 pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
 #[cfg(not(any(feature = "test-fixture", test)))]
-pub type TransportImpl = crate::helpers::transport::DummyTransport;
+pub type TransportImpl = std::sync::Arc<crate::net::HttpTransport>;
 
+pub type TransportError = <TransportImpl as Transport>::Error;
 pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 
 /// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages.
@@ -40,7 +51,7 @@ pub struct Gateway<T: Transport = TransportImpl> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// The number of items that can be active at the one time.  
+    /// The number of items that can be active at the one time.
     /// This is used to determine the size of sending and receiving buffers.
     active: NonZeroUsize,
 }
@@ -105,7 +116,7 @@ impl<T: Transport> Gateway<T> {
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
         ReceivingEndBase::new(
             self.receivers
-                .get_or_create::<M, _>(channel_id, || self.transport.receive(channel_id)),
+                .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
     }
 }

@@ -556,7 +556,6 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -618,7 +617,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -670,7 +668,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn semi_honest_with_attribution_window() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -732,7 +729,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious_with_attribution_window() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -877,6 +873,99 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn cap_of_one_with_attribution_window() {
+        const PER_USER_CAP: u32 = 1;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 1], [4, 0], [5, 0], [6, 1]];
+        const MAX_BREAKDOWN_KEY: u32 = 7;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                { timestamp: 3, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                { timestamp: 4, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                { timestamp: 6, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 7, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                { timestamp: 8, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                { timestamp: 9, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C since TE corresponding to D is expired
+                { timestamp: 10, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                { timestamp: 11, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 12, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                { timestamp: 13, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                { timestamp: 14, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                { timestamp: 17, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will NOT be attributed to D because it exceeds the attribution window (time_delta=4)
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records.clone(), |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: u32 = 64;
@@ -884,7 +973,7 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 86_400;
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
@@ -941,6 +1030,72 @@ pub mod tests {
         }
     }
 
+    /// Test for the "wrapping-add" attack (issue #520).
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn random_wrapping_add_attack() {
+        const PER_USER_CAP: u32 = 15;
+        const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const NUM_MULTI_BITS: u32 = 3;
+        const RECORD_COUNT: usize = 8;
+
+        let random_seed = thread_rng().gen();
+        println!("Using random seed: {random_seed}");
+        let mut rng = StdRng::seed_from_u64(random_seed);
+        let mut records = Vec::with_capacity(RECORD_COUNT * 2);
+
+        // Generate 8 pairs of (source event, trigger event) tuple, each having a random trigger_value between [4, 31).
+        // This ensures there's at least one wrap around at user-level, and catch if the contribution ever exceeds the cap.
+        for _ in 0..RECORD_COUNT {
+            let mut record = ipa_test_input!(
+                [
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            records.append(&mut record);
+        }
+
+        let world = TestWorld::default();
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let trigger_values = result
+            .into_iter()
+            .map(|x| x.trigger_value.as_u128())
+            .collect::<Vec<_>>();
+        assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
+        println!("actual results: {trigger_values:#?}");
+
+        // Check that
+        //   * the contribution never exceeds the cap.
+        //   * the sum of all contributions = cap.
+        assert!(trigger_values
+            .iter()
+            .all(|v| *v <= u128::from(PER_USER_CAP)));
+        assert_eq!(
+            u128::from(PER_USER_CAP),
+            trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
+        );
+    }
+
     fn serde_internal(
         timestamp: u128,
         match_key: u64,
@@ -994,23 +1149,22 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
-        const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_234;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_648;
+        /// empirical value as of Apr 13, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_936;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 78_456;
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_020;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_792;
+        /// empirical value as of Apr 13, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 55_440;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 212_472;
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_565;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 48_972;
+        // empirical value as of Apr 6, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;
+        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 49_068;
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_666;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_376;
+        // empirical value as of Apr 6, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_714;
+        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_568;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -1071,7 +1225,7 @@ pub mod tests {
 
             let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
-            let _ = world
+            world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
                     ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,

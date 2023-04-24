@@ -59,6 +59,13 @@ where
 /// Stops as soon as `helper_bits` indicates the following rows are not from
 /// the same `match key`.
 ///
+/// `should_add_on_first_iteration` is a performance optimization.
+/// If the caller has foreknowledge that there will never be any two adjacent
+/// rows, *both* containing a 1, then it is safe to pass `true`, which will
+/// simply add values on the first iteration (thereby saving one multiplication
+/// per row). If the caller does not know of any such guarantee, `false` should
+/// be passed.
+///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
@@ -69,6 +76,7 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
     ctx: C,
     stop_bits: &[S],
     uncapped_credits: &[S],
+    should_add_on_first_iteration: bool,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -119,7 +127,7 @@ where
                 let credit_update = current_stop_bit
                     .multiply(sibling_credit, c1, record_id)
                     .await?;
-                if first_iteration {
+                if first_iteration && should_add_on_first_iteration {
                     Ok(credit_update + current_credit)
                 } else {
                     or(c3, record_id, current_credit, &credit_update).await

@@ -2,7 +2,7 @@
 // everything
 
 pub mod echo {
-    use crate::net::{client, server};
+    use crate::net::Error;
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
     use hyper::http::uri;
@@ -29,7 +29,7 @@ pub mod echo {
             self,
             scheme: uri::Scheme,
             authority: uri::Authority,
-        ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+        ) -> Result<hyper::Request<hyper::Body>, Error> {
             let qps = self
                 .query_params
                 .iter()
@@ -53,7 +53,7 @@ pub mod echo {
     #[cfg(feature = "enable-serde")]
     #[async_trait]
     impl<B: Send> FromRequest<B> for Request {
-        type Rejection = server::Error;
+        type Rejection = Error;
 
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             let Query::<HashMap<String, String>>(query_params) = req.extract().await?;
@@ -72,14 +72,18 @@ pub mod echo {
         }
     }
 
+    #[cfg(never)]
     pub const AXUM_PATH: &str = "/echo";
 }
 
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::{query::QueryType, HelperIdentity},
-        net::server,
+        helpers::{
+            query::{IpaQueryConfig, QueryConfig, QueryType},
+            HelperIdentity,
+        },
+        net::Error,
     };
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
@@ -103,7 +107,7 @@ pub mod query {
 
     #[async_trait]
     impl<B: Send> FromRequest<B> for QueryConfigQueryParams {
-        type Rejection = server::Error;
+        type Rejection = Error;
 
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             #[derive(serde::Deserialize)]
@@ -141,7 +145,7 @@ pub mod query {
                         num_multi_bits,
                     }))
                 }
-                other => Err(server::Error::bad_query_value("query_type", other)),
+                other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
                 field_type,
@@ -172,17 +176,14 @@ pub mod query {
     /// name of the `origin` header to use for [`OriginHeader`]
     static ORIGIN_HEADER_NAME: HeaderName = HeaderName::from_static("origin");
 
-    fn get_header<B, H: FromStr>(
-        req: &RequestParts<B>,
-        header_name: HeaderName,
-    ) -> Result<H, server::Error>
+    fn get_header<B, H: FromStr>(req: &RequestParts<B>, header_name: HeaderName) -> Result<H, Error>
     where
-        server::Error: From<<H as FromStr>::Err>,
+        Error: From<<H as FromStr>::Err>,
     {
         let header_name_string = header_name.to_string();
         req.headers()
             .get(header_name)
-            .ok_or(server::Error::MissingHeader(header_name_string))
+            .ok_or(Error::MissingHeader(header_name_string))
             .and_then(|header_value| header_value.to_str().map_err(Into::into))
             .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
     }
@@ -202,12 +203,12 @@ pub mod query {
 
     #[async_trait]
     impl<B: Send> FromRequest<B> for OriginHeader {
-        type Rejection = server::Error;
+        type Rejection = Error;
 
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             let origin: usize = get_header(req, ORIGIN_HEADER_NAME.clone())?;
-            let origin = HelperIdentity::try_from(origin)
-                .map_err(|err| server::Error::InvalidHeader(err.into()))?;
+            let origin =
+                HelperIdentity::try_from(origin).map_err(|err| Error::InvalidHeader(err.into()))?;
             Ok(OriginHeader { origin })
         }
     }
@@ -216,9 +217,10 @@ pub mod query {
 
     pub mod create {
         use crate::{
+            helpers::query::QueryConfig,
             net::{
-                client,
-                http_serde::query::{server, QueryConfigQueryParams, BASE_AXUM_PATH},
+                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
+                Error,
             },
             protocol::QueryId,
         };
@@ -240,7 +242,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Builder::new()
                     .scheme(scheme)
                     .authority(authority)
@@ -256,7 +258,7 @@ pub mod query {
 
         #[async_trait]
         impl<B: Send> FromRequest<B> for Request {
-            type Rejection = server::Error;
+            type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let QueryConfigQueryParams(query_config) = req.extract().await?;
@@ -269,6 +271,7 @@ pub mod query {
             pub query_id: QueryId,
         }
 
+        #[cfg(never)]
         pub const AXUM_PATH: &str = "/";
     }
 
@@ -276,9 +279,8 @@ pub mod query {
         use crate::{
             helpers::{query::PrepareQuery, HelperIdentity, RoleAssignment},
             net::{
-                client,
                 http_serde::query::{OriginHeader, QueryConfigQueryParams, BASE_AXUM_PATH},
-                server,
+                Error,
             },
         };
         use async_trait::async_trait;
@@ -303,7 +305,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -330,7 +332,7 @@ pub mod query {
 
         #[async_trait]
         impl FromRequest<hyper::Body> for Request {
-            type Rejection = server::Error;
+            type Rejection = Error;
 
             async fn from_request(
                 req: &mut RequestParts<hyper::Body>,
@@ -355,13 +357,14 @@ pub mod query {
             roles: RoleAssignment,
         }
 
+        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id";
     }
 
     pub mod input {
         use crate::{
-            helpers::query::QueryInput,
-            net::{client, http_serde::query::BASE_AXUM_PATH, server},
+            helpers::{query::QueryInput, ByteArrStream},
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
         };
         use async_trait::async_trait;
         use axum::{
@@ -390,7 +393,7 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, client::Error> {
+            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -412,7 +415,7 @@ pub mod query {
         impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
             for ByteArrStreamFromReq
         {
-            type Rejection = server::Error;
+            type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let body: BodyStream = req.extract().await?;
@@ -423,7 +426,7 @@ pub mod query {
 
         #[async_trait]
         impl FromRequest<Body> for Request {
-            type Rejection = server::Error;
+            type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
@@ -438,16 +441,16 @@ pub mod query {
             }
         }
 
+        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/input";
     }
 
     pub mod step {
         use crate::{
-            helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
+            helpers::HelperIdentity,
             net::{
-                client,
-                http_serde::query::{get_header, OriginHeader, BASE_AXUM_PATH},
-                server,
+                http_serde::query::{OriginHeader, BASE_AXUM_PATH},
+                Error,
             },
             protocol::{QueryId, Step},
         };
@@ -456,81 +459,35 @@ pub mod query {
             extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
-        use hyper::header::HeaderName;
 
-        /// name of the `content-type` header used to get the length of the body, to verify valid `data-size`
-        static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
-        /// name of the `offset` header to use for [`Headers`]
-        static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
-
-        /// Headers that are expected on `Step` commands
-        /// # `offset`
-        /// For any given batch, their `record_id`s must be known. The first record in the batch will have
-        /// id `offset`, and subsequent records will be in-order from there.
-        #[derive(Copy, Clone)]
-        struct Headers {
-            pub offset: u32,
-        }
-
-        impl Headers {
-            pub(crate) fn add_to(
-                self,
-                req: axum::http::request::Builder,
-            ) -> axum::http::request::Builder {
-                req.header(OFFSET_HEADER_NAME.clone(), self.offset)
-            }
-        }
-
-        #[async_trait]
-        impl<B: Send> FromRequest<B> for Headers {
-            type Rejection = server::Error;
-
-            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let content_length: u32 = get_header(req, CONTENT_LENGTH_HEADER_NAME.clone())?;
-                let offset: u32 = get_header(req, OFFSET_HEADER_NAME.clone())?;
-                // content_length must be aligned with the size of an element
-                if content_length as usize % MESSAGE_PAYLOAD_SIZE_BYTES == 0 {
-                    Ok(Headers { offset })
-                } else {
-                    Err(server::Error::WrongBodyLen {
-                        body_len: content_length,
-                        element_size: MESSAGE_PAYLOAD_SIZE_BYTES,
-                    })
-                }
-            }
-        }
-
-        #[derive(Debug, Clone)]
-        pub struct Request {
+        // When this type is used on the client side, `B` is `hyper::Body`. When this type
+        // is used on the server side, `B` can be any body type supported by axum.
+        #[derive(Debug)]
+        pub struct Request<B> {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
             pub step: Step,
-            pub payload: Vec<u8>,
-            pub offset: u32,
+            pub body: B,
         }
 
-        impl Request {
-            pub fn new(
-                origin: HelperIdentity,
-                query_id: QueryId,
-                step: Step,
-                payload: Vec<u8>,
-                offset: u32,
-            ) -> Self {
+        impl<B> Request<B> {
+            pub fn new(origin: HelperIdentity, query_id: QueryId, step: Step, body: B) -> Self {
                 Self {
                     origin,
                     query_id,
                     step,
-                    payload,
-                    offset,
+                    body,
                 }
             }
+        }
 
+        /// Convert to hyper request. Used on client side.
+        impl Request<hyper::Body> {
             pub fn try_into_http_request(
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -541,49 +498,41 @@ pub mod query {
                         self.step.as_ref()
                     ))
                     .build()?;
-                let headers = Headers {
-                    offset: self.offset,
-                };
+                // TODO(597): this is a misuse of the origin header, and is insecure.
+                // need to authenticate clients with TLS.
                 let origin_header = OriginHeader {
                     origin: self.origin,
                 };
-                let content_length = self.payload.len();
-                let body = hyper::Body::from(self.payload);
                 let req = hyper::Request::post(uri);
-                let req = headers
-                    .add_to(origin_header.add_to(req))
-                    .header(CONTENT_LENGTH_HEADER_NAME.clone(), content_length);
-                Ok(req.body(body)?)
+                let req = origin_header.add_to(req);
+                Ok(req.body(self.body)?)
             }
         }
 
+        /// Convert from axum request. Used on server side.
         #[async_trait]
-        impl FromRequest<hyper::Body> for Request {
-            type Rejection = server::Error;
+        impl<B: Send> FromRequest<B> for Request<B> {
+            type Rejection = Error;
 
-            async fn from_request(
-                req: &mut RequestParts<hyper::Body>,
-            ) -> Result<Self, Self::Rejection> {
+            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let Path((query_id, step)) = req.extract().await?;
                 let origin_header = req.extract::<OriginHeader>().await?;
-                let step_headers = req.extract::<Headers>().await?;
                 let body = req.take_body().unwrap();
-                let payload = hyper::body::to_bytes(body).await?.to_vec();
                 Ok(Self {
                     origin: origin_header.origin,
                     query_id,
                     step,
-                    payload,
-                    offset: step_headers.offset,
+                    body,
                 })
             }
         }
 
+        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/step/*step";
     }
 
     pub mod results {
-        use crate::{net::server, protocol::QueryId};
+        use crate::{net::Error, protocol::QueryId};
         use async_trait::async_trait;
         use axum::extract::{FromRequest, Path, RequestParts};
 
@@ -603,7 +552,7 @@ pub mod query {
                 self,
                 scheme: axum::http::uri::Scheme,
                 authority: axum::http::uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, crate::net::client::Error> {
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
                 let uri = axum::http::uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
@@ -619,7 +568,7 @@ pub mod query {
 
         #[async_trait]
         impl<B: Send> FromRequest<B> for Request {
-            type Rejection = server::Error;
+            type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
@@ -627,6 +576,7 @@ pub mod query {
             }
         }
 
+        #[cfg(never)]
         pub const AXUM_PATH: &str = "/:query_id/complete";
     }
 }

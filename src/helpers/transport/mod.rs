@@ -4,13 +4,12 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::{borrow::Borrow, io};
+use std::borrow::Borrow;
 
 mod bytearrstream;
 mod callbacks;
 pub mod query;
 
-use crate::error::BoxError;
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
 
@@ -112,32 +111,23 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    Io {
-        #[from]
-        inner: io::Error,
-    },
-    #[error("Error from remote helper {dest:?}: {inner:?}")]
-    Rejected {
-        dest: HelperIdentity,
-        #[source]
-        inner: BoxError,
-    },
-}
-
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
+    type Error: std::fmt::Debug;
 
     fn identity(&self) -> HelperIdentity;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
     /// party
-    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
+    async fn send<D, Q, S, R>(
+        &self,
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
@@ -153,38 +143,15 @@ pub trait Transport: Clone + Send + Sync + 'static {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream;
-}
 
-/// Until we have proper HTTP transport
-#[derive(Clone)]
-pub struct DummyTransport;
-
-#[async_trait]
-#[allow(unused_variables)]
-impl Transport for DummyTransport {
-    type RecordsStream = Box<dyn Stream<Item = Vec<u8>> + Send + Unpin>;
-
-    fn identity(&self) -> HelperIdentity {
-        unimplemented!()
-    }
-
-    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), Error>
-    where
-        Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
-        Q: QueryIdBinding,
-        S: StepBinding,
-        R: RouteParams<RouteId, Q, S>,
-        D: Stream<Item = Vec<u8>> + Send + 'static,
-    {
-        unimplemented!()
-    }
-
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
-        &self,
-        from: HelperIdentity,
-        route: R,
-    ) -> Self::RecordsStream {
-        unimplemented!()
+    /// Alias for `Clone::clone`.
+    ///
+    /// `Transport` is implemented for `Weak<InMemoryTranport>` and `Arc<HttpTransport>`. Clippy won't
+    /// let us write `transport.clone()` since these are ref-counted pointer types, and neither
+    /// `Arc::clone` or `Weak::clone` is universally correct. Thus `Transport::clone_ref`. Calling
+    /// it `Transport::clone` would result in clashes anywhere both `Transport` and `Arc` are in-scope.
+    #[must_use]
+    fn clone_ref(&self) -> Self {
+        <Self as Clone>::clone(self)
     }
 }

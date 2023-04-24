@@ -245,7 +245,7 @@ pub struct QueryId;
 impl Display for QueryId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // fail when query id becomes meaningful and change the display implementation
-        let _ = QueryId;
+        let _: QueryId = QueryId;
         write!(f, "{self:?}")
     }
 }

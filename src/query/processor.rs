@@ -14,7 +14,6 @@ use crate::{
 use futures_util::{future::try_join, stream};
 
 use std::{
-    borrow::Borrow,
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
 };
@@ -106,15 +105,14 @@ impl Processor {
     /// ## Errors
     /// When other peers failed to acknowledge this query
     #[allow(clippy::missing_panics_doc)]
-    pub async fn new_query<T: Transport>(
+    pub async fn new_query(
         &self,
-        transport: &T,
+        transport: TransportImpl,
         req: QueryConfig,
     ) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
-        let transport = transport.borrow();
 
         let id = transport.identity();
         let [right, left] = id.others();
@@ -148,9 +146,9 @@ impl Processor {
     ///
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
-    pub fn prepare<T: Transport>(
+    pub fn prepare(
         &self,
-        transport: &T,
+        transport: &TransportImpl,
         req: PrepareQuery,
     ) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(transport.identity());
@@ -278,7 +276,7 @@ mod tests {
     fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
     where
         F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(), TransportError>> + Send + 'static,
+        Fut: Future<Output = Result<(), PrepareQueryError>> + Send + 'static,
     {
         Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
     }
@@ -313,7 +311,7 @@ mod tests {
         let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        let qc_future = p0.new_query(&t0, request);
+        let qc_future = p0.new_query(t0, request);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -348,25 +346,25 @@ mod tests {
         let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        let _qc = p0.new_query(&t0, request).await.unwrap();
+        let _qc = p0
+            .new_query(Transport::clone_ref(&t0), request)
+            .await
+            .unwrap();
         assert!(matches!(
-            p0.new_query(&t0, request).await,
+            p0.new_query(t0, request).await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
 
     #[tokio::test]
-    async fn prepare_rejected() {
+    async fn prepare_error() {
         let cb2 = TransportCallbacks {
             prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
             ..Default::default()
         };
         let cb3 = TransportCallbacks {
             prepare_query: prepare_query_callback(|_, _| async {
-                Err(TransportError::Rejected {
-                    dest: HelperIdentity::THREE,
-                    inner: "rejected".into(),
-                })
+                Err(PrepareQueryError::WrongTarget)
             }),
             ..Default::default()
         };
@@ -376,7 +374,7 @@ mod tests {
         let request = QueryConfig::default();
 
         assert!(matches!(
-            p0.new_query(&t0, request).await.unwrap_err(),
+            p0.new_query(t0, request).await.unwrap_err(),
             NewQueryError::Transport(_)
         ));
     }

@@ -1,6 +1,17 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use ipa::cli::Verbosity;
-use std::{fmt::Debug, path::PathBuf};
+use comfy_table::Table;
+use ipa::{
+    cli::{
+        playbook::{secure_mul, semi_honest, InputSource},
+        Verbosity,
+    },
+    ff::{FieldType, Fp31},
+    helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
+    net::MpcHelperClient,
+    protocol::{BreakdownKey, MatchKey},
+    test_fixture::config::TestConfigBuilder,
+};
+use std::{error::Error, fmt::Debug, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -31,7 +42,6 @@ pub struct CommandInput {
     input_type: InputType,
 }
 
-#[cfg(never)]
 impl From<&CommandInput> for InputSource {
     fn from(source: &CommandInput) -> Self {
         if let Some(ref file_name) = source.input_file {
@@ -56,13 +66,7 @@ enum TestAction {
     SemiHonestIPA,
 }
 
-#[cfg(not(never))]
-fn main() {
-    println!("Hello, world");
-}
-
 #[tokio::main]
-#[cfg(never)]
 async fn main() -> Result<(), Box<dyn Error>> {
     fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
         let mut shares_table = Table::new();
@@ -109,7 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             InputType::Fp31 => {
                 let query_config = QueryConfig {
                     field_type: FieldType::Fp31,
-                    query_type: QueryType::IPA(IpaQueryConfig {
+                    query_type: QueryType::Ipa(IpaQueryConfig {
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
                         num_multi_bits: 3,
