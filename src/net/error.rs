@@ -30,6 +30,8 @@ pub enum Error {
     #[error(transparent)]
     HyperPassthrough(#[from] hyper::Error),
     #[error(transparent)]
+    HyperHttpPassthrough(#[from] hyper::http::Error),
+    #[error(transparent)]
     AxumPassthrough(#[from] axum::Error),
     #[error("parse error: {0}")]
     SerdePassthrough(#[from] serde_json::Error),
@@ -37,6 +39,13 @@ pub enum Error {
     SendFailed(BoxError),
     #[error("failed to receive response")]
     RecvFailed(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error(transparent)]
+    InvalidUri(#[from] hyper::http::uri::InvalidUri),
+    #[error("request returned {status}: {reason}")]
+    FailedHttpRequest {
+        status: hyper::StatusCode,
+        reason: String,
+    },
 }
 
 impl Error {
@@ -44,6 +53,26 @@ impl Error {
     #[must_use]
     pub fn bad_query_value(key: &str, bad_value: &str) -> Self {
         Self::BadQueryString(format!("encountered unknown query param {key}: {bad_value}").into())
+    }
+
+    /// Extracts the body from the response to use as error message.
+    /// Because the body is in a future, cannot use [`From`] trait
+    ///
+    /// # Panics
+    /// If the response is not a failure (4xx/5xx status)
+    pub async fn from_failed_resp<B>(resp: hyper::Response<B>) -> Self
+    where
+        B: hyper::body::HttpBody,
+        Error: From<<B as hyper::body::HttpBody>::Error>,
+    {
+        let status = resp.status();
+        assert!(status.is_client_error() || status.is_server_error()); // must be failure
+        hyper::body::to_bytes(resp.into_body())
+            .await
+            .map_or_else(Into::into, |reason_bytes| Error::FailedHttpRequest {
+                status,
+                reason: String::from_utf8_lossy(&reason_bytes).to_string(),
+            })
     }
 }
 
@@ -115,6 +144,9 @@ impl IntoResponse for Error {
             | Self::QueryIdNotFound(_) => StatusCode::BAD_REQUEST,
 
             Self::HyperPassthrough(_)
+            | Self::HyperHttpPassthrough(_)
+            | Self::FailedHttpRequest { .. }
+            | Self::InvalidUri(_)
             | Self::SendFailed(_)
             | Self::BodyAlreadyExtracted(_)
             | Self::MissingExtension(_)

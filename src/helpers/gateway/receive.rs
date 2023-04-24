@@ -55,11 +55,7 @@ impl<T: Transport> Default for GatewayReceivers<T> {
 }
 
 impl<T: Transport> GatewayReceivers<T> {
-    pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(
-        &self,
-        channel_id: &ChannelId,
-        ctr: F,
-    ) -> UR<T> {
+    pub fn get_or_create<F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
         let receivers = &self.inner;
         if let Some(recv) = receivers.get(channel_id) {
             recv.clone()

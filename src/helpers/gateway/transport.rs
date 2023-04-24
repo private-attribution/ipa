@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         buffers::UnorderedReceiver,
         gateway::{receive::UR, send::GatewaySendStream},
-        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport, TransportError,
+        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
     },
     protocol::QueryId,
 };
@@ -24,7 +24,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
         &self,
         channel_id: &ChannelId,
         data: GatewaySendStream,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), T::Error> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
             dest_identity,

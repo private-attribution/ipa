@@ -324,7 +324,7 @@ mod tests {
         let enc = suite.seal(0, EventType::Source, &match_key);
         suite.advance_epoch();
 
-        let _ = suite.open(0, EventType::Source, enc).unwrap_err();
+        let _: DecryptionError = suite.open(0, EventType::Source, enc).unwrap_err();
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         let mut suite = EncryptionSuite::new(10, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
         let enc = suite.seal(0, EventType::Source, &match_key);
-        let _ = suite.open(1, EventType::Source, enc).unwrap_err();
+        let _: DecryptionError = suite.open(1, EventType::Source, enc).unwrap_err();
     }
 
     #[test]
@@ -363,7 +363,7 @@ mod tests {
                 let mut encryption = suite.seal(0, EventType::Source, &new_share(0, 0));
 
                 encryption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, EventType::Source, encryption).unwrap_err();
+                suite.open(0, EventType::Source, encryption).unwrap_err();
             }
         }
 
@@ -376,7 +376,7 @@ mod tests {
                 let mut encryption = suite.seal(0, EventType::Source, &new_share(0, 0));
 
                 encryption.enc.as_mut()[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, EventType::Source, encryption).unwrap_err();
+                suite.open(0, EventType::Source, encryption).unwrap_err();
             }
         }
 
@@ -467,7 +467,7 @@ mod tests {
                     _ => panic!("bad test setup: only 6 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
-                let _ = open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();
+                open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();
             }
         }
     }

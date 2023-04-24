@@ -38,7 +38,7 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "0")]
+    #[arg(short = 'w', long, default_value = "86400")]
     attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
@@ -85,7 +85,6 @@ async fn main() -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // for args.per_user_cap in [1, 3] {
     let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {

@@ -5,5 +5,6 @@ mod state;
 pub use executor::Result as ProtocolResult;
 
 pub use processor::{
-    NewQueryError, Processor as QueryProcessor, QueryCompletionError, QueryInputError,
+    NewQueryError, PrepareQueryError, Processor as QueryProcessor, QueryCompletionError,
+    QueryInputError,
 };
