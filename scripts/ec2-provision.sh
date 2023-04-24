@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Provision a single AWS EC2 instance.
 #
@@ -67,7 +67,7 @@ if ! hash aws; then
   exit 1
 fi
 
-if [ ! -f $CLOUD_INIT_FILE ] ; then
+if [[ ! -f "$CLOUD_INIT_FILE" ]]; then
   echo "Cloud-init config file $CLOUD_INIT_FILE is missing."
   exit 1
 fi
