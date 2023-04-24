@@ -25,6 +25,8 @@ fn setup() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
+
+        #[cfg(not(feature = "disable-metrics"))]
         metrics::set_recorder(recorder).unwrap();
 
         // register metrics
