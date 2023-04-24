@@ -67,6 +67,8 @@ if ! hash aws; then
   exit 1
 fi
 
+cd "$(dirname "$0")"
+
 if [[ ! -f "$CLOUD_INIT_FILE" ]]; then
   echo "Cloud-init config file $CLOUD_INIT_FILE is missing."
   exit 1
