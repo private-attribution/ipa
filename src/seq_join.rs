@@ -147,7 +147,7 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// Takes the resolved value out
     ///
     /// ## Panics
-    /// if the value has been taken out already, or not ready yet.
+    /// If the value is not ready yet.
     #[must_use]
     fn take(self) -> F::Output {
         if let ActiveItem::Resolved(v) = self {
@@ -219,9 +219,9 @@ mod test {
     use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{
         future::{lazy, BoxFuture},
+        stream::poll_immediate,
         Future, StreamExt,
     };
-    use futures_util::stream::poll_immediate;
     use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     async fn immediate(count: u32) {
