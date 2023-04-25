@@ -34,16 +34,11 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
     fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
-        #[cfg(not(feature = "disable-metrics"))]
-        {
-            // This string cloning consumes ~11% of the total heap usage. It doesn't affect the peak
-            // heap usage, but skipping this code path improves the performance.
-            let step = self.step.as_ref().to_string();
-            // TODO: what we really want here is a gauge indicating the maximum index used to generate
-            // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
-            // handle gauges
-            metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.role.as_static_str());
-        }
+        let step = self.step.as_ref().to_string();
+        // TODO: what we really want here is a gauge indicating the maximum index used to generate
+        // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
+        // handle gauges
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.role.as_static_str());
         self.inner.generate_values(index)
     }
 }
