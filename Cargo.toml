@@ -89,6 +89,7 @@ debug-assertions = true
 
 [profile.bench-dhat]
 inherits = "bench"
+debug-assertions = false
 incremental = true
 lto = "thin"
 debug = 1
