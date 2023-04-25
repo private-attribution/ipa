@@ -7,7 +7,6 @@ mod buffers;
 mod error;
 mod gateway;
 mod prss_protocol;
-mod time;
 mod transport;
 
 pub use error::{Error, Result};
