@@ -375,17 +375,12 @@ pub struct ChannelId {
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
     pub step: Step,
-    _int: tinyvec::ArrayVec<[Option<Step>; 16]>,
 }
 
 impl ChannelId {
     #[must_use]
     pub fn new(role: Role, step: Step) -> Self {
-        Self {
-            role,
-            step,
-            _int: Default::default(),
-        }
+        Self { role, step }
     }
 }
 
