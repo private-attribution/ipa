@@ -129,19 +129,13 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// ## Panics
     /// Panics if this item is completed
     fn check_ready(&mut self, cx: &mut Context<'_>) -> bool {
-        let mut ready = true;
-        match self {
-            ActiveItem::Pending(f) => {
-                if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
-                    *self = ActiveItem::Resolved(v);
-                } else {
-                    ready = false;
-                }
-            }
-            ActiveItem::Resolved(_) => {}
+        let ActiveItem::Pending(f) = self else { return true; };
+        if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
+            *self = ActiveItem::Resolved(v);
+            true
+        } else {
+            false
         }
-
-        ready
     }
 
     /// Takes the resolved value out
@@ -150,11 +144,11 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// If the value is not ready yet.
     #[must_use]
     fn take(self) -> F::Output {
-        if let ActiveItem::Resolved(v) = self {
-            v
-        } else {
-            panic!("No value to take out")
-        }
+        let ActiveItem::Resolved(v) = self else {
+            panic!("No value to take out");
+        };
+
+        v
     }
 }
 
