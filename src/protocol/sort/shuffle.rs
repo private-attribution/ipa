@@ -169,9 +169,9 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
 mod tests {
     use crate::{
         protocol::{sort::shuffle::get_two_of_three_random_permutations, Step},
+        rand::thread_rng,
         test_fixture::{make_participants, permutation_valid},
     };
-    use rand::thread_rng;
 
     #[test]
     fn random_sequence_generated() {

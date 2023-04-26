@@ -267,7 +267,10 @@ pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
         ff::{Field, Fp31},
-        protocol::{prss::SharedRandomness, prss::Endpoint, Step},
+        protocol::{
+            prss::{Endpoint, SharedRandomness},
+            Step,
+        },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
         test_fixture::make_participants,
