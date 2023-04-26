@@ -44,7 +44,6 @@ pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Substep) -> [C
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
 #[must_use]
 pub fn make_participants<R: RngCore + CryptoRng>(r: &mut R) -> [PrssEndpoint; 3] {
-    // let mut r = thread_rng();
     let setup1 = PrssEndpoint::prepare(r);
     let setup2 = PrssEndpoint::prepare(r);
     let setup3 = PrssEndpoint::prepare(r);
