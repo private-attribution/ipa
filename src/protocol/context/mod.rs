@@ -141,6 +141,11 @@ mod tests {
         let (seq_l, seq_r) = {
             let ctx = ctx.narrow(&format!("seq-prss-{index}"));
             let (mut left_rng, mut right_rng) = ctx.prss_rng();
+
+            // exercise both methods of `RngCore` trait
+            // generating a field value involves calling `next_u64` and 32 bit integer values
+            // have special constructor method for them: `next_u32`. Sequential randomness must
+            // record metrics for both calls.
             (
                 left_rng.gen::<F>() + F::truncate_from(left_rng.gen::<u32>()),
                 right_rng.gen::<F>() + F::truncate_from(right_rng.gen::<u32>()),
