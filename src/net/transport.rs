@@ -23,7 +23,6 @@ type HttpRecordsStream =
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
-    //_network_config: Arc<NetworkConfig>, // TODO: make this not an Arc?
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
     record_streams: StreamCollection<BodyStream>,
@@ -33,8 +32,6 @@ impl HttpTransport {
     #[must_use]
     pub fn new(
         identity: HelperIdentity,
-        //server_config: ServerConfig,
-        //network_config: Arc<NetworkConfig>,
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> (Arc<Self>, MpcHelperServer) {
@@ -48,7 +45,6 @@ impl HttpTransport {
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> Arc<Self> {
-        //let clients = MpcHelperClient::from_conf(&network_config);
         Arc::new(Self {
             identity,
             callbacks,

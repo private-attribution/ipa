@@ -104,7 +104,7 @@ impl TestServerBuilder {
     pub async fn build(self) -> TestServer {
         let clients = TestClients::default();
         let (transport, server) = HttpTransport::new(
-            HelperIdentity::ONE, // TODO: make this an argument?
+            HelperIdentity::ONE,
             clients.into(),
             self.callbacks.unwrap_or_default(),
         );
