@@ -30,7 +30,7 @@ mod real {
         cli::Verbosity,
         config::{NetworkConfig, ServerConfig},
         helpers::HelperIdentity,
-        net::HttpTransport,
+        net::{BindTarget, HttpTransport, MpcHelperClient},
         AppSetup,
     };
     use std::{error::Error, sync::Arc};
@@ -61,7 +61,14 @@ mod real {
         scheme: Scheme,
     }
 
-    fn config() -> (NetworkConfig, ServerConfig) {
+    fn config(identity: HelperIdentity) -> (NetworkConfig, ServerConfig) {
+        let port = match identity {
+            HelperIdentity::ONE => 3000,
+            HelperIdentity::TWO => 3001,
+            HelperIdentity::THREE => 3002,
+            _ => panic!("invalid helper identity {:?}", identity),
+        };
+
         let config_str = r#"
 # H1
 [[peers]]
@@ -86,7 +93,7 @@ public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
 
         let network = NetworkConfig::from_toml_str(&config_str).unwrap();
-        let server = ServerConfig::with_http_and_port(3000);
+        let server = ServerConfig::with_http_and_port(port);
 
         (network, server)
     }
@@ -94,25 +101,37 @@ public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
     pub async fn main() -> Result<(), Box<dyn Error>> {
         let args = Args::parse();
         let _handle = args.logging.setup_logging();
-        // TODO(596): the config should be loaded from a file, possibly with some values merged from the
-        // command line arguments.
-        let (network_config, server_config) = config();
 
         let my_identity = HelperIdentity::try_from(args.identity).unwrap();
         info!("configured with identity {:?}", my_identity);
 
+        // TODO(596): the config should be loaded from a file, possibly with some values merged from the
+        // command line arguments.
+        let (network_config, server_config) = config(my_identity);
+
         let (setup, callbacks) = AppSetup::new();
 
-        let transport = HttpTransport::new(
+        let clients = MpcHelperClient::from_conf(&network_config);
+
+        let (transport, server) = HttpTransport::new(
             my_identity,
-            server_config,
-            Arc::new(network_config),
+            //server_config,
+            clients,
             callbacks,
         );
 
         let _app = setup.connect(transport.clone());
 
-        let (addr, server_handle) = transport.bind().await;
+        // TODO(596): Bind target was moved here from `HttpTransport::bind()`. It needs to come
+        // from a config file. Probably, the config should be stored in the server when
+        // constructed, and the argument to server.bind() should go away.
+        let (addr, server_handle) = server
+            .bind(BindTarget::Http(
+                format!("0.0.0.0:{}", server_config.port.unwrap())
+                    .parse()
+                    .unwrap(),
+            ))
+            .await;
 
         info!(
             "listening to {}://{}, press Enter to quit",

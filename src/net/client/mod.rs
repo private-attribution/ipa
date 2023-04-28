@@ -1,15 +1,14 @@
-use futures::{Stream, StreamExt};
-
 use crate::{
     config::NetworkConfig,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        ByteArrStream, HelperIdentity,
+        HelperIdentity,
     },
     net::{http_serde, Error},
     protocol::{QueryId, Step},
 };
-use axum::{body::StreamBody, http::uri};
+use axum::http::uri;
+use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
@@ -21,11 +20,11 @@ use std::collections::HashMap;
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
 ///       separated from prepare/step data etc.
-#[allow(clippy::type_complexity)] // TODO: maybe alias a type for the `dyn Stream`
+/// TODO: It probably isn't necessary to always use `[MpcHelperClient; 3]`. Instead, a single
+///       client can be configured to talk to all three helpers.
 #[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
-    streaming_client: Client<HttpsConnector<HttpConnector>, StreamBody<ByteArrStream>>,
     scheme: uri::Scheme,
     authority: uri::Authority,
 }
@@ -47,14 +46,19 @@ impl MpcHelperClient {
     /// if addr does not have scheme and authority
     #[must_use]
     pub fn new(addr: Uri) -> Self {
-        // this works for both http and https
-        let https = HttpsConnector::new();
-        let client = Client::builder().build(https.clone());
-        let streaming_client = Client::builder().build(https);
+        // HttpsConnector works for both http and https
+        Self::new_with_connector(addr, HttpsConnector::new())
+    }
+
+    /// addr must have a valid scheme and authority
+    /// # Panics
+    /// if addr does not have scheme and authority
+    #[must_use]
+    pub fn new_with_connector(addr: Uri, connector: HttpsConnector<HttpConnector>) -> Self {
+        let client = Client::builder().build(connector);
         let parts = addr.into_parts();
         Self {
             client,
-            streaming_client,
             scheme: parts.scheme.unwrap(),
             authority: parts.authority.unwrap(),
         }
@@ -146,7 +150,7 @@ impl MpcHelperClient {
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         let req = http_serde::query::input::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.streaming_client.request(req).await?;
+        let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -191,77 +195,51 @@ impl MpcHelperClient {
     }
 }
 
-#[cfg(never)]
 #[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{transport::query::QueryType, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::{server::BindTarget, MpcHelperServer},
+        helpers::{
+            query::QueryType, RoleAssignment, Transport, TransportCallbacks,
+            MESSAGE_PAYLOAD_SIZE_BYTES,
+        },
+        net::{test::TestServer, HttpTransport},
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
-        sync::{Arc, Mutex},
+        sync::Arc,
     };
-    use futures::join;
-    use hyper_tls::native_tls::TlsConnector;
-    use std::{fmt::Debug, future::Future};
-    use tokio::sync::mpsc;
+    use futures::stream::{once, poll_immediate};
+    use std::{
+        fmt::Debug,
+        future::{ready, Future},
+        task::Poll,
+    };
 
-    async fn setup_server(
-        bind_target: BindTarget,
-    ) -> (
-        u16,
-        mpsc::Receiver<CommandEnvelope>,
-        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-    ) {
-        let (tx, rx) = mpsc::channel(1);
-        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
-        let server = MpcHelperServer::new(tx, Arc::clone(&ongoing_queries));
-        let (addr, _) = server.bind(bind_target).await;
-        (addr.port(), rx, ongoing_queries)
-    }
+    // This is a kludgy way of working around `TransportCallbacks` not being `Clone`, so
+    // that tests can run against both HTTP and HTTPS servers with one set.
+    //
+    // If the use grows beyond that, it's probably worth doing something more elegant, on the
+    // TransportCallbacks type itself (references and lifetime parameters, dyn_clone, or make it a
+    // trait and implement it on an `Arc` type).
+    fn clone_callbacks<T: 'static>(
+        cb: TransportCallbacks<T>,
+    ) -> (TransportCallbacks<T>, TransportCallbacks<T>) {
+        fn wrap<T: 'static>(inner: &Arc<TransportCallbacks<T>>) -> TransportCallbacks<T> {
+            let ri = Arc::clone(inner);
+            let pi = Arc::clone(inner);
+            let qi = Arc::clone(inner);
+            let ci = Arc::clone(inner);
+            TransportCallbacks {
+                receive_query: Box::new(move |t, req| (ri.receive_query)(t, req)),
+                prepare_query: Box::new(move |t, req| (pi.prepare_query)(t, req)),
+                query_input: Box::new(move |t, req| (qi.query_input)(t, req)),
+                complete_query: Box::new(move |t, req| (ci.complete_query)(t, req)),
+            }
+        }
 
-    async fn setup_server_http() -> (
-        mpsc::Receiver<CommandEnvelope>,
-        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-        MpcHelperClient,
-    ) {
-        let (port, rx, ongoing_queries) =
-            setup_server(BindTarget::Http("0.0.0.0:0".parse().unwrap())).await;
-        let client = MpcHelperClient::with_str_addr(&format!("http://localhost:{port}")).unwrap();
-        (rx, ongoing_queries, client)
-    }
-
-    async fn setup_server_https() -> (
-        mpsc::Receiver<CommandEnvelope>,
-        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-        MpcHelperClient,
-    ) {
-        let config = crate::net::server::tls_config_from_self_signed_cert()
-            .await
-            .unwrap();
-        let (port, rx, ongoing_queries) =
-            setup_server(BindTarget::Https("0.0.0.0:0".parse().unwrap(), config)).await;
-
-        // requires custom client to use self signed certs
-        let conn = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
-        let mut http = HttpConnector::new();
-        http.enforce_http(false);
-        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
-        let hyper_client = hyper::Client::builder().build(https.clone());
-        let streaming_hyper_client = hyper::Client::builder().build(https);
-        let client = MpcHelperClient {
-            client: hyper_client,
-            streaming_client: streaming_hyper_client,
-            scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
-        };
-
-        (rx, ongoing_queries, client)
+        let arc_cb = Arc::new(cb);
+        (wrap(&arc_cb), wrap(&arc_cb))
     }
 
     /// tests that a query command runs as expected. Since query commands require the server to
@@ -273,26 +251,34 @@ mod tests {
     /// Also tests that the same functionality works for both `http` and `https`. In order to ensure
     /// this, the return type of `clientf` must be `Eq + Debug` so that the results of `http` and
     /// `https` can be compared.
-    async fn test_query_command<ClientOut, ClientFut, ClientF, ServerFut, ServerF>(
+    async fn test_query_command<ClientOut, ClientFut, ClientF>(
         clientf: ClientF,
-        serverf: ServerF,
+        server_cb: TransportCallbacks<Arc<HttpTransport>>,
     ) -> ClientOut
     where
         ClientOut: Eq + Debug,
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(MpcHelperClient) -> ClientFut,
-        ServerFut: Future<Output = ()>,
-        ServerF: Fn(mpsc::Receiver<CommandEnvelope>) -> ServerFut,
     {
-        let (rx, _, http_client) = setup_server_http().await;
-        let clientf_res = clientf(http_client);
-        let serverf_res = serverf(rx);
-        let (clientf_res_http, _) = join!(clientf_res, serverf_res);
+        let (http_cb, https_cb) = clone_callbacks(server_cb);
 
-        let (rx, _, https_client) = setup_server_https().await;
-        let clientf_res = clientf(https_client);
-        let serverf_res = serverf(rx);
-        let (clientf_res_https, _) = join!(clientf_res, serverf_res);
+        let TestServer {
+            client: http_client,
+            ..
+        } = TestServer::builder().with_callbacks(http_cb).build().await;
+
+        let clientf_res_http = clientf(http_client).await;
+
+        let TestServer {
+            client: https_client,
+            ..
+        } = TestServer::builder()
+            .https()
+            .with_callbacks(https_cb)
+            .build()
+            .await;
+
+        let clientf_res_https = clientf(https_client).await;
 
         assert_eq!(clientf_res_http, clientf_res_https);
         clientf_res_http
@@ -304,7 +290,7 @@ mod tests {
 
         let output = test_query_command(
             |client| async move { client.echo(expected_output).await.unwrap() },
-            |_| futures::future::ready(()),
+            TransportCallbacks::default(),
         )
         .await;
         assert_eq!(expected_output, &output);
@@ -317,19 +303,16 @@ mod tests {
             field_type: FieldType::Fp31,
             query_type: QueryType::TestMultiply,
         };
+        let cb = TransportCallbacks {
+            receive_query: Box::new(move |_transport, query_config| {
+                assert_eq!(query_config, expected_query_config);
+                Box::pin(ready(Ok(expected_query_id)))
+            }),
+            ..Default::default()
+        };
         let query_id = test_query_command(
             |client| async move { client.create_query(expected_query_config).await.unwrap() },
-            |mut rx| async move {
-                let command = rx.recv().await.unwrap();
-                assert_eq!(command.origin, CommandOrigin::Other);
-                match command.payload {
-                    TransportCommand::Query(QueryCommand::Create(query_config, responder)) => {
-                        assert_eq!(query_config, expected_query_config);
-                        responder.send(expected_query_id).unwrap();
-                    }
-                    other => panic!("expected Create command, but got {other:?}"),
-                };
-            },
+            cb,
         )
         .await;
         assert_eq!(query_id, expected_query_id);
@@ -337,35 +320,29 @@ mod tests {
 
     #[tokio::test]
     async fn prepare() {
-        let identities = HelperIdentity::make_three();
-        let origin = identities[0];
-        let expected_data = PrepareQuery {
+        let input = PrepareQuery {
             query_id: QueryId,
             config: QueryConfig {
                 field_type: FieldType::Fp31,
                 query_type: QueryType::TestMultiply,
             },
-            roles: RoleAssignment::new(identities),
+            roles: RoleAssignment::new(HelperIdentity::make_three()),
+        };
+        let expected_data = input.clone();
+        let origin = HelperIdentity::ONE;
+        let cb = TransportCallbacks {
+            prepare_query: Box::new(move |_transport, prepare_query| {
+                assert_eq!(prepare_query, expected_data);
+                Box::pin(ready(Ok(())))
+            }),
+            ..Default::default()
         };
         test_query_command(
             |client| {
-                let client_data = expected_data.clone();
-                async move { client.prepare_query(origin, client_data).await.unwrap() }
+                let req = input.clone();
+                async move { client.prepare_query(origin, req).await.unwrap() }
             },
-            |mut rx| {
-                let expected_data = expected_data.clone();
-                async move {
-                    let command = rx.recv().await.unwrap();
-                    assert_eq!(command.origin, CommandOrigin::Helper(origin));
-                    match command.payload {
-                        TransportCommand::Query(QueryCommand::Prepare(data, responder)) => {
-                            assert_eq!(expected_data, data);
-                            responder.send(()).unwrap();
-                        }
-                        other => panic!("expected Prepare command, but got {other:?}"),
-                    }
-                }
-            },
+            cb,
         )
         .await;
     }
@@ -373,104 +350,81 @@ mod tests {
     #[tokio::test]
     async fn input() {
         let expected_query_id = QueryId;
-        let expected_input = vec![8u8; 25];
+        let expected_input = &[8u8; 25];
+        let cb = TransportCallbacks {
+            query_input: Box::new(move |_transport, query_input| {
+                Box::pin(async move {
+                    assert_eq!(query_input.query_id, expected_query_id);
+                    assert_eq!(&query_input.input_stream.to_vec().await, expected_input);
+                    Ok(())
+                })
+            }),
+            ..Default::default()
+        };
         test_query_command(
             |client| {
                 let data = QueryInput {
                     query_id: expected_query_id,
-                    input_stream: expected_input.clone().into(),
+                    input_stream: expected_input.to_vec().into(),
                 };
                 async move { client.query_input(data).await.unwrap() }
             },
-            |mut rx| {
-                let expected_input = expected_input.clone();
-                async move {
-                    let command = rx.recv().await.unwrap();
-                    assert_eq!(command.origin, CommandOrigin::Other);
-                    match command.payload {
-                        TransportCommand::Query(QueryCommand::Input(query_input, responder)) => {
-                            assert_eq!(query_input.query_id, expected_query_id);
-                            let input_vec = query_input.input_stream.to_vec().await;
-                            assert_eq!(input_vec, expected_input);
-                            responder.send(()).unwrap();
-                        }
-                        other => panic!("expected Input command, but got {other:?}"),
-                    }
-                }
-            },
+            cb,
         )
         .await;
     }
 
     #[tokio::test]
     async fn step() {
-        let origin = HelperIdentity::try_from(1).unwrap();
+        let TestServer {
+            client, transport, ..
+        } = TestServer::builder().build().await;
+        let origin = HelperIdentity::ONE;
         let expected_query_id = QueryId;
         let expected_step = Step::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
-        let expected_offset = 0;
 
-        let (_, ongoing_queries, http_client) = setup_server_http().await;
-        let (tx, mut rx) = mpsc::channel(1);
-        {
-            // inside parenthesis to drop the lock
-            let mut ongoing_queries = ongoing_queries.lock().unwrap();
-            ongoing_queries.insert(expected_query_id, tx);
-        }
-
-        http_client
+        let resp = client
             .step(
                 origin,
                 expected_query_id,
                 &expected_step,
-                expected_payload.clone(),
-                expected_offset,
+                once(ready(expected_payload.clone())),
             )
+            .unwrap()
             .await
             .unwrap();
-        let command = rx.recv().await.unwrap();
-        assert_eq!(command.origin, CommandOrigin::Helper(origin));
-        match command.payload {
-            TransportCommand::StepData {
-                query_id,
-                step,
-                payload,
-                offset,
-            } => {
-                assert_eq!(query_id, expected_query_id);
-                assert_eq!(step, expected_step);
-                assert_eq!(payload, expected_payload);
-                assert_eq!(offset, expected_offset);
-            }
-            other @ TransportCommand::Query(_) => {
-                panic!("expected Step command, but got {other:?}")
-            }
-        }
+
+        MpcHelperClient::resp_ok(resp).await.unwrap();
+
+        let mut stream =
+            Arc::clone(&transport).receive(HelperIdentity::ONE, (QueryId, expected_step.clone()));
+
+        assert_eq!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Ready(expected_payload))
+        );
     }
 
     #[tokio::test]
     async fn results() {
-        let expected_query_id = QueryId;
         let expected_results = Box::new(vec![Replicated::from((
-            Fp31::from(1u128),
-            Fp31::from(2u128),
+            Fp31::try_from(1u128).unwrap(),
+            Fp31::try_from(2u128).unwrap(),
         ))]);
+        let expected_query_id = QueryId;
+        let raw_results = expected_results.to_vec();
+        let cb = TransportCallbacks {
+            complete_query: Box::new(move |_transport, query_id| {
+                let results: Box<dyn ProtocolResult> = Box::new(raw_results.clone());
+                assert_eq!(query_id, expected_query_id);
+                Box::pin(ready(Ok(results)))
+            }),
+            ..Default::default()
+        };
         let results = test_query_command(
             |client| async move { client.query_results(expected_query_id).await.unwrap() },
-            |mut rx| {
-                let results = expected_results.clone();
-                async move {
-                    let command = rx.recv().await.unwrap();
-                    assert_eq!(command.origin, CommandOrigin::Other);
-                    match command.payload {
-                        TransportCommand::Query(QueryCommand::Results(query_id, responder)) => {
-                            assert_eq!(query_id, expected_query_id);
-                            responder.send(results).unwrap();
-                        }
-                        other => panic!("expected Results command, but got {other:?}"),
-                    }
-                }
-            },
+            cb,
         )
         .await;
         assert_eq!(results.to_vec(), expected_results.into_bytes());

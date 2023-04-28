@@ -2,11 +2,10 @@ use crate::{
     error::BoxError,
     helpers::{
         query::{PrepareQuery, QueryConfig},
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
-        Transport, TransportCallbacks,
+        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
+        StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     protocol::{QueryId, Step},
-    test_fixture::network::{receive::ReceiveRecords, stream::StreamCollection},
 };
 use ::tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -79,11 +78,7 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(
-        self: &Arc<Self>,
-        mut callbacks: TransportCallbacks<Weak<Self>>,
-        mut rx: ConnectionRx,
-    ) {
+    fn listen(self: &Arc<Self>, callbacks: TransportCallbacks<Weak<Self>>, mut rx: ConnectionRx) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();

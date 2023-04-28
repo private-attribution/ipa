@@ -18,6 +18,11 @@ disable-metrics = []
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
 self-signed-certs = ["hyper-tls"]
+# The test-http and test-fixture features are mutually incompatible, and the
+# code doesn't support building tests without test-fixture. So if you want to
+# run the tests enabled by test-http, you unfortunately need to do something
+# like `s/cfg(any(test,/cfg(any(never, test/`.
+test-http = []
 test-fixture = ["enable-serde"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
