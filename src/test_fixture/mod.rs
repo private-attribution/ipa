@@ -12,7 +12,7 @@ pub mod network;
 
 use crate::{
     ff::{Field, Fp31},
-    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
+    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Step},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 pub use app::TestApp;
@@ -29,7 +29,7 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Substep) -> [C; 3] {
+pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Step) -> [C; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()

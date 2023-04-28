@@ -7,7 +7,9 @@ pub mod malicious;
 pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;
+pub mod step;
 
+use self::step::StepNarrow;
 use crate::{
     error::Error,
     ff::{Gf40Bit, Gf8Bit},
@@ -37,14 +39,14 @@ pub type BreakdownKey = Gf8Bit;
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Substep: AsRef<str> + Send + Sync {}
+pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Substep for String {}
+impl Step for String {}
 
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Substep for str {}
+impl Step for str {}
 
 /// The representation of a unique step in protocol execution.
 ///
@@ -75,23 +77,22 @@ impl Substep for str {}
     derive(serde::Deserialize),
     serde(from = "&str")
 )]
-pub struct Step {
+pub struct GenericStep {
     id: String,
 }
 
-impl Display for Step {
+impl Display for GenericStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)
     }
 }
 
-impl Step {
+impl<S: Step + ?Sized> StepNarrow<S> for GenericStep {
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
-    #[must_use]
-    pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow(&self, step: &S) -> Self {
         #[cfg(debug_assertions)]
         {
             let s = String::from(step.as_ref());
@@ -102,26 +103,9 @@ impl Step {
             id: self.id.clone() + "/" + step.as_ref(),
         }
     }
-
-    /// Determine if this step is "narrower" than the `other` step.
-    ///
-    /// ```
-    /// # use ipa::protocol::Step;
-    /// let s1 = Step::from("one");
-    /// let s2 = s1.narrow("two");
-    /// assert!(s2.is_narrower_than(&s1));
-    /// assert!(!s2.is_narrower_than(&s2));
-    /// assert!(!s1.is_narrower_than(&s2));
-    /// ```
-    #[must_use]
-    pub fn is_narrower_than(&self, other: &Self) -> bool {
-        self.id.starts_with(&other.id)
-            && self.id.len() > other.id.len()
-            && char::from(self.id.as_bytes()[other.id.as_bytes().len()]) == '/'
-    }
 }
 
-impl Default for Step {
+impl Default for GenericStep {
     // TODO(mt): this should might be better if it were to be constructed from
     // a QueryId rather than using a default.
     fn default() -> Self {
@@ -131,16 +115,16 @@ impl Default for Step {
     }
 }
 
-impl AsRef<str> for Step {
+impl AsRef<str> for GenericStep {
     fn as_ref(&self) -> &str {
         self.id.as_str()
     }
 }
 
-impl From<&str> for Step {
+impl From<&str> for GenericStep {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        Step { id: id.to_owned() }
+        GenericStep { id: id.to_owned() }
     }
 }
 
@@ -166,7 +150,7 @@ macro_rules! repeat64str {
 /// updated with a new step scheme.
 pub struct BitOpStep(usize);
 
-impl Substep for BitOpStep {}
+impl Step for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {
@@ -206,7 +190,7 @@ pub enum IpaProtocolStep {
     SortPreAccumulation,
 }
 
-impl Substep for IpaProtocolStep {}
+impl Step for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
@@ -223,7 +207,7 @@ impl AsRef<str> for IpaProtocolStep {
     }
 }
 
-impl Debug for Step {
+impl Debug for GenericStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "step={}", self.id)
     }

@@ -4,7 +4,7 @@ use crate::{
         transport::{ByteArrStream, NoQueryId, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{QueryId, Substep},
+    protocol::{QueryId, Step},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
@@ -176,7 +176,7 @@ impl AsRef<str> for QueryType {
     }
 }
 
-impl Substep for QueryType {}
+impl Step for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]

@@ -15,7 +15,6 @@ use crate::{
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
         malicious::MaliciousValidator,
-        Substep,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare, ExtendableField},
@@ -111,14 +110,13 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
+enum Step {
     ApplyAttributionWindow,
     AccumulateCredit,
     PerformUserCapping,
-    AggregateCredit,
 }
 
-impl Substep for Step {}
+impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -126,7 +124,6 @@ impl AsRef<str> for Step {
             Self::ApplyAttributionWindow => "apply_attribution_window",
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
-            Self::AggregateCredit => "aggregate_credit",
         }
     }
 }

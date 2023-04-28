@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
-    protocol::{RecordId, Step},
+    protocol::{GenericStep, RecordId},
 };
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -78,7 +78,7 @@ impl Error {
     #[must_use]
     pub fn serialization_error<E: Into<BoxError>>(
         record_id: RecordId,
-        step: &Step,
+        step: &GenericStep,
         inner: E,
     ) -> Error {
         Self::SerializationError {

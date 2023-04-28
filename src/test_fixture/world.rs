@@ -8,7 +8,7 @@ use crate::{
         },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
-        QueryId, Substep,
+        QueryId, Step,
     },
     rand::thread_rng,
     secret_sharing::{
@@ -150,7 +150,7 @@ impl TestWorld {
     }
 
     #[must_use]
-    pub fn execution_step(execution: usize) -> impl Substep {
+    pub fn execution_step(execution: usize) -> impl Step {
         format!("run-{execution}")
     }
 

@@ -17,7 +17,7 @@ use embed_doc_image::embed_doc_image;
 
 pub struct InnerVectorElementStep(usize);
 
-impl crate::protocol::Substep for InnerVectorElementStep {}
+impl crate::protocol::Step for InnerVectorElementStep {}
 
 impl AsRef<str> for InnerVectorElementStep {
     fn as_ref(&self) -> &str {

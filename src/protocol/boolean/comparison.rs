@@ -148,7 +148,7 @@ enum GreaterThanConstantStep {
     And,
 }
 
-impl crate::protocol::Substep for GreaterThanConstantStep {}
+impl crate::protocol::Step for GreaterThanConstantStep {}
 
 impl AsRef<str> for GreaterThanConstantStep {
     fn as_ref(&self) -> &str {
@@ -304,7 +304,7 @@ enum Step {
     DotProduct,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

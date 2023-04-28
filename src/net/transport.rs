@@ -5,7 +5,7 @@ use crate::{
         Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error},
-    protocol::{QueryId, Step},
+    protocol::{GenericStep, QueryId},
     sync::Arc,
     task::JoinHandle,
 };
@@ -105,7 +105,7 @@ impl Transport for Arc<HttpTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
+        Option<GenericStep>: From<S>,
     {
         let route_id = route.resource_identifier();
         match route_id {
@@ -113,8 +113,8 @@ impl Transport for Arc<HttpTransport> {
                 // TODO(600): These fallible extractions aren't really necessary.
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id required when sending records");
-                let step =
-                    <Option<Step>>::from(route.step()).expect("step required when sending records");
+                let step = <Option<GenericStep>>::from(route.step())
+                    .expect("step required when sending records");
                 let resp_future = self.clients[dest].step(dest, query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
@@ -138,7 +138,7 @@ impl Transport for Arc<HttpTransport> {
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GenericStep>>(
         &self,
         _from: HelperIdentity,
         _route: R,
@@ -168,7 +168,7 @@ mod e2e_tests {
             transport::ByteArrStream,
             Role, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        protocol::Step,
+        protocol::GenericStep,
         query::Processor,
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{config::TestConfigBuilder, Reconstruct},
@@ -190,7 +190,7 @@ mod e2e_tests {
     async fn succeeds_when_subscribed() {
         let expected_query_id = QueryId;
         let expected_message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
+            ChannelId::new(Role::H1, GenericStep::default().narrow("no-subscribe")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
 
@@ -228,7 +228,7 @@ mod e2e_tests {
     #[tokio::test]
     async fn fails_if_not_subscribed() {
         let expected_query_id = QueryId;
-        let expected_step = Step::default().narrow("no-subscribe");
+        let expected_step = GenericStep::default().narrow("no-subscribe");
         let expected_payload = vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let identities = HelperIdentity::make_three();

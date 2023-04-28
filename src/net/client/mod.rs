@@ -7,7 +7,7 @@ use crate::{
         ByteArrStream, HelperIdentity,
     },
     net::{http_serde, Error},
-    protocol::{QueryId, Step},
+    protocol::{GenericStep, QueryId},
 };
 use axum::{body::StreamBody, http::uri};
 use hyper::{
@@ -161,7 +161,7 @@ impl MpcHelperClient {
         &self,
         origin: HelperIdentity,
         query_id: QueryId,
-        step: &Step,
+        step: &GenericStep,
         data: S,
     ) -> Result<ResponseFuture, Error> {
         let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
@@ -406,7 +406,7 @@ mod tests {
     async fn step() {
         let origin = HelperIdentity::try_from(1).unwrap();
         let expected_query_id = QueryId;
-        let expected_step = Step::default().narrow("test-step");
+        let expected_step = GenericStep::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
         let expected_offset = 0;
 
