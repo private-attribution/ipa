@@ -20,7 +20,7 @@ test-fixture = ["enable-serde"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 enable-benches = ["cli", "test-fixture", "criterion", "iai"]
-dhat-heap = ["cli", "test-fixture", "disable-metrics"]
+dhat-heap = ["cli", "test-fixture"]
 
 [dependencies]
 aes = "0.8"
