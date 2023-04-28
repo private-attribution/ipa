@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        CompleteQueryResult, HelperIdentity, NoResourceIdentifier, PrepareQueryResult,
+        CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
         QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
@@ -11,21 +11,17 @@ use crate::{
 };
 use async_trait::async_trait;
 use axum::{body::Bytes, extract::BodyStream};
-use futures::{stream::Map, Stream, StreamExt, TryFutureExt};
+use futures::{Stream, TryFutureExt};
 use std::borrow::Borrow;
 
-type HttpRecordsStreamInner = Map<BodyStream, fn(Result<Bytes, axum::Error>) -> Vec<u8>>;
-
-// TODO: this can likely be improved
-type HttpRecordsStream =
-    ReceiveRecords<HttpRecordsStreamInner, BodyStream, fn(BodyStream) -> HttpRecordsStreamInner>;
+type LogHttpErrors = LogErrors<BodyStream, Bytes, axum::Error>;
 
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
-    record_streams: StreamCollection<BodyStream>,
+    record_streams: StreamCollection<LogHttpErrors>,
 }
 
 impl HttpTransport {
@@ -80,22 +76,13 @@ impl HttpTransport {
         stream: BodyStream,
     ) {
         self.record_streams
-            .add_stream((query_id, from, step), stream);
+            .add_stream((query_id, from, step), LogErrors::new(stream));
     }
-}
-
-fn unwrap_body_chunk(chunk: Result<Bytes, axum::Error>) -> Vec<u8> {
-    // TODO: need to propagate this error somewhere
-    chunk.unwrap().into()
-}
-
-fn unwrap_body_chunks(stream: BodyStream) -> HttpRecordsStreamInner {
-    stream.map(unwrap_body_chunk)
 }
 
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
-    type RecordsStream = HttpRecordsStream;
+    type RecordsStream = ReceiveRecords<LogHttpErrors>;
     type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
@@ -153,10 +140,9 @@ impl Transport for Arc<HttpTransport> {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
-        ReceiveRecords::mapped(
+        ReceiveRecords::new(
             (route.query_id(), from, route.step()),
             self.record_streams.clone(),
-            unwrap_body_chunks,
         )
     }
 }

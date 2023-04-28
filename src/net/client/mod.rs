@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
-    Body, Client, Response, Uri, StatusCode,
+    Body, Client, Response, StatusCode, Uri,
 };
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
