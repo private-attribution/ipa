@@ -80,7 +80,7 @@ pub mod query {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
+            query::{QueryConfig, QueryType},
             HelperIdentity,
         },
         net::Error,
@@ -124,26 +124,8 @@ pub mod query {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
                 QueryType::IPA_STR => {
-                    #[derive(serde::Deserialize)]
-                    struct IPAQueryConfigParam {
-                        per_user_credit_cap: u32,
-                        max_breakdown_key: u32,
-                        attribution_window_seconds: u32,
-                        num_multi_bits: u32,
-                    }
-                    let Query(IPAQueryConfigParam {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }) = req.extract().await?;
-
-                    Ok(QueryType::Ipa(IpaQueryConfig {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }))
+                    let Query(config) = req.extract().await?;
+                    Ok(QueryType::Ipa(config))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -157,7 +139,7 @@ pub mod query {
     impl Display for QueryConfigQueryParams {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             write!(f, "field_type={:?}&", self.field_type)?;
-            match self.query_type {
+            match &self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::Ipa(config) => write!(

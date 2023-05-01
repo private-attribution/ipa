@@ -13,6 +13,7 @@ use crate::{
     helpers::query::IpaQueryConfig,
     protocol::{
         context::{Context, SemiHonestContext},
+        dp::differential_privacy,
         ipa::IPAModulusConvertedInputRow,
         Substep,
     },
@@ -85,13 +86,22 @@ where
     )
     .await?;
 
-    aggregate_credit::<F, BK>(
+    let mut output = aggregate_credit::<F, BK>(
         ctx.narrow(&Step::AggregateCredit),
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
         config.num_multi_bits,
     )
-    .await
+    .await;
+
+    differential_privacy(
+        m_ctx.narrow(&Step::DifferentialPrivacy),
+        &config,
+        &mut output,
+    )
+    .await;
+
+    output
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,6 +110,7 @@ pub enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    DifferentialPrivacy,
 }
 
 impl Substep for Step {}
@@ -111,6 +122,7 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::DifferentialPrivacy => "dp",
         }
     }
 }

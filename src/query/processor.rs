@@ -112,7 +112,7 @@ impl Processor {
     ) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
-        handle.set_state(QueryState::Preparing(req))?;
+        handle.set_state(QueryState::Preparing(req.clone()))?;
 
         let id = transport.identity();
         let [right, left] = id.others();
@@ -122,7 +122,7 @@ impl Processor {
 
         let prepare_request = PrepareQuery {
             query_id,
-            config: req,
+            config: req.clone(),
             roles: roles.clone(),
         };
 
@@ -311,7 +311,7 @@ mod tests {
         let p0 = Processor::default();
         let request = QueryConfig::default();
 
-        let qc_future = p0.new_query(t0, request);
+        let qc_future = p0.new_query(t0, request.clone());
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -347,7 +347,7 @@ mod tests {
         let request = QueryConfig::default();
 
         let _qc = p0
-            .new_query(Transport::clone_ref(&t0), request)
+            .new_query(Transport::clone_ref(&t0), request.clone())
             .await
             .unwrap();
         assert!(matches!(
@@ -495,6 +495,7 @@ mod tests {
                             max_breakdown_key: 3,
                             attribution_window_seconds: 0,
                             num_multi_bits: 3,
+                            dp: None,
                         }),
                     },
                 )

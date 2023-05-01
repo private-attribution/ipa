@@ -376,7 +376,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub async fn ipa_malicious<'a, F, MK, BK>(
     sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
@@ -409,7 +409,7 @@ where
     .await
     .unwrap();
 
-    //Validate before calling sort with downgraded context
+    // Validate before calling sort with downgraded context
     let converted_mk_shares = malicious_validator.validate(converted_mk_shares).await?;
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
@@ -646,6 +646,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -706,6 +707,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -758,6 +760,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -821,6 +824,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -851,6 +855,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -914,6 +919,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -944,6 +950,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -1023,6 +1030,7 @@ pub mod tests {
                     MAX_BREAKDOWN_KEY,
                     ATTRIBUTION_WINDOW_SECONDS,
                     NUM_MULTI_BITS,
+                    None,
                 ),
                 IpaSecurityModel::SemiHonest,
             )
@@ -1069,6 +1077,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await
@@ -1194,6 +1203,7 @@ pub mod tests {
                             MAX_BREAKDOWN_KEY,
                             ATTRIBUTION_WINDOW_SECONDS,
                             NUM_MULTI_BITS,
+                            None,
                         ),
                     )
                     .await
@@ -1235,6 +1245,7 @@ pub mod tests {
                             MAX_BREAKDOWN_KEY,
                             ATTRIBUTION_WINDOW_SECONDS,
                             NUM_MULTI_BITS,
+                            None,
                         ),
                     )
                     .await

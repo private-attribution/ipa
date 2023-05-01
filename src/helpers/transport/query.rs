@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
 
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
     pub field_type: FieldType,
@@ -20,7 +20,7 @@ pub struct QueryConfig {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(test, derive(PartialEq))]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
@@ -152,7 +152,7 @@ impl QueryCommand {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
@@ -178,13 +178,27 @@ impl AsRef<str> for QueryType {
 
 impl Substep for QueryType {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DifferentialPrivacy {
+    epsilon: f64,
+    delta: f64,
+}
+
+impl DifferentialPrivacy {
+    #[must_use]
+    pub fn new(epsilon: f64, delta: f64) -> Self {
+        Self { epsilon, delta }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct IpaQueryConfig {
     pub per_user_credit_cap: u32,
     pub max_breakdown_key: u32,
     pub attribution_window_seconds: u32,
     pub num_multi_bits: u32,
+    pub dp: Option<DifferentialPrivacy>,
 }
 
 impl Default for IpaQueryConfig {
@@ -194,6 +208,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 64,
             attribution_window_seconds: 0,
             num_multi_bits: 3,
+            dp: None,
         }
     }
 }
@@ -205,12 +220,14 @@ impl IpaQueryConfig {
         max_breakdown_key: u32,
         attribution_window_seconds: u32,
         num_multi_bits: u32,
+        dp: Option<DifferentialPrivacy>,
     ) -> Self {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
             attribution_window_seconds,
             num_multi_bits,
+            dp,
         }
     }
 }

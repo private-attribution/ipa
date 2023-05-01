@@ -13,6 +13,7 @@ use crate::{
     helpers::query::IpaQueryConfig,
     protocol::{
         context::{Context, SemiHonestContext},
+        dp::differential_privacy,
         ipa::IPAModulusConvertedInputRow,
         malicious::MaliciousValidator,
         Substep,
@@ -97,7 +98,7 @@ where
     )
     .await?;
 
-    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
+    let (malicious_validator, mut output) = malicious_aggregate_credit::<F, BK>(
         malicious_validator,
         sh_ctx,
         user_capped_credits.into_iter(),
@@ -105,6 +106,13 @@ where
         config.num_multi_bits,
     )
     .await?;
+
+    differential_privacy(
+        m_ctx.narrow(&Step::DifferentialPrivacy),
+        &config,
+        &mut output,
+    )
+    .await;
 
     //Validate before returning the result to the report collector
     malicious_validator.validate(output).await
@@ -116,6 +124,7 @@ pub enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    DifferentialPrivacy,
 }
 
 impl Substep for Step {}
@@ -127,6 +136,7 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::DifferentialPrivacy => "dp",
         }
     }
 }

@@ -150,18 +150,24 @@ pub async fn test_ipa<F>(
 
     let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
         IpaSecurityModel::Malicious => world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
+            .semi_honest(records, |ctx, input_rows| {
+                let config = config.clone();
+                async move {
+                    ipa_malicious::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                        .await
+                        .unwrap()
+                }
             })
             .await
             .reconstruct(),
         IpaSecurityModel::SemiHonest => world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
+            .semi_honest(records, |ctx, input_rows| {
+                let config = config.clone();
+                async move {
+                    ipa::<F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                        .await
+                        .unwrap()
+                }
             })
             .await
             .reconstruct(),

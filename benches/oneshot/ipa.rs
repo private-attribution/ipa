@@ -2,7 +2,10 @@ use clap::Parser;
 use ipa::{
     error::Error,
     ff::Fp32BitPrime,
-    helpers::{query::IpaQueryConfig, GatewayConfig},
+    helpers::{
+        query::{DifferentialPrivacy, IpaQueryConfig},
+        GatewayConfig,
+    },
     test_fixture::{
         ipa::{
             generate_random_user_records_in_reverse_chronological_order, test_ipa,
@@ -53,6 +56,12 @@ struct Args {
     /// Desired security model for IPA protocol
     #[arg(short = 'm', long, value_enum, default_value_t=IpaSecurityModel::Malicious)]
     mode: IpaSecurityModel,
+    /// The epsilon value for differential privacy.
+    #[arg(short = 'e', long)]
+    epsilon: Option<f64>,
+    /// The delta value for differential privacy.
+    #[arg(short = 'd', long, default_value = "1e-6")]
+    delta: f64,
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
@@ -121,6 +130,8 @@ async fn main() -> Result<(), Error> {
             args.breakdown_keys,
             args.attribution_window,
             args.num_multi_bits,
+            args.epsilon
+                .map(|e| DifferentialPrivacy::new(e, args.delta)),
         ),
         args.mode,
     )

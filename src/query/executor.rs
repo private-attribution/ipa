@@ -263,6 +263,7 @@ mod tests {
                 per_user_credit_cap: 3,
                 attribution_window_seconds: 0,
                 max_breakdown_key: 3,
+                dp: None,
             };
             let input = ByteArrStream::from(shares)
                 .align(<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
