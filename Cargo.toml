@@ -9,7 +9,7 @@ edition = "2021"
 default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
 # TODO: it feels wrong that CLI uses test-fixture module, but untangling `IntoShares`/`Reconstruct` and inputs
 # from other test components wasn't easy.
-cli = ["comfy-table", "clap", "test-fixture"]
+cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
 no-prss = []
@@ -109,7 +109,7 @@ bench = false
 
 [[bin]]
 name = "test_mpc"
-required-features = ["cli", "web-app"]
+required-features = ["cli", "web-app", "test-fixture"]
 bench = false
 
 [[bench]]
