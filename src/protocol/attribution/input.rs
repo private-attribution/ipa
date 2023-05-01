@@ -17,10 +17,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3, try_join4};
 use generic_array::GenericArray;
-use std::{
-    borrow::{Borrow, BorrowMut},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 use typenum::Unsigned;
 
 //
@@ -305,14 +302,14 @@ where
     }
 }
 
-impl<F, T, BK> Borrow<T> for MCAggregateCreditOutputRow<F, T, BK> {
-    fn borrow(&self) -> &T {
+impl<F, T, BK> AsRef<T> for MCAggregateCreditOutputRow<F, T, BK> {
+    fn as_ref(&self) -> &T {
         &self.credit
     }
 }
 
-impl<F, T, BK> BorrowMut<T> for MCAggregateCreditOutputRow<F, T, BK> {
-    fn borrow_mut(&mut self) -> &mut T {
+impl<F, T, BK> AsMut<T> for MCAggregateCreditOutputRow<F, T, BK> {
+    fn as_mut(&mut self) -> &mut T {
         &mut self.credit
     }
 }

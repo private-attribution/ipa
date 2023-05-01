@@ -92,16 +92,11 @@ where
         config.max_breakdown_key,
         config.num_multi_bits,
     )
-    .await;
+    .await?;
 
-    differential_privacy(
-        m_ctx.narrow(&Step::DifferentialPrivacy),
-        &config,
-        &mut output,
-    )
-    .await;
+    differential_privacy(ctx.narrow(&Step::DifferentialPrivacy), &config, &mut output).await?;
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

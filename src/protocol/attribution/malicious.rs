@@ -112,7 +112,7 @@ where
         &config,
         &mut output,
     )
-    .await;
+    .await?;
 
     //Validate before returning the result to the report collector
     malicious_validator.validate(output).await

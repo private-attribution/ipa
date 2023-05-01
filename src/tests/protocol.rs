@@ -54,6 +54,7 @@ fn semi_honest_ipa() {
                                     MAX_BREAKDOWN_KEY,
                                     ATTRIBUTION_WINDOW_SECONDS,
                                     NUM_MULTI_BITS,
+                                    None,
                                 ),
                             )
                             .await
@@ -103,6 +104,7 @@ fn malicious_ipa() {
                                     MAX_BREAKDOWN_KEY,
                                     ATTRIBUTION_WINDOW_SECONDS,
                                     NUM_MULTI_BITS,
+                                    None,
                                 ),
                             )
                             .await
