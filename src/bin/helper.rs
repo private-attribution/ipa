@@ -33,7 +33,7 @@ mod real {
         net::{BindTarget, HttpTransport, MpcHelperClient},
         AppSetup,
     };
-    use std::{error::Error, sync::Arc};
+    use std::error::Error;
 
     use tracing::info;
 
@@ -92,7 +92,7 @@ origin = "http://localhost:3002"
 public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
 
-        let network = NetworkConfig::from_toml_str(&config_str).unwrap();
+        let network = NetworkConfig::from_toml_str(config_str).unwrap();
         let server = ServerConfig::with_http_and_port(port);
 
         (network, server)
