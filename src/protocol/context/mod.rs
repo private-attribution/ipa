@@ -3,11 +3,18 @@ mod prss;
 mod semi_honest;
 
 use crate::{
+    error::Error,
+    ff::Field,
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{RecordId, Step, Substep},
+    protocol::{basics::ZeroPositions, RecordId, Step, Substep},
+    secret_sharing::{
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        SecretSharing,
+    },
     seq_join::SeqJoin,
 };
-pub(super) use malicious::SpecialAccessToMaliciousContext;
+use async_trait::async_trait;
+pub(super) use malicious::SpecialAccessToUpgradedContext;
 pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
@@ -32,9 +39,9 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     #[must_use]
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
 
-    /// Returns true if this is the last record.
+    /// Returns the current setting for the number of records
     #[must_use]
-    fn is_last_record<T: Into<RecordId>>(&self, record_id: T) -> bool;
+    fn total_records(&self) -> TotalRecords;
 
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
@@ -61,6 +68,50 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M>;
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
+}
+
+#[async_trait]
+pub trait UpgradedContext<'a, F>: Context + SpecialAccessToUpgradedContext<'a, F>
+where
+    F: Field + ExtendableField,
+{
+    type UpgradedShare: SecretSharing<F>;
+
+    async fn upgrade_one(
+        &self,
+        record_id: RecordId,
+        x: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::UpgradedShare, Error>;
+
+    /// Upgrade an input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, Self, F>: UpgradeToMalicious<T, M>;
+
+    /// Upgrade a sparse input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    #[cfg(test)]
+    async fn upgrade_sparse(
+        &self,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::UpgradedShare, Error>;
+
+    /// Upgrade an input for a specific bit index and record using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, Self, F, RecordId>: UpgradeToMalicious<T, M>;
+
+    fn share_known_value(&self, value: F) -> Self::UpgradedShare;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

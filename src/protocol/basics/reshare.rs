@@ -135,7 +135,7 @@ impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId>
         MaliciousContext<'a, F>: 'fut,
     {
         use crate::{
-            protocol::context::SpecialAccessToMaliciousContext,
+            protocol::context::SpecialAccessToUpgradedContext,
             secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
         };
         let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
@@ -408,7 +408,7 @@ mod tests {
             large_field_additive_error: F::ExtendedField,
         ) -> Result<MaliciousReplicated<F>, Error> {
             use crate::{
-                protocol::context::SpecialAccessToMaliciousContext,
+                protocol::context::SpecialAccessToUpgradedContext,
                 secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
             };
             let random_constant_ctx = ctx.narrow(&RandomnessForValidation);

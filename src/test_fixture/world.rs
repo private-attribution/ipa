@@ -5,6 +5,7 @@ use crate::{
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
+            UpgradedContext,
         },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
@@ -173,7 +174,7 @@ pub trait Runner {
         F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
+        for<'u> UpgradeContext<'u, MaliciousContext<'u, F>, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,
         H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -213,7 +214,7 @@ impl Runner for TestWorld {
         F: Field + ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send,
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
+        for<'u> UpgradeContext<'u, MaliciousContext<'u, F>, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,
         H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,

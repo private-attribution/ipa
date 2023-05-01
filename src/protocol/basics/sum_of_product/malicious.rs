@@ -74,7 +74,7 @@ where
     F: Field + ExtendableField,
 {
     use crate::{
-        protocol::context::SpecialAccessToMaliciousContext,
+        protocol::context::SpecialAccessToUpgradedContext,
         secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
 

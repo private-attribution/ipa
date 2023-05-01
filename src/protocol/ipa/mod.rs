@@ -594,6 +594,7 @@ pub mod tests {
                         MAX_BREAKDOWN_KEY,
                         ATTRIBUTION_WINDOW_SECONDS,
                         NUM_MULTI_BITS,
+                        None,
                     ),
                 )
                 .await

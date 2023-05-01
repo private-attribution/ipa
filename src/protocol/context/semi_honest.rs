@@ -1,25 +1,33 @@
+use async_trait::async_trait;
+
 use crate::{
+    error::Error,
     ff::Field,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
+        basics::ZeroPositions,
         context::{
             Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
-            MaliciousContext,
+            MaliciousContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
         RecordId, Step, Substep,
     },
     secret_sharing::replicated::{
-        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+        malicious::{AdditiveShare, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
     sync::Arc,
 };
 use std::{
     fmt::{Debug, Formatter},
+    marker::PhantomData,
     num::NonZeroUsize,
 };
+
+use super::SpecialAccessToUpgradedContext;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -104,8 +112,8 @@ impl<'a> Context for SemiHonestContext<'a> {
         }
     }
 
-    fn is_last_record<I: Into<RecordId>>(&self, record_id: I) -> bool {
-        self.total_records.is_last(record_id)
+    fn total_records<I: Into<RecordId>>(&self, record_id: I) -> TotalRecords {
+        self.total_records
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness {
@@ -149,6 +157,135 @@ impl SeqJoin for SemiHonestContext<'_> {
 impl Debug for SemiHonestContext<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "SemiHonestContext")
+    }
+}
+
+#[derive(Debug, Clone)]
+struct UpgradedSemiHonest<'a, F: Field + ExtendableField> {
+    context: SemiHonestContext<'a>,
+    _f: PhantomData<F>,
+}
+
+impl<'a, F: Field + ExtendableField> UpgradedSemiHonest<'a, F> {
+    fn new(context: SemiHonestContext<'a>) -> Self {
+        Self {
+            context,
+            _f: PhantomData,
+        }
+    }
+}
+
+impl<F: Field + ExtendableField> Context for UpgradedSemiHonest<'_, F> {
+    fn role(&self) -> Role {
+        self.context.role()
+    }
+
+    fn step(&self) -> &Step {
+        self.context.step()
+    }
+
+    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        Self::new(self.context.narrow(step))
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        Self::new(self.context.set_total_records(total_records))
+    }
+
+    fn total_records(&self) -> TotalRecords {
+        self.context.total_records()
+    }
+
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
+        self.context.prss()
+    }
+
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        self.context.prss_rng()
+    }
+
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.context.send_channel(role)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.recv_channel(role)
+    }
+}
+
+impl<F: Field + ExtendableField> SeqJoin for UpgradedSemiHonest<'_, F> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.context.active_work()
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field + ExtendableField> UpgradedContext<'a, F> for UpgradedSemiHonest<'a, F> {
+    type UpgradedShare = Replicated<F>;
+
+    async fn upgrade_one(
+        &self,
+        _record_id: RecordId,
+        x: Replicated<F>,
+        _zeros_at: ZeroPositions,
+    ) -> Result<Self::UpgradedShare, Error> {
+        Ok(x)
+    }
+
+    /// Upgrade an input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
+    where
+        UpgradeContext<'a, Self, F>: UpgradeToMalicious<T, M> + 'a,
+    {
+        Ok(input)
+    }
+
+    /// Upgrade a sparse input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    #[cfg(test)]
+    async fn upgrade_sparse(
+        &self,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::UpgradedShare, Error> {
+        Ok(input)
+    }
+
+    /// Upgrade an input for a specific bit index and record using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
+    where
+        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<T, M> + 'a,
+    {
+        Ok(input)
+    }
+
+    fn share_known_value(&self, value: F) -> Self::UpgradedShare {
+        Replicated::share_known_value(&self.context, value)
+    }
+}
+
+impl<'a, F: Field + ExtendableField> SpecialAccessToUpgradedContext<'a, F>
+    for UpgradedSemiHonest<'a, F>
+{
+    fn accumulate_macs(self, record_id: RecordId, x: &AdditiveShare<F>) {
+        // noop for semi-honest
+    }
+
+    fn semi_honest_context(self) -> SemiHonestContext<'a> {
+        self.context.clone()
     }
 }
 

@@ -9,7 +9,7 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, MaliciousContext, SemiHonestContext, UpgradedContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
