@@ -195,7 +195,7 @@ pub trait Runner {
         R: Future<Output = O> + Send;
 
     /// Run with a context that has already been upgraded to malicious.
-    async fn upgraded_malicious<'a, F, I, A, O, M, H, R, P>(
+    async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
         &'a self,
         input: I,
         helper_fn: H,
@@ -204,7 +204,7 @@ pub trait Runner {
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
-        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'u, F>, F>:
+        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'a, F>, F>:
             UpgradeToMalicious<'u, A, M>,
         O: Send + Debug,
         M: Send + 'static,
@@ -262,7 +262,7 @@ impl Runner for TestWorld {
         run_either(self.malicious_contexts(), input, helper_fn).await
     }
 
-    async fn upgraded_malicious<'a, F, I, A, O, M, H, R, P>(
+    async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
         &'a self,
         input: I,
         helper_fn: H,
@@ -271,7 +271,7 @@ impl Runner for TestWorld {
         F: ExtendableField,
         I: IntoShares<A> + Send + 'static,
         A: Send + 'static,
-        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'u, F>, F>:
+        for<'u> UpgradeContext<'u, UpgradedMaliciousContext<'a, F>, F>:
             UpgradeToMalicious<'u, A, M>,
         O: Send + Debug,
         M: Send + 'static,

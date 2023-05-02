@@ -159,8 +159,8 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField, Gf2, Gf40Bit},
         protocol::{
-            context::{Context, SemiHonestValidator},
-            malicious::Validator,
+            context::Context,
+            malicious::{MaliciousValidator, Validator},
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,
@@ -224,9 +224,9 @@ mod tests {
         let mut expected = match_keys.iter().map(Field::as_u128).collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let [(v0, result0), (v1, result1), (v2, result2)]: [(SemiHonestValidator<'_, Gf2>, Vec<_>);
+        let [(v0, result0), (v1, result1), (v2, result2)]: [(MaliciousValidator<'_, Gf2>, Vec<_>);
             3] = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
                     convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)

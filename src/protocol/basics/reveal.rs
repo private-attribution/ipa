@@ -46,7 +46,7 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<'a, C: Context, F: Field> Reveal<C, RecordId> for Replicated<F> {
+impl<C: Context, F: Field> Reveal<C, RecordId> for Replicated<F> {
     type Output = F;
 
     async fn reveal<'fut>(&self, ctx: C, record_id: RecordId) -> Result<F, Error>
@@ -210,7 +210,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::default();
         let sh_ctx = world.malicious_contexts();
-        let v = sh_ctx.map(|c| c.validator());
+        let v = sh_ctx.map(UpgradableContext::validator);
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))
@@ -245,7 +245,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::default();
         let sh_ctx = world.malicious_contexts();
-        let v = sh_ctx.map(|c| c.validator());
+        let v = sh_ctx.map(UpgradableContext::validator);
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))

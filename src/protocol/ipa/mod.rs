@@ -678,7 +678,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .malicious(records, |ctx, input_rows| async move {
                 ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -1155,7 +1155,7 @@ pub mod tests {
             let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
             world
-                .semi_honest(records.clone(), |ctx, input_rows| async move {
+                .malicious(records.clone(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,

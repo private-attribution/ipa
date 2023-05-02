@@ -16,7 +16,7 @@ pub trait ShareKnownValue<C: Context, V: SharedValue> {
     fn share_known_value(ctx: &C, value: V) -> Self;
 }
 
-impl<'a, C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
+impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
     fn share_known_value(ctx: &C, value: F) -> Self {
         match ctx.role() {
             Role::H1 => Self::new(value, F::ZERO),

@@ -176,7 +176,7 @@ mod tests {
         let world = TestWorld::default();
         let contexts = world.malicious_contexts();
 
-        let validators = contexts.map(|c| c.validator::<Fp31>());
+        let validators = contexts.map(UpgradableContext::validator::<Fp31>);
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context().set_total_records(1)))

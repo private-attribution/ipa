@@ -8,7 +8,9 @@ mod prime_field;
 
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf40Bit, Gf8Bit};
-pub use prime_field::{Fp31, Fp32BitPrime, PrimeField};
+#[cfg(any(test, feature = "test-field"))]
+pub use prime_field::Fp31;
+pub use prime_field::{Fp32BitPrime, PrimeField};
 
 use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};

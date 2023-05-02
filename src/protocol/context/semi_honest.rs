@@ -34,9 +34,9 @@ use std::{
 pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    pub inner: Arc<ContextInner<'a>>,
-    pub step: Step,
-    pub total_records: TotalRecords,
+    pub(super) inner: Arc<ContextInner<'a>>,
+    step: Step,
+    total_records: TotalRecords,
 }
 
 impl<'a> Base<'a> {
@@ -151,6 +151,7 @@ impl<'a> SemiHonest<'a> {
     }
 
     #[cfg(test)]
+    #[must_use]
     pub fn from_base(base: Base<'a>) -> Self {
         Self { inner: base }
     }
@@ -427,9 +428,9 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for UpgradedSemiHonest<'a, F> {
 
     async fn upgrade_one(
         &self,
-        record_id: RecordId,
+        _record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
+        _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(x)
     }
@@ -438,7 +439,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for UpgradedSemiHonest<'a, F> {
     async fn upgrade_sparse(
         &self,
         input: Replicated<F>,
-        zeros_at: ZeroPositions,
+        _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(input)
     }
@@ -447,12 +448,12 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for UpgradedSemiHonest<'a, F> {
 impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for UpgradedSemiHonest<'a, F> {
     type Base = Base<'a>;
 
-    fn accumulate_macs(self, record_id: RecordId, x: &Replicated<F>) {
+    fn accumulate_macs(self, _record_id: RecordId, _x: &Replicated<F>) {
         // noop
     }
 
     fn base_context(self) -> Self::Base {
-        self.inner.clone()
+        self.inner
     }
 }
 

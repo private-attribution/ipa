@@ -1,10 +1,12 @@
+#[cfg(any(test, feature = "test-field"))]
+use crate::ff::Fp31;
 use crate::{
     error::Error,
-    ff::{Field, FieldType, Fp31, GaloisField, PrimeField, Serializable},
+    ff::{Field, FieldType, Fp32BitPrime, GaloisField, PrimeField, Serializable},
     helpers::{
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        AlignedByteArrStream, ByteArrStream, Gateway, TotalRecords,
+        AlignedByteArrStream, ByteArrStream, Gateway,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -113,11 +115,6 @@ where
     F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,
-    // ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    // MCCappedCreditsWithAggregationBit<F, S>:
-    //     DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-    // MCAggregateCreditOutputRow<F, S, BK>:
-    //     DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
     let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
@@ -139,39 +136,62 @@ pub fn start_query(
         // Negotiate PRSS first
         let step = Step::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
+        let ctx = SemiHonestContext::new(&prss, &gateway);
 
         match config.field_type {
+            #[cfg(any(test, feature = "test-field"))]
             FieldType::Fp31 => match config.query_type {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-                QueryType::TestMultiply => {
-                    let ctx = SemiHonestContext::new(&prss, &gateway);
-                    let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
-                    Box::new(execute_test_multiply::<Fp31>(ctx, input).await.unwrap())
-                        as Box<dyn Result>
-                }
-                QueryType::Ipa(config) => {
-                    let ctx = SemiHonestContext::new(&prss, &gateway);
-                    let input = input.align(
-                        <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE,
-                    );
-                    Box::new(
-                        execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, config, input)
-                            .await
-                            .unwrap(),
-                    ) as Box<dyn Result>
-                }
+                QueryType::TestMultiply => multiply_query::<Fp31>(&ctx, input).await,
+                QueryType::Ipa(config) => ipa_query::<Fp31>(ctx, input, config).await,
             },
-            FieldType::Fp32BitPrime => {
-                todo!()
-            }
+            FieldType::Fp32BitPrime => match config.query_type {
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TestMultiply => multiply_query::<Fp32BitPrime>(&ctx, input).await,
+                QueryType::Ipa(config) => ipa_query::<Fp32BitPrime>(ctx, input, config).await,
+            },
         }
     })
+}
+
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+async fn multiply_query<F: ExtendableField>(
+    ctx: &SemiHonestContext<'_>,
+    input: ByteArrStream,
+) -> Box<dyn Result>
+where
+    Replicated<F>: Serializable,
+{
+    use crate::{helpers::TotalRecords, protocol::context::Context};
+
+    let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
+    let input = input.align(<Replicated<F> as Serializable>::Size::USIZE);
+    Box::new(execute_test_multiply::<F>(ctx, input).await.unwrap()) as Box<dyn Result>
+}
+
+async fn ipa_query<F>(
+    ctx: SemiHonestContext<'_>,
+    input: ByteArrStream,
+    config: IpaQueryConfig,
+) -> Box<dyn Result>
+where
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+    Replicated<F>: Serializable,
+    F: PrimeField + ExtendableField,
+{
+    let input = input.align(<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
+    Box::new(
+        execute_ipa::<F, MatchKey, BreakdownKey>(ctx, config, input)
+            .await
+            .unwrap(),
+    ) as Box<dyn Result>
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{
+        helpers::TotalRecords,
         ipa_test_input,
         protocol::context::Context,
         secret_sharing::IntoShares,

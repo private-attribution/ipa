@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
+    ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
@@ -37,8 +37,8 @@ pub trait ExtendableField: Field {
     fn to_extended(&self) -> Self::ExtendedField;
 }
 
-impl ExtendableField for Fp32BitPrime {
-    type ExtendedField = Fp32BitPrime;
+impl<F: PrimeField> ExtendableField for F {
+    type ExtendedField = F;
 
     fn to_extended(&self) -> Self::ExtendedField {
         *self
@@ -292,9 +292,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::{
-        AdditiveShare, Downgrade, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,
-    };
+    use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
@@ -307,19 +305,6 @@ mod tests {
         },
         test_fixture::Reconstruct,
     };
-
-    // The field Fp31 is *not* large enough to provide statistical security. As such, it should never
-    // be used (in production) for malicious circuits.
-    // That said, it's still very useful for this to work in *tests*. One reason is that it's useful to have
-    // a small field where collissions can often happen.
-    #[cfg(test)]
-    impl ExtendableField for Fp31 {
-        type ExtendedField = Fp31;
-
-        fn to_extended(&self) -> Self::ExtendedField {
-            *self
-        }
-    }
 
     #[test]
     #[allow(clippy::many_single_char_names)]
