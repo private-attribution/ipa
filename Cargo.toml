@@ -11,20 +11,24 @@ cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
 no-prss = []
+disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
-web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
+web-app = [
+    "axum", "axum-server", "clap", "comfy-table", "enable-serde", "hex",
+    "hyper", "hyper-tls", "tower", "tower-http",
+]
 self-signed-certs = ["hyper-tls"]
 test-fixture = ["enable-serde"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 # TODO: we may want to use in-memory-bench and real-world-bench some time after
 enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
-
 # The following two features are mutually exclusive. In-memory should be enabled by default as the vast majority
 # of unit tests use it. Real world infra uses HTTP implementation and is suitable for integration/e2e tests
 in-memory-infra = []
 real-world-infra = []
+dhat-heap = ["cli", "test-fixture"]
 
 [dependencies]
 aes = "0.8"
@@ -75,6 +79,7 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 typenum = "1.16.0"
 x25519-dalek = "2.0.0-pre.1"
+dhat = "0.3.2"
 
 [target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
 tikv-jemallocator = "0.5.0"
@@ -90,6 +95,13 @@ lto = "thin"
 [profile.bench]
 debug-assertions = true
 
+[profile.bench-dhat]
+inherits = "bench"
+debug-assertions = false
+incremental = true
+lto = "thin"
+debug = 1
+
 [lib]
 name = "ipa"
 path = "src/lib.rs"
@@ -97,7 +109,7 @@ bench = false
 
 [[bin]]
 name = "helper"
-required-features = ["cli", "web-app", "real-world-infra"]
+required-features = ["web-app", "real-world-infra"]
 bench = false
 
 [[bin]]

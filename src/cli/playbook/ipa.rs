@@ -1,4 +1,4 @@
-#![cfg(feature = "web-app")]
+#![cfg(all(feature = "web-app", feature = "cli"))]
 
 use crate::{
     cli::playbook::InputSource,
