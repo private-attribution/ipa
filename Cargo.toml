@@ -97,7 +97,7 @@ bench = false
 
 [[bin]]
 name = "helper"
-required-features = ["cli", "web-app"]
+required-features = ["cli", "web-app", "real-world-infra"]
 bench = false
 
 [[bin]]
