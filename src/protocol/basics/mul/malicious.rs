@@ -1,9 +1,8 @@
 use crate::{
     error::Error,
-    ff::Field,
     protocol::{
         basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
-        context::{Context, MaliciousContext},
+        context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
     secret_sharing::replicated::{
@@ -64,14 +63,14 @@ impl AsRef<str> for Step {
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
 pub async fn multiply<F>(
-    ctx: MaliciousContext<'_, F>,
+    ctx: UpgradedMaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
     zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
-    F: Field + ExtendableField,
+    F: ExtendableField,
 {
     use crate::{
         protocol::context::SpecialAccessToUpgradedContext,
@@ -101,13 +100,13 @@ where
     let (ab, rab) = try_join(
         a.x().access_without_downgrade().multiply_sparse(
             b_x,
-            ctx.semi_honest_context(),
+            ctx.base_context(),
             record_id,
             zeros_at,
         ),
         a.rx().multiply_sparse(
             &b_induced_share,
-            duplicate_multiply_ctx.semi_honest_context(),
+            duplicate_multiply_ctx.base_context(),
             record_id,
             (ZeroPositions::Pvvv, zeros_at.1),
         ),
@@ -138,7 +137,7 @@ mod test {
         let b = rng.gen::<Fp31>();
 
         let res = world
-            .malicious((a, b), |ctx, (a, b)| async move {
+            .upgraded_malicious((a, b), |ctx, (a, b)| async move {
                 a.multiply(&b, ctx.set_total_records(1), RecordId::from(0))
                     .await
                     .unwrap()

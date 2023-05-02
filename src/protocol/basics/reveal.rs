@@ -5,7 +5,7 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, UpgradedMaliciousContext},
         sort::generate_permutation::ShuffledPermutationWrapper,
         NoRecord, RecordBinding, RecordId,
     },
@@ -46,16 +46,12 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
+impl<'a, C: Context, F: Field> Reveal<C, RecordId> for Replicated<F> {
     type Output = F;
 
-    async fn reveal<'fut>(
-        &self,
-        ctx: SemiHonestContext<'a>,
-        record_id: RecordId,
-    ) -> Result<F, Error>
+    async fn reveal<'fut>(&self, ctx: C, record_id: RecordId) -> Result<F, Error>
     where
-        SemiHonestContext<'a>: 'fut,
+        C: 'fut,
     {
         let (left, right) = self.as_tuple();
 
@@ -78,18 +74,18 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<'a, F: Field + ExtendableField> Reveal<MaliciousContext<'a, F>, RecordId>
+impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
     for MaliciousReplicated<F>
 {
     type Output = F;
 
     async fn reveal<'fut>(
         &self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
     ) -> Result<F, Error>
     where
-        MaliciousContext<'a, F>: 'fut,
+        UpgradedMaliciousContext<'a, F>: 'fut,
     {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
@@ -158,6 +154,10 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
+        protocol::{
+            context::{UpgradableContext, UpgradedContext},
+            malicious::Validator,
+        },
         rand::{thread_rng, Rng},
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::Runner,
@@ -171,8 +171,7 @@ mod tests {
         helpers::Direction,
         protocol::{
             basics::Reveal,
-            context::{Context, MaliciousContext},
-            malicious::MaliciousValidator,
+            context::{Context, UpgradedMaliciousContext},
             RecordId,
         },
         secret_sharing::{
@@ -210,8 +209,8 @@ mod tests {
     pub async fn malicious() -> Result<(), Error> {
         let mut rng = thread_rng();
         let world = TestWorld::default();
-        let sh_ctx = world.contexts();
-        let v = sh_ctx.map(MaliciousValidator::new);
+        let sh_ctx = world.malicious_contexts();
+        let v = sh_ctx.map(|c| c.validator());
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))
@@ -245,8 +244,8 @@ mod tests {
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = thread_rng();
         let world = TestWorld::default();
-        let sh_ctx = world.contexts();
-        let v = sh_ctx.map(MaliciousValidator::new);
+        let sh_ctx = world.malicious_contexts();
+        let v = sh_ctx.map(|c| c.validator());
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))
@@ -274,8 +273,8 @@ mod tests {
         Ok(())
     }
 
-    pub async fn reveal_with_additive_attack<F: Field + ExtendableField>(
-        ctx: MaliciousContext<'_, F>,
+    pub async fn reveal_with_additive_attack<F: ExtendableField>(
+        ctx: UpgradedMaliciousContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
         additive_error: F,

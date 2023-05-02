@@ -120,13 +120,13 @@ where
     }
 }
 
-pub trait ValidateMalicious<F: Field + ExtendableField> {
+pub trait ValidateMalicious<F: ExtendableField> {
     fn validate(&self, r: F::ExtendedField);
 }
 
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
-    F: Field + ExtendableField,
+    F: ExtendableField,
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F::ExtendedField) {
@@ -146,7 +146,7 @@ where
     }
 }
 
-impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+impl<F: ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     fn validate(&self, r: F::ExtendedField) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
@@ -157,7 +157,7 @@ impl<F: Field + ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicat
     }
 }
 
-impl<F: Field + ExtendableField> ValidateMalicious<F>
+impl<F: ExtendableField> ValidateMalicious<F>
     for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3]
 {
     fn validate(&self, r: F::ExtendedField) {

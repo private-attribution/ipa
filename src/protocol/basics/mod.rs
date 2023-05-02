@@ -15,7 +15,7 @@ pub use sum_of_product::SumOfProducts;
 use crate::{
     ff::Field,
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
     secret_sharing::{
@@ -23,12 +23,13 @@ use crate::{
             malicious::{AdditiveShare as MaliciousAdditiveShare, ExtendableField},
             semi_honest::AdditiveShare,
         },
-        SharedValue,
+        SecretSharing, SharedValue,
     },
 };
 
 pub trait BasicProtocols<C: Context, V: SharedValue>:
-    Reshare<C, RecordId>
+    SecretSharing<V>
+    + Reshare<C, RecordId>
     + Reveal<C, RecordId, Output = V>
     + SecureMul<C>
     + ShareKnownValue<C, V>
@@ -36,9 +37,9 @@ pub trait BasicProtocols<C: Context, V: SharedValue>:
 {
 }
 
-impl<'a, F: Field> BasicProtocols<SemiHonestContext<'a>, F> for AdditiveShare<F> {}
+impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> {}
 
-impl<'a, F: Field + ExtendableField> BasicProtocols<MaliciousContext<'a, F>, F>
+impl<'a, F: ExtendableField> BasicProtocols<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousAdditiveShare<F>
 {
 }

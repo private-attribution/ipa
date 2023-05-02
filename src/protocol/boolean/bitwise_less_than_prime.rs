@@ -302,7 +302,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(bits, |ctx, x_share| async move {
+            .upgraded_malicious(bits, |ctx, x_share| async move {
                 BitwiseLessThanPrime::less_than_prime(
                     ctx.set_total_records(1),
                     RecordId::from(0),

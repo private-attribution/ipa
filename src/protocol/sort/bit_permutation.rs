@@ -105,7 +105,7 @@ mod tests {
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::truncate_from(*x)).collect();
         let result = world
-            .malicious(input, |ctx, m_shares| async move {
+            .upgraded_malicious(input, |ctx, m_shares| async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
             })
             .await;

@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, UpgradedMaliciousContext},
         prss::SharedRandomness,
         sort::{
             apply_sort::shuffle::InnerVectorElementStep,
@@ -70,15 +70,15 @@ pub trait ReshareBorrowed<C: Context, B: RecordBinding> {
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
+impl<'a, C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
     async fn reshare<'fut>(
         &self,
-        ctx: SemiHonestContext<'a>,
+        ctx: C,
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self, Error>
     where
-        SemiHonestContext<'a>: 'fut,
+        C: 'fut,
     {
         let r = ctx.prss().generate_fields(record_id);
 
@@ -122,17 +122,17 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId>
+impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
     for MaliciousReplicated<F>
 {
     async fn reshare<'fut>(
         &self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self, Error>
     where
-        MaliciousContext<'a, F>: 'fut,
+        UpgradedMaliciousContext<'a, F>: 'fut,
     {
         use crate::{
             protocol::context::SpecialAccessToUpgradedContext,
@@ -141,16 +141,11 @@ impl<'a, F: Field + ExtendableField> Reshare<MaliciousContext<'a, F>, RecordId>
         let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(
-            self.rx().reshare(
-                ctx.narrow(&ReshareRx).semi_honest_context(),
-                record_id,
-                to_helper,
-            ),
-            self.x().access_without_downgrade().reshare(
-                ctx.semi_honest_context(),
-                record_id,
-                to_helper,
-            ),
+            self.rx()
+                .reshare(ctx.narrow(&ReshareRx).base_context(), record_id, to_helper),
+            self.x()
+                .access_without_downgrade()
+                .reshare(ctx.base_context(), record_id, to_helper),
         )
         .await?;
         let malicious_input = MaliciousReplicated::new(x, rx);
@@ -316,8 +311,11 @@ mod tests {
             helpers::{Direction, Role},
             protocol::{
                 basics::Reshare,
-                context::{Context, MaliciousContext, SemiHonestContext},
-                malicious::MaliciousValidator,
+                context::{
+                    Context, SemiHonestContext, UpgradableContext, UpgradedContext,
+                    UpgradedMaliciousContext,
+                },
+                malicious::Validator,
                 prss::SharedRandomness,
                 sort::ReshareStep::{RandomnessForValidation, ReshareRx},
                 RecordId,
@@ -347,7 +345,7 @@ mod tests {
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
-                    .malicious(secret, |ctx, share| async move {
+                    .upgraded_malicious(secret, |ctx, share| async move {
                         share
                             .reshare(ctx.set_total_records(1), RecordId::from(0), role)
                             .await
@@ -359,8 +357,8 @@ mod tests {
             }
         }
 
-        async fn reshare_with_additive_attack<F: Field>(
-            ctx: SemiHonestContext<'_>,
+        async fn reshare_with_additive_attack<C: UpgradableContext, F: Field>(
+            ctx: C,
             input: &Replicated<F>,
             record_id: RecordId,
             to_helper: Role,
@@ -399,8 +397,8 @@ mod tests {
             }
         }
 
-        async fn reshare_malicious_with_additive_attack<F: Field + ExtendableField>(
-            ctx: MaliciousContext<'_, F>,
+        async fn reshare_malicious_with_additive_attack<F: ExtendableField>(
+            ctx: UpgradedMaliciousContext<'_, F>,
             input: &MaliciousReplicated<F>,
             record_id: RecordId,
             to_helper: Role,
@@ -415,14 +413,14 @@ mod tests {
 
             let (rx, x) = try_join(
                 reshare_with_additive_attack(
-                    ctx.narrow(&ReshareRx).semi_honest_context(),
+                    SemiHonestContext::from_base(ctx.narrow(&ReshareRx).base_context()),
                     input.rx(),
                     record_id,
                     to_helper,
                     large_field_additive_error,
                 ),
                 reshare_with_additive_attack(
-                    ctx.semi_honest_context(),
+                    SemiHonestContext::from_base(ctx.base_context()),
                     input.x().access_without_downgrade(),
                     record_id,
                     to_helper,
@@ -458,7 +456,7 @@ mod tests {
 
         async fn malicious_validation_fail_helper<F>(perturbations: &[(F, F::ExtendedField)])
         where
-            F: Field + ExtendableField,
+            F: ExtendableField,
             Standard: Distribution<F>,
         {
             let world = TestWorld::default();
@@ -471,8 +469,8 @@ mod tests {
             for perturbation in perturbations {
                 for malicious_actor in &[Role::H2, Role::H3] {
                     world
-                        .semi_honest(a, |ctx, a| async move {
-                            let v = MaliciousValidator::new(ctx);
+                        .malicious(a, |ctx, a| async move {
+                            let v = ctx.validator();
                             let m_ctx = v.context().set_total_records(1);
                             let record_id = RecordId::from(0);
                             let m_a = v.context().upgrade(a).await.unwrap();

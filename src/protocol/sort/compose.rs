@@ -53,7 +53,8 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            context::Context,
+            context::{Context, SemiHonestContext, UpgradableContext},
+            malicious::Validator,
             sort::{
                 apply::apply, compose::compose,
                 generate_permutation::shuffle_and_reveal_permutation,
@@ -87,12 +88,15 @@ mod tests {
                     rho.into_iter().map(Fp31::truncate_from),
                 ),
                 |ctx, (m_sigma_shares, m_rho_shares)| async move {
-                    let sigma_and_randoms = shuffle_and_reveal_permutation(
-                        ctx.narrow("shuffle_reveal"),
-                        m_sigma_shares,
-                    )
-                    .await
-                    .unwrap();
+                    let v = ctx.validator();
+                    let sigma_and_randoms =
+                        shuffle_and_reveal_permutation::<SemiHonestContext, _, Fp31>(
+                            v.context().narrow("shuffle_reveal"),
+                            m_sigma_shares,
+                            v,
+                        )
+                        .await
+                        .unwrap();
 
                     compose(
                         ctx,

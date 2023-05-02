@@ -28,7 +28,7 @@ where
 #[async_trait]
 impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicated<F>>
 where
-    F: Field + ExtendableField,
+    F: ExtendableField,
 {
     type Target =
         RandomBitsShare<F, crate::secret_sharing::replicated::semi_honest::AdditiveShare<F>>;
@@ -151,7 +151,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
-        secret_sharing::SharedValue,
+        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
@@ -161,8 +161,9 @@ mod tests {
     /// Execute `solved_bits` `COUNT` times for `F`. The count should be chosen
     /// such that the probability of that many consecutive failures in `F` is
     /// negligible (less than 2^-100).
-    async fn random_bits<F: PrimeField, const COUNT: usize>()
+    async fn random_bits<F, const COUNT: usize>()
     where
+        F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
         let world = TestWorld::default();
@@ -240,7 +241,7 @@ mod tests {
 
         for _ in 0..4 {
             let results = world
-                .malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| async move {
+                .upgraded_malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| async move {
                     let share_option = solved_bits(ctx.set_total_records(1), RecordId::from(0))
                         .await
                         .unwrap();

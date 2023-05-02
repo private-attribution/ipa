@@ -12,7 +12,7 @@ use crate::{
     ff::{GaloisField, Gf2, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     protocol::{
-        context::{Context, SemiHonestContext},
+        context::{Context, UpgradableContext},
         ipa::IPAModulusConvertedInputRow,
         Substep,
     },
@@ -24,13 +24,14 @@ use std::iter::{once, zip};
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn secure_attribution<F, BK>(
-    ctx: SemiHonestContext<'_>,
+pub async fn secure_attribution<C, F, BK>(
+    ctx: C,
     sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where
+    C: UpgradableContext,
     F: PrimeField,
     BK: GaloisField,
     AdditiveShare<F>: Serializable,
@@ -85,7 +86,8 @@ where
     )
     .await?;
 
-    aggregate_credit::<F, BK>(
+    aggregate_credit(
+        ctx.clone().validator(), // TODO remove this file.
         ctx.narrow(&Step::AggregateCredit),
         user_capped_credits.into_iter(),
         config.max_breakdown_key,

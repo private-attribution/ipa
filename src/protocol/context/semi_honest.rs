@@ -2,45 +2,44 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::Field,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
-        basics::ZeroPositions,
+        basics::{ShareKnownValue, ZeroPositions},
         context::{
             Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
-            MaliciousContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
+            UpgradedMaliciousContext,
         },
-        malicious::MaliciousValidatorAccumulator,
+        malicious::{MaliciousValidator, MaliciousValidatorAccumulator, Validator},
         prss::Endpoint as PrssEndpoint,
         RecordId, Step, Substep,
     },
     secret_sharing::replicated::{
-        malicious::{AdditiveShare, ExtendableField},
+        malicious::{DowngradeMalicious, ExtendableField},
         semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
     sync::Arc,
 };
 use std::{
+    any::type_name,
     fmt::{Debug, Formatter},
     marker::PhantomData,
     num::NonZeroUsize,
 };
 
-use super::SpecialAccessToUpgradedContext;
-
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct SemiHonestContext<'a> {
+pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    pub(super) inner: Arc<ContextInner<'a>>,
-    pub(super) step: Step,
-    pub(super) total_records: TotalRecords,
+    pub inner: Arc<ContextInner<'a>>,
+    pub step: Step,
+    pub total_records: TotalRecords,
 }
 
-impl<'a> SemiHonestContext<'a> {
+impl<'a> Base<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self::new_complete(
             participant,
@@ -70,24 +69,9 @@ impl<'a> SemiHonestContext<'a> {
             total_records,
         }
     }
-
-    /// Upgrade this context to malicious.
-    /// `malicious_step` is the step that will be used for malicious protocol execution.
-    /// `upgrade_step` is the step that will be used for upgrading inputs
-    /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
-    /// `accumulator` and `r_share` come from a `MaliciousValidator`.
-    #[must_use]
-    pub fn upgrade<S: Substep + ?Sized, F: Field + ExtendableField>(
-        self,
-        malicious_step: &S,
-        accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F::ExtendedField>,
-    ) -> MaliciousContext<'a, F> {
-        MaliciousContext::new(&self, malicious_step, accumulator, r_share)
-    }
 }
 
-impl<'a> Context for SemiHonestContext<'a> {
+impl<'a> Context for Base<'a> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -112,7 +96,7 @@ impl<'a> Context for SemiHonestContext<'a> {
         }
     }
 
-    fn total_records<I: Into<RecordId>>(&self, record_id: I) -> TotalRecords {
+    fn total_records(&self) -> TotalRecords {
         self.total_records
     }
 
@@ -148,144 +132,333 @@ impl<'a> Context for SemiHonestContext<'a> {
     }
 }
 
-impl SeqJoin for SemiHonestContext<'_> {
+impl<'a> SeqJoin for Base<'a> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.gateway.config().active_work()
     }
 }
 
-impl Debug for SemiHonestContext<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestContext")
-    }
+#[derive(Clone)]
+pub struct SemiHonest<'a> {
+    inner: Base<'a>,
 }
 
-#[derive(Debug, Clone)]
-struct UpgradedSemiHonest<'a, F: Field + ExtendableField> {
-    context: SemiHonestContext<'a>,
-    _f: PhantomData<F>,
-}
-
-impl<'a, F: Field + ExtendableField> UpgradedSemiHonest<'a, F> {
-    fn new(context: SemiHonestContext<'a>) -> Self {
+impl<'a> SemiHonest<'a> {
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            context,
-            _f: PhantomData,
+            inner: Base::new(participant, gateway),
         }
     }
+
+    #[cfg(test)]
+    pub fn from_base(base: Base<'a>) -> Self {
+        Self { inner: base }
+    }
 }
 
-impl<F: Field + ExtendableField> Context for UpgradedSemiHonest<'_, F> {
+impl<'a> Context for SemiHonest<'a> {
     fn role(&self) -> Role {
-        self.context.role()
+        self.inner.role()
     }
 
     fn step(&self) -> &Step {
-        self.context.step()
+        self.inner.step()
     }
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
-        Self::new(self.context.narrow(step))
+        Self {
+            inner: self.inner.narrow(step),
+        }
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        Self::new(self.context.set_total_records(total_records))
+        Self {
+            inner: self.inner.set_total_records(total_records),
+        }
     }
 
     fn total_records(&self) -> TotalRecords {
-        self.context.total_records()
+        self.inner.total_records()
     }
 
-    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
-        self.context.prss()
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        self.inner.prss()
     }
 
     fn prss_rng(
         &self,
     ) -> (
-        InstrumentedSequentialSharedRandomness<'_>,
-        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness,
     ) {
-        self.context.prss_rng()
+        self.inner.prss_rng()
     }
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
-        self.context.send_channel(role)
+        self.inner.send_channel(role)
     }
 
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
-        self.recv_channel(role)
+        self.inner.recv_channel(role)
     }
 }
 
-impl<F: Field + ExtendableField> SeqJoin for UpgradedSemiHonest<'_, F> {
+impl<'a> UpgradableContext for SemiHonest<'a> {
+    type UpgradedContext<F: ExtendableField> = UpgradedSemiHonest<'a, F>;
+    type Validator<F: ExtendableField> = SemiHonestValidator<'a, F>;
+
+    fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
+        SemiHonestValidator {
+            context: UpgradedSemiHonest {
+                inner: self.inner,
+                _f: PhantomData,
+            },
+            _f: PhantomData,
+        }
+    }
+}
+
+impl<'a> SeqJoin for SemiHonest<'a> {
     fn active_work(&self) -> NonZeroUsize {
-        self.context.active_work()
+        self.inner.active_work()
+    }
+}
+
+impl Debug for SemiHonest<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestContext")
+    }
+}
+
+#[derive(Clone)]
+pub struct Malicious<'a> {
+    inner: Base<'a>,
+}
+
+impl<'a> Malicious<'a> {
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self {
+            inner: Base::new(participant, gateway),
+        }
+    }
+
+    /// Upgrade this context to malicious.
+    /// `malicious_step` is the step that will be used for malicious protocol execution.
+    /// `upgrade_step` is the step that will be used for upgrading inputs
+    /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
+    /// `accumulator` and `r_share` come from a `MaliciousValidator`.
+    #[must_use]
+    pub fn upgrade<S: Substep + ?Sized, F: ExtendableField>(
+        self,
+        malicious_step: &S,
+        accumulator: MaliciousValidatorAccumulator<F>,
+        r_share: Replicated<F::ExtendedField>,
+    ) -> UpgradedMaliciousContext<'a, F> {
+        UpgradedMaliciousContext::new(&self.inner, malicious_step, accumulator, r_share)
+    }
+
+    pub(crate) fn base_context(self) -> Base<'a> {
+        self.inner
+    }
+}
+
+impl<'a> Context for Malicious<'a> {
+    fn role(&self) -> Role {
+        self.inner.role()
+    }
+
+    fn step(&self) -> &Step {
+        self.inner.step()
+    }
+
+    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        Self {
+            inner: self.inner.narrow(step),
+        }
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        Self {
+            inner: self.inner.set_total_records(total_records),
+        }
+    }
+
+    fn total_records(&self) -> TotalRecords {
+        self.inner.total_records()
+    }
+
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        self.inner.prss()
+    }
+
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness,
+    ) {
+        self.inner.prss_rng()
+    }
+
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner.send_channel(role)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner.recv_channel(role)
+    }
+}
+
+impl<'a> UpgradableContext for Malicious<'a> {
+    type UpgradedContext<F: ExtendableField> = UpgradedMaliciousContext<'a, F>;
+    type Validator<F: ExtendableField> = MaliciousValidator<'a, F>;
+
+    fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
+        MaliciousValidator::new(self)
+    }
+}
+
+impl<'a> SeqJoin for Malicious<'a> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.active_work()
+    }
+}
+
+impl Debug for Malicious<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MaliciousContext")
+    }
+}
+
+pub struct SemiHonestValidator<'a, F: ExtendableField> {
+    context: UpgradedSemiHonest<'a, F>,
+    _f: PhantomData<F>,
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> Validator<SemiHonest<'a>, F> for SemiHonestValidator<'a, F> {
+    fn context(&self) -> UpgradedSemiHonest<'a, F> {
+        self.context.clone()
+    }
+
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        Ok(values.downgrade().await.access_without_downgrade())
+    }
+}
+
+impl<F: ExtendableField> Debug for SemiHonestValidator<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+    }
+}
+
+#[derive(Clone)]
+pub struct UpgradedSemiHonest<'a, F: ExtendableField> {
+    inner: Base<'a>,
+    _f: PhantomData<F>,
+}
+
+impl<'a, F: ExtendableField> UpgradedSemiHonest<'a, F> {
+    fn new(inner: Base<'a>) -> Self {
+        Self {
+            inner,
+            _f: PhantomData,
+        }
+    }
+}
+
+impl<'a, F: ExtendableField> Context for UpgradedSemiHonest<'a, F> {
+    fn role(&self) -> Role {
+        self.inner.role()
+    }
+
+    fn step(&self) -> &Step {
+        self.inner.step()
+    }
+
+    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        Self::new(self.inner.narrow(step))
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        Self::new(self.inner.set_total_records(total_records))
+    }
+
+    fn total_records(&self) -> TotalRecords {
+        self.inner.total_records()
+    }
+
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        self.inner.prss()
+    }
+
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness,
+    ) {
+        self.inner.prss_rng()
+    }
+
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner.send_channel(role)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner.recv_channel(role)
+    }
+}
+
+impl<'a, F: ExtendableField> SeqJoin for UpgradedSemiHonest<'a, F> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.active_work()
     }
 }
 
 #[async_trait]
-impl<'a, F: Field + ExtendableField> UpgradedContext<'a, F> for UpgradedSemiHonest<'a, F> {
-    type UpgradedShare = Replicated<F>;
+impl<'a, F: ExtendableField> UpgradedContext<F> for UpgradedSemiHonest<'a, F> {
+    type Share = Replicated<F>;
+
+    fn share_known_value(&self, value: F) -> Self::Share {
+        Replicated::share_known_value(&self.inner, value)
+    }
 
     async fn upgrade_one(
         &self,
-        _record_id: RecordId,
+        record_id: RecordId,
         x: Replicated<F>,
-        _zeros_at: ZeroPositions,
-    ) -> Result<Self::UpgradedShare, Error> {
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::Share, Error> {
         Ok(x)
     }
 
-    /// Upgrade an input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        UpgradeContext<'a, Self, F>: UpgradeToMalicious<T, M> + 'a,
-    {
-        Ok(input)
-    }
-
-    /// Upgrade a sparse input using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
     #[cfg(test)]
     async fn upgrade_sparse(
         &self,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<Self::UpgradedShare, Error> {
+    ) -> Result<Self::Share, Error> {
         Ok(input)
-    }
-
-    /// Upgrade an input for a specific bit index and record using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<T, M> + 'a,
-    {
-        Ok(input)
-    }
-
-    fn share_known_value(&self, value: F) -> Self::UpgradedShare {
-        Replicated::share_known_value(&self.context, value)
     }
 }
 
-impl<'a, F: Field + ExtendableField> SpecialAccessToUpgradedContext<'a, F>
-    for UpgradedSemiHonest<'a, F>
-{
-    fn accumulate_macs(self, record_id: RecordId, x: &AdditiveShare<F>) {
-        // noop for semi-honest
+impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for UpgradedSemiHonest<'a, F> {
+    type Base = Base<'a>;
+
+    fn accumulate_macs(self, record_id: RecordId, x: &Replicated<F>) {
+        // noop
     }
 
-    fn semi_honest_context(self) -> SemiHonestContext<'a> {
-        self.context.clone()
+    fn base_context(self) -> Self::Base {
+        self.inner.clone()
+    }
+}
+
+impl<F: ExtendableField> Debug for UpgradedSemiHonest<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestContext<{:?}>", type_name::<F>())
     }
 }
 

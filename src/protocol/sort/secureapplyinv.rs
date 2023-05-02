@@ -30,7 +30,8 @@ mod tests {
         use crate::{
             ff::{Field, Fp31},
             protocol::{
-                context::Context,
+                context::{Context, SemiHonestContext, UpgradableContext},
+                malicious::Validator,
                 sort::{
                     apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation,
                     secureapplyinv::secureapplyinv_multi,
@@ -71,10 +72,14 @@ mod tests {
                 .semi_honest(
                     (input, permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let perm_and_randoms =
-                            shuffle_and_reveal_permutation(ctx.narrow("shuffle_reveal"), m_perms)
-                                .await
-                                .unwrap();
+                        let v = ctx.narrow("shuffle_reveal").validator();
+                        let perm_and_randoms = shuffle_and_reveal_permutation::<
+                            SemiHonestContext,
+                            _,
+                            _,
+                        >(v.context(), m_perms, v)
+                        .await
+                        .unwrap();
                         secureapplyinv_multi(
                             ctx,
                             m_shares,

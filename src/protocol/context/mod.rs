@@ -4,9 +4,8 @@ mod semi_honest;
 
 use crate::{
     error::Error,
-    ff::Field,
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{basics::ZeroPositions, RecordId, Step, Substep},
+    protocol::{basics::ZeroPositions, malicious::Validator, NoRecord, RecordId, Step, Substep},
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -15,9 +14,13 @@ use crate::{
 };
 use async_trait::async_trait;
 pub(super) use malicious::SpecialAccessToUpgradedContext;
-pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
+pub use malicious::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::SemiHonestContext;
+pub(super) use semi_honest::Base as BaseContext;
+pub use semi_honest::{
+    Malicious as MaliciousContext, SemiHonest as SemiHonestContext, SemiHonestValidator,
+    UpgradedSemiHonest as UpgradedSemiHonestContext,
+};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -70,19 +73,41 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
+pub trait UpgradableContext: Context {
+    type UpgradedContext<F: ExtendableField>: UpgradedContext<F>;
+    type Validator<F: ExtendableField>: Validator<Self, F>;
+
+    fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+}
+
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct UpgradeStep;
+
+impl Substep for UpgradeStep {}
+
+impl AsRef<str> for UpgradeStep {
+    fn as_ref(&self) -> &str {
+        "upgrade"
+    }
+}
+
 #[async_trait]
-pub trait UpgradedContext<'a, F>: Context + SpecialAccessToUpgradedContext<'a, F>
+pub trait UpgradedContext<F>: Context
 where
-    F: Field + ExtendableField,
+    F: ExtendableField,
 {
-    type UpgradedShare: SecretSharing<F>;
+    // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
+    type Share: SecretSharing<F> + 'static;
+
+    fn share_known_value(&self, value: F) -> Self::Share;
 
     async fn upgrade_one(
         &self,
         record_id: RecordId,
         x: Replicated<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<Self::UpgradedShare, Error>;
+    ) -> Result<Self::Share, Error>;
 
     /// Upgrade an input using this context.
     /// # Errors
@@ -90,7 +115,27 @@ where
     /// by other helpers.  These are caught later.
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
-        for<'u> UpgradeContext<'u, Self, F>: UpgradeToMalicious<T, M>;
+        T: Send,
+        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
+            .upgrade(input)
+            .await
+    }
+
+    /// Upgrade an input for a specific bit index and record using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
+    where
+        T: Send,
+        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
+            .upgrade(input)
+            .await
+    }
 
     /// Upgrade a sparse input using this context.
     /// # Errors
@@ -101,17 +146,7 @@ where
         &self,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<Self::UpgradedShare, Error>;
-
-    /// Upgrade an input for a specific bit index and record using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        for<'u> UpgradeContext<'u, Self, F, RecordId>: UpgradeToMalicious<T, M>;
-
-    fn share_known_value(&self, value: F) -> Self::UpgradedShare;
+    ) -> Result<Self::Share, Error>;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -119,11 +154,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::Direction,
-        protocol::{
-            malicious::{MaliciousValidator, Step::MaliciousProtocol},
-            prss::SharedRandomness,
-            RecordId,
-        },
+        protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
@@ -163,7 +194,7 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
+    impl<F: ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
         fn l(&self) -> F::ExtendedField {
             (self as &MaliciousReplicated<F>).rx().left()
         }
@@ -275,7 +306,7 @@ mod tests {
         let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let _result = world
-            .malicious(input.clone(), |ctx, a| async move {
+            .upgraded_malicious(input.clone(), |ctx, a| async move {
                 let ctx = ctx.set_total_records(input_len);
                 join_all(
                     a.iter()
@@ -351,9 +382,9 @@ mod tests {
         let world = TestWorld::default();
 
         world
-            .semi_honest(input, |ctx, shares| async move {
+            .malicious(input, |ctx, shares| async move {
                 // upgrade shares two times using different contexts
-                let v = MaliciousValidator::new(ctx);
+                let v = ctx.validator();
                 let ctx = v.context().narrow("step1");
                 ctx.upgrade(shares.clone()).await.unwrap();
                 let ctx = v.context().narrow("step2");

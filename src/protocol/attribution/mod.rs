@@ -4,7 +4,6 @@ pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
 pub mod malicious;
-pub mod semi_honest;
 
 use crate::{
     error::Error,
@@ -16,14 +15,13 @@ use crate::{
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
     },
-    seq_join::{assert_send, SeqJoin},
+    seq_join::assert_send,
 };
 use futures::future::try_join;
 use std::iter::{empty, zip};
 
 use super::{
     boolean::bitwise_equal::bitwise_equal_gf2,
-    context::SemiHonestContext,
     modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
 };
 
@@ -294,13 +292,10 @@ where
     .await
 }
 
-async fn mod_conv_helper_bits<F>(
-    sh_ctx: SemiHonestContext<'_>,
+async fn mod_conv_helper_bits<C: Context, F: Field>(
+    sh_ctx: C,
     semi_honest_helper_bits_gf2: &[Replicated<Gf2>],
-) -> Result<Vec<Replicated<F>>, Error>
-where
-    F: Field,
-{
+) -> Result<Vec<Replicated<F>>, Error> {
     let hb_mod_conv_ctx = sh_ctx
         .narrow(&Step::ModConvHelperBits)
         .set_total_records(semi_honest_helper_bits_gf2.len());

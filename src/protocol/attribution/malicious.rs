@@ -1,10 +1,13 @@
 use super::{
     accumulate_credit::accumulate_credit,
-    aggregate_credit::malicious_aggregate_credit,
+    aggregate_credit::aggregate_credit,
     apply_attribution_window::apply_attribution_window,
     compute_helper_bits_gf2, compute_stop_bits,
     credit_capping::credit_capping,
-    input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
+    input::{
+        MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow,
+        MCCappedCreditsWithAggregationBit,
+    },
     mod_conv_helper_bits,
 };
 use crate::{
@@ -12,14 +15,19 @@ use crate::{
     ff::{GaloisField, Gf2, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     protocol::{
-        context::{Context, SemiHonestContext},
+        boolean::RandomBits,
+        context::{Context, UpgradableContext, UpgradedContext},
         ipa::IPAModulusConvertedInputRow,
-        malicious::MaliciousValidator,
-        Substep,
+        malicious::Validator,
+        sort::generate_permutation::ShuffledPermutationWrapper,
+        BasicProtocols, Substep,
     },
-    secret_sharing::replicated::{
-        malicious::{AdditiveShare, ExtendableField},
-        semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+    secret_sharing::{
+        replicated::{
+            malicious::{DowngradeMalicious, ExtendableField},
+            semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+        },
+        Linear as LinearSecretSharing,
     },
 };
 use std::iter::{once, zip};
@@ -28,28 +36,38 @@ use std::iter::{once, zip};
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn secure_attribution<'a, F, BK>(
-    sh_ctx: SemiHonestContext<'a>,
-    malicious_validator: MaliciousValidator<'a, F>,
-    binary_malicious_validator: MaliciousValidator<'a, Gf2>,
-    sorted_match_keys: Vec<Vec<AdditiveShare<Gf2>>>,
-    sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
+pub async fn secure_attribution<C, S, SB, F, BK>(
+    sh_ctx: C,
+    validator: C::Validator<F>,
+    binary_validator: C::Validator<Gf2>,
+    sorted_match_keys: Vec<Vec<SB>>,
+    sorted_rows: Vec<IPAModulusConvertedInputRow<F, S>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
+    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
+    SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
+    Vec<SB>: DowngradeMalicious<Target = Vec<SemiHonestAdditiveShare<Gf2>>>,
     F: PrimeField + ExtendableField,
     BK: GaloisField,
-    AdditiveShare<F>: Serializable,
-    SemiHonestAdditiveShare<F>: Serializable,
+    ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    MCCappedCreditsWithAggregationBit<F, S>: DowngradeMalicious<
+        Target = MCCappedCreditsWithAggregationBit<F, SemiHonestAdditiveShare<F>>,
+    >,
+    MCAggregateCreditOutputRow<F, S, BK>:
+        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>,
 {
-    let m_ctx = malicious_validator.context();
-    let m_binary_ctx = binary_malicious_validator.context();
+    let m_ctx = validator.context();
+    let m_binary_ctx = binary_validator.context();
 
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
-    let validated_helper_bits_gf2 = binary_malicious_validator.validate(helper_bits_gf2).await?;
+    let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
     let semi_honest_fp_helper_bits =
         mod_conv_helper_bits(sh_ctx.clone(), &validated_helper_bits_gf2).await?;
-    let helper_bits = once(AdditiveShare::ZERO)
+    let helper_bits = once(S::ZERO)
         .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
         .collect::<Vec<_>>();
 
@@ -97,8 +115,8 @@ where
     )
     .await?;
 
-    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
-        malicious_validator,
+    let (validator, output) = aggregate_credit(
+        validator,
         sh_ctx,
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
@@ -107,7 +125,7 @@ where
     .await?;
 
     //Validate before returning the result to the report collector
-    malicious_validator.validate(output).await
+    validator.validate(output).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

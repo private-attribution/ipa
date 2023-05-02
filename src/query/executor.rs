@@ -13,7 +13,8 @@ use crate::{
         BreakdownKey, MatchKey, Step,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        Linear as LinearSecretSharing,
     },
     task::JoinHandle,
 };
@@ -101,7 +102,7 @@ where
     Ok(results)
 }
 
-async fn execute_ipa<F: PrimeField, MK: GaloisField, BK: GaloisField>(
+async fn execute_ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
@@ -109,6 +110,14 @@ async fn execute_ipa<F: PrimeField, MK: GaloisField, BK: GaloisField>(
 where
     IPAInputRow<F, MK, BK>: Serializable,
     Replicated<F>: Serializable,
+    F: PrimeField + ExtendableField,
+    MK: GaloisField,
+    BK: GaloisField,
+    // ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    // MCCappedCreditsWithAggregationBit<F, S>:
+    //     DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    // MCAggregateCreditOutputRow<F, S, BK>:
+    //     DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
     let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
@@ -135,22 +144,13 @@ pub fn start_query(
             FieldType::Fp31 => match config.query_type {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TestMultiply => {
-                    let ctx = SemiHonestContext::new_with_total_records(
-                        &prss,
-                        &gateway,
-                        TotalRecords::Indeterminate,
-                    );
+                    let ctx = SemiHonestContext::new(&prss, &gateway);
                     let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
                     Box::new(execute_test_multiply::<Fp31>(ctx, input).await.unwrap())
                         as Box<dyn Result>
                 }
                 QueryType::Ipa(config) => {
-                    let ctx = SemiHonestContext::new_with_total_records(
-                        &prss,
-                        &gateway,
-                        // will be specified in downstream steps
-                        TotalRecords::Unspecified,
-                    );
+                    let ctx = SemiHonestContext::new(&prss, &gateway);
                     let input = input.align(
                         <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE,
                     );

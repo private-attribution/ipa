@@ -79,7 +79,7 @@ where
             }
         };
 
-        if self.ctx.is_last_record(record_id) {
+        if self.ctx.total_records().is_last(record_id) {
             // TODO: close indeterminate channels
         }
 
@@ -98,7 +98,11 @@ mod tests {
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
-        protocol::{context::Context, malicious::MaliciousValidator, RecordId},
+        protocol::{
+            context::{Context, UpgradableContext},
+            malicious::Validator,
+            RecordId,
+        },
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue,
@@ -170,9 +174,9 @@ mod tests {
     #[tokio::test]
     pub async fn malicious() {
         let world = TestWorld::default();
-        let contexts = world.contexts();
+        let contexts = world.malicious_contexts();
 
-        let validators = contexts.map(MaliciousValidator::<Fp31>::new);
+        let validators = contexts.map(|c| c.validator::<Fp31>());
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context().set_total_records(1)))

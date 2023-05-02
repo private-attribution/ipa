@@ -1,13 +1,5 @@
 use crate::{
     ff::{Field, Fp32BitPrime, Gf2, Gf32Bit, Serializable},
-    protocol::{
-        basics::Reveal,
-        context::{Context, MaliciousContext},
-        sort::{
-            generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
-        },
-        NoRecord,
-    },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
@@ -40,7 +32,7 @@ pub struct AdditiveShare<V: SharedValue + ExtendableField> {
     rx: SemiHonestAdditiveShare<V::ExtendedField>,
 }
 
-pub trait ExtendableField {
+pub trait ExtendableField: Field {
     type ExtendedField: Field;
     fn to_extended(&self) -> Self::ExtendedField;
 }
@@ -244,10 +236,18 @@ where
 }
 
 #[async_trait]
-impl<F: Field + ExtendableField> Downgrade for AdditiveShare<F> {
+impl<F: ExtendableField> Downgrade for AdditiveShare<F> {
     type Target = SemiHonestAdditiveShare<F>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
+    }
+}
+
+#[async_trait]
+impl<F: ExtendableField> Downgrade for SemiHonestAdditiveShare<F> {
+    type Target = SemiHonestAdditiveShare<F>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(self)
     }
 }
 
@@ -264,21 +264,6 @@ where
             output.0.access_without_downgrade(),
             output.1.access_without_downgrade(),
         ))
-    }
-}
-
-#[async_trait]
-impl<'a, F: Field + ExtendableField> Downgrade
-    for ShuffledPermutationWrapper<AdditiveShare<F>, MaliciousContext<'a, F>>
-{
-    type Target = Vec<u32>;
-    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = self
-            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
-            .await
-            .unwrap();
-        UnauthorizedDowngradeWrapper(output)
     }
 }
 

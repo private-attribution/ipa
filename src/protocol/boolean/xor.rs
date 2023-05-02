@@ -59,7 +59,7 @@ mod tests {
 
     async fn run<F>(world: &TestWorld, a: F, b: F) -> F
     where
-        F: Field + ExtendableField,
+        F: ExtendableField,
         Standard: Distribution<F>,
     {
         let result = world
@@ -77,7 +77,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious((a, b), |ctx, (a_share, b_share)| async move {
+            .upgraded_malicious((a, b), |ctx, (a_share, b_share)| async move {
                 xor(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -130,7 +130,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious((a, b), |ctx, (a_share, b_share)| async move {
+            .upgraded_malicious((a, b), |ctx, (a_share, b_share)| async move {
                 xor_sparse(
                     ctx.set_total_records(1),
                     RecordId::from(0),

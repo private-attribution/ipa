@@ -4,7 +4,7 @@ use crate::{
     helpers::Direction,
     protocol::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
-        context::{Context, SemiHonestContext},
+        context::Context,
         prss::SharedRandomness,
         RecordId,
     },
@@ -26,14 +26,15 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn multiply<F>(
-    ctx: SemiHonestContext<'_>,
+pub async fn multiply<C, F>(
+    ctx: C,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
     zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F>, Error>
 where
+    C: Context,
     F: Field,
 {
     let role = ctx.role();

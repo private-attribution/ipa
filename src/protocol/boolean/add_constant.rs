@@ -231,7 +231,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(input, |ctx, a_share| async move {
+            .upgraded_malicious(input, |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -266,7 +266,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(input, |ctx, (a_share, maybe_share)| async move {
+            .upgraded_malicious(input, |ctx, (a_share, maybe_share)| async move {
                 maybe_add_constant_mod2l(
                     ctx.set_total_records(1),
                     RecordId::from(0),

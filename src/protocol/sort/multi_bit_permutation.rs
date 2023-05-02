@@ -1,8 +1,12 @@
 use crate::{
     error::Error,
-    ff::Field,
-    protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    protocol::{
+        basics::SumOfProducts, context::UpgradedContext, sort::check_everything, BasicProtocols,
+        RecordId,
+    },
+    secret_sharing::{
+        replicated::malicious::ExtendableField, Linear as LinearSecretSharing, SecretSharing,
+    },
 };
 use std::iter::repeat;
 
@@ -24,15 +28,12 @@ use std::iter::repeat;
 ///    i. For each record
 ///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
-pub async fn multi_bit_permutation<
-    'a,
-    F: Field,
-    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: Context,
->(
-    ctx: C,
-    input: &[Vec<S>],
-) -> Result<Vec<S>, Error> {
+pub async fn multi_bit_permutation<'a, C, S, F>(ctx: C, input: &[Vec<S>]) -> Result<Vec<S>, Error>
+where
+    F: ExtendableField,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
+{
     let num_records = input.len();
     assert!(num_records > 0);
 
@@ -41,7 +42,7 @@ pub async fn multi_bit_permutation<
 
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
-    let share_of_one = S::share_known_value(&ctx, F::ONE);
+    let share_of_one = ctx.share_known_value(F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = ctx
         .try_join(
@@ -55,7 +56,7 @@ pub async fn multi_bit_permutation<
 
     // Compute accumulated sum
     let mut prefix_sum = Vec::with_capacity(num_records);
-    let mut cumulative_sum = S::ZERO;
+    let mut cumulative_sum = <S as SecretSharing<F>>::ZERO;
     for bit_idx in 0..num_possible_bit_values {
         for record_idx in 0..num_records {
             if bit_idx == 0 {
@@ -75,7 +76,7 @@ pub async fn multi_bit_permutation<
                 .zip(repeat(ctx.set_total_records(num_records)))
                 .enumerate()
                 .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
-                    S::sum_of_products(
+                    <S as SumOfProducts<C>>::sum_of_products(
                         ctx,
                         RecordId::from(i),
                         eq_checks.as_slice(),
@@ -98,7 +99,11 @@ mod tests {
     use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
-        protocol::{context::Context, sort::check_everything},
+        protocol::{
+            context::{Context, UpgradableContext},
+            malicious::Validator,
+            sort::check_everything,
+        },
         secret_sharing::SharedValue,
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -126,7 +131,9 @@ mod tests {
             .collect();
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
-                multi_bit_permutation(ctx, &m_shares).await.unwrap()
+                multi_bit_permutation(ctx.validator().context(), &m_shares)
+                    .await
+                    .unwrap()
             })
             .await;
 
