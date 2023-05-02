@@ -7,7 +7,7 @@ use ipa::{
     net::{BindTarget, HttpTransport, MpcHelperClient},
     AppSetup,
 };
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use tracing::info;
 
