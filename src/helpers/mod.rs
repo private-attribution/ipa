@@ -22,6 +22,9 @@ pub use transport::{
     ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
 };
 
+#[cfg(feature = "in-memory-infra")]
+pub use transport::{InMemoryNetwork, InMemoryTransport};
+
 pub use transport::query;
 
 /// to validate that transport can actually send streams of this type
@@ -130,7 +133,7 @@ impl HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
+#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -478,7 +481,7 @@ impl From<usize> for TotalRecords {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
 

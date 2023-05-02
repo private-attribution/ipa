@@ -160,7 +160,7 @@ pub fn open_in_place<'a>(
 /// Represents an encrypted share of single match key.
 #[derive(Clone)]
 // temporarily to appease clippy while we don't have actual consumers of this struct
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 struct MatchKeyEncryption<'a> {
     /// Encapsulated key as defined in [`url`] specification.
     /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
@@ -178,7 +178,7 @@ struct MatchKeyEncryption<'a> {
     info: Info<'a>,
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use generic_array::GenericArray;

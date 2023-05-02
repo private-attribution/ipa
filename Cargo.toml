@@ -6,9 +6,7 @@ edition = "2021"
 
 [features]
 # by default remove all TRACE, DEBUG spans from release builds
-default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
-# TODO: it feels wrong that CLI uses test-fixture module, but untangling `IntoShares`/`Reconstruct` and inputs
-# from other test components wasn't easy.
+default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info"]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
@@ -17,15 +15,16 @@ no-prss = []
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
 self-signed-certs = ["hyper-tls"]
-# The test-http and test-fixture features are mutually incompatible, and the
-# code doesn't support building tests without test-fixture. So if you want to
-# run the tests enabled by test-http, you unfortunately need to do something
-# like `s/cfg(any(test,/cfg(any(never, test/`.
-test-http = []
 test-fixture = ["enable-serde"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
-enable-benches = ["cli", "test-fixture", "criterion", "iai"]
+# TODO: we may want to use in-memory-bench and real-world-bench some time after
+enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
+
+# The following two features are mutually exclusive. In-memory should be enabled by default as the vast majority
+# of unit tests use it. Real world infra uses HTTP implementation and is suitable for integration/e2e tests
+in-memory-infra = []
+real-world-infra = []
 
 [dependencies]
 aes = "0.8"

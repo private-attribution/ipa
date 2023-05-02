@@ -20,7 +20,7 @@ pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
     Ok(-ab + a + b)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::or;
     use crate::{

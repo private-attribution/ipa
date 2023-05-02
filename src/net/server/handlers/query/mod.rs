@@ -32,7 +32,7 @@ pub fn h2h_router(transport: Arc<HttpTransport>) -> Router {
         .merge(step::router(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 pub mod test_helpers {
     use crate::net::test::TestServer;
     use futures_util::future::poll_immediate;

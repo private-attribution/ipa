@@ -95,6 +95,7 @@ impl TestServerBuilder {
         self
     }
 
+    #[allow(dead_code)] // TODO: fix when TLS is enabled
     pub fn https(mut self) -> Self {
         self.https = true;
         self
@@ -166,7 +167,6 @@ pub struct TestClientsBuilder {
 }
 
 impl TestClientsBuilder {
-    #[cfg(feature = "test-http")]
     pub fn with_network_config(mut self, network_config: NetworkConfig) -> Self {
         self.network_config = Some(network_config);
         self
