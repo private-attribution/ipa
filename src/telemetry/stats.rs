@@ -129,7 +129,6 @@ impl Metrics {
     ///
     /// ## Errors
     /// returns an IO error if it fails to write to the provided writer.
-    #[cfg(feature = "cli")]
     pub fn print(&self, w: &mut impl std::io::Write) -> Result<(), std::io::Error> {
         let mut metrics_table = comfy_table::Table::new();
         metrics_table.set_header(vec!["metric", "description", "value", "dimensions"]);

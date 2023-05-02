@@ -18,9 +18,8 @@ pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, PrepareQueryCallback,
-    QueryIdBinding, ReceiveQueryCallback, RouteId, RouteParams, StepBinding, Transport,
-    TransportCallbacks,
+    callbacks::*, AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding,
+    ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
 };
 
 pub use transport::query;

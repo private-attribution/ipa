@@ -7,11 +7,14 @@ use futures::Stream;
 use std::borrow::Borrow;
 
 mod bytearrstream;
-mod callbacks;
+pub mod callbacks;
 pub mod query;
+mod receive;
+mod stream;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
+pub use receive::ReceiveRecords;
+pub use stream::{StreamCollection, StreamKey};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
