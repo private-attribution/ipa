@@ -1,5 +1,5 @@
 use super::{
-    do_the_binary_tree_thing, if_else,
+    do_the_binary_tree_thing,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     prefix_or_binary_tree_style,
 };
@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        basics::SecureMul,
+        basics::{if_else, SecureMul},
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
         BasicProtocols, RecordId, Substep,

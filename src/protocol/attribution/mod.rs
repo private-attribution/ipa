@@ -155,33 +155,6 @@ impl AsRef<str> for AttributionStep {
     }
 }
 
-/// Returns `true_value` if `condition` is a share of 1, else `false_value`.
-async fn if_else<F, C, S>(
-    ctx: C,
-    record_id: RecordId,
-    condition: &S,
-    true_value: &S,
-    false_value: &S,
-) -> Result<S, Error>
-where
-    F: Field,
-    C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
-{
-    // If `condition` is a share of 1 (true), then
-    //   = false_value + 1 * (true_value - false_value)
-    //   = false_value + true_value - false_value
-    //   = true_value
-    //
-    // If `condition` is a share of 0 (false), then
-    //   = false_value + 0 * (true_value - false_value)
-    //   = false_value
-    Ok(false_value.clone()
-        + &condition
-            .multiply(&(true_value.clone() - false_value), ctx, record_id)
-            .await?)
-}
-
 ///
 /// Computes a "prefix-OR" operation starting on each element in the list.
 /// Stops as soon as `helper_bits` indicates the following rows are not from
