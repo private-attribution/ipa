@@ -208,7 +208,7 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
     fn empty() -> Self {
         Self::from_iter(std::iter::empty())
     }
@@ -219,7 +219,7 @@ impl InMemoryStream {
         }
     }
 
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
     fn from_iter<I>(input: I) -> Self
     where
         I: IntoIterator<Item = StreamItem>,
@@ -286,7 +286,7 @@ impl Addr {
         serde_json::from_str(&self.params).unwrap()
     }
 
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
     fn records(from: HelperIdentity, query_id: QueryId, step: Step) -> Self {
         Self {
             route: RouteId::Records,
@@ -366,9 +366,10 @@ mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{query::QueryType, HelperIdentity, OrderingSender},
+        helpers::{
+            query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
+        },
         protocol::Step,
-        test_fixture::network::InMemoryNetwork,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};

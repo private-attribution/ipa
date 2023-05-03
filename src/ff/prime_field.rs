@@ -179,7 +179,7 @@ macro_rules! field_impl {
             }
         }
 
-        #[cfg(all(test, not(feature = "shuttle")))]
+        #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
         mod common_tests {
             use super::*;
             use crate::ff::Serializable;
@@ -224,7 +224,7 @@ macro_rules! field_impl {
 mod fp31 {
     field_impl! { Fp31, u8, 8, 31 }
 
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
     mod specialized_tests {
         use super::*;
 
@@ -247,7 +247,7 @@ mod fp31 {
 mod fp32bit {
     field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
 
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
     mod specialized_tests {
         use super::*;
 

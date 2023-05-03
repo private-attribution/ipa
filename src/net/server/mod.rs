@@ -116,7 +116,7 @@ impl MpcHelperServer {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod e2e_tests {
     use super::*;
     use crate::{

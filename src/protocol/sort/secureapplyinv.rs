@@ -22,7 +22,7 @@ pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + S
     Ok(shuffled_input)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     mod semi_honest {
         use rand::seq::SliceRandom;

@@ -305,7 +305,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::{
         AdditiveShare, Downgrade, ExtendableField, ThisCodeIsAuthorizedToDowngradeFromMalicious,

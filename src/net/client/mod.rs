@@ -195,7 +195,7 @@ impl MpcHelperClient {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
 pub(crate) mod tests {
     use super::*;
     use crate::{
