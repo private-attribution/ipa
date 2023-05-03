@@ -532,7 +532,9 @@ pub mod tests {
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
         telemetry::{
-            metrics::{BYTES_SENT, RECORDS_SENT},
+            metrics::{
+                BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
+            },
             stats::Metrics,
         },
         test_fixture::{
@@ -556,7 +558,6 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -618,7 +619,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -670,7 +670,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn semi_honest_with_attribution_window() {
-        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -732,7 +731,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn malicious_with_attribution_window() {
-        const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
@@ -877,6 +875,99 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn cap_of_one_with_attribution_window() {
+        const PER_USER_CAP: u32 = 1;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 1], [4, 0], [5, 0], [6, 1]];
+        const MAX_BREAKDOWN_KEY: u32 = 7;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::default();
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                { timestamp: 3, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                { timestamp: 4, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                { timestamp: 6, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 7, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                { timestamp: 8, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                { timestamp: 9, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C since TE corresponding to D is expired
+                { timestamp: 10, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                { timestamp: 11, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                { timestamp: 12, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                { timestamp: 13, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                { timestamp: 14, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                { timestamp: 17, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will NOT be attributed to D because it exceeds the attribution window (time_delta=4)
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records.clone(), |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: u32 = 64;
@@ -884,7 +975,7 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 86_400;
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
@@ -941,6 +1032,72 @@ pub mod tests {
         }
     }
 
+    /// Test for the "wrapping-add" attack (issue #520).
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn random_wrapping_add_attack() {
+        const PER_USER_CAP: u32 = 15;
+        const MAX_BREAKDOWN_KEY: u32 = 8;
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const NUM_MULTI_BITS: u32 = 3;
+        const RECORD_COUNT: usize = 8;
+
+        let random_seed = thread_rng().gen();
+        println!("Using random seed: {random_seed}");
+        let mut rng = StdRng::seed_from_u64(random_seed);
+        let mut records = Vec::with_capacity(RECORD_COUNT * 2);
+
+        // Generate 8 pairs of (source event, trigger event) tuple, each having a random trigger_value between [4, 31).
+        // This ensures there's at least one wrap around at user-level, and catch if the contribution ever exceeds the cap.
+        for _ in 0..RECORD_COUNT {
+            let mut record = ipa_test_input!(
+                [
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
+                    { timestamp: 0, match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            records.append(&mut record);
+        }
+
+        let world = TestWorld::default();
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    IpaQueryConfig::new(
+                        PER_USER_CAP,
+                        MAX_BREAKDOWN_KEY,
+                        ATTRIBUTION_WINDOW_SECONDS,
+                        NUM_MULTI_BITS,
+                    ),
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let trigger_values = result
+            .into_iter()
+            .map(|x| x.trigger_value.as_u128())
+            .collect::<Vec<_>>();
+        assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
+        println!("actual results: {trigger_values:#?}");
+
+        // Check that
+        //   * the contribution never exceeds the cap.
+        //   * the sum of all contributions = cap.
+        assert!(trigger_values
+            .iter()
+            .all(|v| *v <= u128::from(PER_USER_CAP)));
+        assert_eq!(
+            u128::from(PER_USER_CAP),
+            trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
+        );
+    }
+
     fn serde_internal(
         timestamp: u128,
         match_key: u64,
@@ -982,149 +1139,182 @@ pub mod tests {
         }
     }
 
-    /// Ensures that our communication numbers don't go above the baseline.
+    /// Ensures that our communication and PRSS numbers don't go above the baseline.
     /// Prints a warning if they are currently below, so someone needs to adjust the baseline
     /// inside this test.
     ///
     /// It is possible to increase the number too if there is a good reason for it. This is a
     /// "catch all" type of test to make sure we don't miss an accidental regression.
-    #[tokio::test]
-    #[allow(clippy::too_many_lines)]
-    pub async fn communication_baseline() {
+    mod baselines {
+        use super::*;
+        use crate::test_fixture::ipa::IpaSecurityModel::{Malicious, SemiHonest};
+
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
-        const FIELD_SIZE: u64 = <Fp32BitPrime as Serializable>::Size::U64;
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 18_234;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 63_648;
+        fn cap_one() -> IpaQueryConfig {
+            IpaQueryConfig {
+                per_user_credit_cap: 1,
+                max_breakdown_key: MAX_BREAKDOWN_KEY,
+                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                num_multi_bits: NUM_MULTI_BITS,
+            }
+        }
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46_020;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 174_792;
+        fn cap_three() -> IpaQueryConfig {
+            IpaQueryConfig {
+                per_user_credit_cap: 3,
+                max_breakdown_key: MAX_BREAKDOWN_KEY,
+                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                num_multi_bits: NUM_MULTI_BITS,
+            }
+        }
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_565;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 48_972;
+        fn generate_input<F: Field>() -> Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
+            ipa_test_input!(
+                [
+                    { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                    { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                    { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                ];
+                (F, MatchKey, BreakdownKey)
+            )
+        }
 
-        // empirical value as of Mar 30, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_666;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_376;
+        /// Metrics that reflect IPA performance
+        #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+        struct PerfMetrics {
+            /// Expected number of records sent between all helpers.
+            records_sent: u64,
+            /// Same as above, but bytes.
+            bytes_sent: u64,
+            /// Indexed random values generated by all helpers.
+            indexed_prss: u64,
+            /// Random values produced by PRSS random generators.
+            seq_prss: u64,
+        }
 
-        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
-            ];
-            (Fp32BitPrime, MatchKey, BreakdownKey)
-        );
+        impl PerfMetrics {
+            pub fn from_snapshot(snapshot: &Metrics) -> Self {
+                Self {
+                    records_sent: snapshot.get_counter(RECORDS_SENT),
+                    bytes_sent: snapshot.get_counter(BYTES_SENT),
+                    indexed_prss: snapshot.get_counter(INDEXED_PRSS_GENERATED),
+                    seq_prss: snapshot.get_counter(SEQUENTIAL_PRSS_GENERATED),
+                }
+            }
+        }
 
-        for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
+        /// Executes malicious or semi-honest IPA and validates that performance metrics stay
+        /// within the boundaries defined in `expected`.
+        async fn run_and_verify(
+            query_config: IpaQueryConfig,
+            mode: IpaSecurityModel,
+            expected: PerfMetrics,
+        ) {
+            let records = generate_input();
+            let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
+            let world = TestWorld::new_with(test_config);
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-                .semi_honest(records.clone(), |ctx, input_rows| async move {
-                    ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        IpaQueryConfig::new(
-                            per_user_cap,
-                            MAX_BREAKDOWN_KEY,
-                            ATTRIBUTION_WINDOW_SECONDS,
-                            NUM_MULTI_BITS,
-                        ),
-                    )
-                    .await
-                    .unwrap()
+                .semi_honest(records, |ctx, input_rows| async move {
+                    match mode {
+                        SemiHonest => ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                            ctx,
+                            &input_rows,
+                            query_config,
+                        )
+                        .await
+                        .unwrap(),
+                        Malicious => ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                            ctx,
+                            &input_rows,
+                            query_config,
+                        )
+                        .await
+                        .unwrap(),
+                    }
                 })
                 .await
                 .reconstruct();
 
-            let snapshot = world.metrics_snapshot();
-            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
-                (
-                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
-                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1,
-                )
-            } else {
-                (
-                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
-                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3,
-                )
-            };
-            assert_baselines(
-                &format!("semi-honest IPA (cap = {per_user_cap})"),
-                &snapshot,
-                [
-                    (RECORDS_SENT, records_baseline),
-                    (BYTES_SENT, bytes_baseline),
-                ],
+            let actual = PerfMetrics::from_snapshot(&world.metrics_snapshot());
+            assert!(
+                expected >= actual,
+                "{mode:?} IPA performance has degraded. Expected: {expected:?} >= {actual:?}"
             );
 
-            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-
-            let _ = world
-                .semi_honest(records.clone(), |ctx, input_rows| async move {
-                    ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        IpaQueryConfig::new(
-                            per_user_cap,
-                            MAX_BREAKDOWN_KEY,
-                            ATTRIBUTION_WINDOW_SECONDS,
-                            NUM_MULTI_BITS,
-                        ),
-                    )
-                    .await
-                    .unwrap()
-                })
-                .await;
-
-            let snapshot = world.metrics_snapshot();
-            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
-                (
-                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
-                    BYTES_SENT_MALICIOUS_BASELINE_CAP_1,
-                )
-            } else {
-                (
-                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
-                    BYTES_SENT_MALICIOUS_BASELINE_CAP_3,
-                )
-            };
-            assert_baselines(
-                &format!("malicious IPA (cap = {per_user_cap})"),
-                &snapshot,
-                [
-                    (RECORDS_SENT, records_baseline),
-                    (BYTES_SENT, bytes_baseline),
-                ],
-            );
-        }
-    }
-
-    fn assert_baselines<const N: usize>(
-        name: &str,
-        snapshot: &Metrics,
-        baselines: [(&'static str, u64); N],
-    ) {
-        for (metric_name, baseline) in baselines {
-            let actual = snapshot.get_counter(metric_name);
-            assert!(actual <= baseline,
-                    "{metric_name} baseline for {name} has DEGRADED! Expected {baseline}, got {actual}.");
-
-            if actual < baseline {
-                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}. \
+            if expected > actual {
+                tracing::warn!("Baseline for {mode:?} IPA has improved! Expected {expected:?}, got {actual:?}. \
                 Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
+        }
+
+        #[tokio::test]
+        async fn semi_honest_cap_1() {
+            run_and_verify(
+                cap_one(),
+                SemiHonest,
+                PerfMetrics {
+                    records_sent: 14_589,
+                    bytes_sent: 49_068,
+                    indexed_prss: 19_473,
+                    seq_prss: 1114,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn semi_honest_cap_3() {
+            run_and_verify(
+                cap_three(),
+                SemiHonest,
+                PerfMetrics {
+                    records_sent: 21_936,
+                    bytes_sent: 78_456,
+                    indexed_prss: 28_494,
+                    seq_prss: 1114,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn malicious_cap_1() {
+            run_and_verify(
+                cap_one(),
+                Malicious,
+                PerfMetrics {
+                    records_sent: 36_714,
+                    bytes_sent: 137_568,
+                    indexed_prss: 76_014,
+                    seq_prss: 1098,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn malicious_cap_3() {
+            run_and_verify(
+                cap_three(),
+                Malicious,
+                PerfMetrics {
+                    records_sent: 55_440,
+                    bytes_sent: 212_472,
+                    indexed_prss: 113_337,
+                    seq_prss: 1098,
+                },
+            )
+            .await;
         }
     }
 }

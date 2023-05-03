@@ -4,38 +4,39 @@ mod prepare;
 mod results;
 mod step;
 
-use crate::{
-    protocol::QueryId,
-    sync::{Arc, Mutex},
-};
+use crate::{net::HttpTransport, sync::Arc};
 use axum::Router;
-use std::collections::HashMap;
-use tokio::sync::mpsc;
 
-pub fn router(
-    transport_sender: mpsc::Sender<CommandEnvelope>,
-    // TODO: clean up after query has been processed
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-) -> Router {
+/// Construct router for IPA query web service
+///
+/// In principle, this web service could be backed by either an HTTP-interconnected helper network or
+/// an in-memory helper network. These are the APIs used by external callers (report collectors) to
+/// examine attribution results.
+pub fn query_router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
-        .merge(create::router(transport_sender.clone()))
-        .merge(prepare::router(transport_sender.clone()))
-        .merge(input::router(transport_sender.clone()))
-        .merge(results::router(transport_sender))
-        .merge(step::router(ongoing_queries))
+        .merge(create::router(Arc::clone(&transport)))
+        .merge(input::router(Arc::clone(&transport)))
+        .merge(results::router(transport))
+}
+
+/// Construct router for helper-to-helper communications
+///
+/// This only makes sense in the context of an HTTP-interconnected helper network. These APIs are
+/// called by peer helpers to exchange MPC step data, and by whichever helper is the leader for a
+/// particular query, to coordinate servicing that query.
+//
+// It might make sense to split the query and h2h handlers into two modules.
+pub fn h2h_router(transport: Arc<HttpTransport>) -> Router {
+    Router::new()
+        .merge(prepare::router(Arc::clone(&transport)))
+        .merge(step::router(transport))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test_helpers {
-    use crate::{
-        net::MpcHelperServer,
-        protocol::QueryId,
-        sync::{Arc, Mutex},
-    };
+    use crate::net::test::TestServer;
     use futures_util::future::poll_immediate;
     use hyper::{service::Service, StatusCode};
-    use std::collections::HashMap;
-    use tokio::sync::mpsc;
     use tower::ServiceExt;
 
     /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
@@ -48,10 +49,7 @@ pub mod test_helpers {
     /// bad request via `IntoFailingReq`, get a response from the server, and compare its
     /// [`StatusCode`] with what is expected.
     pub async fn assert_req_fails_with<I: IntoFailingReq>(req: I, expected_status: StatusCode) {
-        let (management_tx, _management_rx) = mpsc::channel(1);
-        let (query_tx, _query_rx) = mpsc::channel(1);
-        let ongoing_queries = HashMap::from([(QueryId, query_tx)]);
-        let server = MpcHelperServer::new(management_tx, Arc::new(Mutex::new(ongoing_queries)));
+        let TestServer { server, .. } = TestServer::default().await;
 
         let mut router = server.router();
         let ready = poll_immediate(router.ready()).await.unwrap().unwrap();

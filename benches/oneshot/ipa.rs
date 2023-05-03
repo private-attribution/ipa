@@ -15,9 +15,17 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
 use tokio::runtime::Builder;
 
-#[cfg(all(target_arch = "x86_64", not(target_env = "msvc")))]
+#[cfg(all(
+    target_arch = "x86_64",
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap")
+))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -42,7 +50,7 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "0")]
+    #[arg(short = 'w', long, default_value = "86400")]
     attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
@@ -95,7 +103,6 @@ async fn run(args: Args) -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    // for args.per_user_cap in [1, 3] {
     let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
@@ -141,6 +148,9 @@ async fn run(args: Args) -> Result<(), Error> {
 }
 
 fn main() -> Result<(), Error> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let args = Args::parse();
     let rt = Builder::new_multi_thread()
         .worker_threads(args.threads)

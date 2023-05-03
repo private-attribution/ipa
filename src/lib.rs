@@ -8,7 +8,7 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 pub mod chunkscan;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
 #[cfg(all(feature = "enable-serde", feature = "web-app"))]
 pub mod config;
@@ -17,7 +17,6 @@ pub mod ff;
 pub mod helpers;
 pub mod hpke;
 #[cfg(feature = "web-app")]
-#[cfg(never)]
 pub mod net;
 pub mod protocol;
 pub mod query;

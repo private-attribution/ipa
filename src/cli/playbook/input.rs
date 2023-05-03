@@ -16,7 +16,7 @@ pub trait InputItem {
 impl<F: Field> InputItem for F {
     fn from_str(s: &str) -> Self {
         let int_v = s.parse::<u128>().unwrap();
-        F::from(int_v)
+        F::truncate_from(int_v)
     }
 }
 
@@ -28,21 +28,18 @@ impl InputItem for u64 {
 
 impl<F: Field, MK: GaloisField, BK: GaloisField> InputItem for GenericReportTestInput<F, MK, BK> {
     fn from_str(s: &str) -> Self {
-        if let [match_key, is_trigger_bit, breakdown_key, trigger_value] =
-            s.splitn(4, ',').collect::<Vec<_>>()[..]
+        if let [ts, match_key, is_trigger_bit, breakdown_key, trigger_value] =
+            s.splitn(5, ',').collect::<Vec<_>>()[..]
         {
-            let records: Vec<GenericReportTestInput<F, MK, BK>> = ipa_test_input!(
-                [
-                    {
-                        match_key: match_key.parse::<u128>().unwrap(),
-                        is_trigger_report: is_trigger_bit.parse::<u128>().unwrap(),
-                        breakdown_key: breakdown_key.parse::<u128>().unwrap(),
-                        trigger_value: trigger_value.parse::<u128>().unwrap()
-                    },
-                ];
+            ipa_test_input!({
+                    timestamp: ts.parse::<u128>().unwrap(),
+                    match_key: match_key.parse::<u128>().unwrap(),
+                    is_trigger_report: is_trigger_bit.parse::<u128>().unwrap(),
+                    breakdown_key: breakdown_key.parse::<u128>().unwrap(),
+                    trigger_value: trigger_value.parse::<u128>().unwrap()
+                };
                 (F, MK, BK)
-            );
-            records[0]
+            )
         } else {
             panic!("{s} is not a valid IPAInputTestRow")
         }

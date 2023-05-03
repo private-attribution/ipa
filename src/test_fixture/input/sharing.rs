@@ -4,7 +4,7 @@ use crate::{
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, AggregateCreditInputRow, ApplyAttributionWindowInputRow,
-            MCAccumulateCreditInputRow, MCAggregateCreditOutputRow,
+            CreditCappingInputRow, MCAccumulateCreditInputRow, MCAggregateCreditOutputRow,
         },
         ipa::IPAInputRow,
     },
@@ -28,6 +28,7 @@ where
             self.is_trigger_report,
             self.helper_bit,
             self.aggregation_bit,
+            self.active_bit,
         ];
         let optional_field_shares = optional_field_values.map(|v| match v {
             Some(x) => x.share_with(rng).map(Some),
@@ -51,6 +52,7 @@ where
                 is_trigger_report: optional_field_shares[2][0].clone(),
                 helper_bit: optional_field_shares[3][0].clone(),
                 aggregation_bit: optional_field_shares[4][0].clone(),
+                active_bit: optional_field_shares[5][0].clone(),
             },
             GenericReportShare {
                 match_key: mk1,
@@ -61,6 +63,7 @@ where
                 is_trigger_report: optional_field_shares[2][1].clone(),
                 helper_bit: optional_field_shares[3][1].clone(),
                 aggregation_bit: optional_field_shares[4][1].clone(),
+                active_bit: optional_field_shares[5][1].clone(),
             },
             GenericReportShare {
                 match_key: mk2,
@@ -71,6 +74,7 @@ where
                 is_trigger_report: optional_field_shares[2][2].clone(),
                 helper_bit: optional_field_shares[3][2].clone(),
                 aggregation_bit: optional_field_shares[4][2].clone(),
+                active_bit: optional_field_shares[5][2].clone(),
             },
         ]
     }
@@ -127,16 +131,52 @@ where
             AccumulateCreditInputRow {
                 is_trigger_report: s0.is_trigger_report.unwrap(),
                 helper_bit: s0.helper_bit.unwrap(),
+                active_bit: s0.active_bit.unwrap(),
                 breakdown_key: s0.breakdown_key,
                 trigger_value: s0.trigger_value,
             },
             AccumulateCreditInputRow {
                 is_trigger_report: s1.is_trigger_report.unwrap(),
                 helper_bit: s1.helper_bit.unwrap(),
+                active_bit: s1.active_bit.unwrap(),
                 breakdown_key: s1.breakdown_key,
                 trigger_value: s1.trigger_value,
             },
             AccumulateCreditInputRow {
+                is_trigger_report: s2.is_trigger_report.unwrap(),
+                helper_bit: s2.helper_bit.unwrap(),
+                active_bit: s2.active_bit.unwrap(),
+                breakdown_key: s2.breakdown_key,
+                trigger_value: s2.trigger_value,
+            },
+        ]
+    }
+}
+
+impl<F, MK, BK> IntoShares<CreditCappingInputRow<F, BK>> for GenericReportTestInput<F, MK, BK>
+where
+    F: Field + IntoShares<Replicated<F>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
+    Standard: Distribution<F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [CreditCappingInputRow<F, BK>; 3] {
+        let [s0, s1, s2]: [GenericReportShare<F, MK, BK>; 3] = self.share_with(rng);
+
+        [
+            CreditCappingInputRow {
+                is_trigger_report: s0.is_trigger_report.unwrap(),
+                helper_bit: s0.helper_bit.unwrap(),
+                breakdown_key: s0.breakdown_key,
+                trigger_value: s0.trigger_value,
+            },
+            CreditCappingInputRow {
+                is_trigger_report: s1.is_trigger_report.unwrap(),
+                helper_bit: s1.helper_bit.unwrap(),
+                breakdown_key: s1.breakdown_key,
+                trigger_value: s1.trigger_value,
+            },
+            CreditCappingInputRow {
                 is_trigger_report: s2.is_trigger_report.unwrap(),
                 helper_bit: s2.helper_bit.unwrap(),
                 breakdown_key: s2.breakdown_key,
@@ -263,6 +303,7 @@ where
         ]
         .reconstruct();
         let helper_bit = [&s0.helper_bit, &s1.helper_bit, &s2.helper_bit].reconstruct();
+        let active_bit = [&s0.active_bit, &s1.active_bit, &s2.active_bit].reconstruct();
 
         GenericReportTestInput {
             breakdown_key,
@@ -273,6 +314,7 @@ where
             attribution_constraint_id: None,
             timestamp: None,
             aggregation_bit: None,
+            active_bit: Some(active_bit),
         }
     }
 }
@@ -315,6 +357,7 @@ where
             attribution_constraint_id: None,
             timestamp: None,
             aggregation_bit: None,
+            active_bit: None,
         }
     }
 }

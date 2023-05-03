@@ -86,6 +86,7 @@ where
         &windowed_reports,
         &stop_bits,
         config.per_user_credit_cap,
+        config.attribution_window_seconds,
     )
     .await?;
 

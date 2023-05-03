@@ -39,6 +39,7 @@ where
                 MCApplyAttributionWindowOutputRow::new(
                     x.is_trigger_report.clone(),
                     x.helper_bit.clone(),
+                    T::ZERO,
                     x.breakdown_key.clone(),
                     x.trigger_value.clone(),
                 )
@@ -48,17 +49,18 @@ where
 
     let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
 
-    let trigger_values =
+    let result =
         zero_out_expired_trigger_values(&ctx, input, &mut t_deltas, attribution_window_seconds)
             .await?;
 
     Ok(input
         .iter()
-        .zip(trigger_values)
-        .map(|(x, value)| {
+        .zip(result)
+        .map(|(x, (active_bit, value))| {
             MCApplyAttributionWindowOutputRow::new(
                 x.is_trigger_report.clone(),
                 x.helper_bit.clone(),
+                active_bit,
                 x.breakdown_key.clone(),
                 value,
             )
@@ -118,8 +120,10 @@ where
     Ok(t_delta)
 }
 
-/// Creates a vector of trigger values where values are set to `0` if the time delta
-/// from their nearest source event exceed the specified attribution window cap.
+/// Creates a vector of tuples. The right elements are trigger values where values are
+/// set to `0` if the time delta from their nearest source event exceed the specified
+/// attribution window cap. Each of the left elements is a share of {0, 1} indicating
+/// whether the corresponding credit is valid (1) or has been zero'ed-out (0).
 ///
 /// This protocol executes the bit-decomposition protocol in order to compare shares
 /// of time deltas in `F`.
@@ -131,7 +135,7 @@ async fn zero_out_expired_trigger_values<F, C, T>(
     input: &[MCApplyAttributionWindowInputRow<F, T>],
     time_delta: &mut [T],
     cap: u32,
-) -> Result<Vec<T>, Error>
+) -> Result<Vec<(T, T)>, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
@@ -158,9 +162,11 @@ where
                 async move {
                     let compare_bit =
                         one - &greater_than_constant(c1, record_id, rbg, delta, cap.into()).await?;
-                    row.trigger_value
+                    let new_value = row
+                        .trigger_value
                         .multiply(&compare_bit, c2, record_id)
-                        .await
+                        .await?;
+                    Ok((compare_bit, new_value))
                 }
             }),
     )
@@ -209,14 +215,17 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn attribution_window() {
         const ATTRIBUTION_WINDOW: u32 = 600;
-        const EXPECTED: &[u128; 23] = &[
+        const EXPECTED_TRIGGER_VALUES: &[u128; 23] = &[
             0, 0, 0, 10, 2, 1, 5, 1, 0, 0, 0, 10, 0, 3, 12, 0, 0, 6, 4, 0, 6, 1, 0,
         ];
-
+        const EXPECTED_ACTIVE_BITS: &[u128; 23] = &[
+            1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
+        ];
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = attribution_window_test_input!(
             [
                 { timestamp: 500, is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 }, // delta: 0
@@ -290,16 +299,26 @@ mod tests {
         assert_eq!(result[0].len(), input_len);
         assert_eq!(result[1].len(), input_len);
         assert_eq!(result[2].len(), input_len);
-        assert_eq!(result[0].len(), EXPECTED.len());
+        assert_eq!(result[0].len(), EXPECTED_TRIGGER_VALUES.len());
 
-        for (i, expected) in EXPECTED.iter().enumerate() {
+        for (i, (value, active_bit)) in
+            zip(EXPECTED_TRIGGER_VALUES, EXPECTED_ACTIVE_BITS).enumerate()
+        {
             let v = [
                 &result[0][i].trigger_value,
                 &result[1][i].trigger_value,
                 &result[2][i].trigger_value,
             ]
             .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
+            let b = [
+                &result[0][i].active_bit,
+                &result[1][i].active_bit,
+                &result[2][i].active_bit,
+            ]
+            .reconstruct();
+
+            assert_eq!(v.as_u128(), *value);
+            assert_eq!(b.as_u128(), *active_bit);
         }
     }
 }

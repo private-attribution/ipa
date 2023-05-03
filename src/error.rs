@@ -2,6 +2,14 @@ use std::fmt::Debug;
 use thiserror::Error;
 use tokio::task::JoinError;
 
+/// An error raised by the IPA protocol.
+///
+/// This error type could be thought of as `ipa::protocol::Error`. There are other error types for
+/// some of the other modules:
+///  * `ipa::helpers::Error`, for infrastructure
+///  * `ipa::ff::Error`, for finite field routines
+///  * `ipa::net::Error`, for the HTTP transport
+///  * `ipa::app::Error`, for the report collector query APIs
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("already exists")]
@@ -37,12 +45,8 @@ pub enum Error {
     InfraError(#[from] crate::helpers::Error),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
-    #[error(transparent)]
-    NewQueryError(#[from] crate::query::NewQueryError),
-    #[error(transparent)]
-    QueryInputError(#[from] crate::query::QueryInputError),
-    #[error(transparent)]
-    QueryCompletionError(#[from] crate::query::QueryCompletionError),
+    #[error("Invalid query parameter: {0}")]
+    InvalidQueryParameter(String),
 }
 
 impl Default for Error {

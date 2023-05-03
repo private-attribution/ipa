@@ -16,6 +16,7 @@ pub struct GenericReportShare<F: Field, MK: GaloisField, BK: GaloisField> {
     pub trigger_value: AdditiveShare<F>,
     pub helper_bit: Option<AdditiveShare<F>>,
     pub aggregation_bit: Option<AdditiveShare<F>>,
+    pub active_bit: Option<AdditiveShare<F>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -28,6 +29,7 @@ pub struct GenericReportTestInput<F: Field, MK: GaloisField, BK: GaloisField> {
     pub trigger_value: F,
     pub helper_bit: Option<F>,
     pub aggregation_bit: Option<F>,
+    pub active_bit: Option<F>,
 }
 
 #[macro_export]
@@ -42,6 +44,7 @@ macro_rules! ipa_test_input {
             trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($tv).unwrap()),
             helper_bit: None,
             aggregation_bit: None,
+            active_bit: None,
         }
     };
 
@@ -64,6 +67,7 @@ macro_rules! attribution_window_test_input {
             trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($cdt).unwrap()),
             helper_bit: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($hb).unwrap())),
             aggregation_bit: None,
+            active_bit: None,
         }
     };
 
@@ -76,6 +80,29 @@ macro_rules! attribution_window_test_input {
 
 #[macro_export]
 macro_rules! accumulation_test_input {
+    ( { is_trigger_report: $itr:expr, helper_bit: $hb:expr, active_bit: $ab:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+        GenericReportTestInput {
+            match_key: None,
+            attribution_constraint_id: None,
+            timestamp: None,
+            is_trigger_report: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($itr).unwrap())),
+            breakdown_key: <$bk_bit_array as $crate::ff::Field>::truncate_from(u128::try_from($bk).unwrap()),
+            trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($cdt).unwrap()),
+            helper_bit: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($hb).unwrap())),
+            aggregation_bit: None,
+            active_bit: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($ab).unwrap())),
+        }
+    };
+
+    ( [ $({ is_trigger_report: $itr:expr, helper_bit: $hb:expr, active_bit: $ab:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }),* $(,)? ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+        vec![
+            $(accumulation_test_input!({ is_trigger_report: $itr, helper_bit: $hb, active_bit: $ab, breakdown_key: $bk, credit: $cdt }; ($field, $mk_bit_array, $bk_bit_array))),*
+        ]
+    };
+}
+
+#[macro_export]
+macro_rules! credit_capping_test_input {
     ( { is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         GenericReportTestInput {
             match_key: None,
@@ -86,12 +113,13 @@ macro_rules! accumulation_test_input {
             trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($cdt).unwrap()),
             helper_bit: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($hb).unwrap())),
             aggregation_bit: None,
+            active_bit: None,
         }
     };
 
     ( [ $({ is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }),* $(,)? ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         vec![
-            $(accumulation_test_input!({ is_trigger_report: $itr, helper_bit: $hb, breakdown_key: $bk, credit: $cdt }; ($field, $mk_bit_array, $bk_bit_array))),*
+            $(credit_capping_test_input!({ is_trigger_report: $itr, helper_bit: $hb, breakdown_key: $bk, credit: $cdt }; ($field, $mk_bit_array, $bk_bit_array))),*
         ]
     };
 }
@@ -107,7 +135,8 @@ macro_rules! aggregation_test_input {
             breakdown_key: <$bk_bit_array as $crate::ff::Field>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: <$field as $crate::ff::Field>::truncate_from(u128::try_from($cdt).unwrap()),
             helper_bit: Some(<$field as $crate::ff::Field>::truncate_from(u128::try_from($hb).unwrap())),
-            aggregation_bit: None
+            aggregation_bit: None,
+            active_bit: None,
         }
     };
 

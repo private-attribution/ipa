@@ -10,6 +10,7 @@ use metrics_util::{
     layers::Layer,
 };
 use once_cell::sync::OnceCell;
+use rand::distributions::Alphanumeric;
 use tracing::{Level, Span};
 
 // TODO: move to OnceCell from std once it is stabilized
@@ -28,6 +29,8 @@ fn setup() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
+
+        #[cfg(not(feature = "disable-metrics"))]
         metrics::set_recorder(recorder).unwrap();
 
         // register metrics
@@ -37,8 +40,9 @@ fn setup() {
     });
 }
 
+#[derive(Clone)]
 pub struct MetricsHandle {
-    id: u128,
+    id: String,
     level: Level,
 }
 
@@ -53,7 +57,11 @@ impl MetricsHandle {
     #[must_use]
     pub fn new(level: Level) -> Self {
         MetricsHandle {
-            id: thread_rng().gen::<u128>(),
+            id: thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(8)
+                .map(char::from)
+                .collect(),
             level,
         }
     }
@@ -65,6 +73,7 @@ impl MetricsHandle {
     #[must_use]
     pub fn span(&self) -> Span {
         setup();
+
         // Metrics collection with attributes/labels is expensive. Enabling it for all tests
         // resulted in doubling the time it takes to finish them. Tests must explicitly opt-in to
         // use this feature.
@@ -74,10 +83,10 @@ impl MetricsHandle {
         // print them.
         match self.level {
             Level::INFO => {
-                tracing::info_span!("", "metric_handle_id" = self.id.to_string())
+                tracing::info_span!("", "metrics_id" = self.id)
             }
             Level::DEBUG => {
-                tracing::debug_span!("", "metric_handle_id" = self.id.to_string())
+                tracing::debug_span!("", "metrics_id" = self.id)
             }
             _ => {
                 panic!("Only Info and Debug levels are supported")
@@ -92,10 +101,9 @@ impl MetricsHandle {
     #[must_use]
     pub fn snapshot(&self) -> Metrics {
         let snapshot = ONCE.get().unwrap().snapshot();
-        let id = self.id.to_string();
 
         Metrics::with_filter(snapshot, |labels| {
-            labels.iter().any(|label| label.value().eq(&id))
+            labels.iter().any(|label| label.value().eq(&self.id))
         })
     }
 
@@ -105,5 +113,12 @@ impl MetricsHandle {
             .counters
             .get(&key_name.into())
             .map(|v| v.total_value)
+    }
+}
+
+#[cfg(feature = "web-app")]
+impl crate::net::TracingSpanMaker for MetricsHandle {
+    fn make_span(&self) -> Span {
+        self.span()
     }
 }

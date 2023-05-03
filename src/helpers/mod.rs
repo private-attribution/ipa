@@ -7,7 +7,6 @@ mod buffers;
 mod error;
 mod gateway;
 mod prss_protocol;
-mod time;
 mod transport;
 
 pub use error::{Error, Result};
@@ -15,13 +14,12 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{Gateway, TransportImpl};
+pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    AlignedByteArrStream, ByteArrStream, Error as TransportError, NoResourceIdentifier,
-    PrepareQueryCallback, QueryIdBinding, ReceiveQueryCallback, RouteId, RouteParams, StepBinding,
-    Transport, TransportCallbacks,
+    callbacks::*, AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding,
+    ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
 };
 
 pub use transport::query;

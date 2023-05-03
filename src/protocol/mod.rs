@@ -230,7 +230,7 @@ impl Debug for Step {
 }
 
 /// Unique identifier of the MPC query requested by report collectors
-/// TODO: Generating this unique id may be tricky as it may involve communication between helpers and
+/// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and
 /// them collaborating on constructing this unique id. These details haven't been flushed out yet,
 /// so for now it is just an empty struct. Once we know more about it, we will make necessary
 /// amendments to it
@@ -245,7 +245,7 @@ pub struct QueryId;
 impl Display for QueryId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // fail when query id becomes meaningful and change the display implementation
-        let _ = QueryId;
+        let _: QueryId = QueryId;
         write!(f, "{self:?}")
     }
 }

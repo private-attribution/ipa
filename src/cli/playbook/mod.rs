@@ -1,5 +1,3 @@
-#![cfg(never)] // TODO: remove when HTTP layer can work with channelled transport
-
 mod input;
 mod ipa;
 mod multiply;
