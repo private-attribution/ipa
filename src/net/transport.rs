@@ -247,7 +247,7 @@ mod e2e_tests {
                     .with_network_config(client_config)
                     .build();
                 let (transport, server) = HttpTransport::new(id, clients.0, callbacks);
-                server.bind(BindTarget::HttpListener(socket)).await;
+                server.bind(BindTarget::HttpListener(socket), ()).await;
                 let app = setup.connect(transport);
                 app
             },
