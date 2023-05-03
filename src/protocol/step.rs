@@ -57,17 +57,17 @@ impl Step for str {}
     derive(serde::Deserialize),
     serde(from = "&str")
 )]
-pub struct GenericStep {
+pub struct Descriptive {
     id: String,
 }
 
-impl Display for GenericStep {
+impl Display for Descriptive {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id)
     }
 }
 
-impl<S: Step + ?Sized> StepNarrow<S> for GenericStep {
+impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
@@ -85,7 +85,7 @@ impl<S: Step + ?Sized> StepNarrow<S> for GenericStep {
     }
 }
 
-impl Default for GenericStep {
+impl Default for Descriptive {
     // TODO(mt): this should might be better if it were to be constructed from
     // a QueryId rather than using a default.
     fn default() -> Self {
@@ -95,20 +95,20 @@ impl Default for GenericStep {
     }
 }
 
-impl AsRef<str> for GenericStep {
+impl AsRef<str> for Descriptive {
     fn as_ref(&self) -> &str {
         self.id.as_str()
     }
 }
 
-impl From<&str> for GenericStep {
+impl From<&str> for Descriptive {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        GenericStep { id: id.to_owned() }
+        Descriptive { id: id.to_owned() }
     }
 }
 
-impl Debug for GenericStep {
+impl Debug for Descriptive {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "step={}", self.id)
     }

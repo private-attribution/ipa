@@ -1,8 +1,8 @@
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
     protocol::{
-        prss,
-        step::{GenericStep, Step, StepNarrow},
+        prss, step,
+        step::{Step, StepNarrow},
         RecordId,
     },
 };
@@ -27,7 +27,7 @@ impl Step for PrssExchangeStep {}
 /// if communication with other helpers fails
 pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
     gateway: &Gateway<T>,
-    step: &GenericStep,
+    step: &step::Descriptive,
     rng: &mut R,
 ) -> Result<prss::Endpoint, Error> {
     // setup protocol to exchange prss public keys. This protocol sends one message per peer.

@@ -6,7 +6,7 @@ use crate::{
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{step::GenericStep, QueryId},
+    protocol::{step, QueryId},
     sync::Arc,
 };
 use async_trait::async_trait;
@@ -71,7 +71,7 @@ impl HttpTransport {
     pub fn receive_stream(
         self: Arc<Self>,
         query_id: QueryId,
-        step: GenericStep,
+        step: step::Descriptive,
         from: HelperIdentity,
         stream: BodyStream,
     ) {
@@ -102,7 +102,7 @@ impl Transport for Arc<HttpTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<GenericStep>: From<S>,
+        Option<step::Descriptive>: From<S>,
     {
         let route_id = route.resource_identifier();
         match route_id {
@@ -110,7 +110,7 @@ impl Transport for Arc<HttpTransport> {
                 // TODO(600): These fallible extractions aren't really necessary.
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id required when sending records");
-                let step = <Option<GenericStep>>::from(route.step())
+                let step = <Option<step::Descriptive>>::from(route.step())
                     .expect("step required when sending records");
                 let resp_future = self.clients[dest].step(self.identity, query_id, &step, data)?;
                 tokio::spawn(async move {
@@ -135,7 +135,7 @@ impl Transport for Arc<HttpTransport> {
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GenericStep>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
         &self,
         from: HelperIdentity,
         route: R,
@@ -155,7 +155,7 @@ mod e2e_tests {
         ff::{FieldType, Fp31, Serializable},
         helpers::{query::QueryType, ByteArrStream},
         net::test::{body_stream, TestClients, TestServer},
-        protocol::step::GenericStep,
+        protocol::step,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{config::TestConfigBuilder, Reconstruct},
         AppSetup, HelperApp,
@@ -169,7 +169,7 @@ mod e2e_tests {
     use tokio_stream::wrappers::ReceiverStream;
     use typenum::Unsigned;
 
-    static STEP: Lazy<GenericStep> = Lazy::new(|| GenericStep::from("http-transport"));
+    static STEP: Lazy<step::Descriptive> = Lazy::new(|| step::Descriptive::from("http-transport"));
 
     #[tokio::test]
     async fn receive_stream() {

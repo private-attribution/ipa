@@ -38,7 +38,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{step::GenericStep, RecordId},
+    protocol::{step, RecordId},
     secret_sharing::SharedValue,
 };
 use generic_array::GenericArray;
@@ -376,12 +376,12 @@ pub struct ChannelId {
     pub role: Role,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
-    pub step: GenericStep,
+    pub step: step::Descriptive,
 }
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: GenericStep) -> Self {
+    pub fn new(role: Role, step: step::Descriptive) -> Self {
         Self { role, step }
     }
 }

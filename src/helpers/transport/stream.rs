@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{step::GenericStep, QueryId},
+    protocol::{step, QueryId},
     sync::{Arc, Mutex},
 };
 use futures::Stream;
@@ -12,7 +12,7 @@ use std::{
 
 /// Each stream is indexed by query id, the identity of helper where stream is originated from
 /// and step.
-pub type StreamKey = (QueryId, HelperIdentity, GenericStep);
+pub type StreamKey = (QueryId, HelperIdentity, step::Descriptive);
 
 /// Thread-safe append-only collection of homogeneous record streams.
 /// Streams are indexed by [`StreamKey`] and the lifecycle of each stream is described by the

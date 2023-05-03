@@ -27,7 +27,8 @@ use crate::{
         malicious::MaliciousValidatorAccumulator,
         modulus_conversion::BitConversionTriple,
         prss::Endpoint as PrssEndpoint,
-        step::{BitOpStep, GenericStep, Step},
+        step,
+        step::{BitOpStep, Step},
         NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
@@ -62,7 +63,7 @@ pub struct MaliciousContext<'a, F: Field + ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<ContextInner<'a, F>>,
-    step: GenericStep,
+    step: step::Descriptive,
     total_records: TotalRecords,
 }
 
@@ -194,7 +195,7 @@ impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &GenericStep {
+    fn step(&self) -> &step::Descriptive {
         &self.step
     }
 
