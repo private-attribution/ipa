@@ -7,11 +7,18 @@ use futures::Stream;
 use std::borrow::Borrow;
 
 mod bytearrstream;
-mod callbacks;
+pub mod callbacks;
+#[cfg(feature = "in-memory-infra")]
+mod in_memory;
 pub mod query;
+mod receive;
+mod stream;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use callbacks::{PrepareQueryCallback, ReceiveQueryCallback, TransportCallbacks};
+#[cfg(feature = "in-memory-infra")]
+pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use receive::ReceiveRecords;
+pub use stream::{StreamCollection, StreamKey};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized

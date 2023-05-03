@@ -282,7 +282,7 @@ impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use std::iter::{repeat, zip};
 

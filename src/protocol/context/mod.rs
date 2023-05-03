@@ -63,7 +63,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
@@ -81,6 +81,7 @@ mod tests {
         telemetry::metrics::{
             BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
         },
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
     use futures_util::{future::join_all, try_join};
     use rand::{
@@ -91,7 +92,6 @@ mod tests {
     use typenum::Unsigned;
 
     use super::*;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
 
     trait AsReplicatedTestOnly<F: Field> {
         fn l(&self) -> F;
@@ -141,7 +141,15 @@ mod tests {
         let (seq_l, seq_r) = {
             let ctx = ctx.narrow(&format!("seq-prss-{index}"));
             let (mut left_rng, mut right_rng) = ctx.prss_rng();
-            (left_rng.gen::<F>(), right_rng.gen::<F>())
+
+            // exercise both methods of `RngCore` trait
+            // generating a field value involves calling `next_u64` and 32 bit integer values
+            // have special constructor method for them: `next_u32`. Sequential randomness must
+            // record metrics for both calls.
+            (
+                left_rng.gen::<F>() + F::truncate_from(left_rng.gen::<u32>()),
+                right_rng.gen::<F>() + F::truncate_from(right_rng.gen::<u32>()),
+            )
         };
 
         let send_channel = ctx.send_channel(left_peer);
@@ -202,17 +210,18 @@ mod tests {
             .total(3 * input_size * field_size)
             .per_step(&metrics_step, 3 * input_size * field_size);
 
-        // each helper generates 2 128 bit values resuling in 4 calls to rng::<gen>() per input row
+        // each helper generates 2 128 bit values and 2 u32 values
+        // resulting in 6 calls to rng::<gen>() per input row
         let seq_prss_assert = snapshot
             .assert_metric(SEQUENTIAL_PRSS_GENERATED)
-            .total(4 * 3 * input_size)
-            .per_step(&metrics_step.narrow("seq-prss-0"), 4 * 3);
+            .total(6 * 3 * input_size)
+            .per_step(&metrics_step.narrow("seq-prss-0"), 6 * 3);
 
         for role in Role::all() {
             records_sent_assert.per_helper(role, input_size);
             bytes_sent_assert.per_helper(role, field_size * input_size);
             indexed_prss_assert.per_helper(role, input_size);
-            seq_prss_assert.per_helper(role, 4 * input_size);
+            seq_prss_assert.per_helper(role, 6 * input_size);
         }
     }
 
@@ -281,14 +290,14 @@ mod tests {
         // see semi-honest test for explanation
         let seq_prss_assert = snapshot
             .assert_metric(SEQUENTIAL_PRSS_GENERATED)
-            .total(4 * 3 * input_size)
-            .per_step(&metrics_step.narrow("seq-prss-0"), 4 * 3);
+            .total(6 * 3 * input_size)
+            .per_step(&metrics_step.narrow("seq-prss-0"), 6 * 3);
 
         for role in Role::all() {
             records_sent_assert.per_helper(role, comm_factor(input_size));
             bytes_sent_assert.per_helper(role, comm_factor(input_size) * field_size);
             indexed_prss_assert.per_helper(role, prss_factor(input_size));
-            seq_prss_assert.per_helper(role, 4 * input_size);
+            seq_prss_assert.per_helper(role, 6 * input_size);
         }
     }
 

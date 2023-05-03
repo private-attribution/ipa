@@ -1,67 +1,64 @@
-use crate::net::{http_serde, server::Error};
+use crate::{
+    helpers::Transport,
+    net::{http_serde, Error, HttpTransport},
+    query::NewQueryError,
+    sync::Arc,
+};
 use axum::{routing::post, Extension, Json, Router};
-use tokio::sync::{mpsc, oneshot};
+use hyper::StatusCode;
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`].
 async fn handler(
-    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
+    transport: Extension<Arc<HttpTransport>>,
     req: http_serde::query::create::Request,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
-    let permit = transport_sender.reserve().await?;
-
-    // prepare command data
-    let (tx, rx) = oneshot::channel();
-
-    // send command, receive response
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Create(req.query_config, tx)),
-    };
-    permit.send(command);
-    let query_id = rx.await?;
-
-    Ok(Json(http_serde::query::create::ResponseBody { query_id }))
+    let transport = Transport::clone_ref(&*transport);
+    match transport.receive_query(req.query_config).await {
+        Ok(query_id) => Ok(Json(http_serde::query::create::ResponseBody { query_id })),
+        Err(err @ NewQueryError::State { .. }) => {
+            Err(Error::application(StatusCode::CONFLICT, err))
+        }
+        Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
+    }
 }
 
-pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::create::AXUM_PATH, post(handler))
-        .layer(Extension(transport_sender))
+        .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+        helpers::{
+            query::{IpaQueryConfig, QueryConfig, QueryType},
+            TransportCallbacks,
+        },
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::TestServer,
+        },
         protocol::QueryId,
     };
     use axum::http::Request;
-    use futures::{future::poll_immediate, pin_mut};
     use hyper::{Body, StatusCode};
+    use std::future::ready;
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let (tx, mut rx) = mpsc::channel(1);
-        let req = http_serde::query::create::Request::new(expected_query_config);
-        let handle = handler(Extension(tx), req);
-        pin_mut!(handle);
-        // should return pending upon awaiting response
-        assert!(matches!(poll_immediate(&mut handle).await, None));
-
-        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
-        assert_eq!(res.origin, CommandOrigin::Other);
-        match res.payload {
-            TransportCommand::Query(QueryCommand::Create(query_config, responder)) => {
+        let cb = TransportCallbacks {
+            receive_query: Box::new(move |_transport, query_config| {
                 assert_eq!(query_config, expected_query_config);
-                responder.send(QueryId).unwrap();
-            }
-            other => panic!("expected create command, but got {other:?}"),
-        }
-
-        let Json(resp) = poll_immediate(handle).await.unwrap().unwrap();
+                Box::pin(ready(Ok(QueryId)))
+            }),
+            ..Default::default()
+        };
+        let req = http_serde::query::create::Request::new(expected_query_config);
+        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        let Json(resp) = handler(Extension(transport), req).await.unwrap();
         assert_eq!(resp.query_id, QueryId);
     }
 

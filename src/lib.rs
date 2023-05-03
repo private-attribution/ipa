@@ -8,7 +8,7 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 pub mod chunkscan;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
 #[cfg(all(feature = "enable-serde", feature = "web-app"))]
 pub mod config;
@@ -77,3 +77,6 @@ pub(crate) mod task {
 pub(crate) mod task {
     pub use tokio::task::JoinHandle;
 }
+
+#[cfg(all(feature = "in-memory-infra", feature = "real-world-infra"))]
+compile_error!("feature \"in-memory-infra\" and feature \"real-world-infra\" cannot be enabled at the same time");

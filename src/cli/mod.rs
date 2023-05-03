@@ -1,5 +1,5 @@
 mod metric_collector;
-#[cfg(feature = "web-app")]
+#[cfg(all(feature = "test-fixture", feature = "web-app", feature = "cli"))]
 pub mod playbook;
 mod verbosity;
 

@@ -16,7 +16,7 @@ pub enum Error {
 ///
 /// The most important thing this contains is discovery information for each of the participating
 /// helpers.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NetworkConfig {
     /// Information about each helper participating in the network. The order that helpers are
     /// listed here determines their assigned helper identities in the network. Note that while the
@@ -99,7 +99,7 @@ impl ServerConfig {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{helpers::HelperIdentity, test_fixture::config::TestConfigBuilder};
     use hyper::Uri;

@@ -158,7 +158,7 @@ pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field + Exten
     .await
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use std::iter::zip;
 

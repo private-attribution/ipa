@@ -1,26 +1,34 @@
 pub mod input;
 mod sharing;
+#[cfg(feature = "in-memory-infra")]
 mod world;
 
+// `test-fixture` module is enabled for all tests, but app makes sense only for tests that use
+// in-memory infra.
+#[cfg(feature = "in-memory-infra")]
 mod app;
+
+#[cfg(feature = "in-memory-infra")]
 pub mod circuit;
 pub mod config;
+#[cfg(feature = "in-memory-infra")]
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub mod network;
 
 use crate::{
-    ff::{Field, Fp31},
+    ff::Field,
     protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
-    rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
+#[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
 use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
+use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
+#[cfg(feature = "in-memory-infra")]
 pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.
@@ -43,11 +51,10 @@ pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Substep) -> [C
 /// Generate three participants.
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
 #[must_use]
-pub fn make_participants() -> [PrssEndpoint; 3] {
-    let mut r = thread_rng();
-    let setup1 = PrssEndpoint::prepare(&mut r);
-    let setup2 = PrssEndpoint::prepare(&mut r);
-    let setup3 = PrssEndpoint::prepare(&mut r);
+pub fn make_participants<R: RngCore + CryptoRng>(r: &mut R) -> [PrssEndpoint; 3] {
+    let setup1 = PrssEndpoint::prepare(r);
+    let setup2 = PrssEndpoint::prepare(r);
+    let setup3 = PrssEndpoint::prepare(r);
     let (pk1_l, pk1_r) = setup1.public_keys();
     let (pk2_l, pk2_r) = setup2.public_keys();
     let (pk3_l, pk3_r) = setup3.public_keys();

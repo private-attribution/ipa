@@ -1,109 +1,71 @@
 use crate::{
-    net::{http_serde, server::Error},
-    protocol::QueryId,
-    sync::{Arc, Mutex},
+    helpers::Transport,
+    net::{http_serde, server::Error, HttpTransport},
+    sync::Arc,
 };
-use axum::{routing::post, Extension, Router};
-use std::collections::HashMap;
-use tokio::sync::mpsc;
+use axum::{extract::BodyStream, routing::post, Extension, Router};
 
-type OngoingQueries = Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>;
-
-#[allow(clippy::type_complexity)] // it's a hashmap
+#[allow(clippy::unused_async)] // axum doesn't like synchronous handler
 async fn handler(
-    req: http_serde::query::step::Request,
-    ongoing_queries: Extension<OngoingQueries>,
+    transport: Extension<Arc<HttpTransport>>,
+    req: http_serde::query::step::Request<BodyStream>,
 ) -> Result<(), Error> {
-    // wrap in braces to ensure lock is released
-    let network_sender = {
-        ongoing_queries
-            .lock()
-            .unwrap()
-            .get(&req.query_id)
-            .ok_or_else(|| Error::QueryIdNotFound(req.query_id))?
-            .clone()
-    };
-    let permit = network_sender.reserve().await?;
-
-    let command = CommandEnvelope {
-        origin: CommandOrigin::Helper(req.origin),
-        payload: TransportCommand::StepData {
-            query_id: req.query_id,
-            step: req.step,
-            payload: req.payload,
-            offset: req.offset,
-        },
-    };
-    permit.send(command);
+    let transport = Transport::clone_ref(&*transport);
+    transport.receive_stream(req.query_id, req.step, req.origin, req.body);
     Ok(())
 }
 
-pub fn router(ongoing_queries: OngoingQueries) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .route(http_serde::query::step::AXUM_PATH, post(handler))
-        .layer(Extension(ongoing_queries))
+        .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
+    use std::{future::ready, task::Poll};
+
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
-        protocol::Step,
+        net::{
+            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            test::{body_stream, TestServer},
+        },
+        protocol::{QueryId, Step},
     };
     use axum::http::Request;
-    use futures_util::future::poll_immediate;
+    use futures::{
+        stream::{once, poll_immediate},
+        StreamExt,
+    };
     use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
 
-    #[allow(clippy::type_complexity)] // it's a hashmap
-    fn filled_ongoing_queries() -> (
-        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-        mpsc::Receiver<CommandEnvelope>,
-    ) {
-        let (tx, rx) = mpsc::channel(1);
-        (Arc::new(Mutex::new(HashMap::from([(QueryId, tx)]))), rx)
-    }
-
     #[tokio::test]
-    async fn collect_req() {
-        for offset in 0..10 {
-            let req = http_serde::query::step::Request::new(
-                HelperIdentity::try_from(2).unwrap(),
-                QueryId,
-                Step::default().narrow("test"),
-                vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset,
-            );
+    async fn step() {
+        let TestServer { transport, .. } = TestServer::builder().build().await;
 
-            let (ongoing_queries, mut rx) = filled_ongoing_queries();
+        let step = Step::default().narrow("test");
+        let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
+        let req = http_serde::query::step::Request::new(
+            HelperIdentity::TWO,
+            QueryId,
+            step.clone(),
+            body_stream(Box::new(once(ready(Ok(payload.clone().into()))))).await,
+        );
 
-            poll_immediate(handler(req.clone(), Extension(ongoing_queries)))
-                .await
-                .unwrap()
-                .expect("request should succeed");
-            let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
+        handler(Extension(Arc::clone(&transport)), req)
+            .await
+            .unwrap();
 
-            assert_eq!(res.origin, CommandOrigin::Helper(req.origin));
-            match res.payload {
-                TransportCommand::StepData {
-                    query_id,
-                    step,
-                    payload,
-                    offset,
-                } => {
-                    assert_eq!(req.query_id, query_id);
-                    assert_eq!(req.step, step);
-                    assert_eq!(req.payload, payload);
-                    assert_eq!(req.offset, offset);
-                }
-                other @ TransportCommand::Query(_) => {
-                    panic!("expected command to be `StepData`, but found {other:?}")
-                }
-            }
-        }
+        let mut stream = Arc::clone(&transport).receive(HelperIdentity::TWO, (QueryId, step));
+
+        assert_eq!(
+            poll_immediate(&mut stream).next().await,
+            Some(Poll::Ready(payload))
+        );
     }
 
     struct OverrideReq {
@@ -111,7 +73,6 @@ mod tests {
         query_id: String,
         step: Step,
         payload: Vec<u8>,
-        offset: u32,
     }
 
     impl IntoFailingReq for OverrideReq {
@@ -124,7 +85,6 @@ mod tests {
                 self.step.as_ref()
             );
             hyper::Request::post(uri)
-                .header("offset", self.offset)
                 .header("origin", u32::from(self.origin))
                 .body(hyper::Body::from(self.payload))
                 .unwrap()
@@ -138,7 +98,6 @@ mod tests {
                 query_id: QueryId.as_ref().to_string(),
                 step: Step::default().narrow("test"),
                 payload: vec![1; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset: 0,
             }
         }
     }
@@ -159,103 +118,5 @@ mod tests {
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn wrong_payload_size_is_rejected() {
-        let req = OverrideReq {
-            payload: vec![0; MESSAGE_PAYLOAD_SIZE_BYTES + 1],
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_payload_fails() {
-        let req = OverrideReq {
-            payload: vec![0, 7],
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-}
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod e2e_tests {
-    use super::*;
-    use crate::{
-        helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::MpcHelperServer,
-        protocol::Step,
-    };
-    use futures::future::poll_immediate;
-    use hyper::{http::uri, service::Service, StatusCode};
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn backpressure_applied() {
-        const QUEUE_DEPTH: usize = 8;
-        let (management_tx, _) = mpsc::channel(1);
-        let (query_tx, mut query_rx) = mpsc::channel(QUEUE_DEPTH);
-        let ongoing_queries = Arc::new(Mutex::new(HashMap::from([(QueryId, query_tx)])));
-        let server = MpcHelperServer::new(management_tx, ongoing_queries);
-        let mut r = server.router();
-
-        // prepare req
-        let mut offset = 0;
-        let mut new_req = || {
-            let req = http_serde::query::step::Request::new(
-                HelperIdentity::try_from(1).unwrap(),
-                QueryId,
-                Step::default().narrow("test"),
-                vec![0; 3 * MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset,
-            );
-            offset += 1;
-            req.try_into_http_request(
-                uri::Scheme::HTTP,
-                uri::Authority::from_static("example.com"),
-            )
-            .unwrap()
-        };
-
-        // fill channel
-        for _ in 0..QUEUE_DEPTH {
-            let resp = r.ready().await.unwrap().call(new_req()).await.unwrap();
-            assert_eq!(
-                resp.status(),
-                StatusCode::OK,
-                "body: {}",
-                String::from_utf8_lossy(&hyper::body::to_bytes(resp.into_body()).await.unwrap())
-            );
-        }
-
-        // channel should now be full
-        let mut resp_when_full = r.ready().await.unwrap().call(new_req());
-        assert!(
-            matches!(poll_immediate(&mut resp_when_full).await, None),
-            "expected future to be pending"
-        );
-
-        // take 1 message from channel
-        query_rx.recv().await;
-
-        // channel should now have capacity
-        assert!(poll_immediate(&mut resp_when_full).await.is_some());
-
-        // take 3 messages from channel
-        for _ in 0..3 {
-            query_rx.recv().await;
-        }
-
-        // channel should now have capacity for 3 more reqs
-        for _ in 0..3 {
-            let mut next_req = r.ready().await.unwrap().call(new_req());
-            assert!(poll_immediate(&mut next_req).await.is_some());
-        }
-
-        // channel should have no more capacity
-        let mut resp_when_full = r.ready().await.unwrap().call(new_req());
-        assert!(matches!(poll_immediate(&mut resp_when_full).await, None));
     }
 }

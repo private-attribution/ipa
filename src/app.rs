@@ -40,6 +40,8 @@ impl Setup {
     fn callbacks(query_processor: &Arc<QueryProcessor>) -> TransportCallbacks<TransportImpl> {
         let rqp = Arc::clone(query_processor);
         let pqp = Arc::clone(query_processor);
+        let iqp = Arc::clone(query_processor);
+        let cqp = Arc::clone(query_processor);
 
         TransportCallbacks {
             receive_query: Box::new(move |transport: TransportImpl, receive_query| {
@@ -53,6 +55,14 @@ impl Setup {
             prepare_query: Box::new(move |transport: TransportImpl, prepare_query| {
                 let processor = Arc::clone(&pqp);
                 Box::pin(async move { processor.prepare(&transport, prepare_query) })
+            }),
+            query_input: Box::new(move |transport: TransportImpl, query_input| {
+                let processor = Arc::clone(&iqp);
+                Box::pin(async move { processor.receive_inputs(transport, query_input) })
+            }),
+            complete_query: Box::new(move |_transport: TransportImpl, query_id| {
+                let processor = Arc::clone(&cqp);
+                Box::pin(async move { processor.complete(query_id).await })
             }),
         }
     }

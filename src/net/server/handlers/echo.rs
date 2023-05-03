@@ -10,7 +10,7 @@ pub fn router() -> Router {
     Router::new().route(http_serde::echo::AXUM_PATH, get(handler))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use std::collections::HashMap;

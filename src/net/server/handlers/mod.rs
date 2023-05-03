@@ -1,22 +1,17 @@
 mod echo;
-#[cfg(never)]
 mod query;
 
 use crate::{
-    net::http_serde,
-    protocol::QueryId,
-    sync::{Arc, Mutex},
+    net::{http_serde, HttpTransport},
+    sync::Arc,
 };
 use axum::Router;
-use std::collections::HashMap;
-use tokio::sync::mpsc;
 
-pub fn router(
-    transport_sender: mpsc::Sender<CommandEnvelope>,
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-) -> Router {
+pub fn router(transport: Arc<HttpTransport>) -> Router {
     echo::router().nest(
         http_serde::query::BASE_AXUM_PATH,
-        query::router(transport_sender, ongoing_queries),
+        Router::new()
+            .merge(query::query_router(Arc::clone(&transport)))
+            .merge(query::h2h_router(transport)),
     )
 }

@@ -148,7 +148,7 @@ impl Debug for ByteArrStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use super::*;
     use crate::{ff, helpers::transport::ByteArrStream as UnalignedByteArrStream};

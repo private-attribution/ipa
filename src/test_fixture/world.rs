@@ -1,7 +1,7 @@
 use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     ff::Field,
-    helpers::{Gateway, GatewayConfig, Role, RoleAssignment},
+    helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
@@ -20,11 +20,12 @@ use crate::{
         Arc,
     },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
 };
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution};
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand_core::{RngCore, SeedableRng};
 use std::{fmt::Debug, io::stdout, iter::zip};
 use tracing::Level;
 
@@ -49,6 +50,8 @@ pub struct TestWorldConfig {
     pub metrics_level: Level,
     /// Assignment of roles to helpers. If `None`, a default assignment will be used.
     pub role_assignment: Option<RoleAssignment>,
+    /// Seed for random generators used in PRSS
+    pub seed: u64,
 }
 
 impl Default for TestWorldConfig {
@@ -60,6 +63,7 @@ impl Default for TestWorldConfig {
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.
             metrics_level: Level::DEBUG,
             role_assignment: None,
+            seed: thread_rng().next_u64(),
         }
     }
 }
@@ -68,6 +72,12 @@ impl TestWorldConfig {
     #[must_use]
     pub fn enable_metrics(mut self) -> Self {
         self.metrics_level = Level::INFO;
+        self
+    }
+
+    #[must_use]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
         self
     }
 }
@@ -87,7 +97,7 @@ impl TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
-        let participants = make_participants();
+        let participants = make_participants(&mut StdRng::seed_from_u64(config.seed));
         let network = InMemoryNetwork::default();
         let role_assignment = config
             .role_assignment
