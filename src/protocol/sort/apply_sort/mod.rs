@@ -40,7 +40,7 @@ where
     Ok(shuffled_objects)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         accumulation_test_input,

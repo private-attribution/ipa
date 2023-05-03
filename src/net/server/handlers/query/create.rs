@@ -29,7 +29,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{

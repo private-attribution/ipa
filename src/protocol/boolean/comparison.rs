@@ -110,7 +110,7 @@ struct RBounds {
     invert: bool,
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 impl RBounds {
     // This is used for the proptest. It must match the actual implementation!
     fn evaluate(&self, r: u128) -> bool {
@@ -315,7 +315,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::{
         bitwise_greater_than_constant, bitwise_less_than_constant, compute_r_bounds,

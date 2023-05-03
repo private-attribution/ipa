@@ -46,7 +46,7 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::{apply, apply_inv};
     use crate::rand::thread_rng;
