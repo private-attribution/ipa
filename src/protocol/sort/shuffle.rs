@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{basics::Reshare, context::Context, NoRecord, RecordId, Step},
+    protocol::{basics::Reshare, context::Context, step::Step, NoRecord, RecordId},
     secret_sharing::SecretSharing,
 };
 
@@ -168,7 +168,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
-        protocol::{sort::shuffle::get_two_of_three_random_permutations, GenericStep},
+        protocol::{sort::shuffle::get_two_of_three_random_permutations, step::GenericStep},
         rand::thread_rng,
         test_fixture::{make_participants, permutation_valid},
     };

@@ -5,7 +5,7 @@ use std::{
 
 use metrics::{KeyName, Label, SharedString};
 
-use crate::{helpers::Role, protocol::GenericStep, telemetry::labels};
+use crate::{helpers::Role, protocol::step::GenericStep, telemetry::labels};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,

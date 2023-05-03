@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     ff::{Field, Gf2},
     protocol::{
-        basics::SecureMul, boolean::all_zeroes, context::Context, BasicProtocols, BitOpStep,
+        basics::SecureMul, boolean::all_zeroes, context::Context, step::BitOpStep, BasicProtocols,
         RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
@@ -111,7 +111,7 @@ enum Step {
     XORAllTheBits,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

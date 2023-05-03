@@ -6,7 +6,7 @@ use crate::{
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{GenericStep, QueryId},
+    protocol::{step::GenericStep, QueryId},
     sync::Arc,
 };
 use async_trait::async_trait;
@@ -155,7 +155,7 @@ mod e2e_tests {
         ff::{FieldType, Fp31, Serializable},
         helpers::{query::QueryType, ByteArrStream},
         net::test::{body_stream, TestClients, TestServer},
-        protocol::GenericStep,
+        protocol::step::GenericStep,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::{config::TestConfigBuilder, Reconstruct},
         AppSetup, HelperApp,

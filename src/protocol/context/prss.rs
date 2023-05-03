@@ -4,7 +4,7 @@ use crate::{
     helpers::Role,
     protocol::{
         prss::{IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness},
-        GenericStep,
+        step::GenericStep,
     },
     sync::Arc,
     telemetry::{

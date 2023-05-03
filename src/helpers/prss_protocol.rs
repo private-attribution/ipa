@@ -1,6 +1,10 @@
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
-    protocol::{prss, step::StepNarrow, GenericStep, RecordId, Step},
+    protocol::{
+        prss,
+        step::{GenericStep, Step, StepNarrow},
+        RecordId,
+    },
 };
 use futures_util::future::try_join4;
 

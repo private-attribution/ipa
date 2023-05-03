@@ -8,17 +8,16 @@ pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 #[cfg(feature = "no-prss")]
 pub use no_op::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
-use super::GenericStep;
+use super::step::GenericStep;
 use crate::{
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
-
 use std::{collections::HashMap, fmt::Debug};
+use x25519_dalek::PublicKey;
+
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
-
-use x25519_dalek::PublicKey;
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
@@ -269,8 +268,7 @@ pub mod test {
         ff::{Field, Fp31},
         protocol::{
             prss::{Endpoint, SharedRandomness},
-            step::StepNarrow,
-            GenericStep,
+            step::{GenericStep, StepNarrow},
         },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,

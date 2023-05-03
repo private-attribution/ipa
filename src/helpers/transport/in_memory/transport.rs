@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    protocol::{GenericStep, QueryId},
+    protocol::{step::GenericStep, QueryId},
 };
 use ::tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -369,7 +369,7 @@ mod tests {
         helpers::{
             query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
         },
-        protocol::GenericStep,
+        protocol::step::GenericStep,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};

@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{GenericStep, QueryId},
+    protocol::{step::GenericStep, QueryId},
     sync::{Arc, Mutex},
 };
 use futures::Stream;

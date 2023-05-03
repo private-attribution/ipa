@@ -8,8 +8,8 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        step::StepNarrow,
-        GenericStep, RecordId, Step,
+        step::{GenericStep, Step, StepNarrow},
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,

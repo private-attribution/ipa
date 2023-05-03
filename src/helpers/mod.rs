@@ -38,7 +38,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{GenericStep, RecordId},
+    protocol::{step::GenericStep, RecordId},
     secret_sharing::SharedValue,
 };
 use generic_array::GenericArray;

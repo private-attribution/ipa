@@ -8,7 +8,8 @@ use crate::{
         },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
-        QueryId, Step,
+        step::Step,
+        QueryId,
     },
     rand::thread_rng,
     secret_sharing::{

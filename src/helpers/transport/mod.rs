@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{GenericStep, QueryId},
+    protocol::{step::GenericStep, QueryId},
 };
 use async_trait::async_trait;
 use futures::Stream;

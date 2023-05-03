@@ -83,7 +83,7 @@ enum Step {
     AddDtoG,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -110,7 +110,7 @@ mod tests {
 
     pub struct GenerateRandomBits;
 
-    impl crate::protocol::Step for GenerateRandomBits {}
+    impl crate::protocol::step::Step for GenerateRandomBits {}
 
     impl AsRef<str> for GenerateRandomBits {
         fn as_ref(&self) -> &str {

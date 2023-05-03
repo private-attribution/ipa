@@ -450,7 +450,7 @@ pub mod query {
                 http_serde::query::{OriginHeader, BASE_AXUM_PATH},
                 Error,
             },
-            protocol::{GenericStep, QueryId},
+            protocol::{step::GenericStep, QueryId},
         };
         use async_trait::async_trait;
         use axum::{

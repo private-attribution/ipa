@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
-    protocol::{GenericStep, RecordId},
+    protocol::{step::GenericStep, RecordId},
 };
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;

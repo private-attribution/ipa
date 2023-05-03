@@ -6,7 +6,8 @@ use crate::{
         context::Context,
         modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         prss::SharedRandomness,
-        BitOpStep, RecordId,
+        step::BitOpStep,
+        RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
@@ -76,7 +77,7 @@ enum Step {
     UpgradeBitTriples,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

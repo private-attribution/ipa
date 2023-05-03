@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity,
     },
     net::{http_serde, Error},
-    protocol::{GenericStep, QueryId},
+    protocol::{step::GenericStep, QueryId},
 };
 use axum::http::uri;
 use futures::{Stream, StreamExt};
