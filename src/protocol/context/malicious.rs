@@ -9,7 +9,8 @@ use crate::{
         context::{
             prss::InstrumentedIndexedSharedRandomness,
             validator::{Malicious as Validator, MaliciousAccumulator},
-            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness, UpgradedContext,
+            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         RecordId, Step, Substep,
@@ -28,8 +29,6 @@ use std::{
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
 };
-
-use super::{SpecialAccessToUpgradedContext, UpgradableContext};
 
 #[derive(Clone)]
 pub struct Context<'a> {

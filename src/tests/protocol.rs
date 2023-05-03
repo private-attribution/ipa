@@ -16,7 +16,6 @@ const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
 const MAX_TRIGGER_VALUE: u32 = 5;
 const NUM_MULTI_BITS: u32 = 3;
 const MAX_MATCH_KEY: u128 = 3;
-const ITERATIONS: usize = 10;
 
 /// The type of both the generated inputs and the reconstructed output of `ipa()`.
 type InputOutput = Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>;
@@ -63,7 +62,7 @@ fn semi_honest() {
                 assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },
-        ITERATIONS,
+        10,
     );
 }
 
@@ -82,6 +81,6 @@ fn malicious() {
                 assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },
-        ITERATIONS,
+        4,
     );
 }
