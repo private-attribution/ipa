@@ -18,8 +18,9 @@ pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    callbacks::*, AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding,
-    ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
+    callbacks::*, AlignedByteArrStream, ByteArrStream, LogErrors, NoResourceIdentifier,
+    QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey,
+    Transport,
 };
 
 #[cfg(feature = "in-memory-infra")]

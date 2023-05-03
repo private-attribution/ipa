@@ -17,7 +17,7 @@ mod stream;
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{InMemoryNetwork, InMemoryTransport};
-pub use receive::ReceiveRecords;
+pub use receive::{LogErrors, ReceiveRecords};
 pub use stream::{StreamCollection, StreamKey};
 
 pub trait ResourceIdentifier: Sized {}
