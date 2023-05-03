@@ -26,6 +26,44 @@ use std::{
     marker::PhantomData,
 };
 
+#[async_trait]
+pub trait Validator<B: UpgradableContext, F: ExtendableField> {
+    fn context(&self) -> B::UpgradedContext<F>;
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
+}
+
+pub struct SemiHonest<'a, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, F>,
+    _f: PhantomData<F>,
+}
+
+impl<'a, F: ExtendableField> SemiHonest<'a, F> {
+    pub(super) fn new(inner: Base<'a>) -> Self {
+        Self {
+            context: UpgradedSemiHonestContext::new(inner),
+            _f: PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
+    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+        self.context.clone()
+    }
+
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        Ok(values.downgrade().await.access_without_downgrade())
+    }
+}
+
+impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+    }
+}
+
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,44 +210,6 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
         accumulator_state.u += u_contribution;
         accumulator_state.w += w_contribution;
         // LOCK END
-    }
-}
-
-#[async_trait]
-pub trait Validator<B: UpgradableContext, F: ExtendableField> {
-    fn context(&self) -> B::UpgradedContext<F>;
-    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
-}
-
-pub struct SemiHonest<'a, F: ExtendableField> {
-    context: UpgradedSemiHonestContext<'a, F>,
-    _f: PhantomData<F>,
-}
-
-impl<'a, F: ExtendableField> SemiHonest<'a, F> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
-        Self {
-            context: UpgradedSemiHonestContext::new(inner),
-            _f: PhantomData,
-        }
-    }
-}
-
-#[async_trait]
-impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
-    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
-        self.context.clone()
-    }
-
-    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
-        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        Ok(values.downgrade().await.access_without_downgrade())
-    }
-}
-
-impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
     }
 }
 

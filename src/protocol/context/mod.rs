@@ -96,10 +96,7 @@ impl AsRef<str> for UpgradeStep {
 }
 
 #[async_trait]
-pub trait UpgradedContext<F>: Context
-where
-    F: ExtendableField,
-{
+pub trait UpgradedContext<F: ExtendableField>: Context {
     // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
     type Share: SecretSharing<F> + 'static;
 
@@ -153,9 +150,14 @@ where
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
+    /// This is the base context type.  This will always be `Base`, but use
+    /// an associated type to avoid having to bind this trait to the lifetime
+    /// associated with the `Base` struct.
     type Base: Context;
 
+    /// Take a secret sharing and add it to the running MAC that this context maintains (if any).
     fn accumulate_macs(self, record_id: RecordId, x: &Self::Share);
+
     /// Get a base context that is an exact copy of this malicious
     /// context, so it will be tied up to the same step and prss.
     #[must_use]
@@ -168,7 +170,7 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    inner: Arc<ContextInner<'a>>,
+    inner: Arc<Inner<'a>>,
     step: Step,
     total_records: TotalRecords,
 }
@@ -190,7 +192,7 @@ impl<'a> Base<'a> {
         total_records: TotalRecords,
     ) -> Self {
         Self {
-            inner: ContextInner::new(participant, gateway),
+            inner: Inner::new(participant, gateway),
             step,
             total_records,
         }
@@ -264,12 +266,12 @@ impl<'a> SeqJoin for Base<'a> {
     }
 }
 
-struct ContextInner<'a> {
+struct Inner<'a> {
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
 }
 
-impl<'a> ContextInner<'a> {
+impl<'a> Inner<'a> {
     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
         Arc::new(Self { prss, gateway })
     }

@@ -137,7 +137,7 @@ impl Debug for Context<'_> {
 pub struct Upgraded<'a, F: ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    inner: Arc<ContextInner<'a, F>>,
+    inner: Arc<UpgradedInner<'a, F>>,
     step: Step,
     total_records: TotalRecords,
 }
@@ -150,7 +150,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
         r_share: Replicated<F::ExtendedField>,
     ) -> Self {
         Self {
-            inner: ContextInner::new(source, acc, r_share),
+            inner: UpgradedInner::new(source, acc, r_share),
             step: source.step().narrow(malicious_step),
             total_records: TotalRecords::Unspecified,
         }
@@ -327,20 +327,20 @@ impl<F: ExtendableField> Debug for Upgraded<'_, F> {
         write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }
 }
-struct ContextInner<'a, F: ExtendableField> {
+struct UpgradedInner<'a, F: ExtendableField> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: MaliciousAccumulator<F>,
     r_share: Replicated<F::ExtendedField>,
 }
 
-impl<'a, F: ExtendableField> ContextInner<'a, F> {
+impl<'a, F: ExtendableField> UpgradedInner<'a, F> {
     fn new(
         base_context: &Base<'a>,
         accumulator: MaliciousAccumulator<F>,
         r_share: Replicated<F::ExtendedField>,
     ) -> Arc<Self> {
-        Arc::new(ContextInner {
+        Arc::new(UpgradedInner {
             prss: base_context.inner.prss,
             gateway: base_context.inner.gateway,
             accumulator,

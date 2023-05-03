@@ -5,7 +5,7 @@ use crate::{
     protocol::{
         attribution::{
             input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
-            malicious,
+            secure_attribution,
         },
         basics::Reshare,
         boolean::RandomBits,
@@ -416,7 +416,7 @@ where
     .await
     .unwrap();
 
-    malicious::secure_attribution(
+    secure_attribution(
         sh_ctx,
         validator,
         binary_validator,
