@@ -44,6 +44,12 @@ where
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(Ok(chunk))) => Poll::Ready(Some(chunk.into())),
             Poll::Ready(Some(Err(err))) => {
+                // Report this error in the server log since it may require investigation
+                // by the helper party operators. It will not be informative for a report
+                // collector.
+                //
+                // Note that returning `Poll::Ready(None)` here will be turned back into
+                // an `EndOfStream` error by `UnorderedReceiver`.
                 error!("error reading records: {err}");
                 Poll::Ready(None)
             }
