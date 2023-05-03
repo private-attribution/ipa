@@ -1,0 +1,27 @@
+#cloud-config
+repo_update: true
+repo_upgrade: all
+
+packages:
+  - git
+  - openssl-devel
+  - openssl-perl
+  - perf
+  - tmux
+
+runcmd:
+  - yum -y groupinstall "Development Tools"
+  - mkdir /home/ec2-user/workspace && cd "$_"
+  - chown ec2-user:ec2-user /home/ec2-user/workspace
+  # Clone IPA repo
+  - sudo -u ec2-user sh -c "git clone https://github.com/private-attribution/ipa ipa"
+  - cd ipa
+  # Install rust toolchain (no prompts)
+  - sudo -u ec2-user sh -c "curl https://sh.rustup.rs -sSf | sh -s -- -y"
+  - sudo -u ec2-user sh -c "/home/ec2-user/.cargo/bin/rustup update"
+  - sudo -u ec2-user sh -c "/home/ec2-user/.cargo/bin/cargo install flamegraph cargo-with"
+  # build project
+  - sudo -u ec2-user sh -c "/home/ec2-user/.cargo/bin/cargo build"
+  - sudo -u ec2-user sh -c "/home/ec2-user/.cargo/bin/cargo build --release"
+
+output : { all : '| tee -a /var/log/cloud-init-output.log' }

@@ -131,7 +131,8 @@ impl Processor {
             transport.send(left, &prepare_request, stream::empty()),
             transport.send(right, &prepare_request, stream::empty()),
         )
-        .await?;
+        .await
+        .map_err(NewQueryError::Transport)?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
@@ -337,11 +338,11 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let network = InMemoryNetwork::new([
-            TransportCallbacks::default(),
-            TransportCallbacks::default(),
-            TransportCallbacks::default(),
-        ]);
+        let cb = [0, 1, 2].map(|_| TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
+            ..Default::default()
+        });
+        let network = InMemoryNetwork::new(cb);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = QueryConfig::default();

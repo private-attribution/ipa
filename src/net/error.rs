@@ -46,6 +46,9 @@ pub enum Error {
         status: hyper::StatusCode,
         reason: String,
     },
+    // TODO: figure out whether to combine this with FailedHttpRequest or what.
+    #[error("{error}")]
+    Application { code: StatusCode, error: BoxError },
 }
 
 impl Error {
@@ -73,6 +76,14 @@ impl Error {
                 status,
                 reason: String::from_utf8_lossy(&reason_bytes).to_string(),
             })
+    }
+
+    #[must_use]
+    pub fn application<E: Into<BoxError>>(code: StatusCode, error: E) -> Self {
+        Self::Application {
+            code,
+            error: error.into(),
+        }
     }
 }
 
@@ -131,7 +142,7 @@ impl<T> From<tokio_util::sync::PollSendError<T>> for Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        let status_code = match &self {
+        let status_code = match self {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
@@ -151,6 +162,8 @@ impl IntoResponse for Error {
             | Self::BodyAlreadyExtracted(_)
             | Self::MissingExtension(_)
             | Self::RecvFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+
+            Self::Application { code, .. } => code,
         };
 
         (status_code, self.to_string()).into_response()

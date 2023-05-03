@@ -461,7 +461,9 @@ pub mod tests {
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
         telemetry::{
-            metrics::{BYTES_SENT, RECORDS_SENT},
+            metrics::{
+                BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
+            },
             stats::Metrics,
         },
         test_fixture::{
@@ -1066,148 +1068,182 @@ pub mod tests {
         }
     }
 
-    /// Ensures that our communication numbers don't go above the baseline.
+    /// Ensures that our communication and PRSS numbers don't go above the baseline.
     /// Prints a warning if they are currently below, so someone needs to adjust the baseline
     /// inside this test.
     ///
     /// It is possible to increase the number too if there is a good reason for it. This is a
     /// "catch all" type of test to make sure we don't miss an accidental regression.
-    #[tokio::test]
-    #[allow(clippy::too_many_lines)]
-    pub async fn communication_baseline() {
+    mod baselines {
+        use super::*;
+        use crate::test_fixture::ipa::IpaSecurityModel::{Malicious, SemiHonest};
+
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Apr 13, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 21_936;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 78_456;
-
-        /// empirical value as of Apr 13, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 55_440;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 212_472;
-
-        // empirical value as of Apr 6, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 14_589;
-        const BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 49_068;
-
-        // empirical value as of Apr 6, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 36_714;
-        const BYTES_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 137_568;
-
-        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
-                { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
-            ];
-            (Fp32BitPrime, MatchKey, BreakdownKey)
-        );
-
-        for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-
-            let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-                .semi_honest(records.clone(), |ctx, input_rows| async move {
-                    ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        IpaQueryConfig::new(
-                            per_user_cap,
-                            MAX_BREAKDOWN_KEY,
-                            ATTRIBUTION_WINDOW_SECONDS,
-                            NUM_MULTI_BITS,
-                        ),
-                    )
-                    .await
-                    .unwrap()
-                })
-                .await
-                .reconstruct();
-
-            let snapshot = world.metrics_snapshot();
-            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
-                (
-                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1,
-                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_1,
-                )
-            } else {
-                (
-                    RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3,
-                    BYTES_SENT_SEMI_HONEST_BASELINE_CAP_3,
-                )
-            };
-            assert_baselines(
-                &format!("semi-honest IPA (cap = {per_user_cap})"),
-                &snapshot,
-                [
-                    (RECORDS_SENT, records_baseline),
-                    (BYTES_SENT, bytes_baseline),
-                ],
-            );
-
-            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
-
-            world
-                .malicious(records.clone(), |ctx, input_rows| async move {
-                    ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
-                        ctx,
-                        &input_rows,
-                        IpaQueryConfig::new(
-                            per_user_cap,
-                            MAX_BREAKDOWN_KEY,
-                            ATTRIBUTION_WINDOW_SECONDS,
-                            NUM_MULTI_BITS,
-                        ),
-                    )
-                    .await
-                    .unwrap()
-                })
-                .await;
-
-            let snapshot = world.metrics_snapshot();
-            let (records_baseline, bytes_baseline) = if per_user_cap == 1 {
-                (
-                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_1,
-                    BYTES_SENT_MALICIOUS_BASELINE_CAP_1,
-                )
-            } else {
-                (
-                    RECORDS_SENT_MALICIOUS_BASELINE_CAP_3,
-                    BYTES_SENT_MALICIOUS_BASELINE_CAP_3,
-                )
-            };
-            assert_baselines(
-                &format!("malicious IPA (cap = {per_user_cap})"),
-                &snapshot,
-                [
-                    (RECORDS_SENT, records_baseline),
-                    (BYTES_SENT, bytes_baseline),
-                ],
-            );
+        fn cap_one() -> IpaQueryConfig {
+            IpaQueryConfig {
+                per_user_credit_cap: 1,
+                max_breakdown_key: MAX_BREAKDOWN_KEY,
+                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                num_multi_bits: NUM_MULTI_BITS,
+            }
         }
-    }
 
-    fn assert_baselines<const N: usize>(
-        name: &str,
-        snapshot: &Metrics,
-        baselines: [(&'static str, u64); N],
-    ) {
-        for (metric_name, baseline) in baselines {
-            let actual = snapshot.get_counter(metric_name);
-            assert!(actual <= baseline,
-                    "{metric_name} baseline for {name} has DEGRADED! Expected {baseline}, got {actual}.");
+        fn cap_three() -> IpaQueryConfig {
+            IpaQueryConfig {
+                per_user_credit_cap: 3,
+                max_breakdown_key: MAX_BREAKDOWN_KEY,
+                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                num_multi_bits: NUM_MULTI_BITS,
+            }
+        }
 
-            if actual < baseline {
-                tracing::warn!("{metric_name} baseline for {name} has improved! Expected {baseline}, got {actual}. \
+        fn generate_input<F: Field>() -> Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
+            ipa_test_input!(
+                [
+                    { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 200, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 300, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 400, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { timestamp: 500, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                    { timestamp: 600, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 700, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 800, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                    { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
+                ];
+                (F, MatchKey, BreakdownKey)
+            )
+        }
+
+        /// Metrics that reflect IPA performance
+        #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+        struct PerfMetrics {
+            /// Expected number of records sent between all helpers.
+            records_sent: u64,
+            /// Same as above, but bytes.
+            bytes_sent: u64,
+            /// Indexed random values generated by all helpers.
+            indexed_prss: u64,
+            /// Random values produced by PRSS random generators.
+            seq_prss: u64,
+        }
+
+        impl PerfMetrics {
+            pub fn from_snapshot(snapshot: &Metrics) -> Self {
+                Self {
+                    records_sent: snapshot.get_counter(RECORDS_SENT),
+                    bytes_sent: snapshot.get_counter(BYTES_SENT),
+                    indexed_prss: snapshot.get_counter(INDEXED_PRSS_GENERATED),
+                    seq_prss: snapshot.get_counter(SEQUENTIAL_PRSS_GENERATED),
+                }
+            }
+        }
+
+        /// Executes malicious or semi-honest IPA and validates that performance metrics stay
+        /// within the boundaries defined in `expected`.
+        async fn run_and_verify(
+            query_config: IpaQueryConfig,
+            mode: IpaSecurityModel,
+            expected: PerfMetrics,
+        ) {
+            let records = generate_input();
+            let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
+            let world = TestWorld::new_with(test_config);
+            let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = match mode {
+                Malicious => world.malicious(records, |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        query_config,
+                    )
+                    .await
+                    .unwrap()
+                }),
+                SemiHonest => world.semi_honest(records, |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        query_config,
+                    )
+                    .await
+                    .unwrap()
+                }),
+            }
+            .await
+            .reconstruct();
+
+            let actual = PerfMetrics::from_snapshot(&world.metrics_snapshot());
+            assert!(
+                expected >= actual,
+                "{mode:?} IPA performance has degraded. Expected: {expected:?} >= {actual:?}"
+            );
+
+            if expected > actual {
+                tracing::warn!("Baseline for {mode:?} IPA has improved! Expected {expected:?}, got {actual:?}. \
                 Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
+        }
+
+        #[tokio::test]
+        async fn semi_honest_cap_1() {
+            run_and_verify(
+                cap_one(),
+                SemiHonest,
+                PerfMetrics {
+                    records_sent: 14_589,
+                    bytes_sent: 49_068,
+                    indexed_prss: 19_473,
+                    seq_prss: 1124,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn semi_honest_cap_3() {
+            run_and_verify(
+                cap_three(),
+                SemiHonest,
+                PerfMetrics {
+                    records_sent: 21_936,
+                    bytes_sent: 78_456,
+                    indexed_prss: 28_494,
+                    seq_prss: 1124,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn malicious_cap_1() {
+            run_and_verify(
+                cap_one(),
+                Malicious,
+                PerfMetrics {
+                    records_sent: 36_714,
+                    bytes_sent: 137_568,
+                    indexed_prss: 76_014,
+                    seq_prss: 1098,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn malicious_cap_3() {
+            run_and_verify(
+                cap_three(),
+                Malicious,
+                PerfMetrics {
+                    records_sent: 55_440,
+                    bytes_sent: 212_472,
+                    indexed_prss: 113_337,
+                    seq_prss: 1098,
+                },
+            )
+            .await;
         }
     }
 }
