@@ -9,7 +9,7 @@ use metrics_util::{
     layers::Layer,
 };
 use once_cell::sync::OnceCell;
-use rand::{thread_rng, Rng};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use tracing::{span::EnteredSpan, Level};
 
 // TODO: move to OnceCell from std once it is stabilized
@@ -25,6 +25,8 @@ fn setup() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
         let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
+
+        #[cfg(not(feature = "disable-metrics"))]
         metrics::set_recorder(recorder).unwrap();
 
         // register metrics
@@ -35,7 +37,7 @@ fn setup() {
 }
 
 pub struct MetricsHandle {
-    id: u128,
+    id: String,
     _span: EnteredSpan,
 }
 
@@ -57,7 +59,11 @@ impl MetricsHandle {
         // logging is required to import span fields as metric values
         logging::setup();
 
-        let id = thread_rng().gen::<u128>();
+        let id = thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
 
         // Metrics collection with attributes/labels is expensive. Enabling it for all tests
         // resulted in doubling the time it takes to finish them. Tests must explicitly opt-in to
@@ -68,10 +74,10 @@ impl MetricsHandle {
         // print them
         let span = match level {
             Level::INFO => {
-                tracing::info_span!("", "metric_handle_id" = id.to_string())
+                tracing::info_span!("", "metrics_id" = id)
             }
             Level::DEBUG => {
-                tracing::debug_span!("", "metric_handle_id" = id.to_string())
+                tracing::debug_span!("", "metrics_id" = id)
             }
             _ => {
                 panic!("Only Info and Debug levels are supported")
@@ -91,10 +97,9 @@ impl MetricsHandle {
     #[must_use]
     pub fn snapshot(&self) -> Metrics {
         let snapshot = ONCE.get().unwrap().snapshot();
-        let id = self.id.to_string();
 
         Metrics::with_filter(snapshot, |labels| {
-            labels.iter().any(|label| label.value().eq(&id))
+            labels.iter().any(|label| label.value().eq(&self.id))
         })
     }
 

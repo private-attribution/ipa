@@ -14,9 +14,16 @@ use ipa::{
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
 
-#[cfg(not(target_env = "msvc"))]
+#[cfg(all(
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap")
+))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 /// A benchmark for the full IPA protocol.
 #[derive(Parser)]
@@ -68,6 +75,9 @@ impl Args {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     type BenchField = Fp32BitPrime;
 
     let args = Args::parse();

@@ -29,9 +29,9 @@ use std::{fmt::Debug, num::NonZeroUsize};
 /// way, for tests of `web-app` functionality. When the result of this is nonsensical (in
 /// particular, the `helper` binary, which references this comment), such a build will fail at
 /// runtime.
-#[cfg(any(feature = "test-fixture", test))]
+#[cfg(all(any(feature = "test-fixture", test), not(feature = "test-http")))]
 pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
-#[cfg(not(any(feature = "test-fixture", test)))]
+#[cfg(not(all(any(feature = "test-fixture", test), not(feature = "test-http"))))]
 pub type TransportImpl = std::sync::Arc<crate::net::HttpTransport>;
 
 pub type TransportError = <TransportImpl as Transport>::Error;
@@ -101,6 +101,7 @@ impl<T: Transport> Gateway<T> {
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
                 async move {
+                    // TODO: In the HTTP case we probably need more robust error handling here.
                     transport
                         .send(&channel_id, stream)
                         .await

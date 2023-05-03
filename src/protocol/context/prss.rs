@@ -62,8 +62,9 @@ impl<'a> InstrumentedSequentialSharedRandomness<'a> {
 }
 
 impl RngCore for InstrumentedSequentialSharedRandomness<'_> {
+    #[allow(clippy::cast_possible_truncation)]
     fn next_u32(&mut self) -> u32 {
-        self.inner.next_u32()
+        self.next_u64() as u32
     }
 
     fn next_u64(&mut self) -> u64 {

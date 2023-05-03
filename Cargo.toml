@@ -7,18 +7,30 @@ edition = "2021"
 [features]
 # by default remove all TRACE, DEBUG spans from release builds
 default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
-cli = ["comfy-table", "clap"]
+# TODO: it feels wrong that CLI uses test-fixture module, but untangling `IntoShares`/`Reconstruct` and inputs
+# from other test components wasn't easy.
+cli = ["comfy-table", "clap", "test-fixture"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
 no-prss = []
+disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
-web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
+web-app = [
+    "axum", "axum-server", "clap", "comfy-table", "enable-serde", "hex",
+    "hyper", "hyper-tls", "tower", "tower-http",
+]
 self-signed-certs = ["hyper-tls"]
+# The test-http and test-fixture features are mutually incompatible, and the
+# code doesn't support building tests without test-fixture. So if you want to
+# run the tests enabled by test-http, you unfortunately need to do something
+# like `s/cfg(any(test,/cfg(any(never, test/`.
+test-http = []
 test-fixture = ["enable-serde"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 enable-benches = ["cli", "test-fixture", "criterion", "iai"]
+dhat-heap = ["cli", "test-fixture"]
 
 [dependencies]
 aes = "0.8"
@@ -69,6 +81,7 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 typenum = "1.16.0"
 x25519-dalek = "2.0.0-pre.1"
+dhat = "0.3.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"
@@ -84,6 +97,13 @@ lto = "thin"
 [profile.bench]
 debug-assertions = true
 
+[profile.bench-dhat]
+inherits = "bench"
+debug-assertions = false
+incremental = true
+lto = "thin"
+debug = 1
+
 [lib]
 name = "ipa"
 path = "src/lib.rs"
@@ -91,7 +111,7 @@ bench = false
 
 [[bin]]
 name = "helper"
-required-features = ["cli", "web-app"]
+required-features = ["web-app"]
 bench = false
 
 [[bin]]

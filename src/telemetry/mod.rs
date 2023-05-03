@@ -53,11 +53,6 @@ pub mod metrics {
     /// ## Panics
     /// Panic if there is no recorder installed
     pub fn register() {
-        assert!(
-            matches!(metrics::try_recorder(), Some(_)),
-            "metrics recorder must be installed before metrics can be described"
-        );
-
         describe_counter!(
             REQUESTS_RECEIVED,
             Unit::Count,
