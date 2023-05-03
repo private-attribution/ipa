@@ -18,7 +18,7 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        BasicProtocols, RecordId, Substep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -47,7 +47,7 @@ pub enum Step {
     BinaryValidator,
 }
 
-impl Substep for Step {}
+impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -71,7 +71,7 @@ pub enum IPAInputRowResharableStep {
     TriggerValue,
 }
 
-impl Substep for IPAInputRowResharableStep {}
+impl crate::protocol::Step for IPAInputRowResharableStep {}
 
 impl AsRef<str> for IPAInputRowResharableStep {
     fn as_ref(&self) -> &str {

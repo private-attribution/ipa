@@ -4,7 +4,7 @@ use crate::{
     helpers::Role,
     protocol::{
         prss::{IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness},
-        Step,
+        GenericStep,
     },
     sync::Arc,
     telemetry::{
@@ -17,13 +17,13 @@ use rand_core::{Error, RngCore};
 /// Wrapper around `IndexedSharedRandomness` that instrument calls to `generate_values`
 pub struct InstrumentedIndexedSharedRandomness<'a> {
     inner: Arc<IndexedSharedRandomness>,
-    step: &'a Step,
+    step: &'a GenericStep,
     role: Role,
 }
 
 impl<'a> InstrumentedIndexedSharedRandomness<'a> {
     #[must_use]
-    pub fn new(source: Arc<IndexedSharedRandomness>, step: &'a Step, role: Role) -> Self {
+    pub fn new(source: Arc<IndexedSharedRandomness>, step: &'a GenericStep, role: Role) -> Self {
         Self {
             inner: source,
             step,
@@ -46,13 +46,13 @@ impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
 /// Wrapper for `SequentialSharedRandomness` that instrument calls to generate random values.
 pub struct InstrumentedSequentialSharedRandomness<'a> {
     inner: SequentialSharedRandomness,
-    step: &'a Step,
+    step: &'a GenericStep,
     role: Role,
 }
 
 impl<'a> InstrumentedSequentialSharedRandomness<'a> {
     #[must_use]
-    pub fn new(source: SequentialSharedRandomness, step: &'a Step, role: Role) -> Self {
+    pub fn new(source: SequentialSharedRandomness, step: &'a GenericStep, role: Role) -> Self {
         Self {
             inner: source,
             step,

@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::{Field, GaloisField, Serializable},
     helpers::Role,
-    protocol::{basics::Reshare, context::Context, RecordId, Substep},
+    protocol::{basics::Reshare, context::Context, RecordId, Step},
     secret_sharing::{
         replicated::{
             malicious::{
@@ -422,7 +422,7 @@ pub enum AttributionResharableStep {
     ActiveBit,
 }
 
-impl Substep for AttributionResharableStep {}
+impl Step for AttributionResharableStep {}
 
 impl AsRef<str> for AttributionResharableStep {
     fn as_ref(&self) -> &str {

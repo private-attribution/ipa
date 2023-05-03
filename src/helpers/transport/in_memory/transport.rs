@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    protocol::{QueryId, Step},
+    protocol::{GenericStep, QueryId},
 };
 use ::tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -166,7 +166,7 @@ impl Transport for Weak<InMemoryTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
+        Option<GenericStep>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
@@ -189,7 +189,7 @@ impl Transport for Weak<InMemoryTransport> {
             .and_then(convert::identity)
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GenericStep>>(
         &self,
         from: HelperIdentity,
         route: R,
@@ -259,7 +259,7 @@ struct Addr {
     route: RouteId,
     origin: Option<HelperIdentity>,
     query_id: Option<QueryId>,
-    step: Option<Step>,
+    step: Option<GenericStep>,
     params: String,
 }
 
@@ -271,7 +271,7 @@ impl Addr {
     ) -> Self
     where
         Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
+        Option<GenericStep>: From<S>,
     {
         Self {
             route: route.resource_identifier(),
@@ -287,7 +287,7 @@ impl Addr {
     }
 
     #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
-    fn records(from: HelperIdentity, query_id: QueryId, step: Step) -> Self {
+    fn records(from: HelperIdentity, query_id: QueryId, step: GenericStep) -> Self {
         Self {
             route: RouteId::Records,
             origin: Some(from),
@@ -369,7 +369,7 @@ mod tests {
         helpers::{
             query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
         },
-        protocol::Step,
+        protocol::GenericStep,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
@@ -432,7 +432,7 @@ mod tests {
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, GenericStep::from(STEP)));
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -441,7 +441,7 @@ mod tests {
         ));
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, GenericStep::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
@@ -457,13 +457,13 @@ mod tests {
 
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, GenericStep::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
 
-        let stream =
-            Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        let stream = Arc::downgrade(&transport)
+            .receive(HelperIdentity::TWO, (QueryId, GenericStep::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -480,7 +480,7 @@ mod tests {
 
             let from_transport = transports.get(&from).unwrap();
             let to_transport = transports.get(&to).unwrap();
-            let step = Step::from(STEP);
+            let step = GenericStep::from(STEP);
 
             let mut recv = to_transport.receive(from, (QueryId, step.clone()));
             assert!(matches!(
@@ -530,7 +530,7 @@ mod tests {
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
-        let step = Step::from(STEP);
+        let step = GenericStep::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
@@ -579,7 +579,7 @@ mod tests {
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);
 
-        let step = Step::from(STEP);
+        let step = GenericStep::from(STEP);
         transport1
             .send(
                 HelperIdentity::TWO,

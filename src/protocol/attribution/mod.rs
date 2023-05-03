@@ -9,12 +9,7 @@ pub mod semi_honest;
 use crate::{
     error::Error,
     ff::{Field, Gf2},
-    protocol::{
-        basics::{if_else, SecureMul},
-        boolean::or::or,
-        context::Context,
-        BasicProtocols, RecordId, Substep,
-    },
+    protocol::{basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId},
     repeat64str,
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
@@ -307,7 +302,7 @@ enum Step {
     ModConvHelperBits,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -326,7 +321,7 @@ impl AsRef<str> for Step {
 
 struct InteractionPatternStep(usize);
 
-impl Substep for InteractionPatternStep {}
+impl crate::protocol::Step for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {

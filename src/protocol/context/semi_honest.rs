@@ -8,7 +8,8 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        RecordId, Step, Substep,
+        step::StepNarrow,
+        GenericStep, RecordId, Step,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -28,7 +29,7 @@ pub struct SemiHonestContext<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     pub(super) inner: Arc<ContextInner<'a>>,
-    pub(super) step: Step,
+    pub(super) step: GenericStep,
     pub(super) total_records: TotalRecords,
 }
 
@@ -37,7 +38,7 @@ impl<'a> SemiHonestContext<'a> {
         Self::new_complete(
             participant,
             gateway,
-            Step::default(),
+            GenericStep::default(),
             TotalRecords::Unspecified,
         )
     }
@@ -47,13 +48,13 @@ impl<'a> SemiHonestContext<'a> {
         gateway: &'a Gateway,
         total_records: TotalRecords,
     ) -> Self {
-        Self::new_complete(participant, gateway, Step::default(), total_records)
+        Self::new_complete(participant, gateway, GenericStep::default(), total_records)
     }
 
     pub(super) fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        step: Step,
+        step: GenericStep,
         total_records: TotalRecords,
     ) -> Self {
         Self {
@@ -69,7 +70,7 @@ impl<'a> SemiHonestContext<'a> {
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
-    pub fn upgrade<S: Substep + ?Sized, F: Field + ExtendableField>(
+    pub fn upgrade<S: Step + ?Sized, F: Field + ExtendableField>(
         self,
         malicious_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
@@ -84,11 +85,11 @@ impl<'a> Context for SemiHonestContext<'a> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &GenericStep {
         &self.step
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
