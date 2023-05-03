@@ -14,10 +14,7 @@ use ipa::{
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use std::{num::NonZeroUsize, time::Instant};
 
-#[cfg(all(
-    not(target_env = "msvc"),
-    not(feature = "dhat-heap")
-))]
+#[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
