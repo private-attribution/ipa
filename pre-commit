@@ -63,29 +63,36 @@ if ! errors=($(cargo fmt -- --check --config imports_granularity=Crate -l)); the
 fi
 
 check() {
-    section="$1"
+    msg="$1"
     shift
     if "$@"; then
-        echo "$section: OK"
+        echo "$msg: OK"
     else
         res=$?
         echo "-----------------------"
-        echo "$section: FAILED ($res)"
+        echo "$msg: FAILED ($res)"
         echo "  ${@@Q}"
         exit $res
     fi
 }
 
-check "Benchmark compilation" cargo build --benches --features "enable-benches"
+check "Benchmark compilation" \
+    cargo build --benches --features "enable-benches"
 
-check "Clippy checks" cargo clippy --tests -- -D warnings
+check "Clippy checks" \
+    cargo clippy --tests -- -D warnings
 
-check "Clippy concurrency checks" cargo clippy --tests --features shuttle -- -D warnings
+check "Clippy concurrency checks" \
+    cargo clippy --tests --features shuttle -- -D warnings
 
-check "Tests" cargo test
+check "Tests" \
+    cargo test
 
-check "Concurrency tests" cargo test --release --features shuttle
+check "Concurrency tests" \
+    cargo test --release --features shuttle
 
-check "IPA benchmark" cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 62
+check "IPA benchmark" \
+    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 62
 
-check "Sort benchmark" cargo bench --bench oneshot_sort --no-default-features --features="enable-benches"
+check "Sort benchmark" \
+    cargo bench --bench oneshot_sort --no-default-features --features="enable-benches"
