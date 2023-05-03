@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
-    Body, Client, Response, Uri,
+    Body, Client, Response, StatusCode, Uri,
 };
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
@@ -87,9 +87,11 @@ impl MpcHelperClient {
             let http_serde::echo::Request {
                 mut query_params, ..
             } = serde_json::from_slice(&result)?;
+            // It is potentially confusing to synthesize a 500 error here, but
+            // it doesn't seem worth creating an error variant just for this.
             query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
-                status,
-                reason: "did not receive mirrored response".into(),
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                reason: "did not receive mirrored echo response".into(),
             })
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -195,7 +197,7 @@ impl MpcHelperClient {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
 pub(crate) mod tests {
     use super::*;
     use crate::{

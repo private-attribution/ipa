@@ -73,7 +73,7 @@ pub async fn check_zero<F: Field>(
     Ok(rv == F::ZERO)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         error::Error,

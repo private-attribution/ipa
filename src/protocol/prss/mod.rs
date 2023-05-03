@@ -262,7 +262,7 @@ impl EndpointSetup {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{

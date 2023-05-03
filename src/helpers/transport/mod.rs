@@ -8,12 +8,16 @@ use std::borrow::Borrow;
 
 mod bytearrstream;
 pub mod callbacks;
+#[cfg(feature = "in-memory-infra")]
+mod in_memory;
 pub mod query;
 mod receive;
 mod stream;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use receive::ReceiveRecords;
+#[cfg(feature = "in-memory-infra")]
+pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use receive::{LogErrors, ReceiveRecords};
 pub use stream::{StreamCollection, StreamKey};
 
 pub trait ResourceIdentifier: Sized {}

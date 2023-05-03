@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 /// An error raised by the IPA protocol.
 ///
@@ -33,6 +34,13 @@ pub enum Error {
     MaliciousSecurityCheckFailed,
     #[error("malicious reveal failed")]
     MaliciousRevealFailed,
+    #[error("problem during IO: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("runtime error")]
+    RuntimeError(#[from] JoinError),
+    #[error("failed to parse json: {0}")]
+    #[cfg(feature = "enable-serde")]
+    Serde(#[from] serde_json::Error),
     #[error("Infrastructure error: {0}")]
     InfraError(#[from] crate::helpers::Error),
     #[error("Value truncation error: {0}")]

@@ -3,7 +3,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use tokio::sync::mpsc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -35,18 +34,21 @@ pub enum Error {
     AxumPassthrough(#[from] axum::Error),
     #[error("parse error: {0}")]
     SerdePassthrough(#[from] serde_json::Error),
-    #[error("could not forward messages: {0}")]
-    SendFailed(BoxError),
-    #[error("failed to receive response")]
-    RecvFailed(#[from] tokio::sync::oneshot::error::RecvError),
     #[error(transparent)]
     InvalidUri(#[from] hyper::http::uri::InvalidUri),
+    // `FailedHttpRequest` and `Application` are for the same errors, with slightly different
+    // representation. Server side code uses `Application` and client side code uses
+    // `FailedHttpRequest`.
+    //
+    // At some point, we might want the RPC mechanism to have the ability to convey detailed error
+    // information back to clients in machine-parsable form. If we did that, then these two error
+    // variants could be combined. Alternatively, successful delivery of an application layer
+    // failure could be viewed as not a transport error at all.
     #[error("request returned {status}: {reason}")]
     FailedHttpRequest {
         status: hyper::StatusCode,
         reason: String,
     },
-    // TODO: figure out whether to combine this with FailedHttpRequest or what.
     #[error("{error}")]
     Application { code: StatusCode, error: BoxError },
 }
@@ -124,22 +126,6 @@ impl From<axum::extract::rejection::PathRejection> for Error {
     }
 }
 
-/// [`From`] implementation for `Error::SendError`
-/// first call `to_string` so as to drop `T` from the `Error`
-impl<T> From<mpsc::error::SendError<T>> for Error {
-    fn from(err: mpsc::error::SendError<T>) -> Self {
-        Self::SendFailed(err.to_string().into())
-    }
-}
-
-/// [`From`] implementation for `Error::SendError`
-/// first call `to_string` to as to drop `T` from the `Error`
-impl<T> From<tokio_util::sync::PollSendError<T>> for Error {
-    fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
-        Self::SendFailed(err.to_string().into())
-    }
-}
-
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let status_code = match self {
@@ -158,10 +144,8 @@ impl IntoResponse for Error {
             | Self::HyperHttpPassthrough(_)
             | Self::FailedHttpRequest { .. }
             | Self::InvalidUri(_)
-            | Self::SendFailed(_)
             | Self::BodyAlreadyExtracted(_)
-            | Self::MissingExtension(_)
-            | Self::RecvFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | Self::MissingExtension(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
             Self::Application { code, .. } => code,
         };

@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        CompleteQueryResult, HelperIdentity, NoResourceIdentifier, PrepareQueryResult,
+        CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
         QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
@@ -11,30 +11,23 @@ use crate::{
 };
 use async_trait::async_trait;
 use axum::{body::Bytes, extract::BodyStream};
-use futures::{stream::Map, Stream, StreamExt, TryFutureExt};
+use futures::{Stream, TryFutureExt};
 use std::borrow::Borrow;
 
-type HttpRecordsStreamInner = Map<BodyStream, fn(Result<Bytes, axum::Error>) -> Vec<u8>>;
-
-// TODO: this can likely be improved
-type HttpRecordsStream =
-    ReceiveRecords<HttpRecordsStreamInner, BodyStream, fn(BodyStream) -> HttpRecordsStreamInner>;
+type LogHttpErrors = LogErrors<BodyStream, Bytes, axum::Error>;
 
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
-    //_network_config: Arc<NetworkConfig>, // TODO: make this not an Arc?
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
-    record_streams: StreamCollection<BodyStream>,
+    record_streams: StreamCollection<LogHttpErrors>,
 }
 
 impl HttpTransport {
     #[must_use]
     pub fn new(
         identity: HelperIdentity,
-        //server_config: ServerConfig,
-        //network_config: Arc<NetworkConfig>,
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> (Arc<Self>, MpcHelperServer) {
@@ -48,7 +41,6 @@ impl HttpTransport {
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> Arc<Self> {
-        //let clients = MpcHelperClient::from_conf(&network_config);
         Arc::new(Self {
             identity,
             callbacks,
@@ -84,22 +76,13 @@ impl HttpTransport {
         stream: BodyStream,
     ) {
         self.record_streams
-            .add_stream((query_id, from, step), stream);
+            .add_stream((query_id, from, step), LogErrors::new(stream));
     }
-}
-
-fn unwrap_body_chunk(chunk: Result<Bytes, axum::Error>) -> Vec<u8> {
-    // TODO: need to propagate this error somewhere
-    chunk.unwrap().into()
-}
-
-fn unwrap_body_chunks(stream: BodyStream) -> HttpRecordsStreamInner {
-    stream.map(unwrap_body_chunk)
 }
 
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
-    type RecordsStream = HttpRecordsStream;
+    type RecordsStream = ReceiveRecords<LogHttpErrors>;
     type Error = Error;
 
     fn identity(&self) -> HelperIdentity {
@@ -157,26 +140,34 @@ impl Transport for Arc<HttpTransport> {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
-        ReceiveRecords::mapped(
+        ReceiveRecords::new(
             (route.query_id(), from, route.step()),
             self.record_streams.clone(),
-            unwrap_body_chunks,
         )
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
 mod e2e_tests {
     use super::*;
     use crate::{
-        net::test::{body_stream, TestServer},
+        config::{NetworkConfig, PeerConfig, ServerConfig},
+        ff::{FieldType, Fp31, Serializable},
+        helpers::{query::QueryType, ByteArrStream},
+        net::test::{body_stream, TestClients, TestServer},
         protocol::GenericStep,
+        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        test_fixture::{config::TestConfigBuilder, Reconstruct},
+        AppSetup, HelperApp,
     };
     use futures::stream::{poll_immediate, StreamExt};
+    use futures_util::future::{join_all, try_join_all};
+    use generic_array::GenericArray;
     use once_cell::sync::Lazy;
-    use std::task::Poll;
+    use std::{iter::zip, net::TcpListener, task::Poll};
     use tokio::sync::mpsc::channel;
     use tokio_stream::wrappers::ReceiverStream;
+    use typenum::Unsigned;
 
     static STEP: Lazy<GenericStep> = Lazy::new(|| GenericStep::from("http-transport"));
 
@@ -222,7 +213,6 @@ mod e2e_tests {
 
     // TODO: write a test for an error while reading the body (after error handling is finalized)
 
-    #[cfg(feature = "test-http")]
     async fn make_helpers(
         ids: [HelperIdentity; 3],
         sockets: [TcpListener; 3],
@@ -232,14 +222,14 @@ mod e2e_tests {
         use crate::net::BindTarget;
 
         join_all(zip(ids, zip(sockets, server_config)).map(
-            |(id, (socket, server_conf))| async move {
+            |(id, (socket, _server_conf))| async move {
                 let (setup, callbacks) = AppSetup::new();
                 let client_config = network_config.clone();
                 let clients = TestClients::builder()
                     .with_network_config(client_config)
                     .build();
-                let (transport, server) = HttpTransport::new(id, clients, callbacks);
-                server.bind(BindTarget::HttpListener(socket)).await;
+                let (transport, server) = HttpTransport::new(id, clients.0, callbacks);
+                server.bind(BindTarget::HttpListener(socket), ()).await;
                 let app = setup.connect(transport);
                 app
             },
@@ -250,7 +240,6 @@ mod e2e_tests {
         .unwrap()
     }
 
-    #[cfg(feature = "test-http")]
     fn make_clients(confs: &[PeerConfig; 3]) -> [MpcHelperClient; 3] {
         confs
             .iter()
@@ -260,10 +249,9 @@ mod e2e_tests {
             .unwrap()
     }
 
-    #[cfg(feature = "test-http")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
-        const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
+        const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
         let mut conf = TestConfigBuilder::with_open_ports().build();
         let ids = HelperIdentity::make_three();
         let clients = make_clients(conf.network.peers());
@@ -308,12 +296,11 @@ mod e2e_tests {
 
         let result: [_; 3] = join_all(clients.map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();
-            Replicated::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+            AdditiveShare::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
         }))
         .await
         .try_into()
         .unwrap();
-
         let res = result.reconstruct();
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
     }

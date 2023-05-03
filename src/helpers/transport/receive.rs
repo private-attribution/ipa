@@ -1,51 +1,80 @@
 use crate::helpers::transport::stream::{StreamCollection, StreamKey};
 use futures::Stream;
 use futures_util::StreamExt;
-#[cfg(any(not(feature = "web-app"), feature = "test-fixture", test))]
-use std::convert::identity;
 use std::{
+    error::Error as StdError,
     pin::Pin,
     task::{Context, Poll},
 };
+use tracing::error;
+
+/// Adapt a stream of `Result<T: Into<Vec<u8>>, Error>` to a stream of `Vec<u8>`.
+///
+/// If an error is encountered, the error is logged, and the stream is terminated.
+pub struct LogErrors<S, T, E>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+    T: Into<Vec<u8>>,
+    E: StdError,
+{
+    inner: S,
+}
+
+impl<S, T, E> LogErrors<S, T, E>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+    T: Into<Vec<u8>>,
+    E: StdError,
+{
+    pub fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+impl<S, T, E> Stream for LogErrors<S, T, E>
+where
+    S: Stream<Item = Result<T, E>> + Unpin,
+    T: Into<Vec<u8>>,
+    E: StdError,
+{
+    type Item = Vec<u8>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::get_mut(self).inner.poll_next_unpin(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(Ok(chunk))) => Poll::Ready(Some(chunk.into())),
+            Poll::Ready(Some(Err(err))) => {
+                // Report this error in the server log since it may require investigation
+                // by the helper party operators. It will not be informative for a report
+                // collector.
+                //
+                // Note that returning `Poll::Ready(None)` here will be turned back into
+                // an `EndOfStream` error by `UnorderedReceiver`.
+                error!("error reading records: {err}");
+                Poll::Ready(None)
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+        }
+    }
+}
 
 /// Represents a stream of records.
 /// If stream is not received yet, each poll generates a waker that is used internally to wake up
 /// the task when stream is received.
 /// Once stream is received, it is moved to this struct and it acts as a proxy to it.
-pub struct ReceiveRecords<S, T = S, F = fn(T) -> S>
-where
-    F: FnOnce(T) -> S,
-{
-    inner: ReceiveRecordsInner<S, T, F>,
+pub struct ReceiveRecords<S> {
+    inner: ReceiveRecordsInner<S>,
 }
 
-impl<S> ReceiveRecords<S, S, fn(S) -> S> {
-    #[cfg(any(not(feature = "web-app"), feature = "test-fixture", test))]
+impl<S> ReceiveRecords<S> {
     pub(crate) fn new(key: StreamKey, coll: StreamCollection<S>) -> Self {
         Self {
-            inner: ReceiveRecordsInner::Pending(key, coll, Some(identity)),
+            inner: ReceiveRecordsInner::Pending(key, coll),
         }
     }
 }
 
-impl<S, T, F> ReceiveRecords<S, T, F>
-where
-    F: FnOnce(T) -> S,
-{
-    #[cfg(feature = "web-app")]
-    pub(crate) fn mapped(key: StreamKey, coll: StreamCollection<T>, f: F) -> Self {
-        Self {
-            inner: ReceiveRecordsInner::Pending(key, coll, Some(f)),
-        }
-    }
-}
-
-impl<S, T, F> Stream for ReceiveRecords<S, T, F>
-where
-    S: Stream + Unpin,
-    T: Stream + Unpin,
-    F: (FnOnce(T) -> S) + Unpin,
-{
+impl<S: Stream + Unpin> Stream for ReceiveRecords<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -54,29 +83,21 @@ where
 }
 
 /// Inner state for [`ReceiveRecords`] struct
-enum ReceiveRecordsInner<S, T, F: FnOnce(T) -> S> {
-    Pending(StreamKey, StreamCollection<T>, Option<F>),
+enum ReceiveRecordsInner<S> {
+    Pending(StreamKey, StreamCollection<S>),
     Ready(S),
 }
 
-impl<S: Stream, T, F> Stream for ReceiveRecordsInner<S, T, F>
-where
-    S: Stream + Unpin,
-    T: Stream + Unpin,
-    F: (FnOnce(T) -> S) + Unpin,
-{
+impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = Pin::get_mut(self);
         loop {
             match this {
-                Self::Pending(key, streams, map_fn) => {
+                Self::Pending(key, streams) => {
                     if let Some(stream) = streams.add_waker(key, cx.waker()) {
-                        // There may be a std::mem function that would allow
-                        // doing this without using an Option for map_fn,
-                        // but TBD if this mapped stream support is really needed.
-                        *this = Self::Ready((map_fn.take().unwrap())(stream));
+                        *this = Self::Ready(stream);
                     } else {
                         return Poll::Pending;
                     }

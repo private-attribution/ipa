@@ -1,11 +1,13 @@
-pub(crate) mod check_zero;
+mod check_zero;
+mod if_else;
 pub(crate) mod mul;
-pub(crate) mod reshare;
-pub(crate) mod reveal;
-pub(crate) mod share_known_value;
-pub(crate) mod sum_of_product;
+mod reshare;
+mod reveal;
+mod share_known_value;
+mod sum_of_product;
 
 pub use check_zero::check_zero;
+pub use if_else::if_else;
 pub use mul::{MultiplyZeroPositions, SecureMul, ZeroPositions};
 pub use reshare::Reshare;
 pub use reveal::Reveal;
