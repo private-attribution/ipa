@@ -97,6 +97,7 @@ impl TestServerBuilder {
         self
     }
 
+    #[cfg(all(test, feature = "in-memory-infra"))] // only used in unit tests
     pub fn with_metrics(mut self, metrics: MetricsHandle) -> Self {
         self.metrics = Some(metrics);
         self
