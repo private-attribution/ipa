@@ -163,6 +163,23 @@ impl TestWorld {
     pub fn gateway(&self, role: Role) -> &Gateway {
         &self.gateways[role]
     }
+
+    /// See `Runner` below.
+    async fn run_either<'a, C, I, A, O, H, R>(contexts: [C; 3], input: I, helper_fn: H) -> [O; 3]
+    where
+        C: UpgradableContext,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(C, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        let input_shares = input.share_with(&mut thread_rng());
+        #[allow(clippy::disallowed_methods)] // It's just 3 items.
+        let output =
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+        <[_; 3]>::try_from(output).unwrap()
+    }
 }
 
 impl Drop for TestWorld {
@@ -222,22 +239,6 @@ fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3])
     ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1], [v0.2, v1.2, v2.2])
 }
 
-async fn run_either<'a, C, I, A, O, H, R>(contexts: [C; 3], input: I, helper_fn: H) -> [O; 3]
-where
-    C: UpgradableContext,
-    I: IntoShares<A> + Send + 'static,
-    A: Send,
-    O: Send + Debug,
-    H: Fn(C, A) -> R + Send + Sync,
-    R: Future<Output = O> + Send,
-{
-    let input_shares = input.share_with(&mut thread_rng());
-    #[allow(clippy::disallowed_methods)] // It's just 3 items.
-    let output =
-        join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
-    <[_; 3]>::try_from(output).unwrap()
-}
-
 #[async_trait]
 impl Runner for TestWorld {
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
@@ -248,7 +249,7 @@ impl Runner for TestWorld {
         H: Fn(SemiHonestContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        run_either(self.contexts(), input, helper_fn).await
+        Self::run_either(self.contexts(), input, helper_fn).await
     }
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
@@ -259,7 +260,7 @@ impl Runner for TestWorld {
         H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        run_either(self.malicious_contexts(), input, helper_fn).await
+        Self::run_either(self.malicious_contexts(), input, helper_fn).await
     }
 
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(

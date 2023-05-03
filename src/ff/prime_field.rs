@@ -221,7 +221,7 @@ macro_rules! field_impl {
     };
 }
 
-#[cfg(any(test, feature = "test-field"))]
+#[cfg(any(test, feature = "weak-field"))]
 mod fp31 {
     field_impl! { Fp31, u8, 8, 31 }
 
@@ -294,6 +294,6 @@ mod fp32bit {
     }
 }
 
-#[cfg(any(test, feature = "test-field"))]
+#[cfg(any(test, feature = "weak-field"))]
 pub use fp31::Fp31;
 pub use fp32bit::Fp32BitPrime;

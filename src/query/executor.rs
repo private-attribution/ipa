@@ -1,4 +1,4 @@
-#[cfg(any(test, feature = "test-field"))]
+#[cfg(any(test, feature = "weak-field"))]
 use crate::ff::Fp31;
 use crate::{
     error::Error,
@@ -139,7 +139,7 @@ pub fn start_query(
         let ctx = SemiHonestContext::new(&prss, &gateway);
 
         match config.field_type {
-            #[cfg(any(test, feature = "test-field"))]
+            #[cfg(any(test, feature = "weak-field"))]
             FieldType::Fp31 => match config.query_type {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TestMultiply => multiply_query::<Fp31>(&ctx, input).await,

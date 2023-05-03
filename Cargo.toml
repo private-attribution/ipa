@@ -17,10 +17,12 @@ no-prss = []
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
 self-signed-certs = ["hyper-tls"]
-test-fixture = ["enable-serde"]
+test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 enable-benches = ["cli", "test-fixture", "criterion", "iai"]
+# Enable this feature to enable our colossally weak Fp31.
+weak-field = []
 
 [dependencies]
 aes = "0.8"
@@ -104,7 +106,7 @@ bench = false
 
 [[bin]]
 name = "test_mpc"
-required-features = ["cli", "web-app"]
+required-features = ["cli", "web-app", "weak-field"]
 bench = false
 
 [[bench]]

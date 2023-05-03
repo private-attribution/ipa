@@ -8,7 +8,7 @@ mod prime_field;
 
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf40Bit, Gf8Bit};
-#[cfg(any(test, feature = "test-field"))]
+#[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
 

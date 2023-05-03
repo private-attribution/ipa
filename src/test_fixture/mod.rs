@@ -11,7 +11,7 @@ pub mod metrics;
 pub mod network;
 
 use crate::{
-    ff::{Field, Fp31},
+    ff::Field,
     protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
