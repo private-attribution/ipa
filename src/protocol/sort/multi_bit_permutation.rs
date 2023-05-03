@@ -93,7 +93,7 @@ pub async fn multi_bit_permutation<
     Ok(one_off_permutation)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::multi_bit_permutation;
     use crate::{

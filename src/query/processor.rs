@@ -261,13 +261,15 @@ impl Processor {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
-        helpers::{query::QueryType, HelperIdentity, PrepareQueryCallback, TransportCallbacks},
-        test_fixture::network::InMemoryNetwork,
+        helpers::{
+            query::QueryType, HelperIdentity, InMemoryNetwork, PrepareQueryCallback,
+            TransportCallbacks,
+        },
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;

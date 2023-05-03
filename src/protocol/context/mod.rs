@@ -63,7 +63,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},

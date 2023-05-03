@@ -22,17 +22,12 @@ use std::{fmt::Debug, num::NonZeroUsize};
 /// Alias for the currently configured transport.
 ///
 /// To avoid proliferation of type parameters, most code references this concrete type alias, rather
-/// than a type parameter `T: Transport`. Where this gets tricky is code enabled by the `web-app`
-/// feature, which may want to reference `HttpTransport` even when `TransportImpl` is referring to
-/// `InMemoryTransport`. Although it is not possible to produce a functioning web server compiled
-/// with both the `web-app` and `test-fixture` features, it is important that the code compile that
-/// way, for tests of `web-app` functionality. When the result of this is nonsensical (in
-/// particular, the `helper` binary, which references this comment), such a build will fail at
-/// runtime.
-#[cfg(all(any(feature = "test-fixture", test), not(feature = "test-http")))]
-pub type TransportImpl = crate::test_fixture::network::InMemoryTransport;
-#[cfg(not(all(any(feature = "test-fixture", test), not(feature = "test-http"))))]
-pub type TransportImpl = std::sync::Arc<crate::net::HttpTransport>;
+/// than a type parameter `T: Transport`.
+#[cfg(feature = "in-memory-infra")]
+pub type TransportImpl = super::transport::InMemoryTransport;
+
+#[cfg(feature = "real-world-infra")]
+pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
 
 pub type TransportError = <TransportImpl as Transport>::Error;
 pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
@@ -147,7 +142,7 @@ impl GatewayConfig {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{

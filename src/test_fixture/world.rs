@@ -1,7 +1,7 @@
 use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     ff::Field,
-    helpers::{Gateway, GatewayConfig, Role, RoleAssignment},
+    helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
@@ -20,7 +20,7 @@ use crate::{
         Arc,
     },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
 };
 use async_trait::async_trait;
 use futures::{future::join_all, Future};

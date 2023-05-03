@@ -76,6 +76,8 @@ cargo clippy --tests --features shuttle -- -D warnings || error "Clippy concurre
 
 cargo test || error "Test failures"
 
+cargo test --no-default-features --features "web-app real-world-infra" || error "Web test failures"
+
 cargo test --release --features shuttle || error "Concurrency test failures"
 
 cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 100 || error "Failed to run IPA benchmark"
