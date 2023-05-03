@@ -24,6 +24,26 @@ use ::tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
+pub trait TracingSpanMaker: Send + Sync + Clone + 'static {
+    fn make_span(&self) -> Span;
+}
+
+impl<T: TracingSpanMaker> TracingSpanMaker for Option<T> {
+    fn make_span(&self) -> Span {
+        if let Some(h) = self {
+            h.make_span()
+        } else {
+            tracing::trace_span!("")
+        }
+    }
+}
+
+impl TracingSpanMaker for () {
+    fn make_span(&self) -> Span {
+        tracing::trace_span!("")
+    }
+}
+
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
 pub enum BindTarget {
@@ -50,7 +70,11 @@ impl MpcHelperServer {
 
     /// Starts a new instance of MPC helper and binds it to a given target.
     /// Returns a socket it is listening to and the join handle of the web server running.
-    pub async fn bind(&self, target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+    pub async fn bind<T: TracingSpanMaker>(
+        &self,
+        target: BindTarget,
+        tracing: T,
+    ) -> (SocketAddr, JoinHandle<()>) {
         async fn serve<A>(
             server: Server<A>,
             handle: Handle,
@@ -84,12 +108,16 @@ impl MpcHelperServer {
 
         let svc = self
             .router()
-            .layer(TraceLayer::new_for_http().on_request(
-                |request: &hyper::Request<hyper::Body>, _span: &Span| {
-                    increment_counter!(RequestProtocolVersion::from(request.version()));
-                    increment_counter!(REQUESTS_RECEIVED);
-                },
-            ))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(move |_request: &hyper::Request<hyper::Body>| {
+                        tracing.make_span()
+                    })
+                    .on_request(|request: &hyper::Request<hyper::Body>, _: &Span| {
+                        increment_counter!(RequestProtocolVersion::from(request.version()));
+                        increment_counter!(REQUESTS_RECEIVED);
+                    }),
+            )
             .into_make_service();
         let handle = Handle::new();
 
@@ -207,7 +235,10 @@ mod e2e_tests {
         let handle = MetricsHandle::new(Level::INFO);
 
         // server
-        let TestServer { addr, .. } = TestServer::default().await;
+        let TestServer { addr, .. } = TestServer::builder()
+            .with_metrics(handle.clone())
+            .build()
+            .await;
 
         // client
         let client = hyper::Client::new();
@@ -236,7 +267,10 @@ mod e2e_tests {
         let handle = MetricsHandle::new(Level::INFO);
 
         // server
-        let TestServer { addr, .. } = TestServer::default().await;
+        let TestServer { addr, .. } = TestServer::builder()
+            .with_metrics(handle.clone())
+            .build()
+            .await;
 
         // request
         let expected = expected_req(addr.to_string());

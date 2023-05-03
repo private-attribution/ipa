@@ -101,11 +101,15 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     // from a config file. Probably, the config should be stored in the server when
     // constructed, and the argument to server.bind() should go away.
     let (addr, server_handle) = server
-        .bind(BindTarget::Http(
-            format!("0.0.0.0:{}", server_config.port.unwrap())
-                .parse()
-                .unwrap(),
-        ))
+        .bind(
+            BindTarget::Http(
+                format!("0.0.0.0:{}", server_config.port.unwrap())
+                    .parse()
+                    .unwrap(),
+            ),
+            // TODO, trace based on the content of the query.
+            None as Option<()>,
+        )
         .await;
 
     info!(
