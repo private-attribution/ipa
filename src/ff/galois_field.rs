@@ -42,6 +42,56 @@ fn assert_copy<C: Copy>(c: C) -> C {
     c
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "pclmulqdq"))]
+mod clmul_x86_64 {
+    use core::arch::x86_64::{__m128i, _mm_clmulepi64_si128, _mm_extract_epi64, _mm_set_epi64x};
+
+    unsafe fn clmul(a: u64, b: u64) -> __m128i {
+        #[allow(clippy::cast_possible_wrap)]
+        unsafe fn to_m128i(v: u64) -> __m128i {
+            _mm_set_epi64x(0, v as i64)
+        }
+        _mm_clmulepi64_si128(to_m128i(a), to_m128i(b), 0)
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    unsafe fn extract<const I: i32>(v: __m128i) -> u128 {
+        _mm_extract_epi64(v, I) as u128
+    }
+
+    /// clmul with 32-bit inputs (and a 64-bit answer).
+    pub unsafe fn clmul32(a: u64, b: u64) -> u128 {
+        extract::<0>(clmul(a, b))
+    }
+
+    /// clmul with 64-bit inputs (and a 128-bit answer).
+    pub unsafe fn clmul64(a: u64, b: u64) -> u128 {
+        let product = clmul(a, b);
+        extract::<1>(product) << 64 | extract::<0>(product)
+    }
+}
+
+#[allow(unreachable_code)]
+fn clmul<const BITS: u32>(a: u64, b: u64) -> u128 {
+    #[cfg(all(target_arch = "x86_64", target_feature = "pclmulqdq"))]
+    return if BITS <= 32 {
+        unsafe { clmul_x86_64::clmul32(a, b) }
+    } else if BITS <= 64 {
+        unsafe { clmul_x86_64::clmul64(a, b) }
+    } else {
+        unreachable!();
+    };
+
+    debug_assert!(2 * BITS <= u128::BITS);
+    let a = u128::from(a);
+    let mut product = 0;
+    for i in 0..BITS {
+        let bit = u128::from(b >> i & 1);
+        product ^= bit * (a << i);
+    }
+    product
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
@@ -204,14 +254,10 @@ macro_rules! bit_array_impl {
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    debug_assert!(2 * Self::BITS < u128::BITS);
-                    let a = <Self as GaloisField>::as_u128(self);
-                    let mut product = 0;
-                    for i in 0..Self::BITS {
-                        let bit = u128::from(rhs[i]);
-                        product ^= bit * (a << i);
-                    }
-
+                    let mut product = clmul::<{ Self::BITS }>(
+                        u64::try_from(<Self as GaloisField>::as_u128(self)).unwrap(),
+                        u64::try_from(<Self as GaloisField>::as_u128(rhs)).unwrap(),
+                    );
                     let poly = <Self as GaloisField>::POLYNOMIAL;
                     while (u128::BITS - product.leading_zeros()) > Self::BITS {
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
