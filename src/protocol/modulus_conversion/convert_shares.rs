@@ -210,8 +210,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{Direction, Role},
         protocol::{
-            context::{Context, UpgradableContext, UpgradedContext},
-            malicious::Validator,
+            context::{Context, UpgradableContext, UpgradedContext, Validator},
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             MatchKey, RecordId,
         },

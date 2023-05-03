@@ -1,8 +1,7 @@
 use crate::{
     error::Error,
     protocol::{
-        context::{Context, UpgradableContext, UpgradedContext},
-        malicious::Validator,
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         sort::{
             compose::compose,
             generate_permutation::{shuffle_and_reveal_permutation, ShuffledPermutationWrapper},
@@ -159,8 +158,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField, Gf40Bit},
         protocol::{
-            context::Context,
-            malicious::Validator,
+            context::{Context, Validator},
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,

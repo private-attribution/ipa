@@ -4,9 +4,8 @@ use crate::{
         basics::Reveal,
         context::{
             Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext,
+            UpgradedSemiHonestContext, Validator,
         },
-        malicious::Validator,
         sort::{
             generate_permutation_opt::generate_permutation_opt,
             shuffle::{get_two_of_three_random_permutations, shuffle_shares},
@@ -159,8 +158,7 @@ mod tests {
     use crate::{
         ff::GaloisField,
         protocol::{
-            context::{SemiHonestContext, UpgradableContext},
-            malicious::Validator,
+            context::{SemiHonestContext, UpgradableContext, Validator},
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,

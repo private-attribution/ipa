@@ -154,10 +154,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        protocol::{
-            context::{UpgradableContext, UpgradedContext},
-            malicious::Validator,
-        },
+        protocol::context::{UpgradableContext, UpgradedContext, Validator},
         rand::{thread_rng, Rng},
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::Runner,

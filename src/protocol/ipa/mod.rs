@@ -10,10 +10,9 @@ use crate::{
         basics::Reshare,
         boolean::RandomBits,
         context::{
-            malicious::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
-            UpgradedContext,
+            upgrade::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
+            UpgradedContext, Validator,
         },
-        malicious::Validator,
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,

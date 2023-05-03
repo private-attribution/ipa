@@ -99,8 +99,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            context::{Context, UpgradableContext},
-            malicious::Validator,
+            context::{Context, UpgradableContext, Validator},
             RecordId,
         },
         secret_sharing::{

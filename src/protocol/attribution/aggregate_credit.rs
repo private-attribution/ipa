@@ -11,8 +11,8 @@ use crate::{
         },
         context::{
             Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            Validator,
         },
-        malicious::Validator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
             apply_sort::apply_sort_permutation,

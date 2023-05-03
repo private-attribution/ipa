@@ -53,8 +53,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            context::{Context, SemiHonestContext, UpgradableContext},
-            malicious::Validator,
+            context::{Context, SemiHonestContext, UpgradableContext, Validator},
             sort::{
                 apply::apply, compose::compose,
                 generate_permutation::shuffle_and_reveal_permutation,

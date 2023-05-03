@@ -5,7 +5,8 @@ use crate::{
     protocol::{
         basics::{check_zero, Reveal},
         context::{
-            BaseContext, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext,
         },
         prss::SharedRandomness,
         RecordId,
@@ -22,6 +23,7 @@ use futures::future::try_join;
 use std::{
     any::type_name,
     fmt::{Debug, Formatter},
+    marker::PhantomData,
 };
 
 /// Steps used by the validation component of malicious protocol execution.
@@ -118,11 +120,11 @@ impl<T: Field> AccumulatorState<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct MaliciousValidatorAccumulator<F: ExtendableField> {
+pub struct MaliciousAccumulator<F: ExtendableField> {
     inner: Weak<Mutex<AccumulatorState<F::ExtendedField>>>,
 }
 
-impl<F: ExtendableField> MaliciousValidatorAccumulator<F> {
+impl<F: ExtendableField> MaliciousAccumulator<F> {
     fn compute_dot_product_contribution(
         a: &Replicated<F::ExtendedField>,
         b: &Replicated<F::ExtendedField>,
@@ -179,15 +181,47 @@ pub trait Validator<B: UpgradableContext, F: ExtendableField> {
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
-pub struct MaliciousValidator<'a, F: ExtendableField> {
-    r_share: Replicated<F::ExtendedField>,
-    u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
-    protocol_ctx: UpgradedMaliciousContext<'a, F>,
-    validate_ctx: BaseContext<'a>,
+pub struct SemiHonest<'a, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, F>,
+    _f: PhantomData<F>,
+}
+
+impl<'a, F: ExtendableField> SemiHonest<'a, F> {
+    pub(super) fn new(inner: Base<'a>) -> Self {
+        Self {
+            context: UpgradedSemiHonestContext::new(inner),
+            _f: PhantomData,
+        }
+    }
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for MaliciousValidator<'a, F> {
+impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
+    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+        self.context.clone()
+    }
+
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        Ok(values.downgrade().await.access_without_downgrade())
+    }
+}
+
+impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+    }
+}
+
+pub struct Malicious<'a, F: ExtendableField> {
+    r_share: Replicated<F::ExtendedField>,
+    u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
+    protocol_ctx: UpgradedMaliciousContext<'a, F>,
+    validate_ctx: Base<'a>,
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
     fn context<'b>(&'b self) -> UpgradedMaliciousContext<'a, F> {
         self.protocol_ctx.clone()
@@ -229,10 +263,10 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for MaliciousVal
     }
 }
 
-impl<'a, F: ExtendableField> MaliciousValidator<'a, F> {
+impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: MaliciousContext<'a>) -> MaliciousValidator<F> {
+    pub fn new(ctx: MaliciousContext<'a>) -> Self {
         // Use the current step in the context for initialization.
         let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RecordId::FIRST);
         let prss = ctx.prss();
@@ -241,12 +275,12 @@ impl<'a, F: ExtendableField> MaliciousValidator<'a, F> {
         let state = AccumulatorState::new(u, w);
 
         let u_and_w = Arc::new(Mutex::new(state));
-        let accumulator = MaliciousValidatorAccumulator::<F> {
+        let accumulator = MaliciousAccumulator::<F> {
             inner: Arc::downgrade(&u_and_w),
         };
         let validate_ctx = ctx.narrow(&Step::Validate).base_context();
         let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
-        MaliciousValidator {
+        Self {
             r_share,
             u_and_w,
             protocol_ctx,
@@ -288,7 +322,7 @@ impl<'a, F: ExtendableField> MaliciousValidator<'a, F> {
     }
 }
 
-impl<F: ExtendableField> Debug for MaliciousValidator<'_, F> {
+impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }
@@ -302,8 +336,7 @@ mod tests {
         helpers::Role,
         protocol::{
             basics::SecureMul,
-            context::{Context, UpgradableContext, UpgradedContext},
-            malicious::Validator,
+            context::{validator::Validator, Context, UpgradableContext, UpgradedContext},
             RecordId,
         },
         rand::{thread_rng, Rng},

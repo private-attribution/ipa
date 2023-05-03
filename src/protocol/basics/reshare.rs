@@ -313,9 +313,8 @@ mod tests {
                 basics::Reshare,
                 context::{
                     Context, SemiHonestContext, UpgradableContext, UpgradedContext,
-                    UpgradedMaliciousContext,
+                    UpgradedMaliciousContext, Validator,
                 },
-                malicious::Validator,
                 prss::SharedRandomness,
                 sort::ReshareStep::{RandomnessForValidation, ReshareRx},
                 RecordId,

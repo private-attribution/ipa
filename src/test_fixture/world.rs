@@ -4,9 +4,8 @@ use crate::{
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradableContext, UpgradeContext,
-            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext,
+            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
         },
-        malicious::Validator,
         prss::Endpoint as PrssEndpoint,
         QueryId, Substep,
     },

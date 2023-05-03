@@ -3,8 +3,7 @@ use ipa::{
     ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
     helpers::GatewayConfig,
     protocol::{
-        context::Context,
-        malicious::Validator,
+        context::{Context, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,

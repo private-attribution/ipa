@@ -16,9 +16,8 @@ use crate::{
     helpers::query::IpaQueryConfig,
     protocol::{
         boolean::RandomBits,
-        context::{Context, UpgradableContext, UpgradedContext},
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         ipa::IPAModulusConvertedInputRow,
-        malicious::Validator,
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, Substep,
     },

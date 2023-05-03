@@ -100,8 +100,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            context::{Context, UpgradableContext},
-            malicious::Validator,
+            context::{Context, UpgradableContext, Validator},
             sort::check_everything,
         },
         secret_sharing::SharedValue,

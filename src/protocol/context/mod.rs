@@ -1,11 +1,15 @@
 pub mod malicious;
-mod prss;
+pub mod prss;
 mod semi_honest;
+pub mod upgrade;
+pub mod validator;
 
 use crate::{
     error::Error,
-    helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{basics::ZeroPositions, malicious::Validator, NoRecord, RecordId, Step, Substep},
+    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
+    protocol::{
+        basics::ZeroPositions, prss::Endpoint as PrssEndpoint, NoRecord, RecordId, Step, Substep,
+    },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -13,14 +17,13 @@ use crate::{
     seq_join::SeqJoin,
 };
 use async_trait::async_trait;
-pub(super) use malicious::SpecialAccessToUpgradedContext;
-pub use malicious::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext};
-pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub(super) use semi_honest::Base as BaseContext;
-pub use semi_honest::{
-    Malicious as MaliciousContext, SemiHonest as SemiHonestContext, SemiHonestValidator,
-    UpgradedSemiHonest as UpgradedSemiHonestContext,
-};
+use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
+use std::{num::NonZeroUsize, sync::Arc};
+
+pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
+pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use upgrade::{UpgradeContext, UpgradeToMalicious};
+pub use validator::Validator;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -149,12 +152,135 @@ where
     ) -> Result<Self::Share, Error>;
 }
 
+pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
+    type Base: Context;
+
+    fn accumulate_macs(self, record_id: RecordId, x: &Self::Share);
+    /// Get a base context that is an exact copy of this malicious
+    /// context, so it will be tied up to the same step and prss.
+    #[must_use]
+    fn base_context(self) -> Self::Base;
+}
+
+/// Context for protocol executions suitable for semi-honest security model, i.e. secure against
+/// honest-but-curious adversary parties.
+#[derive(Clone)]
+pub struct Base<'a> {
+    /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
+    /// may operate with raw references and be more efficient
+    inner: Arc<ContextInner<'a>>,
+    step: Step,
+    total_records: TotalRecords,
+}
+
+impl<'a> Base<'a> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_complete(
+            participant,
+            gateway,
+            Step::default(),
+            TotalRecords::Unspecified,
+        )
+    }
+
+    fn new_complete(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        step: Step,
+        total_records: TotalRecords,
+    ) -> Self {
+        Self {
+            inner: ContextInner::new(participant, gateway),
+            step,
+            total_records,
+        }
+    }
+}
+
+impl<'a> Context for Base<'a> {
+    fn role(&self) -> Role {
+        self.inner.gateway.role()
+    }
+
+    fn step(&self) -> &Step {
+        &self.step
+    }
+
+    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            step: self.step.narrow(step),
+            total_records: self.total_records,
+        }
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            step: self.step.clone(),
+            total_records: self.total_records.overwrite(total_records),
+        }
+    }
+
+    fn total_records(&self) -> TotalRecords {
+        self.total_records
+    }
+
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
+        let prss = self.inner.prss.indexed(self.step());
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
+    }
+
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
+    }
+
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner
+            .gateway
+            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_receiver(&ChannelId::new(role, self.step.clone()))
+    }
+}
+
+impl<'a> SeqJoin for Base<'a> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.gateway.config().active_work()
+    }
+}
+
+struct ContextInner<'a> {
+    pub prss: &'a PrssEndpoint,
+    pub gateway: &'a Gateway,
+}
+
+impl<'a> ContextInner<'a> {
+    fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
+        Arc::new(Self { prss, gateway })
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::Direction,
-        protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
+        protocol::{context::validator::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
