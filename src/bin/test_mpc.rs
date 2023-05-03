@@ -7,16 +7,13 @@ use ipa::{
         playbook::{secure_mul, semi_honest, InputSource},
         Verbosity,
     },
-    config::NetworkConfig,
+    config::{NetworkConfig, PeerConfig},
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-    net::MpcHelperClient,
+    net::{ClientIdentity, MpcHelperClient},
     protocol::{BreakdownKey, MatchKey, QueryId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-    test_fixture::{
-        config::TestConfigBuilder,
-        ipa::{ipa_in_the_clear, TestRawDataRecord},
-    },
+    test_fixture::ipa::{ipa_in_the_clear, TestRawDataRecord},
 };
 use std::{error::Error, fmt::Debug, fs, ops::Add, path::PathBuf, time::Duration};
 use tokio::time::sleep;
@@ -144,10 +141,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let config = if let Some(path) = config_path {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
-            TestConfigBuilder::with_default_test_ports().build().network
+            NetworkConfig {
+                peers: [
+                    PeerConfig::new("localhost:3000".parse().unwrap(), None),
+                    PeerConfig::new("localhost:3001".parse().unwrap(), None),
+                    PeerConfig::new("localhost:3002".parse().unwrap(), None),
+                ],
+            }
         }
         .override_scheme(&scheme);
-        MpcHelperClient::from_conf(&config)
+        MpcHelperClient::from_conf(&config, ClientIdentity::None)
     }
 
     let args = Args::parse();

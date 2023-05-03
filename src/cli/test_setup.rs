@@ -1,7 +1,4 @@
-use crate::{
-    cli::{keygen, KeygenArgs},
-    config::{NetworkConfig, PeerConfig},
-};
+use crate::cli::{keygen, KeygenArgs};
 use clap::Args;
 use std::{
     error::Error,
@@ -9,6 +6,7 @@ use std::{
     iter::zip,
     path::PathBuf,
 };
+use toml::{map::Map, Value};
 
 #[derive(Debug, Args)]
 #[clap(
@@ -55,18 +53,24 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
                 tls_key,
             })?;
 
-            let certificate = Some(fs::read_to_string(&tls_cert)?);
+            let certificate = fs::read_to_string(&tls_cert)?;
 
-            Ok::<_, Box<dyn Error>>(PeerConfig {
-                url: format!("localhost:{port}").parse().unwrap(),
-                certificate,
-            })
+            // Constructing toml directly because it avoids linking
+            // a PEM library to serialize the certificate.
+            let mut peer = Map::new();
+            peer.insert(
+                String::from("url"),
+                Value::String(format!("localhost:{port}")),
+            );
+            peer.insert(String::from("certificate"), Value::String(certificate));
+            Ok::<_, Box<dyn Error>>(peer.into())
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .unwrap();
+        .collect::<Result<Vec<Value>, _>>()?
+        .into();
 
-    let network_config = toml::to_string_pretty(&NetworkConfig { peers })?;
+    let mut network_config = Map::new();
+    network_config.insert(String::from("peers"), peers);
+    let network_config = toml::to_string_pretty(&network_config)?;
 
     fs::write(args.output_dir.join("network.toml"), network_config)?;
 

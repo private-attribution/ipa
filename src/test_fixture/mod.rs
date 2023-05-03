@@ -10,7 +10,6 @@ mod app;
 
 #[cfg(feature = "in-memory-infra")]
 pub mod circuit;
-pub mod config;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;

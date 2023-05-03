@@ -134,7 +134,6 @@ impl HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]

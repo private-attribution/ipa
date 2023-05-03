@@ -1,8 +1,8 @@
 use clap::Args;
 use rand::{thread_rng, Rng};
 use rcgen::{
-    BasicConstraints, Certificate, CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose,
-    IsCa, KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
+    Certificate, CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa,
+    KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
 };
 use std::{
     error::Error,
@@ -51,7 +51,7 @@ pub fn keygen(args: KeygenArgs) -> Result<(), Box<dyn Error>> {
     let mut params = CertificateParams::default();
     params.alg = &PKCS_ECDSA_P256_SHA256;
 
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.is_ca = IsCa::NoCa;
     params.key_usages = vec![
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,
@@ -73,8 +73,10 @@ pub fn keygen(args: KeygenArgs) -> Result<(), Box<dyn Error>> {
 
     let gen = Certificate::from_params(params)?;
 
-    create_new(args.tls_cert)?.write_all(gen.serialize_pem().unwrap().as_bytes())?;
-    create_new(args.tls_key)?.write_all(gen.serialize_private_key_pem().as_bytes())?;
+    create_new(args.tls_cert)?
+        .write_all(gen.serialize_pem().unwrap().replace('\r', "").as_bytes())?;
+    create_new(args.tls_key)?
+        .write_all(gen.serialize_private_key_pem().replace('\r', "").as_bytes())?;
 
     Ok(())
 }
