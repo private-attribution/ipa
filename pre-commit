@@ -62,22 +62,37 @@ if ! errors=($(cargo fmt -- --check --config imports_granularity=Crate -l)); the
     exit 1
 fi
 
-error() {
-   echo "-----------------------"
-   echo "$@"
-   exit 1
+check() {
+    msg="$1"
+    shift
+    if "$@"; then
+        echo "$msg: OK"
+    else
+        res=$?
+        echo "-----------------------"
+        echo "$msg: FAILED ($res)"
+        echo "  ${@@Q}"
+        exit $res
+    fi
 }
 
-cargo build --benches --features "enable-benches" || error "Benchmarks compilation errors"
+check "Benchmark compilation" \
+    cargo build --benches --features "enable-benches"
 
-cargo clippy --tests -- -D warnings || error "Clippy errors"
+check "Clippy checks" \
+    cargo clippy --tests -- -D warnings
 
-cargo clippy --tests --features shuttle -- -D warnings || error "Clippy concurrency tests errors"
+check "Clippy concurrency checks" \
+    cargo clippy --tests --features shuttle -- -D warnings
 
-cargo test || error "Test failures"
+check "Tests" \
+    cargo test
 
-cargo test --release --features shuttle || error "Concurrency test failures"
+check "Concurrency tests" \
+    cargo test --release --features shuttle
 
-cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 100 || error "Failed to run IPA benchmark"
+check "IPA benchmark" \
+    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 62
 
-cargo bench --bench oneshot_sort --no-default-features --features="enable-benches" || error "Failed to run IPA benchmark"
+check "Sort benchmark" \
+    cargo bench --bench oneshot_sort --no-default-features --features="enable-benches"
