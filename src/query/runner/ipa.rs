@@ -38,7 +38,7 @@ impl Runner {
         }
     }
 
-    /// It is intentionally made not async because it does not capture `self`.
+    // This is intentionally made not async because it does not capture `self`.
     fn run_internal<'a, F: PrimeField, MK: GaloisField, BK: GaloisField>(
         &self,
         ctx: SemiHonestContext<'a>,
