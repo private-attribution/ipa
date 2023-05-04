@@ -28,12 +28,12 @@ impl Step for String {}
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
-/// The representation of a unique step in protocol execution.
+/// A descriptive representation of a unique step in protocol execution.
 ///
 /// This gathers context from multiple layers of execution. Each stage of execution has its
 /// own description of the different steps it takes.  Individual components are identified
 /// using an implementation of `Step`.  This type combines those with the identifiers from
-/// outer functional layers to form this unique identifier.
+/// outer functional layers to form a unique, descriptive string.
 ///
 /// This allows each stage of execution to be uniquely identified, while still
 /// enabling functional decomposition.
@@ -46,11 +46,6 @@ impl Step for str {}
 /// Step "a" would be executed with a context identifier of "protocol/a", which it
 ///  would `narrow()` into "protocol/a/x" and "protocol/a/y" to produce a final set
 /// of identifiers: ".../a/x", ".../a/y", ".../b", and ".../c".
-///
-/// Note that the implementation of this context might change to use a different
-/// (possible more efficient) representation.  It is probably not particularly efficient
-/// to be cloning this object all over the place.  Of course, a string is pretty useful
-/// from a debugging perspective.
 #[derive(Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(
     feature = "enable-serde",

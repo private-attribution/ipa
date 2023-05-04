@@ -8,8 +8,7 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        step,
-        step::{Step, StepNarrow},
+        step::{self, Step, StepNarrow},
         RecordId,
     },
     secret_sharing::replicated::{

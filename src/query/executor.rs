@@ -10,8 +10,7 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow,
         context::SemiHonestContext,
         ipa::{ipa, IPAInputRow},
-        step,
-        step::StepNarrow,
+        step::{self, StepNarrow},
         BreakdownKey, MatchKey,
     },
     secret_sharing::{

@@ -32,7 +32,10 @@ mod tests {
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::{body_stream, TestServer},
         },
-        protocol::{step, step::StepNarrow, QueryId},
+        protocol::{
+            step::{self, StepNarrow},
+            QueryId,
+        },
     };
     use axum::http::Request;
     use futures::{

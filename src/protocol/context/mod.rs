@@ -4,7 +4,10 @@ mod semi_honest;
 
 use crate::{
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{step, step::Step, RecordId},
+    protocol::{
+        step::{self, Step},
+        RecordId,
+    },
     seq_join::SeqJoin,
 };
 pub(super) use malicious::SpecialAccessToMaliciousContext;

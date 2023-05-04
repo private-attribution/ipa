@@ -1,8 +1,8 @@
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
     protocol::{
-        prss, step,
-        step::{Step, StepNarrow},
+        prss,
+        step::{self, Step, StepNarrow},
         RecordId,
     },
 };
