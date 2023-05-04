@@ -20,7 +20,8 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        BasicProtocols, BitOpStep, RecordId,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -523,7 +524,7 @@ enum Step {
     ApplyPermutationOnAttributionBit,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

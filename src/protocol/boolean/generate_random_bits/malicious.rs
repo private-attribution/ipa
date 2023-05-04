@@ -4,7 +4,8 @@ use crate::{
     ff::PrimeField,
     protocol::{
         context::{Context, MaliciousContext},
-        BitOpStep, RecordId,
+        step::BitOpStep,
+        RecordId,
     },
     secret_sharing::replicated::malicious::{
         AdditiveShare as MaliciousReplicated, ExtendableField,

@@ -8,8 +8,8 @@ use crate::{
         },
         malicious::MaliciousValidatorAccumulator,
         prss::Endpoint as PrssEndpoint,
-        step::StepNarrow,
-        GenericStep, RecordId, Step,
+        step::{self, Step, StepNarrow},
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -29,7 +29,7 @@ pub struct SemiHonestContext<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     pub(super) inner: Arc<ContextInner<'a>>,
-    pub(super) step: GenericStep,
+    pub(super) step: step::Descriptive,
     pub(super) total_records: TotalRecords,
 }
 
@@ -38,7 +38,7 @@ impl<'a> SemiHonestContext<'a> {
         Self::new_complete(
             participant,
             gateway,
-            GenericStep::default(),
+            step::Descriptive::default(),
             TotalRecords::Unspecified,
         )
     }
@@ -48,13 +48,18 @@ impl<'a> SemiHonestContext<'a> {
         gateway: &'a Gateway,
         total_records: TotalRecords,
     ) -> Self {
-        Self::new_complete(participant, gateway, GenericStep::default(), total_records)
+        Self::new_complete(
+            participant,
+            gateway,
+            step::Descriptive::default(),
+            total_records,
+        )
     }
 
     pub(super) fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        step: GenericStep,
+        step: step::Descriptive,
         total_records: TotalRecords,
     ) -> Self {
         Self {
@@ -85,7 +90,7 @@ impl<'a> Context for SemiHonestContext<'a> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &GenericStep {
+    fn step(&self) -> &step::Descriptive {
         &self.step
     }
 

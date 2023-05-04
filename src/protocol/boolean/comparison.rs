@@ -5,7 +5,8 @@ use crate::{
     protocol::{
         boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
-        BasicProtocols, BitOpStep, RecordId,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -148,7 +149,7 @@ enum GreaterThanConstantStep {
     And,
 }
 
-impl crate::protocol::Step for GreaterThanConstantStep {}
+impl crate::protocol::step::Step for GreaterThanConstantStep {}
 
 impl AsRef<str> for GreaterThanConstantStep {
     fn as_ref(&self) -> &str {
@@ -304,7 +305,7 @@ enum Step {
     DotProduct,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

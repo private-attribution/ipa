@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::PrimeField,
     helpers::TotalRecords,
-    protocol::{context::Context, BasicProtocols, RecordId, Step},
+    protocol::{context::Context, step::Step, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{

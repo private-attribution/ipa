@@ -4,7 +4,7 @@ use crate::{
         transport::{ByteArrStream, NoQueryId, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{QueryId, Step},
+    protocol::{step::Step, QueryId},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};

@@ -4,7 +4,10 @@ mod semi_honest;
 
 use crate::{
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{GenericStep, RecordId, Step},
+    protocol::{
+        step::{self, Step},
+        RecordId,
+    },
     seq_join::SeqJoin,
 };
 pub(super) use malicious::SpecialAccessToMaliciousContext;
@@ -20,7 +23,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    fn step(&self) -> &GenericStep;
+    fn step(&self) -> &step::Descriptive;
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
@@ -190,7 +193,7 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = GenericStep::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             .narrow("metrics");
 
@@ -247,7 +250,7 @@ mod tests {
             })
             .await;
 
-        let metrics_step = GenericStep::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)

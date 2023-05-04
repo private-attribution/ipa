@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{basics::Reshare, context::Context, NoRecord, RecordId, Step},
+    protocol::{basics::Reshare, context::Context, step::Step, NoRecord, RecordId},
     secret_sharing::SecretSharing,
 };
 
@@ -168,7 +168,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
-        protocol::{sort::shuffle::get_two_of_three_random_permutations, GenericStep},
+        protocol::{sort::shuffle::get_two_of_three_random_permutations, step},
         rand::thread_rng,
         test_fixture::{make_participants, permutation_valid},
     };
@@ -178,7 +178,7 @@ mod tests {
         const BATCH_SIZE: u32 = 10000;
 
         let [p1, p2, p3] = make_participants(&mut thread_rng());
-        let step = GenericStep::default();
+        let step = step::Descriptive::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.sequential(&step));
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.sequential(&step));
         let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.sequential(&step));

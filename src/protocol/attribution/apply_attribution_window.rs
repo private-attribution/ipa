@@ -181,7 +181,7 @@ enum Step {
     CompareBitTimesTriggerValue,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

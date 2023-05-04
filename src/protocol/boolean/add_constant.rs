@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
-    protocol::{basics::SecureMul, context::Context, BasicProtocols, BitOpStep, RecordId},
+    protocol::{basics::SecureMul, context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 
@@ -190,7 +190,7 @@ enum Step {
     CarryXorBitTimesMaybe,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

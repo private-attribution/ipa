@@ -5,7 +5,7 @@ use std::{
 
 use metrics::{KeyName, Label, SharedString};
 
-use crate::{helpers::Role, protocol::GenericStep, telemetry::labels};
+use crate::{helpers::Role, protocol::step, telemetry::labels};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,
@@ -183,7 +183,7 @@ impl<'a> MetricAssertion<'a> {
     /// Validates metric value per step dimension.
     /// ## Panics
     /// Panics if value is not equal to expected
-    pub fn per_step<I: TryInto<u64>>(&self, step: &GenericStep, expected: I) -> Self {
+    pub fn per_step<I: TryInto<u64>>(&self, step: &step::Descriptive, expected: I) -> Self {
         let actual = self.get_dimension(labels::STEP).get(step.as_ref()).copied();
 
         let expected = expected.try_into().ok();
