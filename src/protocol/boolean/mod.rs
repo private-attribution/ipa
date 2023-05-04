@@ -6,7 +6,7 @@ use crate::{
 };
 use std::iter::repeat;
 
-use super::{basics::ShareKnownValue, context::Context, BitOpStep, RecordId};
+use super::{basics::ShareKnownValue, context::Context, step::BitOpStep, RecordId};
 
 mod add_constant;
 mod bit_decomposition;

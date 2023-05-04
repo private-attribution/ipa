@@ -18,7 +18,7 @@ pub mod metrics;
 
 use crate::{
     ff::Field,
-    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Step},
+    protocol::{context::Context, prss::Endpoint as PrssEndpoint, step::Step},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 #[cfg(feature = "in-memory-infra")]

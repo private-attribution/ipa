@@ -302,7 +302,7 @@ enum Step {
     ModConvHelperBits,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -321,7 +321,7 @@ impl AsRef<str> for Step {
 
 struct InteractionPatternStep(usize);
 
-impl crate::protocol::Step for InteractionPatternStep {}
+impl crate::protocol::step::Step for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {

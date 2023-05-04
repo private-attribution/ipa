@@ -10,8 +10,8 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow,
         context::SemiHonestContext,
         ipa::{ipa, IPAInputRow},
-        step::StepNarrow,
-        BreakdownKey, GenericStep, MatchKey,
+        step::{self, StepNarrow},
+        BreakdownKey, MatchKey,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
@@ -129,7 +129,7 @@ pub fn start_query(
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
         // Negotiate PRSS first
-        let step = GenericStep::default().narrow(&config.query_type);
+        let step = step::Descriptive::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {

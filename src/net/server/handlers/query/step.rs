@@ -32,7 +32,10 @@ mod tests {
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::{body_stream, TestServer},
         },
-        protocol::{step::StepNarrow, GenericStep, QueryId},
+        protocol::{
+            step::{self, StepNarrow},
+            QueryId,
+        },
     };
     use axum::http::Request;
     use futures::{
@@ -47,7 +50,7 @@ mod tests {
     async fn step() {
         let TestServer { transport, .. } = TestServer::builder().build().await;
 
-        let step = GenericStep::default().narrow("test");
+        let step = step::Descriptive::default().narrow("test");
         let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
         let req = http_serde::query::step::Request::new(
             HelperIdentity::TWO,
@@ -71,7 +74,7 @@ mod tests {
     struct OverrideReq {
         origin: u8,
         query_id: String,
-        step: GenericStep,
+        step: step::Descriptive,
         payload: Vec<u8>,
     }
 
@@ -96,7 +99,7 @@ mod tests {
             Self {
                 origin: 1,
                 query_id: QueryId.as_ref().to_string(),
-                step: GenericStep::default().narrow("test"),
+                step: step::Descriptive::default().narrow("test"),
                 payload: vec![1; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
             }
         }

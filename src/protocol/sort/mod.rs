@@ -12,7 +12,11 @@ mod shuffle;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId, Step},
+    protocol::{
+        context::Context,
+        step::{BitOpStep, Step},
+        BasicProtocols, RecordId,
+    },
     repeat64str,
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };

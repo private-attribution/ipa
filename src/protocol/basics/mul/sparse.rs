@@ -197,7 +197,8 @@ pub(in crate::protocol) mod test {
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             context::Context,
             malicious::MaliciousValidator,
-            BitOpStep, RecordId,
+            step::BitOpStep,
+            RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::{

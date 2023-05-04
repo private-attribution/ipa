@@ -47,7 +47,7 @@ pub enum Step {
     BinaryValidator,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -71,7 +71,7 @@ pub enum IPAInputRowResharableStep {
     TriggerValue,
 }
 
-impl crate::protocol::Step for IPAInputRowResharableStep {}
+impl crate::protocol::step::Step for IPAInputRowResharableStep {}
 
 impl AsRef<str> for IPAInputRowResharableStep {
     fn as_ref(&self) -> &str {

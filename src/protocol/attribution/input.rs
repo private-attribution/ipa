@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::{Field, GaloisField, Serializable},
     helpers::Role,
-    protocol::{basics::Reshare, context::Context, RecordId, Step},
+    protocol::{basics::Reshare, context::Context, step::Step, RecordId},
     secret_sharing::{
         replicated::{
             malicious::{
