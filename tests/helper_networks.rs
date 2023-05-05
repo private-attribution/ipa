@@ -40,8 +40,8 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .args(["--output-dir".as_ref(), dir.path().as_os_str()])
         .arg("--ports")
         .args(ports.map(|p| p.to_string()));
-    if https {
-        command.arg("--https");
+    if !https {
+        command.arg("--disable-https");
     }
     command.status().unwrap_status();
 
@@ -65,6 +65,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
 
     let mut test_mpc = Command::new(TEST_MPC_BIN)
         .args(["--network".into(), dir.path().join("network.toml")])
+        .args(["--wait", "2"])
         .arg("multiply")
         .stdin(Stdio::piped())
         .spawn()
@@ -78,7 +79,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .unwrap();
     test_mpc.wait().unwrap_status();
 
-    for mut helper in helpers.into_iter() {
+    for mut helper in helpers {
         helper.kill().unwrap();
     }
 

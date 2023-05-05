@@ -12,7 +12,8 @@ use ipa::{
     protocol::{BreakdownKey, MatchKey},
     test_fixture::config::TestConfigBuilder,
 };
-use std::{error::Error, fmt::Debug, fs, path::PathBuf};
+use std::{error::Error, fmt::Debug, fs, path::PathBuf, time::Duration};
+use tokio::time::sleep;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -27,6 +28,10 @@ struct Args {
     /// Path to helper network configuration file
     #[arg(long)]
     network: Option<PathBuf>,
+
+    /// Seconds to wait for server to be running
+    #[arg(short, long, default_value_t = 0)]
+    wait: usize,
 
     #[clap(flatten)]
     input: CommandInput,
@@ -103,6 +108,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let input = InputSource::from(&args.input);
     let clients = make_clients(args.network);
+
+    let mut wait = args.wait;
+    while wait > 0 && !clients[0].echo("").await.is_ok() {
+        sleep(Duration::from_secs(1)).await;
+        wait -= 1;
+    }
+
     match args.action {
         TestAction::Multiply => match args.input.input_type {
             InputType::Fp31 => {

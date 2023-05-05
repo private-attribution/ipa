@@ -273,7 +273,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn untrusted_certificate() {
-        let echo_data = "asdf";
+        const ECHO_DATA: &str = "asdf";
 
         let TestServer { addr, .. } = TestServer::builder().https().build().await;
 
@@ -287,7 +287,7 @@ pub(crate) mod tests {
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
-        let res = client.echo(echo_data).await;
+        let res = client.echo(ECHO_DATA).await;
         assert!(matches!(res, Err(Error::HyperPassthrough(e)) if e.is_connect()));
     }
 

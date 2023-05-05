@@ -20,10 +20,11 @@ pub struct TestSetupArgs {
     #[arg(short, long, default_value = "test_data")]
     output_dir: PathBuf,
 
+    /// Write http URLs to the network configuration (certificates will still be generated)
     #[arg(long)]
-    https: bool,
+    disable_https: bool,
 
-    #[arg(long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
+    #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
 }
 
@@ -59,7 +60,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
             Ok::<_, Box<dyn Error>>(PeerConfig {
                 url: format!(
                     "{}://localhost:{}",
-                    if args.https { "https" } else { "http" },
+                    if args.disable_https { "http" } else { "https" },
                     port
                 )
                 .parse()

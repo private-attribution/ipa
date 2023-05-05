@@ -53,7 +53,7 @@ pub struct PeerConfig {
     #[serde(with = "crate::uri")]
     pub url: Uri,
 
-    /// Peer's TLS certificate or CA
+    /// Peer's TLS certificate or CA in PEM format
     ///
     /// If the peer's TLS certificate can be verified using the system truststore, this may be omitted.
     ///
