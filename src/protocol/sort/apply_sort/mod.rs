@@ -40,7 +40,7 @@ where
     Ok(shuffled_objects)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         accumulation_test_input,
@@ -53,9 +53,8 @@ mod tests {
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
             },
-            BreakdownKey,
-            IpaProtocolStep::SortPreAccumulation,
-            MatchKey,
+            step::IpaProtocolStep::SortPreAccumulation,
+            BreakdownKey, MatchKey,
         },
         rand::{thread_rng, Rng},
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},

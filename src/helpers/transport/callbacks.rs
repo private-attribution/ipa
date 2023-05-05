@@ -66,7 +66,7 @@ pub struct TransportCallbacks<T> {
     pub complete_query: Box<dyn CompleteQueryCallback<T>>,
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
+#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl<T> Default for TransportCallbacks<T> {
     fn default() -> Self {
         // `TransportCallbacks::default()` is commonly used with struct update syntax

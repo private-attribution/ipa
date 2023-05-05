@@ -6,7 +6,7 @@ use std::{
     num::NonZeroUsize,
 };
 
-use crate::seq_join::SeqJoin;
+use crate::{protocol::step::StepNarrow, seq_join::SeqJoin};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
 
@@ -27,7 +27,8 @@ use crate::{
         malicious::MaliciousValidatorAccumulator,
         modulus_conversion::BitConversionTriple,
         prss::Endpoint as PrssEndpoint,
-        BitOpStep, NoRecord, RecordBinding, RecordId, Step, Substep,
+        step::{self, BitOpStep, Step},
+        NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
     secret_sharing::{
@@ -46,7 +47,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct UpgradeStep;
 
-impl crate::protocol::Substep for UpgradeStep {}
+impl crate::protocol::step::Step for UpgradeStep {}
 
 impl AsRef<str> for UpgradeStep {
     fn as_ref(&self) -> &str {
@@ -61,7 +62,7 @@ pub struct MaliciousContext<'a, F: Field + ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<ContextInner<'a, F>>,
-    step: Step,
+    step: step::Descriptive,
     total_records: TotalRecords,
 }
 
@@ -71,7 +72,7 @@ pub trait SpecialAccessToMaliciousContext<'a, F: Field + ExtendableField> {
 }
 
 impl<'a, F: Field + ExtendableField> MaliciousContext<'a, F> {
-    pub(super) fn new<S: Substep + ?Sized>(
+    pub(super) fn new<S: Step + ?Sized>(
         source: &SemiHonestContext<'a>,
         malicious_step: &S,
         acc: MaliciousValidatorAccumulator<F>,
@@ -193,11 +194,11 @@ impl<'a, F: Field + ExtendableField> Context for MaliciousContext<'a, F> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         &self.step
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
@@ -302,7 +303,7 @@ enum UpgradeTripleStep {
     V2,
 }
 
-impl crate::protocol::Substep for UpgradeTripleStep {}
+impl crate::protocol::step::Step for UpgradeTripleStep {}
 
 impl AsRef<str> for UpgradeTripleStep {
     fn as_ref(&self) -> &str {
@@ -320,7 +321,7 @@ enum UpgradeModConvStep {
     V3,
 }
 
-impl crate::protocol::Substep for UpgradeModConvStep {}
+impl crate::protocol::step::Step for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
@@ -339,7 +340,7 @@ enum UpgradeMCCappedCreditsWithAggregationBit {
     V3,
 }
 
-impl crate::protocol::Substep for UpgradeMCCappedCreditsWithAggregationBit {}
+impl crate::protocol::step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
 
 impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
     fn as_ref(&self) -> &str {
@@ -524,7 +525,7 @@ pub struct UpgradeContext<'a, F: Field + ExtendableField, B: RecordBinding = NoR
 }
 
 impl<'a, F: Field + ExtendableField, B: RecordBinding> UpgradeContext<'a, F, B> {
-    fn narrow<SS: Substep>(&self, step: &SS) -> Self {
+    fn narrow<SS: Step>(&self, step: &SS) -> Self {
         Self {
             ctx: self.ctx.narrow(step),
             record_binding: self.record_binding,
@@ -600,7 +601,7 @@ where
 enum Upgrade2DVectors {
     V(usize),
 }
-impl crate::protocol::Substep for Upgrade2DVectors {}
+impl crate::protocol::step::Step for Upgrade2DVectors {}
 
 impl AsRef<str> for Upgrade2DVectors {
     fn as_ref(&self) -> &str {

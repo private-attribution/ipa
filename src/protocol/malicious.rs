@@ -31,7 +31,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -51,7 +51,7 @@ enum ValidateStep {
     CheckZero,
 }
 
-impl crate::protocol::Substep for ValidateStep {}
+impl crate::protocol::step::Step for ValidateStep {}
 
 impl AsRef<str> for ValidateStep {
     fn as_ref(&self) -> &str {
@@ -282,7 +282,7 @@ impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use std::iter::{repeat, zip};
 

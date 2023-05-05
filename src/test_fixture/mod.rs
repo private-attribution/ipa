@@ -1,26 +1,34 @@
 pub mod input;
 mod sharing;
+#[cfg(feature = "in-memory-infra")]
 mod world;
 
+// `test-fixture` module is enabled for all tests, but app makes sense only for tests that use
+// in-memory infra.
+#[cfg(feature = "in-memory-infra")]
 mod app;
+
+#[cfg(feature = "in-memory-infra")]
 pub mod circuit;
 pub mod config;
+#[cfg(feature = "in-memory-infra")]
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub mod network;
 
 use crate::{
-    ff::{Field, Fp31},
-    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
+    ff::Field,
+    protocol::{context::Context, prss::Endpoint as PrssEndpoint, step::Step},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
+#[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
 use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
+#[cfg(feature = "in-memory-infra")]
 pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.
@@ -29,7 +37,7 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Substep) -> [C; 3] {
+pub fn narrow_contexts<C: Context>(contexts: &[C; 3], step: &impl Step) -> [C; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()

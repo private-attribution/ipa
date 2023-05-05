@@ -3,6 +3,7 @@ use crate::{
     helpers::{HelperIdentity, TransportCallbacks},
     net::{BindTarget, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
+    test_fixture::metrics::MetricsHandle,
 };
 use axum::{
     body::{Body, Bytes},
@@ -64,6 +65,7 @@ impl TestServer {
 #[derive(Default)]
 pub struct TestServerBuilder {
     callbacks: Option<HttpTransportCallbacks>,
+    metrics: Option<MetricsHandle>,
     https: bool,
 }
 
@@ -95,6 +97,13 @@ impl TestServerBuilder {
         self
     }
 
+    #[cfg(all(test, feature = "in-memory-infra"))] // only used in unit tests
+    pub fn with_metrics(mut self, metrics: MetricsHandle) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    #[allow(dead_code)] // TODO: fix when TLS is enabled
     pub fn https(mut self) -> Self {
         self.https = true;
         self
@@ -103,7 +112,7 @@ impl TestServerBuilder {
     pub async fn build(self) -> TestServer {
         let clients = TestClients::default();
         let (transport, server) = HttpTransport::new(
-            HelperIdentity::ONE, // TODO: make this an argument?
+            HelperIdentity::ONE,
             clients.into(),
             self.callbacks.unwrap_or_default(),
         );
@@ -113,7 +122,7 @@ impl TestServerBuilder {
         } else {
             BindTarget::Http("127.0.0.1:0".parse().unwrap())
         };
-        let (addr, handle) = server.bind(bind_target).await;
+        let (addr, handle) = server.bind(bind_target, self.metrics).await;
         let client = if self.https {
             https_client(addr)
         } else {
@@ -166,7 +175,6 @@ pub struct TestClientsBuilder {
 }
 
 impl TestClientsBuilder {
-    #[cfg(feature = "test-http")]
     pub fn with_network_config(mut self, network_config: NetworkConfig) -> Self {
         self.network_config = Some(network_config);
         self

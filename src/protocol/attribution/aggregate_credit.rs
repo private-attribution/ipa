@@ -20,7 +20,8 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        BasicProtocols, BitOpStep, RecordId, Substep,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -523,7 +524,7 @@ enum Step {
     ApplyPermutationOnAttributionBit,
 }
 
-impl Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -540,7 +541,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
 
     use super::aggregate_credit;

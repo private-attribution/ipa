@@ -17,7 +17,7 @@ use embed_doc_image::embed_doc_image;
 
 pub struct InnerVectorElementStep(usize);
 
-impl crate::protocol::Substep for InnerVectorElementStep {}
+impl crate::protocol::step::Step for InnerVectorElementStep {}
 
 impl AsRef<str> for InnerVectorElementStep {
     fn as_ref(&self) -> &str {
@@ -109,7 +109,7 @@ where
     .await
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
 
     mod semi_honest {

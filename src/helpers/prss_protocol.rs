@@ -1,6 +1,10 @@
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
-    protocol::{prss, RecordId, Step, Substep},
+    protocol::{
+        prss,
+        step::{self, Step, StepNarrow},
+        RecordId,
+    },
 };
 use futures_util::future::try_join4;
 
@@ -16,14 +20,14 @@ impl AsRef<str> for PrssExchangeStep {
     }
 }
 
-impl Substep for PrssExchangeStep {}
+impl Step for PrssExchangeStep {}
 
 /// establish the prss endpoint by exchanging public keys with the other helpers
 /// # Errors
 /// if communication with other helpers fails
 pub async fn negotiate<T: Transport, R: RngCore + CryptoRng>(
     gateway: &Gateway<T>,
-    step: &Step,
+    step: &step::Descriptive,
     rng: &mut R,
 ) -> Result<prss::Endpoint, Error> {
     // setup protocol to exchange prss public keys. This protocol sends one message per peer.

@@ -59,6 +59,9 @@ jobs:
       - name: Run Tests
         run: cargo test
 
+      - name: Run Web Tests
+        run: cargo test --no-default-features --features "web-app real-world-infra"
+
   extra:
     name: Additional Builds and Concurrency Tests
     env:

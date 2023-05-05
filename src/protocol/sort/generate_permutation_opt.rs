@@ -13,7 +13,7 @@ use crate::{
             secureapplyinv::secureapplyinv_multi,
             SortStep::{BitPermutationStep, ComposeStep, MultiApplyInv, ShuffleRevealPermutation},
         },
-        IpaProtocolStep::Sort,
+        step::IpaProtocolStep::Sort,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -216,7 +216,7 @@ where
     ))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField, Gf40Bit},

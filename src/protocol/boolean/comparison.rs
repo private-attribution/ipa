@@ -5,7 +5,8 @@ use crate::{
     protocol::{
         boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
-        BasicProtocols, BitOpStep, RecordId,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -110,7 +111,7 @@ struct RBounds {
     invert: bool,
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 impl RBounds {
     // This is used for the proptest. It must match the actual implementation!
     fn evaluate(&self, r: u128) -> bool {
@@ -148,7 +149,7 @@ enum GreaterThanConstantStep {
     And,
 }
 
-impl crate::protocol::Substep for GreaterThanConstantStep {}
+impl crate::protocol::step::Step for GreaterThanConstantStep {}
 
 impl AsRef<str> for GreaterThanConstantStep {
     fn as_ref(&self) -> &str {
@@ -304,7 +305,7 @@ enum Step {
     DotProduct,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -315,7 +316,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::{
         bitwise_greater_than_constant, bitwise_less_than_constant, compute_r_bounds,

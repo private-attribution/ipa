@@ -5,7 +5,7 @@ use ipa::{
         playbook::{secure_mul, semi_honest, InputSource},
         Verbosity,
     },
-    ff::{FieldType, Fp31},
+    ff::{FieldType, Fp31, Fp32BitPrime},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     net::MpcHelperClient,
     protocol::{BreakdownKey, MatchKey},
@@ -63,6 +63,7 @@ enum InputType {
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
+    /// Execute IPA in semi-honest majority setting
     SemiHonestIPA,
 }
 
@@ -109,27 +110,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             InputType::Int64 => panic!("Only field values are supported"),
         },
-        TestAction::SemiHonestIPA => match args.input.input_type {
-            InputType::Fp31 => {
-                let query_config = QueryConfig {
-                    field_type: FieldType::Fp31,
-                    query_type: QueryType::Ipa(IpaQueryConfig {
-                        per_user_credit_cap: 3,
-                        max_breakdown_key: 3,
-                        num_multi_bits: 3,
-                        attribution_window_seconds: 0,
-                    }),
-                };
-                let query_id = clients[0].create_query(query_config).await.unwrap();
-                let output =
-                    semi_honest::<Fp31, MatchKey, BreakdownKey>(input, &clients, query_id).await;
-                print_output(&output);
+        TestAction::SemiHonestIPA => {
+            let query_type = QueryType::Ipa(IpaQueryConfig {
+                per_user_credit_cap: 3,
+                max_breakdown_key: 3,
+                num_multi_bits: 3,
+                attribution_window_seconds: 0,
+            });
+
+            match args.input.input_type {
+                InputType::Fp31 => {
+                    let query_config = QueryConfig {
+                        field_type: FieldType::Fp31,
+                        query_type,
+                    };
+                    let query_id = clients[0].create_query(query_config).await.unwrap();
+                    let output =
+                        semi_honest::<Fp31, MatchKey, BreakdownKey>(input, &clients, query_id)
+                            .await;
+                    print_output(&output);
+                }
+                InputType::Fp32BitPrime => {
+                    let query_config = QueryConfig {
+                        field_type: FieldType::Fp32BitPrime,
+                        query_type,
+                    };
+                    let query_id = clients[0].create_query(query_config).await.unwrap();
+                    let output = semi_honest::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                        input, &clients, query_id,
+                    )
+                    .await;
+                    print_output(&output);
+                }
+                InputType::Int64 => panic!("Only field values are supported"),
             }
-            InputType::Fp32BitPrime => {
-                unimplemented!()
-            }
-            InputType::Int64 => panic!("Only field values are supported"),
-        },
+        }
     };
 
     Ok(())

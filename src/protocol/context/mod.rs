@@ -4,7 +4,10 @@ mod semi_honest;
 
 use crate::{
     helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{RecordId, Step, Substep},
+    protocol::{
+        step::{self, Step},
+        RecordId,
+    },
     seq_join::SeqJoin,
 };
 pub(super) use malicious::SpecialAccessToMaliciousContext;
@@ -20,12 +23,12 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    fn step(&self) -> &Step;
+    fn step(&self) -> &step::Descriptive;
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self;
 
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
@@ -63,7 +66,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
@@ -71,6 +74,7 @@ mod tests {
         protocol::{
             malicious::{MaliciousValidator, Step::MaliciousProtocol},
             prss::SharedRandomness,
+            step::StepNarrow,
             RecordId,
         },
         secret_sharing::replicated::{
@@ -189,7 +193,7 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = Step::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             .narrow("metrics");
 
@@ -246,7 +250,7 @@ mod tests {
             })
             .await;
 
-        let metrics_step = Step::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)

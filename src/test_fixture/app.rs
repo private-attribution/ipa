@@ -6,11 +6,11 @@ use crate::{
         ByteArrStream,
     },
     secret_sharing::IntoShares,
-    test_fixture::network::{InMemoryNetwork, InMemoryTransport},
     AppSetup, HelperApp,
 };
 use std::iter::zip;
 
+use crate::helpers::{InMemoryNetwork, InMemoryTransport};
 use generic_array::GenericArray;
 use typenum::Unsigned;
 

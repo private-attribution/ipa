@@ -14,7 +14,6 @@ use crate::{
     protocol::{
         context::{Context, SemiHonestContext},
         ipa::IPAModulusConvertedInputRow,
-        Substep,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
@@ -95,14 +94,14 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
+enum Step {
     ApplyAttributionWindow,
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
 }
 
-impl Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
