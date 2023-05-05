@@ -1,75 +1,116 @@
-use clap::Parser;
-use hyper::http::uri::Scheme;
+use clap::{self, builder::ArgPredicate, ArgAction, Parser, Subcommand};
 use ipa::{
-    cli::Verbosity,
-    config::{NetworkConfig, ServerConfig},
+    cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
+    config::{NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
-    net::{BindTarget, HttpTransport, MpcHelperClient},
+    net::{HttpTransport, MpcHelperClient},
     AppSetup,
 };
-use std::error::Error;
-
-use tracing::info;
+use std::{error::Error, fs, path::PathBuf};
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[derive(Debug, Parser)]
-#[clap(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]
+#[clap(
+    name = "helper",
+    about = "Interoperable Private Attribution (IPA) MPC helper"
+)]
+#[command(subcommand_negates_reqs = true)]
 struct Args {
     /// Configure logging.
     #[clap(flatten)]
     logging: Verbosity,
 
-    /// Indicates which identity this helper has
-    #[arg(short, long)]
-    identity: usize,
+    #[clap(flatten, next_help_heading = "Server Options")]
+    server: ServerArgs,
 
-    /// Port to listen. If not specified, will ask Kernel to assign the port
-    #[arg(short, long)]
-    port: Option<u16>,
-
-    /// Indicates whether to start HTTP or HTTPS endpoint
-    #[arg(short, long, default_value = "http")]
-    scheme: Scheme,
+    #[command(subcommand)]
+    command: Option<HelperCommand>,
 }
 
-fn config(identity: HelperIdentity) -> (NetworkConfig, ServerConfig) {
-    let port = match identity {
-        HelperIdentity::ONE => 3000,
-        HelperIdentity::TWO => 3001,
-        HelperIdentity::THREE => 3002,
-        _ => panic!("invalid helper identity {:?}", identity),
+#[derive(Debug, clap::Args)]
+struct ServerArgs {
+    /// Identity of this helper in the MPC protocol (1, 2, or 3)
+    // This is required when running the server, but the `subcommand_negates_reqs`
+    // attribute on `Args` makes it optional when running a utility command.
+    #[arg(short, long, required = true)]
+    identity: Option<usize>,
+
+    /// Port to listen on
+    #[arg(short, long, default_value = "3000")]
+    port: Option<u16>,
+
+    /// Use HTTPS. Enabled automatically if a certificate is supplied.
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        default_value_if("tls_cert", ArgPredicate::IsPresent, Some("true")),
+    )]
+    https: bool,
+
+    /// File containing helper network configuration
+    #[arg(long, required = true)]
+    network: Option<PathBuf>,
+
+    /// TLS certificate for helper-to-helper communication
+    #[arg(
+        long,
+        visible_alias("cert"),
+        visible_alias("tls-certificate"),
+        requires = "tls_key"
+    )]
+    tls_cert: Option<PathBuf>,
+
+    /// TLS key for helper-to-helper communication
+    #[arg(long, visible_alias("key"), requires = "tls_cert")]
+    tls_key: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+enum HelperCommand {
+    Keygen(KeygenArgs),
+    TestSetup(TestSetupArgs),
+}
+
+async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
+    let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
+
+    let tls = match (args.tls_cert, args.tls_key) {
+        (Some(cert), Some(key)) => Some(TlsConfig::File {
+            certificate_file: cert,
+            private_key_file: key,
+        }),
+        (None, None) => None,
+        _ => panic!("should have been rejected by clap"),
+    };
+    let server_config = ServerConfig {
+        port: args.port,
+        https: args.https,
+        tls,
     };
 
-    let config_str = r#"
-# H1
-[[peers]]
-origin = "http://localhost:3000"
+    let (setup, callbacks) = AppSetup::new();
 
-[peers.tls]
-public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
+    let network_config_path = args.network.as_deref().unwrap();
+    let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?;
+    let clients = MpcHelperClient::from_conf(&network_config);
 
-# H2
-[[peers]]
-origin = "http://localhost:3001"
+    let (transport, server) = HttpTransport::new(my_identity, server_config, clients, callbacks);
 
-[peers.tls]
-public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
+    let _app = setup.connect(transport.clone());
 
-# H3
-[[peers]]
-origin = "http://localhost:3002"
+    let (_addr, server_handle) = server
+        .start(
+            // TODO, trace based on the content of the query.
+            None as Option<()>,
+        )
+        .await;
 
-[peers.tls]
-public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
-"#;
+    server_handle.await?;
 
-    let network = NetworkConfig::from_toml_str(&config_str).unwrap();
-    let server = ServerConfig::with_http_and_port(port);
-
-    (network, server)
+    Ok(())
 }
 
 #[tokio::main]
@@ -77,47 +118,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    let my_identity = HelperIdentity::try_from(args.identity).unwrap();
-    info!("configured with identity {:?}", my_identity);
-
-    // TODO(596): the config should be loaded from a file, possibly with some values merged from the
-    // command line arguments.
-    let (network_config, server_config) = config(my_identity);
-
-    let (setup, callbacks) = AppSetup::new();
-
-    let clients = MpcHelperClient::from_conf(&network_config);
-
-    let (transport, server) = HttpTransport::new(
-        my_identity,
-        //server_config,
-        clients,
-        callbacks,
-    );
-
-    let _app = setup.connect(transport.clone());
-
-    // TODO(596): Bind target was moved here from `HttpTransport::bind()`. It needs to come
-    // from a config file. Probably, the config should be stored in the server when
-    // constructed, and the argument to server.bind() should go away.
-    let (addr, server_handle) = server
-        .bind(
-            BindTarget::Http(
-                format!("0.0.0.0:{}", server_config.port.unwrap())
-                    .parse()
-                    .unwrap(),
-            ),
-            // TODO, trace based on the content of the query.
-            None as Option<()>,
-        )
-        .await;
-
-    info!(
-        "listening to {}://{}, press Enter to quit",
-        args.scheme, addr
-    );
-    let _ = std::io::stdin().read_line(&mut String::new())?;
-    server_handle.abort();
-
-    Ok(())
+    match args.command {
+        None => server(args.server).await,
+        Some(HelperCommand::Keygen(args)) => keygen(args),
+        Some(HelperCommand::TestSetup(args)) => test_setup(args),
+    }
 }

@@ -11,8 +11,8 @@ pub struct Verbosity {
     #[clap(short, long, global = true)]
     quiet: bool,
 
-    /// Verbose mode (-v, -vv, -vvv, etc)
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    /// Verbose mode (-v, or -vv for even more verbose)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 }
 
@@ -47,10 +47,8 @@ impl Verbosity {
             LevelFilter::OFF
         } else {
             LevelFilter::from_level(match self.verbose {
-                0 => Level::ERROR,
-                1 => Level::WARN,
-                2 => Level::INFO,
-                3 => Level::DEBUG,
+                0 => Level::INFO,
+                1 => Level::DEBUG,
                 _ => Level::TRACE,
             })
         }
