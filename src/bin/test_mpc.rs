@@ -77,6 +77,12 @@ enum TestAction {
     SemiHonestIPA,
 }
 
+async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
+    clients[0].echo("").await.is_ok()
+        && clients[1].echo("").await.is_ok()
+        && clients[2].echo("").await.is_ok()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
@@ -110,7 +116,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let clients = make_clients(args.network);
 
     let mut wait = args.wait;
-    while wait > 0 && !clients[0].echo("").await.is_ok() {
+    while wait > 0 && !clients_ready(&clients).await {
+        println!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;
         wait -= 1;
     }

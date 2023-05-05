@@ -8,8 +8,6 @@ use ipa::{
 };
 use std::{error::Error, fs, path::PathBuf};
 
-use tracing::info;
-
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -110,9 +108,7 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
         )
         .await;
 
-    info!("press Enter to quit");
-    let _ = std::io::stdin().read_line(&mut String::new())?;
-    server_handle.abort();
+    server_handle.await?;
 
     Ok(())
 }
