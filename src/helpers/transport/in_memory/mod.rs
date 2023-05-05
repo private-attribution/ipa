@@ -1,11 +1,10 @@
 mod transport;
 
 use crate::{
-    helpers::HelperIdentity,
+    helpers::{HelperIdentity, TransportCallbacks},
     sync::{Arc, Weak},
 };
 
-use crate::helpers::TransportCallbacks;
 pub use transport::Setup;
 
 pub type InMemoryTransport = Weak<transport::InMemoryTransport>;
@@ -26,6 +25,7 @@ impl Default for InMemoryNetwork {
     }
 }
 
+#[allow(dead_code)]
 impl InMemoryNetwork {
     #[must_use]
     pub fn new(callbacks: [TransportCallbacks<InMemoryTransport>; 3]) -> Self {

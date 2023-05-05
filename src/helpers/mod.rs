@@ -18,9 +18,13 @@ pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    callbacks::*, AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding,
-    ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
+    callbacks::*, AlignedByteArrStream, ByteArrStream, LogErrors, NoResourceIdentifier,
+    QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey,
+    Transport,
 };
+
+#[cfg(feature = "in-memory-infra")]
+pub use transport::{InMemoryNetwork, InMemoryTransport};
 
 pub use transport::query;
 
@@ -34,7 +38,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{RecordId, Step},
+    protocol::{step, RecordId},
     secret_sharing::SharedValue,
 };
 use generic_array::GenericArray;
@@ -130,7 +134,7 @@ impl HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
+#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -372,12 +376,12 @@ pub struct ChannelId {
     pub role: Role,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
-    pub step: Step,
+    pub step: step::Descriptive,
 }
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: Step) -> Self {
+    pub fn new(role: Role, step: step::Descriptive) -> Self {
         Self { role, step }
     }
 }
@@ -478,7 +482,7 @@ impl From<usize> for TotalRecords {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
 

@@ -1,13 +1,14 @@
 use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
-    helpers::{Gateway, GatewayConfig, Role, RoleAssignment},
+    helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradableContext, UpgradeContext,
             UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        QueryId, Substep,
+        step::Step,
+        QueryId,
     },
     rand::thread_rng,
     secret_sharing::{
@@ -19,14 +20,14 @@ use crate::{
         Arc,
     },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
 };
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::{RngCore, SeedableRng};
 use std::{fmt::Debug, io::stdout, iter::zip};
-use tracing::Level;
+use tracing::{Instrument, Level, Span};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -165,7 +166,7 @@ impl TestWorld {
     }
 
     #[must_use]
-    pub fn execution_step(execution: usize) -> impl Substep {
+    pub fn execution_step(execution: usize) -> impl Step {
         format!("run-{execution}")
     }
 
@@ -174,7 +175,12 @@ impl TestWorld {
     }
 
     /// See `Runner` below.
-    async fn run_either<'a, C, I, A, O, H, R>(contexts: [C; 3], input: I, helper_fn: H) -> [O; 3]
+    async fn run_either<'a, C, I, A, O, H, R>(
+        contexts: [C; 3],
+        span: Span,
+        input: I,
+        helper_fn: H,
+    ) -> [O; 3]
     where
         C: UpgradableContext,
         I: IntoShares<A> + Send + 'static,
@@ -186,7 +192,9 @@ impl TestWorld {
         let input_shares = input.share_with(&mut thread_rng());
         #[allow(clippy::disallowed_methods)] // It's just 3 items.
         let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares)))
+                .instrument(span)
+                .await;
         <[_; 3]>::try_from(output).unwrap()
     }
 }
@@ -258,7 +266,13 @@ impl Runner for TestWorld {
         H: Fn(SemiHonestContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        Self::run_either(self.contexts(), input, helper_fn).await
+        Self::run_either(
+            self.contexts(),
+            self.metrics_handle.span(),
+            input,
+            helper_fn,
+        )
+        .await
     }
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
@@ -269,7 +283,13 @@ impl Runner for TestWorld {
         H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        Self::run_either(self.malicious_contexts(), input, helper_fn).await
+        Self::run_either(
+            self.malicious_contexts(),
+            self.metrics_handle.span(),
+            input,
+            helper_fn,
+        )
+        .await
     }
 
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(

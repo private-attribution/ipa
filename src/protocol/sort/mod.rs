@@ -12,7 +12,11 @@ mod shuffle;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId, Substep},
+    protocol::{
+        context::Context,
+        step::{BitOpStep, Step},
+        BasicProtocols, RecordId,
+    },
     repeat64str,
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
@@ -28,7 +32,7 @@ pub enum SortStep {
     MultiApplyInv(u32),
 }
 
-impl Substep for SortStep {}
+impl Step for SortStep {}
 
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
@@ -51,7 +55,7 @@ pub enum ShuffleStep {
     Step3,
 }
 
-impl Substep for ShuffleStep {}
+impl Step for ShuffleStep {}
 
 impl AsRef<str> for ShuffleStep {
     fn as_ref(&self) -> &str {
@@ -68,7 +72,7 @@ pub enum ApplyInvStep {
     ShuffleInputs,
 }
 
-impl Substep for ApplyInvStep {}
+impl Step for ApplyInvStep {}
 
 impl AsRef<str> for ApplyInvStep {
     fn as_ref(&self) -> &str {
@@ -83,7 +87,7 @@ pub enum ComposeStep {
     UnshuffleRho,
 }
 
-impl Substep for ComposeStep {}
+impl Step for ComposeStep {}
 
 impl AsRef<str> for ComposeStep {
     fn as_ref(&self) -> &str {
@@ -100,7 +104,7 @@ pub enum ShuffleRevealStep {
     ShufflePermutation,
 }
 
-impl Substep for ShuffleRevealStep {}
+impl Step for ShuffleRevealStep {}
 
 impl AsRef<str> for ShuffleRevealStep {
     fn as_ref(&self) -> &str {
@@ -118,7 +122,7 @@ pub enum ReshareStep {
     ReshareRx,
 }
 
-impl Substep for ReshareStep {}
+impl Step for ReshareStep {}
 
 impl AsRef<str> for ReshareStep {
     fn as_ref(&self) -> &str {
@@ -134,7 +138,7 @@ pub enum MultiBitPermutationStep {
     MultiplyAcrossBits,
 }
 
-impl Substep for MultiBitPermutationStep {}
+impl Step for MultiBitPermutationStep {}
 
 impl AsRef<str> for MultiBitPermutationStep {
     fn as_ref(&self) -> &str {

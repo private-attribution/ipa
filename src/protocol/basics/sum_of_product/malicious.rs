@@ -21,7 +21,7 @@ pub(crate) enum Step {
     RandomnessForValidation,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -154,7 +154,7 @@ where
     Ok(malicious_ab)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod test {
     use super::sum_of_products;
     use crate::{

@@ -450,7 +450,7 @@ pub mod query {
                 http_serde::query::{OriginHeader, BASE_AXUM_PATH},
                 Error,
             },
-            protocol::{QueryId, Step},
+            protocol::{step, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
@@ -464,12 +464,17 @@ pub mod query {
         pub struct Request<B> {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
-            pub step: Step,
+            pub step: step::Descriptive,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(origin: HelperIdentity, query_id: QueryId, step: Step, body: B) -> Self {
+            pub fn new(
+                origin: HelperIdentity,
+                query_id: QueryId,
+                step: step::Descriptive,
+                body: B,
+            ) -> Self {
                 Self {
                     origin,
                     query_id,

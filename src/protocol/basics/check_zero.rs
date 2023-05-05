@@ -16,7 +16,7 @@ enum Step {
     RevealR,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -73,7 +73,7 @@ pub async fn check_zero<C: Context, F: Field>(
     Ok(rv == F::ZERO)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         error::Error,

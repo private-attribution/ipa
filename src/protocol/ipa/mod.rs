@@ -20,7 +20,7 @@ use crate::{
                 generate_permutation_and_reveal_shuffled, ShuffledPermutationWrapper,
             },
         },
-        BasicProtocols, RecordId, Substep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -48,7 +48,7 @@ pub enum Step {
     BinaryValidator,
 }
 
-impl Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -72,7 +72,7 @@ pub enum IPAInputRowResharableStep {
     TriggerValue,
 }
 
-impl Substep for IPAInputRowResharableStep {}
+impl crate::protocol::step::Step for IPAInputRowResharableStep {}
 
 impl AsRef<str> for IPAInputRowResharableStep {
     fn as_ref(&self) -> &str {
@@ -450,7 +450,7 @@ where
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{

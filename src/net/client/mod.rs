@@ -5,14 +5,14 @@ use crate::{
         HelperIdentity,
     },
     net::{http_serde, Error},
-    protocol::{QueryId, Step},
+    protocol::{step, QueryId},
 };
 use axum::http::uri;
 use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
-    Body, Client, Response, Uri,
+    Body, Client, Response, StatusCode, Uri,
 };
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
@@ -87,9 +87,11 @@ impl MpcHelperClient {
             let http_serde::echo::Request {
                 mut query_params, ..
             } = serde_json::from_slice(&result)?;
+            // It is potentially confusing to synthesize a 500 error here, but
+            // it doesn't seem worth creating an error variant just for this.
             query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
-                status,
-                reason: "did not receive mirrored response".into(),
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                reason: "did not receive mirrored echo response".into(),
             })
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -165,7 +167,7 @@ impl MpcHelperClient {
         &self,
         origin: HelperIdentity,
         query_id: QueryId,
-        step: &Step,
+        step: &step::Descriptive,
         data: S,
     ) -> Result<ResponseFuture, Error> {
         let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
@@ -195,7 +197,7 @@ impl MpcHelperClient {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
 pub(crate) mod tests {
     use super::*;
     use crate::{
@@ -205,6 +207,7 @@ pub(crate) mod tests {
             MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{test::TestServer, HttpTransport},
+        protocol::step::StepNarrow,
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::Arc,
@@ -381,7 +384,7 @@ pub(crate) mod tests {
         } = TestServer::builder().build().await;
         let origin = HelperIdentity::ONE;
         let expected_query_id = QueryId;
-        let expected_step = Step::default().narrow("test-step");
+        let expected_step = step::Descriptive::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let resp = client

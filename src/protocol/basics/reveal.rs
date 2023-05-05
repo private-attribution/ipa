@@ -151,7 +151,7 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         protocol::context::{UpgradableContext, UpgradedContext, Validator},

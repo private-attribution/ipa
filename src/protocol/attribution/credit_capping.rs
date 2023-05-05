@@ -10,7 +10,7 @@ use crate::{
         basics::{if_else, SecureMul},
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
-        BasicProtocols, RecordId, Substep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
@@ -465,7 +465,7 @@ enum Step {
     PrefixOrCompareBits,
 }
 
-impl Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -484,7 +484,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         credit_capping_test_input,

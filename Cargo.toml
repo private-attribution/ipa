@@ -6,10 +6,8 @@ edition = "2021"
 
 [features]
 # by default remove all TRACE, DEBUG spans from release builds
-default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
-# TODO: it feels wrong that CLI uses test-fixture module, but untangling `IntoShares`/`Reconstruct` and inputs
-# from other test components wasn't easy.
-cli = ["comfy-table", "clap", "test-fixture"]
+default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info"]
+cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
 no-prss = []
@@ -29,7 +27,12 @@ test-http = []
 test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
-enable-benches = ["cli", "test-fixture", "criterion", "iai"]
+# TODO: we may want to use in-memory-bench and real-world-bench some time after
+enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
+# The following two features are mutually exclusive. In-memory should be enabled by default as the vast majority
+# of unit tests use it. Real world infra uses HTTP implementation and is suitable for integration/e2e tests
+in-memory-infra = []
+real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
@@ -85,7 +88,7 @@ typenum = "1.16.0"
 x25519-dalek = "2.0.0-pre.1"
 dhat = "0.3.2"
 
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"
 
 [dev-dependencies]
@@ -113,7 +116,7 @@ bench = false
 
 [[bin]]
 name = "helper"
-required-features = ["web-app"]
+required-features = ["web-app", "real-world-infra"]
 bench = false
 
 [[bin]]
@@ -124,7 +127,7 @@ bench = false
 
 [[bin]]
 name = "test_mpc"
-required-features = ["cli", "web-app", "weak-field"]
+required-features = ["cli", "test-fixture", "web-app", "weak-field"]
 bench = false
 
 [[bench]]

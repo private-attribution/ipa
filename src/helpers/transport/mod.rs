@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{QueryId, Step},
+    protocol::{step, QueryId},
 };
 use async_trait::async_trait;
 use futures::Stream;
@@ -8,12 +8,16 @@ use std::borrow::Borrow;
 
 mod bytearrstream;
 pub mod callbacks;
+#[cfg(feature = "in-memory-infra")]
+mod in_memory;
 pub mod query;
 mod receive;
 mod stream;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use receive::ReceiveRecords;
+#[cfg(feature = "in-memory-infra")]
+pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use receive::{LogErrors, ReceiveRecords};
 pub use stream::{StreamCollection, StreamKey};
 
 pub trait ResourceIdentifier: Sized {}
@@ -24,7 +28,7 @@ where
 }
 pub trait StepBinding: Sized
 where
-    Option<Step>: From<Self>,
+    Option<step::Descriptive>: From<Self>,
 {
 }
 
@@ -51,19 +55,19 @@ impl From<NoQueryId> for Option<QueryId> {
 impl QueryIdBinding for NoQueryId {}
 impl QueryIdBinding for QueryId {}
 
-impl From<NoStep> for Option<Step> {
+impl From<NoStep> for Option<step::Descriptive> {
     fn from(_: NoStep) -> Self {
         None
     }
 }
 
 impl StepBinding for NoStep {}
-impl StepBinding for Step {}
+impl StepBinding for step::Descriptive {}
 
 pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
 where
     Option<QueryId>: From<Q>,
-    Option<Step>: From<S>,
+    Option<step::Descriptive>: From<S>,
 {
     type Params: Borrow<str>;
 
@@ -74,7 +78,9 @@ where
     fn extra(&self) -> Self::Params;
 }
 
-impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
+impl RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>
+    for (QueryId, step::Descriptive)
+{
     type Params = &'static str;
 
     fn resource_identifier(&self) -> NoResourceIdentifier {
@@ -85,7 +91,7 @@ impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
         self.0
     }
 
-    fn step(&self) -> Step {
+    fn step(&self) -> step::Descriptive {
         self.1.clone()
     }
 
@@ -94,7 +100,7 @@ impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
     }
 }
 
-impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
+impl RouteParams<RouteId, QueryId, step::Descriptive> for (RouteId, QueryId, step::Descriptive) {
     type Params = &'static str;
 
     fn resource_identifier(&self) -> RouteId {
@@ -105,7 +111,7 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
         self.1
     }
 
-    fn step(&self) -> Step {
+    fn step(&self) -> step::Descriptive {
         self.2.clone()
     }
 
@@ -133,7 +139,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     ) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
+        Option<step::Descriptive>: From<S>,
         Q: QueryIdBinding,
         S: StepBinding,
         R: RouteParams<RouteId, Q, S>,
@@ -141,7 +147,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
         &self,
         from: HelperIdentity,
         route: R,
