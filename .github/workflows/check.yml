@@ -66,7 +66,7 @@ jobs:
     name: Additional Builds and Concurrency Tests
     env:
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: -D warnings -C target-cpu=native
       RUSTDOCFLAGS: -D warnings
 
     runs-on: ubuntu-latest
