@@ -132,7 +132,7 @@ impl TestWorld {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
-        let execution = self.executions.fetch_add(1, Ordering::Release);
+        let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
@@ -149,7 +149,7 @@ impl TestWorld {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
-        let execution = self.executions.fetch_add(1, Ordering::Release);
+        let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
                 MaliciousContext::new(participant, gateway).narrow(&Self::execution_step(execution))
