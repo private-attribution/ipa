@@ -540,8 +540,8 @@ pub mod tests {
         test_fixture::{
             input::GenericReportTestInput,
             ipa::{
-                generate_random_user_records_in_reverse_chronological_order, test_ipa,
-                update_expected_output_for_user, IpaSecurityModel,
+                generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
+                test_ipa, IpaSecurityModel,
             },
             Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
@@ -1005,16 +1005,8 @@ pub mod tests {
         let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {
-            let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
-
-            for records_for_user in &random_user_records {
-                update_expected_output_for_user(
-                    records_for_user,
-                    &mut expected_results,
-                    per_user_cap,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                );
-            }
+            let expected_results =
+                ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
 
             test_ipa::<TestField>(
                 &world,

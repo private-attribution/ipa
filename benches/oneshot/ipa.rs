@@ -5,8 +5,8 @@ use ipa::{
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
         ipa::{
-            generate_random_user_records_in_reverse_chronological_order, test_ipa,
-            update_expected_output_for_user, IpaSecurityModel,
+            generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
+            test_ipa, IpaSecurityModel,
         },
         TestWorld, TestWorldConfig,
     },
@@ -99,7 +99,6 @@ async fn run(args: Args) -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
         let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
@@ -109,18 +108,13 @@ async fn run(args: Args) -> Result<(), Error> {
             args.max_trigger_value,
         );
         records_for_user.truncate(args.query_size - raw_data.len());
-        update_expected_output_for_user(
-            &records_for_user,
-            &mut expected_results,
-            args.per_user_cap,
-            args.attribution_window,
-        );
         raw_data.append(&mut records_for_user);
     }
 
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let expected_results = ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window);
 
     let world = TestWorld::new_with(config.clone());
     println!("Preparation complete in {:?}", prep_time.elapsed());
