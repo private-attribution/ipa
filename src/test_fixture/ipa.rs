@@ -135,7 +135,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
 /// Assumes records all belong to the same user, and are in reverse chronological order
 /// Will give incorrect results if this is not true
 #[allow(clippy::missing_panics_doc)]
-fn update_expected_output_for_user<'a, I: Iterator<Item = &'a TestRawDataRecord>>(
+fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRecord>>(
     records_for_user: I,
     expected_results: &mut [u32],
     per_user_cap: u32,
