@@ -232,7 +232,7 @@ mod tests {
         const EXPECTED_ACTIVE_BITS: &[u128; 23] = &[
             1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
         ];
-        let attribution_window = NonZeroU32::new(600);
+        const ATTRIBUTION_WINDOW: Option<NonZeroU32> = NonZeroU32::new(600);
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = attribution_window_test_input!(
             [
                 { timestamp: 500, is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 }, // delta: 0
@@ -296,7 +296,7 @@ mod tests {
                     let (itb, hb): (Vec<_>, Vec<_>) = input.iter().map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone())).unzip();
                     let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb).await.unwrap().collect::<Vec<_>>();
 
-                    apply_attribution_window(ctx, &modulus_converted_shares, &stop_bits, attribution_window)
+                    apply_attribution_window(ctx, &modulus_converted_shares, &stop_bits, ATTRIBUTION_WINDOW)
                         .await
                         .unwrap()
                 },

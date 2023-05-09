@@ -361,7 +361,7 @@ mod tests {
     pub async fn accumulate_cap_of_one_with_attribution_window() {
         const EXPECTED: &[u128; 20] = &[0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1];
         const PER_USER_CAP: u32 = 1;
-        let attribution_window_seconds: Option<NonZeroU32> = NonZeroU32::new(1);
+        const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(1);
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
@@ -391,7 +391,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let result = accumulate_credit_test(input, PER_USER_CAP, attribution_window_seconds).await;
+        let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW_SECONDS).await;
 
         assert_eq!(result[0].len(), input_len - 1);
         assert_eq!(result[1].len(), input_len - 1);

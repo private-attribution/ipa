@@ -953,9 +953,9 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
+        const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
 
-        let attribution_window_seconds = NonZeroU32::new(86_400);
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
         let mut rng = StdRng::seed_from_u64(random_seed);
@@ -984,7 +984,7 @@ pub mod tests {
 
         for per_user_cap in [1, 3] {
             let expected_results =
-                ipa_in_the_clear(&raw_data, per_user_cap, attribution_window_seconds);
+                ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
 
             test_ipa::<TestField>(
                 &world,
@@ -993,7 +993,7 @@ pub mod tests {
                 IpaQueryConfig {
                     per_user_credit_cap: per_user_cap,
                     max_breakdown_key: MAX_BREAKDOWN_KEY,
-                    attribution_window_seconds,
+                    attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
                     num_multi_bits: NUM_MULTI_BITS,
                 },
                 IpaSecurityModel::SemiHonest,
