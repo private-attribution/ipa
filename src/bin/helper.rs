@@ -108,7 +108,9 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
         )
         .await;
 
-    server_handle.await?;
+    tracing::info!("press Enter to quit");
+    let _ = std::io::stdin().read_line(&mut String::new())?;
+    server_handle.abort();
 
     Ok(())
 }
