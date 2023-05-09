@@ -152,7 +152,9 @@ impl Metrics {
             ]);
         }
 
-        writeln!(w, "{metrics_table}")?;
+        if metrics_table.row_iter().len() > 0 {
+            writeln!(w, "{metrics_table}")?;
+        }
 
         Ok(())
     }
