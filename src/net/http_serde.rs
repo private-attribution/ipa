@@ -91,6 +91,7 @@ pub mod query {
     use hyper::header::HeaderName;
     use std::{
         fmt::{Display, Formatter},
+        num::NonZeroU32,
         str::FromStr,
     };
 
@@ -129,7 +130,7 @@ pub mod query {
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
                         max_breakdown_key: u32,
-                        attribution_window_seconds: u32,
+                        attribution_window_seconds: Option<NonZeroU32>,
                         num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
@@ -139,12 +140,12 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::Ipa(IpaQueryConfig::new(
+                    Ok(QueryType::Ipa(IpaQueryConfig {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
                         num_multi_bits,
-                    )))
+                    }))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
