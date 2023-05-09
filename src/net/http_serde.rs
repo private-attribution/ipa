@@ -139,12 +139,12 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::Ipa(IpaQueryConfig {
+                    Ok(QueryType::Ipa(IpaQueryConfig::new(
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
                         num_multi_bits,
-                    }))
+                    )))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -161,15 +161,22 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::Ipa(config) => write!(
-                    f,
-                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
-                    QueryType::IPA_STR,
-                    config.per_user_credit_cap,
-                    config.max_breakdown_key,
-                    config.attribution_window_seconds,
-                    config.num_multi_bits,
-                ),
+                QueryType::Ipa(config) => {
+                    write!(
+                        f,
+                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        QueryType::IPA_STR,
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.num_multi_bits,
+                    )?;
+
+                    if let Some(window) = config.attribution_window_seconds {
+                        write!(f, "&attribution_window_seconds={}", window.get())?;
+                    }
+
+                    Ok(())
+                }
             }
         }
     }

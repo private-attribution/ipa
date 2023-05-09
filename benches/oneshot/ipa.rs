@@ -12,7 +12,10 @@ use ipa::{
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{num::NonZeroUsize, time::Instant};
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    time::Instant,
+};
 use tokio::runtime::Builder;
 
 #[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
@@ -47,7 +50,7 @@ struct Args {
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
     #[arg(short = 'w', long, default_value = "86400")]
-    attribution_window: u32,
+    attribution_window: Option<NonZeroU32>,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
     #[arg(long, default_value = "3")]
@@ -74,12 +77,12 @@ impl Args {
     }
 
     fn config(&self) -> IpaQueryConfig {
-        IpaQueryConfig::new(
-            self.per_user_cap,
-            self.breakdown_keys,
-            self.attribution_window,
-            self.num_multi_bits,
-        )
+        IpaQueryConfig {
+            per_user_credit_cap: self.per_user_cap,
+            max_breakdown_key: self.breakdown_keys,
+            attribution_window_seconds: self.attribution_window,
+            num_multi_bits: self.num_multi_bits,
+        }
     }
 }
 

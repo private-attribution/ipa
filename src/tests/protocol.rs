@@ -11,11 +11,13 @@ use crate::{
     rand::{thread_rng, Rng},
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
 };
+use std::num::NonZeroU32;
 
 const BATCHSIZE: usize = 5;
 const PER_USER_CAP: u32 = 10;
 const MAX_BREAKDOWN_KEY: u32 = 8;
-const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> =
+    Some(unsafe { NonZeroU32::new_unchecked(86_400) });
 const MAX_TRIGGER_VALUE: u32 = 5;
 const NUM_MULTI_BITS: u32 = 3;
 const MAX_MATCH_KEY: u128 = 3;
@@ -49,12 +51,12 @@ fn semi_honest_ipa() {
                             ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                                 ctx,
                                 &input_rows,
-                                IpaQueryConfig::new(
-                                    PER_USER_CAP,
-                                    MAX_BREAKDOWN_KEY,
-                                    ATTRIBUTION_WINDOW_SECONDS,
-                                    NUM_MULTI_BITS,
-                                ),
+                                IpaQueryConfig {
+                                    per_user_credit_cap: PER_USER_CAP,
+                                    max_breakdown_key: MAX_BREAKDOWN_KEY,
+                                    attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                                    num_multi_bits: NUM_MULTI_BITS,
+                                },
                             )
                             .await
                             .unwrap()
@@ -98,12 +100,12 @@ fn malicious_ipa() {
                             ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                                 ctx,
                                 &input_rows,
-                                IpaQueryConfig::new(
-                                    PER_USER_CAP,
-                                    MAX_BREAKDOWN_KEY,
-                                    ATTRIBUTION_WINDOW_SECONDS,
-                                    NUM_MULTI_BITS,
-                                ),
+                                IpaQueryConfig {
+                                    per_user_credit_cap: PER_USER_CAP,
+                                    max_breakdown_key: MAX_BREAKDOWN_KEY,
+                                    attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
+                                    num_multi_bits: NUM_MULTI_BITS,
+                                },
                             )
                             .await
                             .unwrap()

@@ -17,7 +17,7 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng,
 };
-use std::{cmp::min, collections::HashMap, ops::Deref};
+use std::{cmp::min, collections::HashMap, num::NonZeroU32, ops::Deref};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -48,7 +48,7 @@ pub struct TestRawDataRecord {
 pub fn ipa_in_the_clear(
     input: &[TestRawDataRecord],
     per_user_cap: u32,
-    attribution_window: u32,
+    attribution_window: Option<NonZeroU32>,
 ) -> Vec<u32> {
     // build a view that is convenient for attribution. match key -> events sorted by timestamp in reverse
     // that is more memory intensive, but should be faster to compute. We can always opt-out and
@@ -139,8 +139,18 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     records_for_user: I,
     expected_results: &mut [u32],
     per_user_cap: u32,
-    attribution_window_seconds: u32,
+    attribution_window_seconds: Option<NonZeroU32>,
 ) {
+    let within_window = |value: u32| -> bool {
+        if let Some(window) = attribution_window_seconds {
+            value <= window.get()
+        } else {
+            // if window is not specified, it is considered of infinite size. Everything is
+            // within that window.
+            true
+        }
+    };
+
     let mut pending_trigger_reports = Vec::new();
     let mut total_contribution = 0;
     for record in records_for_user {
@@ -155,7 +165,8 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
                 let time_delta_to_source_report = trigger_report.timestamp - record.timestamp;
 
                 // only count trigger reports that are within the attribution window
-                if time_delta_to_source_report > attribution_window_seconds {
+                // only if attribution_window is set. This matches the behaviour in MPC
+                if !within_window(time_delta_to_source_report) {
                     continue;
                 }
 

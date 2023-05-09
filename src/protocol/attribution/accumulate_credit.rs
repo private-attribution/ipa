@@ -8,6 +8,7 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use std::num::NonZeroU32;
 
 ///
 /// When `PER_USER_CAP` is set to one, this function is called
@@ -26,17 +27,17 @@ async fn accumulate_credit_cap_one<'a, F, C, T>(
     ctx: C,
     input: &'a [MCAccumulateCreditInputRow<F, T>],
     stop_bits: &'a [T],
-    attribution_window_seconds: u32,
+    attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + 'a, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    // if `attribution_window_seconds` is 0, we use `stop_bits` directly. Otherwise, we need to invalidate
+    // if `attribution_window_seconds` is not set, we use `stop_bits` directly. Otherwise, we need to invalidate
     // reports that are outside the attribution window by multiplying them by `active_bit`. active_bit is
     // 0 if the trigger report's time-delta to the nearest source report is greater than the attribution window.
-    let attributed_trigger_reports_in_window = if attribution_window_seconds == 0 {
+    let attributed_trigger_reports_in_window = if attribution_window_seconds.is_none() {
         stop_bits.to_vec()
     } else {
         let memoize_context = ctx
@@ -88,7 +89,7 @@ pub async fn accumulate_credit<F, C, T>(
     input: &[MCAccumulateCreditInputRow<F, T>],
     stop_bits: &[T],
     per_user_credit_cap: u32,
-    attribution_window_seconds: u32,
+    attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
     F: Field,
@@ -158,7 +159,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
-    use std::iter;
+    use std::{iter, num::NonZeroU32};
 
     use crate::{
         accumulation_test_input,
@@ -187,7 +188,7 @@ mod tests {
     async fn accumulate_credit_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
         cap: u32,
-        attribution_window_seconds: u32,
+        attribution_window_seconds: Option<NonZeroU32>,
     ) -> [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] {
         let world = TestWorld::default();
 
@@ -250,7 +251,7 @@ mod tests {
             0, 0, 19, 19, 9, 7, 6, 1, 0, 0, 0, 10, 15, 15, 12, 0, 10, 10, 4, 6, 6,
         ];
         const PER_USER_CAP: u32 = 3; // can be anything but 1
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0; // no attribution window = all reports are valid
+        const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = None; // no attribution window = all reports are valid
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
@@ -305,7 +306,7 @@ mod tests {
     pub async fn accumulate_cap_of_one_without_attribution_window() {
         const EXPECTED: &[u128; 20] = &[0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1];
         const PER_USER_CAP: u32 = 1;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
+        const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = None;
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
@@ -360,7 +361,7 @@ mod tests {
     pub async fn accumulate_cap_of_one_with_attribution_window() {
         const EXPECTED: &[u128; 20] = &[0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1];
         const PER_USER_CAP: u32 = 1;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 1;
+        let attribution_window_seconds: Option<NonZeroU32> = Some(NonZeroU32::new(1).unwrap());
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
@@ -390,7 +391,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW_SECONDS).await;
+        let result = accumulate_credit_test(input, PER_USER_CAP, attribution_window_seconds).await;
 
         assert_eq!(result[0].len(), input_len - 1);
         assert_eq!(result[1].len(), input_len - 1);

@@ -553,6 +553,7 @@ pub mod tests {
     };
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
+    use std::num::NonZeroU32;
     use typenum::Unsigned;
 
     #[tokio::test]
@@ -570,7 +571,6 @@ pub mod tests {
             [7, 0],
         ];
         const MAX_BREAKDOWN_KEY: u32 = 8;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -591,12 +591,7 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
+                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
                 )
                 .await
                 .unwrap()
@@ -622,7 +617,6 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -643,12 +637,7 @@ pub mod tests {
                 ipa_malicious::<_, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
+                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
                 )
                 .await
                 .unwrap()
@@ -785,7 +774,6 @@ pub mod tests {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
         const MAX_BREAKDOWN_KEY: u32 = 7;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -818,12 +806,7 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
+                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
                 )
                 .await
                 .unwrap()
@@ -848,12 +831,7 @@ pub mod tests {
                 ipa_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
+                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
                 )
                 .await
                 .unwrap()
@@ -975,9 +953,9 @@ pub mod tests {
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 86_400;
         type TestField = Fp32BitPrime;
 
+        let attribution_window_seconds = Some(NonZeroU32::new(86_400).unwrap());
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
         let mut rng = StdRng::seed_from_u64(random_seed);
@@ -1006,18 +984,18 @@ pub mod tests {
 
         for per_user_cap in [1, 3] {
             let expected_results =
-                ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
+                ipa_in_the_clear(&raw_data, per_user_cap, attribution_window_seconds);
 
             test_ipa::<TestField>(
                 &world,
                 &raw_data,
                 &expected_results,
-                IpaQueryConfig::new(
-                    per_user_cap,
-                    MAX_BREAKDOWN_KEY,
-                    ATTRIBUTION_WINDOW_SECONDS,
-                    NUM_MULTI_BITS,
-                ),
+                IpaQueryConfig {
+                    per_user_credit_cap: per_user_cap,
+                    max_breakdown_key: MAX_BREAKDOWN_KEY,
+                    attribution_window_seconds,
+                    num_multi_bits: NUM_MULTI_BITS,
+                },
                 IpaSecurityModel::SemiHonest,
             )
             .await;
@@ -1030,7 +1008,6 @@ pub mod tests {
     pub async fn random_wrapping_add_attack() {
         const PER_USER_CAP: u32 = 15;
         const MAX_BREAKDOWN_KEY: u32 = 8;
-        const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
         const NUM_MULTI_BITS: u32 = 3;
         const RECORD_COUNT: usize = 8;
 
@@ -1058,12 +1035,7 @@ pub mod tests {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
+                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
                 )
                 .await
                 .unwrap()
@@ -1146,21 +1118,21 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         fn cap_one() -> IpaQueryConfig {
-            IpaQueryConfig {
-                per_user_credit_cap: 1,
-                max_breakdown_key: MAX_BREAKDOWN_KEY,
-                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
-                num_multi_bits: NUM_MULTI_BITS,
-            }
+            IpaQueryConfig::new(
+                1,
+                MAX_BREAKDOWN_KEY,
+                ATTRIBUTION_WINDOW_SECONDS,
+                NUM_MULTI_BITS,
+            )
         }
 
         fn cap_three() -> IpaQueryConfig {
-            IpaQueryConfig {
-                per_user_credit_cap: 3,
-                max_breakdown_key: MAX_BREAKDOWN_KEY,
-                attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
-                num_multi_bits: NUM_MULTI_BITS,
-            }
+            IpaQueryConfig::new(
+                3,
+                MAX_BREAKDOWN_KEY,
+                ATTRIBUTION_WINDOW_SECONDS,
+                NUM_MULTI_BITS,
+            )
         }
 
         fn generate_input<F: Field>() -> Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
