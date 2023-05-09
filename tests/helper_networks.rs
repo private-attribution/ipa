@@ -2,7 +2,8 @@ use std::{
     error::Error,
     io::{self, Write},
     iter::zip,
-    process::{Command, ExitStatus, Stdio},
+    ops::Deref,
+    process::{Child, Command, ExitStatus, Stdio},
     str,
 };
 use tempfile::tempdir;
@@ -28,6 +29,51 @@ impl UnwrapStatusExt for Result<ExitStatus, io::Error> {
     }
 }
 
+trait TerminateOnDropExt {
+    fn terminate_on_drop(self) -> TerminateOnDrop;
+}
+
+impl TerminateOnDropExt for Child {
+    fn terminate_on_drop(self) -> TerminateOnDrop {
+        TerminateOnDrop::from(self)
+    }
+}
+
+pub struct TerminateOnDrop(Option<Child>);
+
+impl TerminateOnDrop {
+    fn into_inner(mut self) -> Child {
+        self.0.take().unwrap()
+    }
+
+    fn wait(self) -> io::Result<ExitStatus> {
+        self.into_inner().wait()
+    }
+}
+
+impl From<Child> for TerminateOnDrop {
+    fn from(child: Child) -> Self {
+        Self(Some(child))
+    }
+}
+
+impl Deref for TerminateOnDrop {
+    type Target = Child;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl Drop for TerminateOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            eprintln!("killing process {}", child.id());
+            let _ = child.kill();
+        }
+    }
+}
+
 fn test_network(ports: &[u16; 3], https: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
@@ -45,7 +91,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
     }
     command.status().unwrap_status();
 
-    let helpers = zip([1, 2, 3], ports)
+    let _helpers = zip([1, 2, 3], ports)
         .map(|(id, port)| {
             let mut command = Command::new(HELPER_BIN);
             command
@@ -59,17 +105,18 @@ fn test_network(ports: &[u16; 3], https: bool) {
                     .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))]);
             }
 
-            command.spawn().unwrap()
+            command.spawn().unwrap().terminate_on_drop()
         })
         .collect::<Vec<_>>();
 
-    let mut test_mpc = Command::new(TEST_MPC_BIN)
+    let test_mpc = Command::new(TEST_MPC_BIN)
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--wait", "2"])
         .arg("multiply")
         .stdin(Stdio::piped())
         .spawn()
-        .unwrap();
+        .unwrap()
+        .terminate_on_drop();
 
     test_mpc
         .stdin
@@ -78,10 +125,6 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .write_all(b"3,6\n")
         .unwrap();
     test_mpc.wait().unwrap_status();
-
-    for mut helper in helpers {
-        helper.kill().unwrap();
-    }
 
     // Uncomment this to preserve the temporary directory after the test runs.
     //std::mem::forget(dir);
