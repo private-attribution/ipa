@@ -21,6 +21,7 @@ use tower_http::trace::TraceLayer;
 use tracing::Span;
 
 use ::tokio::io::{AsyncRead, AsyncWrite};
+
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -59,6 +60,13 @@ impl MpcHelperServer {
 
     fn router(&self) -> Router {
         handlers::router(Arc::clone(&self.transport))
+    }
+
+    #[cfg(all(test, feature = "in-memory-infra", not(feature = "shuttle")))]
+    async fn handle_req(&self, req: hyper::Request<hyper::Body>) -> axum::response::Response {
+        let mut router = self.router();
+        let router = tower::ServiceExt::ready(&mut router).await.unwrap();
+        hyper::service::Service::call(router, req).await.unwrap()
     }
 
     /// Starts the MPC helper service.

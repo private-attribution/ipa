@@ -117,7 +117,7 @@ mod tests {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
-                attribution_window_seconds: 0,
+                attribution_window_seconds: None,
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
