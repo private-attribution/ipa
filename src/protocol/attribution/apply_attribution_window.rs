@@ -232,7 +232,7 @@ mod tests {
         const EXPECTED_ACTIVE_BITS: &[u128; 23] = &[
             1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
         ];
-        let attribution_window = Some(NonZeroU32::new(600).unwrap());
+        let attribution_window = NonZeroU32::new(600);
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = attribution_window_test_input!(
             [
                 { timestamp: 500, is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 }, // delta: 0

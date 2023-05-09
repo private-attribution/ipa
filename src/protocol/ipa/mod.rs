@@ -955,7 +955,7 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
         type TestField = Fp32BitPrime;
 
-        let attribution_window_seconds = Some(NonZeroU32::new(86_400).unwrap());
+        let attribution_window_seconds = NonZeroU32::new(86_400);
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
         let mut rng = StdRng::seed_from_u64(random_seed);

@@ -361,7 +361,7 @@ mod tests {
     pub async fn accumulate_cap_of_one_with_attribution_window() {
         const EXPECTED: &[u128; 20] = &[0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1];
         const PER_USER_CAP: u32 = 1;
-        let attribution_window_seconds: Option<NonZeroU32> = Some(NonZeroU32::new(1).unwrap());
+        let attribution_window_seconds: Option<NonZeroU32> = NonZeroU32::new(1);
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
