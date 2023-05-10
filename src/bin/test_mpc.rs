@@ -81,7 +81,7 @@ async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
         && clients[2].echo("").await.is_ok()
 }
 
-fn validate<I, S>(quiet: bool, expected: I, actual: I)
+fn validate<I, S>(expected: I, actual: I)
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: ExactSizeIterator,
@@ -120,9 +120,8 @@ where
         }
     }
 
-    if !quiet {
-        println!("{table}");
-    }
+    tracing::info!("{table}");
+
     assert!(
         mismatch.is_empty(),
         "Expected and actual results don't match: {:?}",
@@ -197,7 +196,7 @@ async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
         }
     };
 
-    validate(args.logging.quiet, expected, actual)
+    validate(expected, actual)
 }
 
 async fn multiply_in_field<F: Field>(
@@ -214,7 +213,7 @@ async fn multiply_in_field<F: Field>(
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
     let actual = secure_mul(input_rows, &helper_clients, query_id).await;
 
-    validate(args.logging.quiet, expected, actual);
+    validate(expected, actual);
 }
 
 async fn multiply(args: Args, helper_clients: &[MpcHelperClient; 3]) {
