@@ -65,7 +65,7 @@ impl TestServer {
 pub struct TestServerBuilder {
     callbacks: Option<HttpTransportCallbacks>,
     metrics: Option<MetricsHandle>,
-    https: bool,
+    disable_https: bool,
 }
 
 /// Construct an *insecure* HTTPS client for a test server.
@@ -102,30 +102,31 @@ impl TestServerBuilder {
         self
     }
 
-    #[allow(dead_code)] // TODO: fix when TLS is enabled
-    pub fn https(mut self) -> Self {
-        self.https = true;
+    pub fn disable_https(mut self) -> Self {
+        self.disable_https = true;
         self
     }
 
     pub async fn build(self) -> TestServer {
-        let server_config = if self.https {
-            ServerConfig::https_self_signed()
+        let (scheme, server_config) = if self.disable_https {
+            (Scheme::HTTP, ServerConfig::insecure_http())
         } else {
-            ServerConfig::http()
+            (Scheme::HTTPS, ServerConfig::https_self_signed())
         };
         let clients = TestClients::default();
+        let network_config = NetworkConfig::default().override_scheme(&scheme);
         let (transport, server) = HttpTransport::new(
             HelperIdentity::ONE,
             server_config,
+            network_config,
             clients.into(),
             self.callbacks.unwrap_or_default(),
         );
         let (addr, handle) = server.start(self.metrics).await;
-        let client = if self.https {
-            https_client(addr)
-        } else {
+        let client = if self.disable_https {
             MpcHelperClient::with_str_addr(&format!("http://{addr}")).unwrap()
+        } else {
+            https_client(addr)
         };
         TestServer {
             addr,

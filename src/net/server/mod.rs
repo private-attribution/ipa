@@ -1,7 +1,7 @@
 mod handlers;
 
 use crate::{
-    config::ServerConfig,
+    config::{NetworkConfig, ServerConfig},
     net::{Error, HttpTransport},
     sync::Arc,
     task::JoinHandle,
@@ -50,11 +50,20 @@ impl TracingSpanMaker for () {
 pub struct MpcHelperServer {
     transport: Arc<HttpTransport>,
     config: ServerConfig,
+    _network_config: NetworkConfig,
 }
 
 impl MpcHelperServer {
-    pub fn new(transport: Arc<HttpTransport>, config: ServerConfig) -> Self {
-        MpcHelperServer { transport, config }
+    pub fn new(
+        transport: Arc<HttpTransport>,
+        config: ServerConfig,
+        network_config: NetworkConfig,
+    ) -> Self {
+        MpcHelperServer {
+            transport,
+            config,
+            _network_config: network_config,
+        }
     }
 
     fn router(&self) -> Router {
@@ -77,36 +86,6 @@ impl MpcHelperServer {
         listener: Option<TcpListener>,
         tracing: T,
     ) -> (SocketAddr, JoinHandle<()>) {
-        async fn serve<A>(
-            server: Server<A>,
-            handle: Handle,
-            svc: IntoMakeService<Router>,
-        ) -> JoinHandle<()>
-        where
-            A: Accept<
-                    AddrStream,
-                    <IntoMakeService<Router> as MakeServiceRef<
-                        AddrStream,
-                        hyper::Request<hyper::Body>,
-                    >>::Service,
-                > + Clone
-                + Send
-                + Sync
-                + 'static,
-            A::Stream: AsyncRead + AsyncWrite + Unpin + Send,
-            A::Service: SendService<Request<hyper::Body>> + Send,
-            A::Future: Send,
-        {
-            tokio::spawn({
-                async move {
-                    server
-                        .handle(handle)
-                        .serve(svc)
-                        .await
-                        .expect("Failed to serve");
-                }
-            })
-        }
         // This should probably come from the server config.
         // Note that listening on 0.0.0.0 requires accepting a MacOS security
         // warning on each test run.
@@ -130,35 +109,35 @@ impl MpcHelperServer {
             .into_make_service();
         let handle = Handle::new();
 
-        let task_handle = match (self.config.https, listener) {
-            (false, Some(listener)) => {
-                serve(axum_server::from_tcp(listener), handle.clone(), svc).await
-            }
-            (false, None) => {
-                let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
-                serve(axum_server::bind(addr), handle.clone(), svc).await
-            }
+        let task_handle = match (self.config.disable_https, listener) {
             (true, Some(listener)) => {
+                spawn_server(axum_server::from_tcp(listener), handle.clone(), svc).await
+            }
+            (true, None) => {
+                let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
+                spawn_server(axum_server::bind(addr), handle.clone(), svc).await
+            }
+            (false, Some(listener)) => {
                 let rustls_config = self
                     .config
                     .as_rustls_config()
                     .await
                     .expect("invalid TLS configuration");
-                serve(
+                spawn_server(
                     axum_server::from_tcp_rustls(listener, rustls_config),
                     handle.clone(),
                     svc,
                 )
                 .await
             }
-            (true, None) => {
+            (false, None) => {
                 let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
                 let rustls_config = self
                     .config
                     .as_rustls_config()
                     .await
                     .expect("invalid TLS configuration");
-                serve(
+                spawn_server(
                     axum_server::bind_rustls(addr, rustls_config),
                     handle.clone(),
                     svc,
@@ -174,7 +153,11 @@ impl MpcHelperServer {
         #[cfg(not(test))] // reduce spam in test output
         tracing::info!(
             "server listening on {}://{}",
-            if self.config.https { "https" } else { "http" },
+            if self.config.disable_https {
+                "http"
+            } else {
+                "https"
+            },
             bound_addr,
         );
         (bound_addr, task_handle)
@@ -186,6 +169,37 @@ impl MpcHelperServer {
     ) -> impl Future<Output = (SocketAddr, JoinHandle<()>)> + '_ {
         self.start_on(None, tracing)
     }
+}
+
+async fn spawn_server<A>(
+    server: Server<A>,
+    handle: Handle,
+    svc: IntoMakeService<Router>,
+) -> JoinHandle<()>
+where
+    A: Accept<
+            AddrStream,
+            <IntoMakeService<Router> as MakeServiceRef<
+                AddrStream,
+                hyper::Request<hyper::Body>,
+            >>::Service,
+        > + Clone
+        + Send
+        + Sync
+        + 'static,
+    A::Stream: AsyncRead + AsyncWrite + Unpin + Send,
+    A::Service: SendService<Request<hyper::Body>> + Send,
+    A::Future: Send,
+{
+    tokio::spawn({
+        async move {
+            server
+                .handle(handle)
+                .serve(svc)
+                .await
+                .expect("Failed to serve");
+        }
+    })
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
@@ -225,7 +239,7 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_http() {
         // server
-        let TestServer { addr, .. } = TestServer::default().await;
+        let TestServer { addr, .. } = TestServer::builder().disable_https().build().await;
 
         // client
         let client = hyper::Client::new();
@@ -243,7 +257,7 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let TestServer { addr, .. } = TestServer::builder().https().build().await;
+        let TestServer { addr, .. } = TestServer::builder().build().await;
 
         // self-signed cert CN is "localhost", therefore request authority must not use the ip address
         let authority = format!("localhost:{}", addr.port());
@@ -280,6 +294,7 @@ mod e2e_tests {
 
         // server
         let TestServer { addr, .. } = TestServer::builder()
+            .disable_https() // required because this test uses a vanilla hyper client
             .with_metrics(handle.clone())
             .build()
             .await;
@@ -312,6 +327,7 @@ mod e2e_tests {
 
         // server
         let TestServer { addr, .. } = TestServer::builder()
+            .disable_https() // required because this test uses vanilla hyper clients
             .with_metrics(handle.clone())
             .build()
             .await;

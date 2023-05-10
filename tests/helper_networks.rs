@@ -74,7 +74,7 @@ impl Drop for TerminateOnDrop {
     }
 }
 
-fn test_network(ports: &[u16; 3], https: bool) {
+fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
@@ -86,7 +86,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .args(["--output-dir".as_ref(), dir.path().as_os_str()])
         .arg("--ports")
         .args(ports.map(|p| p.to_string()));
-    if !https {
+    if !https_setup {
         command.arg("--disable-https");
     }
     command.status().unwrap_status();
@@ -99,24 +99,28 @@ fn test_network(ports: &[u16; 3], https: bool) {
                 .args(["--port", &port.to_string()])
                 .args(["--network".into(), dir.path().join("network.toml")]);
 
-            if https {
+            if https_runtime {
                 command
                     .args(["--tls-cert".into(), dir.path().join(format!("h{id}.pem"))])
                     .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))]);
+            } else {
+                command.arg("--disable-https");
             }
 
             command.spawn().unwrap().terminate_on_drop()
         })
         .collect::<Vec<_>>();
 
-    let test_mpc = Command::new(TEST_MPC_BIN)
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
         .args(["--network".into(), dir.path().join("network.toml")])
-        .args(["--wait", "2"])
-        .arg("multiply")
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap()
-        .terminate_on_drop();
+        .args(["--wait", "2"]);
+    if !https_runtime {
+        command.arg("--disable-https");
+    }
+    command.arg("multiply").stdin(Stdio::piped());
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
     test_mpc
         .stdin
@@ -132,10 +136,15 @@ fn test_network(ports: &[u16; 3], https: bool) {
 
 #[test]
 fn http_network() {
-    test_network(&[3000, 3001, 3002], false);
+    test_network(&[3000, 3001, 3002], false, false);
 }
 
 #[test]
 fn https_network() {
-    test_network(&[4430, 4431, 4432], true);
+    test_network(&[4430, 4431, 4432], true, true);
+}
+
+#[test]
+fn https_as_http_network() {
+    test_network(&[3330, 3331, 3332], true, false);
 }

@@ -83,7 +83,7 @@ url = "http://localhost:{}"
     );
 
     let network = NetworkConfig::from_toml_str(&config_str).unwrap();
-    let servers = ports.map(ServerConfig::http_port);
+    let servers = ports.map(ServerConfig::insecure_http_port);
 
     (network, servers)
 }
