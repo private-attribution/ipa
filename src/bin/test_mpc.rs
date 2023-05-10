@@ -54,7 +54,7 @@ pub struct CommandInput {
     input_file: Option<PathBuf>,
 
     #[arg(value_enum, long, default_value_t = FieldType::Fp32BitPrime, help = "Convert the input into the given field before sending to helpers")]
-    input_type: FieldType,
+    field: FieldType,
 }
 
 impl From<&CommandInput> for InputSource {
@@ -81,7 +81,7 @@ async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
         && clients[2].echo("").await.is_ok()
 }
 
-fn validate<I, S>(expected: I, actual: I)
+fn validate<I, S>(quiet: bool, expected: I, actual: I)
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: ExactSizeIterator,
@@ -120,7 +120,9 @@ where
         }
     }
 
-    println!("{table}");
+    if !quiet {
+        println!("{table}");
+    }
     assert!(
         mismatch.is_empty(),
         "Expected and actual results don't match: {:?}",
@@ -130,7 +132,7 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    fn make_clients(config_path: Option<PathBuf>) -> [MpcHelperClient; 3] {
+    fn make_clients(config_path: Option<&PathBuf>) -> [MpcHelperClient; 3] {
         let config = if let Some(path) = config_path {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
@@ -142,8 +144,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    let input = InputSource::from(&args.input);
-    let clients = make_clients(args.network);
+    let clients = make_clients(args.network.as_ref());
 
     let mut wait = args.wait;
     while wait > 0 && !clients_ready(&clients).await {
@@ -153,18 +154,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     match args.action {
-        TestAction::Multiply => multiply(args.input.input_type, input, &clients).await,
-        TestAction::SemiHonestIPA => semi_honest_ipa(args.input.input_type, input, &clients).await,
+        TestAction::Multiply => multiply(args, &clients).await,
+        TestAction::SemiHonestIPA => semi_honest_ipa(args, &clients).await,
     };
 
     Ok(())
 }
 
-async fn semi_honest_ipa(
-    field_type: FieldType,
-    source: InputSource,
-    helper_clients: &[MpcHelperClient; 3],
-) {
+async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
+    let input = InputSource::from(&args.input);
     let ipa_query_config = IpaQueryConfig {
         per_user_credit_cap: 3,
         max_breakdown_key: 3,
@@ -173,18 +171,18 @@ async fn semi_honest_ipa(
     };
     let query_type = QueryType::Ipa(ipa_query_config.clone());
     let query_config = QueryConfig {
-        field_type,
+        field_type: args.input.field,
         query_type,
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
-    let input_rows = source.iter::<TestRawDataRecord>().collect::<Vec<_>>();
+    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
     let expected = ipa_in_the_clear(
         &input_rows,
         ipa_query_config.per_user_credit_cap,
         ipa_query_config.attribution_window_seconds,
     );
 
-    let actual = match field_type {
+    let actual = match args.input.field {
         FieldType::Fp31 => {
             semi_honest::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id)
                 .await
@@ -199,11 +197,11 @@ async fn semi_honest_ipa(
         }
     };
 
-    validate(expected, actual)
+    validate(args.logging.quiet, expected, actual)
 }
 
 async fn multiply_in_field<F: Field>(
-    source: InputSource,
+    args: Args,
     helper_clients: &[MpcHelperClient; 3],
     query_id: QueryId,
 ) where
@@ -211,28 +209,25 @@ async fn multiply_in_field<F: Field>(
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
-    let input_rows: Vec<_> = source.iter::<(F, F)>().collect();
+    let input = InputSource::from(&args.input);
+    let input_rows: Vec<_> = input.iter::<(F, F)>().collect();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
     let actual = secure_mul(input_rows, &helper_clients, query_id).await;
 
-    validate(expected, actual);
+    validate(args.logging.quiet, expected, actual);
 }
 
-async fn multiply(
-    field_type: FieldType,
-    source: InputSource,
-    helper_clients: &[MpcHelperClient; 3],
-) {
+async fn multiply(args: Args, helper_clients: &[MpcHelperClient; 3]) {
     let query_config = QueryConfig {
-        field_type,
+        field_type: args.input.field,
         query_type: QueryType::TestMultiply,
     };
 
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
-    match field_type {
-        FieldType::Fp31 => multiply_in_field::<Fp31>(source, helper_clients, query_id).await,
+    match args.input.field {
+        FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients, query_id).await,
         FieldType::Fp32BitPrime => {
-            multiply_in_field::<Fp32BitPrime>(source, helper_clients, query_id).await
+            multiply_in_field::<Fp32BitPrime>(args, helper_clients, query_id).await
         }
     };
 }

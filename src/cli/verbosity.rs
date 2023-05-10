@@ -9,7 +9,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 pub struct Verbosity {
     /// Silence all output
     #[clap(short, long, global = true)]
-    quiet: bool,
+    pub quiet: bool,
 
     /// Verbose mode (-v, or -vv for even more verbose)
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]

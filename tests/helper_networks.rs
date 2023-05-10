@@ -66,6 +66,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
     let mut test_mpc = Command::new(TEST_MPC_BIN)
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--wait", "2"])
+        .arg("--quiet")
         .arg("multiply")
         .stdin(Stdio::piped())
         .spawn()
