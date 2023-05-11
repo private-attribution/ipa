@@ -20,7 +20,7 @@ pub struct TestSetupArgs {
     #[arg(short, long, default_value = "test_data")]
     output_dir: PathBuf,
 
-    /// Write http URLs to the network configuration (certificates will still be generated)
+    /// Ignored. The same configuration can be used for HTTP and HTTPS.
     #[arg(long)]
     disable_https: bool,
 
@@ -58,13 +58,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
             let certificate = Some(fs::read_to_string(&tls_cert)?);
 
             Ok::<_, Box<dyn Error>>(PeerConfig {
-                url: format!(
-                    "{}://localhost:{}",
-                    if args.disable_https { "http" } else { "https" },
-                    port
-                )
-                .parse()
-                .unwrap(),
+                url: format!("localhost:{port}").parse().unwrap(),
                 certificate,
             })
         })

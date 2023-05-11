@@ -1,5 +1,5 @@
 use crate::{
-    config::ServerConfig,
+    config::{NetworkConfig, ServerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
@@ -30,11 +30,12 @@ impl HttpTransport {
     pub fn new(
         identity: HelperIdentity,
         server_config: ServerConfig,
+        network_config: NetworkConfig,
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> (Arc<Self>, MpcHelperServer) {
         let transport = Self::new_internal(identity, clients, callbacks);
-        let server = MpcHelperServer::new(Arc::clone(&transport), server_config);
+        let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 
@@ -229,7 +230,13 @@ mod e2e_tests {
                     .with_network_config(client_config)
                     .build()
                     .into();
-                let (transport, server) = HttpTransport::new(id, server_config, clients, callbacks);
+                let (transport, server) = HttpTransport::new(
+                    id,
+                    server_config,
+                    network_config.clone(),
+                    clients,
+                    callbacks,
+                );
                 server.start_on(Some(socket), ()).await;
                 let app = setup.connect(transport);
                 app

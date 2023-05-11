@@ -275,7 +275,7 @@ pub(crate) mod tests {
     async fn untrusted_certificate() {
         const ECHO_DATA: &str = "asdf";
 
-        let TestServer { addr, .. } = TestServer::builder().https().build().await;
+        let TestServer { addr, .. } = TestServer::default().await;
 
         let client_config = PeerConfig {
             url: format!("https://localhost:{}", addr.port())
@@ -314,18 +314,18 @@ pub(crate) mod tests {
         let TestServer {
             client: http_client,
             ..
-        } = TestServer::builder().with_callbacks(http_cb).build().await;
+        } = TestServer::builder()
+            .disable_https()
+            .with_callbacks(http_cb)
+            .build()
+            .await;
 
         let clientf_res_http = clientf(http_client).await;
 
         let TestServer {
             client: https_client,
             ..
-        } = TestServer::builder()
-            .https()
-            .with_callbacks(https_cb)
-            .build()
-            .await;
+        } = TestServer::builder().with_callbacks(https_cb).build().await;
 
         let clientf_res_https = clientf(https_client).await;
 

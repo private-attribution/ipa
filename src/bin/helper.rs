@@ -1,4 +1,5 @@
-use clap::{self, builder::ArgPredicate, ArgAction, Parser, Subcommand};
+use clap::{self, Parser, Subcommand};
+use hyper::http::uri::Scheme;
 use ipa::{
     cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
     config::{NetworkConfig, ServerConfig, TlsConfig},
@@ -42,13 +43,9 @@ struct ServerArgs {
     #[arg(short, long, default_value = "3000")]
     port: Option<u16>,
 
-    /// Use HTTPS. Enabled automatically if a certificate is supplied.
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        default_value_if("tls_cert", ArgPredicate::IsPresent, Some("true")),
-    )]
-    https: bool,
+    /// Use insecure HTTP
+    #[arg(short = 'k', long)]
+    disable_https: bool,
 
     /// File containing helper network configuration
     #[arg(long, required = true)]
@@ -87,17 +84,29 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
     };
     let server_config = ServerConfig {
         port: args.port,
-        https: args.https,
+        disable_https: args.disable_https,
         tls,
     };
 
     let (setup, callbacks) = AppSetup::new();
 
+    let scheme = if args.disable_https {
+        Scheme::HTTP
+    } else {
+        Scheme::HTTPS
+    };
     let network_config_path = args.network.as_deref().unwrap();
-    let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?;
+    let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
+        .override_scheme(&scheme);
     let clients = MpcHelperClient::from_conf(&network_config);
 
-    let (transport, server) = HttpTransport::new(my_identity, server_config, clients, callbacks);
+    let (transport, server) = HttpTransport::new(
+        my_identity,
+        server_config,
+        network_config,
+        clients,
+        callbacks,
+    );
 
     let _app = setup.connect(transport.clone());
 
