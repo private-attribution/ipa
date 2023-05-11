@@ -49,8 +49,13 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "86400")]
-    attribution_window: Option<NonZeroU32>,
+    #[arg(
+        short = 'w',
+        long,
+        default_value = "86400",
+        help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
+    )]
+    attribution_window: Option<u32>,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
     #[arg(long, default_value = "3")]
@@ -76,11 +81,21 @@ impl Args {
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
     }
 
+    fn attribution_window(&self) -> Option<NonZeroU32> {
+        self.attribution_window.and_then(|v| {
+            if v == 0 {
+                None
+            } else {
+                Some(NonZeroU32::try_from(v).unwrap())
+            }
+        })
+    }
+
     fn config(&self) -> IpaQueryConfig {
         IpaQueryConfig {
             per_user_credit_cap: self.per_user_cap,
             max_breakdown_key: self.breakdown_keys,
-            attribution_window_seconds: self.attribution_window,
+            attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
         }
     }
@@ -117,7 +132,8 @@ async fn run(args: Args) -> Result<(), Error> {
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
-    let expected_results = ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window);
+    let expected_results =
+        ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
     println!("Preparation complete in {:?}", prep_time.elapsed());
