@@ -1,9 +1,11 @@
-use futures::{stream::TryCollect, Future, Stream, TryStreamExt};
+use futures::{
+    stream::{iter, Iter as StreamIter, TryCollect},
+    Future, Stream, StreamExt, TryStreamExt,
+};
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
     future::IntoFuture,
-    iter::Fuse,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -41,16 +43,13 @@ pub fn assert_send<'a, O>(
 /// [`try_join_all`]: futures::future::try_join_all
 /// [`Stream`]: futures::stream::Stream
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I::IntoIter, F>
+pub fn seq_join<S, F, O>(active: NonZeroUsize, source: S) -> SequentialFutures<S, F>
 where
-    I: IntoIterator<Item = F>,
-    I::IntoIter: Send,
+    S: Stream<Item = F> + Send,
     F: Future<Output = O>,
 {
-    // TODO: Take a Stream instance instead of an IntoIterator so that we can chain these,
-    // which might help reduce the amount of state we hold in between operations.
     SequentialFutures {
-        iter: iter.into_iter().fuse(),
+        source: source.fuse(),
         active: VecDeque::with_capacity(active.get()),
     }
 }
@@ -100,21 +99,21 @@ pub trait SeqJoin {
     fn active_work(&self) -> NonZeroUsize;
 }
 
-type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
+type SeqTryJoinAll<I, F> = SequentialFutures<StreamIter<<I as IntoIterator>::IntoIter>, F>;
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
 pub fn seq_try_join_all<I, F, O, E>(
     active: NonZeroUsize,
-    iterable: I,
+    source: I,
 ) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
     F: Future<Output = Result<O, E>>,
 {
-    seq_join(active, iterable).try_collect()
+    seq_join(active, iter(source)).try_collect()
 }
 
 enum ActiveItem<F: IntoFuture> {
@@ -153,28 +152,29 @@ impl<F: IntoFuture> ActiveItem<F> {
 }
 
 #[pin_project]
-pub struct SequentialFutures<I, F>
+pub struct SequentialFutures<S, F>
 where
-    I: Iterator<Item = F> + Send,
+    S: Stream<Item = F> + Send,
     F: IntoFuture,
 {
-    iter: Fuse<I>,
+    #[pin]
+    source: futures::stream::Fuse<S>,
     active: VecDeque<ActiveItem<F>>,
 }
 
-impl<I, F> Stream for SequentialFutures<I, F>
+impl<S, F> Stream for SequentialFutures<S, F>
 where
-    I: Iterator<Item = F> + Send,
+    S: Stream<Item = F> + Send,
     F: IntoFuture,
 {
     type Item = F::Output;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
+        let mut this = self.project();
 
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
-            if let Some(f) = this.iter.next() {
+            if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
                 this.active
                     .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
             } else {
@@ -192,15 +192,16 @@ where
                 }
                 Poll::Pending
             }
-        } else {
-            assert!(this.iter.next().is_none());
+        } else if this.source.is_done() {
             Poll::Ready(None)
+        } else {
+            Poll::Pending
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let in_progress = self.active.len();
-        let (lower, upper) = self.iter.size_hint();
+        let (lower, upper) = self.source.size_hint();
         (
             lower.saturating_add(in_progress),
             upper.and_then(|u| u.checked_add(in_progress)),
@@ -213,14 +214,14 @@ mod test {
     use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{
         future::{lazy, BoxFuture},
-        stream::poll_immediate,
+        stream::{iter, poll_immediate},
         Future, StreamExt,
     };
     use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
-        let values = seq_join(capacity, (0..count).map(|i| async move { i }))
+        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
             .collect::<Vec<_>>()
             .await;
         assert_eq!((0..count).collect::<Vec<_>>(), values);
@@ -247,7 +248,7 @@ mod test {
         });
         let it = once(unresolved)
             .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        let mut seq_futures = seq_join(capacity, it);
+        let mut seq_futures = seq_join(capacity, iter(it));
 
         assert_eq!(
             Some(Poll::Pending),
