@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Color, Table};
 use generic_array::ArrayLength;
+use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
         playbook::{secure_mul, semi_honest, InputSource},
@@ -33,6 +34,10 @@ struct Args {
     /// Path to helper network configuration file
     #[arg(long)]
     network: Option<PathBuf>,
+
+    /// Use insecure HTTP
+    #[arg(short = 'k', long)]
+    disable_https: bool,
 
     /// Seconds to wait for server to be running
     #[arg(short, long, default_value_t = 0)]
@@ -131,19 +136,25 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    fn make_clients(config_path: Option<&PathBuf>) -> [MpcHelperClient; 3] {
+    fn make_clients(disable_https: bool, config_path: Option<&PathBuf>) -> [MpcHelperClient; 3] {
+        let scheme = if disable_https {
+            Scheme::HTTP
+        } else {
+            Scheme::HTTPS
+        };
         let config = if let Some(path) = config_path {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
             TestConfigBuilder::with_default_test_ports().build().network
-        };
+        }
+        .override_scheme(&scheme);
         MpcHelperClient::from_conf(&config)
     }
 
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    let clients = make_clients(args.network.as_ref());
+    let clients = make_clients(args.disable_https, args.network.as_ref());
 
     let mut wait = args.wait;
     while wait > 0 && !clients_ready(&clients).await {

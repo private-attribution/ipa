@@ -1,5 +1,5 @@
 use axum_server::tls_rustls::RustlsConfig;
-use hyper::Uri;
+use hyper::{http::uri::Scheme, Uri};
 use serde::{Deserialize, Serialize};
 use std::{io, path::PathBuf};
 
@@ -44,6 +44,38 @@ impl NetworkConfig {
 
     pub fn peers(&self) -> &[PeerConfig; 3] {
         &self.peers
+    }
+
+    /// # Panics
+    /// If `PathAndQuery::from_str("")` fails
+    #[must_use]
+    pub fn override_scheme(self, scheme: &Scheme) -> NetworkConfig {
+        NetworkConfig {
+            peers: self.peers.map(|mut peer| {
+                let mut parts = peer.url.into_parts();
+                parts.scheme = Some(scheme.clone());
+                // `http::uri::Uri::from_parts()` requires that a URI have a path if it has a
+                // scheme. If the URI does not have a scheme, it is not required to have a path.
+                if parts.path_and_query.is_none() {
+                    parts.path_and_query = Some("".parse().unwrap());
+                }
+                peer.url = Uri::try_from(parts).unwrap();
+                peer
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        NetworkConfig {
+            peers: [
+                PeerConfig::new("localhost:3000".parse().unwrap()),
+                PeerConfig::new("localhost:3001".parse().unwrap()),
+                PeerConfig::new("localhost:3002".parse().unwrap()),
+            ],
+        }
     }
 }
 
@@ -130,8 +162,8 @@ pub struct ServerConfig {
     /// Port to listen. If not specified, will ask Kernel to assign the port
     pub port: Option<u16>,
 
-    /// If true, enable HTTPS. Otherwise, use insecure HTTP.
-    pub https: bool,
+    /// If true, use insecure HTTP. Otherwise (default), use HTTPS.
+    pub disable_https: bool,
 
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
@@ -139,19 +171,19 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     #[must_use]
-    pub fn http() -> ServerConfig {
+    pub fn insecure_http() -> ServerConfig {
         ServerConfig {
             port: None,
-            https: false,
+            disable_https: true,
             tls: None,
         }
     }
 
     #[must_use]
-    pub fn http_port(port: u16) -> ServerConfig {
+    pub fn insecure_http_port(port: u16) -> ServerConfig {
         ServerConfig {
             port: Some(port),
-            https: false,
+            disable_https: true,
             tls: None,
         }
     }
@@ -165,7 +197,7 @@ impl ServerConfig {
     pub fn https_self_signed() -> ServerConfig {
         ServerConfig {
             port: None,
-            https: true,
+            disable_https: false,
             tls: Some(TlsConfig::Inline {
                 certificate: TEST_CERT.to_owned(),
                 private_key: TEST_KEY.to_owned(),
@@ -237,9 +269,9 @@ mod tests {
     use crate::{helpers::HelperIdentity, test_fixture::config::TestConfigBuilder};
     use hyper::Uri;
 
-    const URI_1: &str = "http://localhost:3000/";
-    const URI_2: &str = "http://localhost:3001/";
-    const URI_3: &str = "http://localhost:3002/";
+    const URI_1: &str = "http://localhost:3000";
+    const URI_2: &str = "http://localhost:3001";
+    const URI_3: &str = "http://localhost:3002";
 
     #[allow(dead_code)] // TODO(tls) need to add back report public key configuration
     fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
