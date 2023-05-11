@@ -19,7 +19,10 @@ use ipa::{
     },
 };
 use std::{error::Error, fmt::Debug, fs, ops::Add, path::PathBuf, time::Duration};
+use std::io::{stdin, stdout, Write};
+use rand::thread_rng;
 use tokio::time::sleep;
+use ipa::test_fixture::ipa::generate_random_user_records_in_reverse_chronological_order;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -77,8 +80,24 @@ enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
     /// Execute IPA in semi-honest majority setting
-    SemiHonestIPA,
+    SemiHonestIpa,
+    /// Generate inputs for IPA
+    GenIpaInputs(GenInputArgs)
 }
+
+#[derive(Debug, clap::Args)]
+struct GenInputArgs {
+    /// Number of records to generate
+    #[clap(long, short = 'c')]
+    count: u32,
+    /// Maximum records per user
+    #[clap(long)]
+    max_per_user: u32,
+
+    /// number of breakdowns
+    breakdowns: u32,
+}
+
 
 async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
     clients[0].echo("").await.is_ok()
@@ -135,42 +154,62 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    fn make_clients(disable_https: bool, config_path: Option<&PathBuf>) -> [MpcHelperClient; 3] {
-        let scheme = if disable_https {
+    let args = Args::parse();
+    let _handle = args.logging.setup_logging();
+
+    let make_clients = || async {
+        let scheme = if args.disable_https {
             Scheme::HTTP
         } else {
             Scheme::HTTPS
         };
+
+        let config_path = args.network.as_deref();
+        let mut wait = args.wait;
+
         let config = if let Some(path) = config_path {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
             TestConfigBuilder::with_default_test_ports().build().network
+        }.override_scheme(&scheme);
+        let clients = MpcHelperClient::from_conf(&config);
+        while wait > 0 && !clients_ready(&clients).await {
+            tracing::debug!("waiting for servers to come up");
+            sleep(Duration::from_secs(1)).await;
+            wait -= 1;
         }
-        .override_scheme(&scheme);
-        MpcHelperClient::from_conf(&config)
-    }
 
-    let args = Args::parse();
-    let _handle = args.logging.setup_logging();
-
-    let clients = make_clients(args.disable_https, args.network.as_ref());
-
-    let mut wait = args.wait;
-    while wait > 0 && !clients_ready(&clients).await {
-        println!("waiting for servers to come up");
-        sleep(Duration::from_secs(1)).await;
-        wait -= 1;
-    }
+        clients
+    };
 
     match args.action {
-        TestAction::Multiply => multiply(args, &clients).await,
-        TestAction::SemiHonestIPA => semi_honest_ipa(args, &clients).await,
+        TestAction::Multiply => multiply(&args, &make_clients().await).await,
+        TestAction::SemiHonestIpa => semi_honest_ipa(&args, &make_clients().await).await,
+        TestAction::GenIpaInputs(gen_args) => gen_inputs(&gen_args).await
     };
 
     Ok(())
 }
 
-async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn gen_inputs(args: &GenInputArgs) {
+    const MAX_TRIGGER_VALUE: u32 = 5;
+    let mut written = 0;
+    let mut w: dyn Write = stdout();
+
+    loop {
+        let next_set = generate_random_user_records_in_reverse_chronological_order(
+            &mut thread_rng(),
+            args.max_per_user,
+            args.breakdowns,
+            MAX_TRIGGER_VALUE
+        );
+        while written < args.count && !next_set.is_empty() {
+            w.write()
+        }
+    }
+}
+
+async fn semi_honest_ipa(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     let input = InputSource::from(&args.input);
     let ipa_query_config = IpaQueryConfig {
         per_user_credit_cap: 3,
@@ -210,7 +249,7 @@ async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
 }
 
 async fn multiply_in_field<F: Field>(
-    args: Args,
+    args: &Args,
     helper_clients: &[MpcHelperClient; 3],
     query_id: QueryId,
 ) where
@@ -226,7 +265,7 @@ async fn multiply_in_field<F: Field>(
     validate(expected, actual);
 }
 
-async fn multiply(args: Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type: QueryType::TestMultiply,

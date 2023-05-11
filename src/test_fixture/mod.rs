@@ -14,6 +14,7 @@ pub mod config;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
+mod event_gen;
 
 use crate::{
     ff::Field,

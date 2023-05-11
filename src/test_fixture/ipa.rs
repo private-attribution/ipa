@@ -90,7 +90,7 @@ pub fn ipa_in_the_clear(
 
 pub fn generate_random_user_records_in_reverse_chronological_order(
     rng: &mut impl Rng,
-    max_records_per_user: usize,
+    max_records_per_user: u32,
     max_breakdown_key: u32,
     max_trigger_value: u32,
 ) -> Vec<TestRawDataRecord> {
@@ -102,7 +102,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
         rng.gen_range(1..max_records_per_user),
         rng.gen_range(1..max_records_per_user),
     );
-    let mut records_for_user = Vec::with_capacity(num_records_for_user);
+    let mut records_for_user = Vec::with_capacity(usize::try_from(num_records_for_user).unwrap());
     for _ in 0..num_records_for_user {
         let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
         let is_trigger_report = rng.gen::<bool>();

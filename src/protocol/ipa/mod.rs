@@ -951,7 +951,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: usize = 8;
-        const MAX_RECORDS_PER_USER: usize = 8;
+        const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
