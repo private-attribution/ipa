@@ -104,25 +104,24 @@ where
         let next_expected = expected.next();
         let next_actual = actual.next();
 
-        match (&next_expected, &next_actual) {
-            (None, None) => break,
-            _ => {
-                let same = next_expected == next_actual;
-                let color = if same { Color::Green } else { Color::Red };
-                table.add_row(vec![
-                    Cell::new(format!("{}", i)).fg(color),
-                    Cell::new(format!("{:?}", next_expected)).fg(color),
-                    Cell::new(format!("{:?}", next_actual)).fg(color),
-                    Cell::new(if same { "" } else { "X" }),
-                ]);
-
-                if !same {
-                    mismatch.push((i, next_expected, next_actual))
-                }
-
-                i += 1;
-            }
+        if next_expected.is_none() && next_actual.is_none() {
+            break;
         }
+
+        let same = next_expected == next_actual;
+        let color = if same { Color::Green } else { Color::Red };
+        table.add_row(vec![
+            Cell::new(format!("{}", i)).fg(color),
+            Cell::new(format!("{:?}", next_expected)).fg(color),
+            Cell::new(format!("{:?}", next_actual)).fg(color),
+            Cell::new(if same { "" } else { "X" }),
+        ]);
+
+        if !same {
+            mismatch.push((i, next_expected, next_actual))
+        }
+
+        i += 1;
     }
 
     tracing::info!("{table}");
