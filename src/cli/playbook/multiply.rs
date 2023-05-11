@@ -1,33 +1,34 @@
 #![cfg(feature = "web-app")]
 
 use crate::{
-    cli::playbook::InputSource,
     ff::{Field, Serializable},
     helpers::{query::QueryInput, ByteArrStream},
     net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    test_fixture::Reconstruct,
 };
 use futures::future::try_join_all;
 use generic_array::{ArrayLength, GenericArray};
-use std::{fmt::Debug, ops::Add};
+use std::ops::Add;
 use typenum::Unsigned;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.
 #[allow(clippy::missing_panics_doc)]
 pub async fn secure_mul<F>(
-    input: InputSource,
+    // I couldn't make `share` work with `&[(F, F)]`
+    input: Vec<(F, F)>,
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
-) -> [Vec<impl Send + Debug>; 3]
+) -> Vec<F>
 where
     F: Field + IntoShares<Replicated<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     // prepare inputs
-    let inputs = input.iter::<(F, F)>().share().map(|vec| {
+    let inputs = input.share().map(|vec| {
         let r = vec
             .into_iter()
             .flat_map(|(a, b)| {
@@ -69,5 +70,7 @@ where
         .unwrap();
 
     // expect replicated shares to be sent back
-    results.map(|bytes| Replicated::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
+    results
+        .map(|bytes| Replicated::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
+        .reconstruct()
 }

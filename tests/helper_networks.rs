@@ -118,7 +118,7 @@ fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
     if !https_runtime {
         command.arg("--disable-https");
     }
-    command.arg("multiply").stdin(Stdio::piped());
+    command.arg("--quiet").arg("multiply").stdin(Stdio::piped());
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 

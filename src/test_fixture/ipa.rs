@@ -1,4 +1,6 @@
-use super::TestWorld;
+use std::{cmp::min, collections::HashMap, num::NonZeroU32, ops::Deref};
+
+#[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{GaloisField, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
@@ -11,13 +13,10 @@ use crate::{
         replicated::{malicious, malicious::ExtendableField, semi_honest},
         IntoShares,
     },
-    test_fixture::{input::GenericReportTestInput, Reconstruct, Runner},
+    test_fixture::{input::GenericReportTestInput, Reconstruct},
 };
-use rand::{
-    distributions::{Distribution, Standard},
-    Rng,
-};
-use std::{cmp::min, collections::HashMap, num::NonZeroU32, ops::Deref};
+
+use rand::Rng;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -28,7 +27,7 @@ pub enum IpaSecurityModel {
 
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
-    pub user_id: usize,
+    pub user_id: u64,
     pub timestamp: u32,
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
@@ -95,7 +94,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
     max_breakdown_key: u32,
     max_trigger_value: u32,
 ) -> Vec<TestRawDataRecord> {
-    const MAX_USER_ID: usize = 1_000_000_000_000;
+    const MAX_USER_ID: u64 = 1_000_000_000_000;
     const SECONDS_IN_EPOCH: u32 = 604_800;
 
     let random_user_id = rng.gen_range(0..MAX_USER_ID);
@@ -184,8 +183,9 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
 
 /// # Panics
 /// If any of the IPA protocol modules panic
+#[cfg(feature = "in-memory-infra")]
 pub async fn test_ipa<F>(
-    world: &TestWorld,
+    world: &super::TestWorld,
     records: &[TestRawDataRecord],
     expected_results: &[u32],
     config: IpaQueryConfig,
@@ -195,8 +195,10 @@ pub async fn test_ipa<F>(
     malicious::AdditiveShare<F>: Serializable,
     // todo: for semi-honest we don't need extendable fields.
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
-    Standard: Distribution<F>,
+    rand::distributions::Standard: rand::distributions::Distribution<F>,
 {
+    use super::Runner;
+
     let records = records
         .iter()
         .map(|x| {
