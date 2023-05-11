@@ -55,7 +55,7 @@ struct Args {
         default_value = "86400",
         help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
     )]
-    attribution_window: Option<u32>,
+    attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
     #[arg(long, default_value = "3")]
@@ -82,13 +82,7 @@ impl Args {
     }
 
     fn attribution_window(&self) -> Option<NonZeroU32> {
-        self.attribution_window.and_then(|v| {
-            if v == 0 {
-                None
-            } else {
-                Some(NonZeroU32::try_from(v).unwrap())
-            }
-        })
+        NonZeroU32::new(self.attribution_window)
     }
 
     fn config(&self) -> IpaQueryConfig {
