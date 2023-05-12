@@ -23,16 +23,16 @@ use std::{
 ///
 /// # Errors
 /// Fails if sub-protocols fails.
-pub async fn apply_attribution_window<F, C, T>(
+pub async fn apply_attribution_window<C, S, F>(
     ctx: C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
-    stop_bits: &[T],
+    input: &[MCApplyAttributionWindowInputRow<F, S>],
+    stop_bits: &[S],
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, T>>, Error>
+) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
 where
+    C: Context + RandomBits<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -66,7 +66,7 @@ where
                 MCApplyAttributionWindowOutputRow::new(
                     x.is_trigger_report.clone(),
                     x.helper_bit.clone(),
-                    T::ZERO,
+                    S::ZERO,
                     x.breakdown_key.clone(),
                     x.trigger_value.clone(),
                 )

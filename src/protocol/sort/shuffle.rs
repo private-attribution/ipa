@@ -316,7 +316,7 @@ mod tests {
             let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
 
             let result = world
-                .malicious(
+                .upgraded_malicious(
                     input_u128.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms =
@@ -354,7 +354,7 @@ mod tests {
             let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
             let result = world
-                .malicious(
+                .upgraded_malicious(
                     input.clone().into_iter().map(Fp31::truncate_from),
                     |ctx, m_shares| async move {
                         let perms = get_two_of_three_random_permutations(

@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
     secret_sharing::replicated::{
@@ -28,26 +28,26 @@ pub trait SumOfProducts<C: Context>: Sized {
 }
 
 #[async_trait]
-impl<'a, F: Field> SumOfProducts<SemiHonestContext<'a>> for Replicated<F> {
+impl<C: Context, F: Field> SumOfProducts<C> for Replicated<F> {
     async fn sum_of_products<'fut>(
-        ctx: SemiHonestContext<'a>,
+        ctx: C,
         record_id: RecordId,
         a: &[Self],
         b: &[Self],
     ) -> Result<Self, Error>
     where
-        'a: 'fut,
+        C: 'fut,
     {
         semi_honest::sum_of_products(ctx, record_id, a, b).await
     }
 }
 
 #[async_trait]
-impl<'a, F: Field + ExtendableField> SumOfProducts<MaliciousContext<'a, F>>
+impl<'a, F: ExtendableField> SumOfProducts<UpgradedMaliciousContext<'a, F>>
     for MaliciousReplicated<F>
 {
     async fn sum_of_products<'fut>(
-        ctx: MaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         a: &[Self],
         b: &[Self],

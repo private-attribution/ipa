@@ -1,9 +1,8 @@
 use crate::{
     error::Error,
-    ff::Field,
     helpers::Direction,
     protocol::{
-        context::{Context, MaliciousContext},
+        context::{Context, UpgradedMaliciousContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -65,16 +64,16 @@ impl AsRef<str> for Step {
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
 pub async fn sum_of_products<F>(
-    ctx: MaliciousContext<'_, F>,
+    ctx: UpgradedMaliciousContext<'_, F>,
     record_id: RecordId,
     a: &[MaliciousReplicated<F>],
     b: &[MaliciousReplicated<F>],
 ) -> Result<MaliciousReplicated<F>, Error>
 where
-    F: Field + ExtendableField,
+    F: ExtendableField,
 {
     use crate::{
-        protocol::context::SpecialAccessToMaliciousContext,
+        protocol::context::SpecialAccessToUpgradedContext,
         secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
 
@@ -184,7 +183,7 @@ mod test {
         }
 
         let res = world
-            .malicious((av, bv), |ctx, (a, b)| async move {
+            .upgraded_malicious((av, bv), |ctx, (a, b)| async move {
                 sum_of_products(
                     ctx.set_total_records(1),
                     RecordId::from(0),

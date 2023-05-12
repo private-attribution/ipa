@@ -15,7 +15,10 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
-use futures::{stream::once, StreamExt, TryStreamExt};
+use futures::{
+    stream::{iter, once},
+    StreamExt, TryStreamExt,
+};
 use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
@@ -23,15 +26,15 @@ use std::iter::{repeat, zip};
 /// ## Errors
 /// Fails if the multiplication protocol fails, or if the `cap` is larger than
 /// 1/2 of the prime number.
-pub async fn credit_capping<F, C, T>(
+pub async fn credit_capping<F, C, S>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, S>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+) -> Result<Vec<MCCreditCappingOutputRow<F, S>>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context + RandomBits<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -445,7 +448,7 @@ where
 
     let last = original_credits.last().ok_or(Error::Internal).cloned();
 
-    seq_join(ctx.active_work(), capped)
+    seq_join(ctx.active_work(), iter(capped))
         .chain(once(async { last }))
         .try_collect()
         .await

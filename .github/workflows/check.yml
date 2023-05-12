@@ -92,7 +92,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --features enable-benches
+        run: cargo build --benches --no-default-features --features enable-benches
 
       - name: Build concurrency tests
         run: cargo build --release --features shuttle
@@ -104,4 +104,4 @@ jobs:
         run: cargo test --release --features shuttle
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches"
+        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches

@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{FieldType, Fp31, Fp32BitPrime, GaloisField, PrimeField, Serializable},
+    ff::{FieldType, Fp32BitPrime, GaloisField, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, ByteArrStream},
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -25,8 +25,9 @@ impl Runner {
         input: ByteArrStream,
     ) -> Box<dyn ProtocolResult> {
         match field {
+            #[cfg(any(test, feature = "weak-field"))]
             FieldType::Fp31 => Box::new(
-                self.run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+                self.run_internal::<crate::ff::Fp31, MatchKey, BreakdownKey>(ctx, input)
                     .await
                     .expect("IPA query failed"),
             ),
@@ -66,7 +67,12 @@ impl Runner {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(
+    test,
+    not(feature = "shuttle"),
+    feature = "in-memory-infra",
+    feature = "weak-field"
+))]
 mod tests {
     use super::*;
     use crate::{

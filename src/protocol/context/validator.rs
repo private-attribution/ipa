@@ -4,7 +4,10 @@ use crate::{
     helpers::Direction,
     protocol::{
         basics::{check_zero, Reveal},
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{
+            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+        },
         prss::SharedRandomness,
         RecordId,
     },
@@ -15,11 +18,51 @@ use crate::{
     },
     sync::{Arc, Mutex, Weak},
 };
+use async_trait::async_trait;
 use futures::future::try_join;
 use std::{
     any::type_name,
     fmt::{Debug, Formatter},
+    marker::PhantomData,
 };
+
+#[async_trait]
+pub trait Validator<B: UpgradableContext, F: ExtendableField> {
+    fn context(&self) -> B::UpgradedContext<F>;
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
+}
+
+pub struct SemiHonest<'a, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, F>,
+    _f: PhantomData<F>,
+}
+
+impl<'a, F: ExtendableField> SemiHonest<'a, F> {
+    pub(super) fn new(inner: Base<'a>) -> Self {
+        Self {
+            context: UpgradedSemiHonestContext::new(inner),
+            _f: PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
+    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+        self.context.clone()
+    }
+
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        Ok(values.downgrade().await.access_without_downgrade())
+    }
+}
+
+impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+    }
+}
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
@@ -115,11 +158,11 @@ impl<T: Field> AccumulatorState<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct MaliciousValidatorAccumulator<F: Field + ExtendableField> {
+pub struct MaliciousAccumulator<F: ExtendableField> {
     inner: Weak<Mutex<AccumulatorState<F::ExtendedField>>>,
 }
 
-impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
+impl<F: ExtendableField> MaliciousAccumulator<F> {
     fn compute_dot_product_contribution(
         a: &Replicated<F::ExtendedField>,
         b: &Replicated<F::ExtendedField>,
@@ -170,44 +213,17 @@ impl<F: Field + ExtendableField> MaliciousValidatorAccumulator<F> {
     }
 }
 
-pub struct MaliciousValidator<'a, F: Field + ExtendableField> {
+pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
-    protocol_ctx: MaliciousContext<'a, F>,
-    validate_ctx: SemiHonestContext<'a>,
+    protocol_ctx: UpgradedMaliciousContext<'a, F>,
+    validate_ctx: Base<'a>,
 }
 
-impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
-    #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
-        // Use the current step in the context for initialization.
-        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RecordId::FIRST);
-        let prss = ctx.prss();
-        let u: F::ExtendedField = prss.zero(RecordId::FIRST + 1);
-        let w: F::ExtendedField = prss.zero(RecordId::FIRST + 2);
-        let state = AccumulatorState::new(u, w);
-
-        let u_and_w = Arc::new(Mutex::new(state));
-        let accumulator = MaliciousValidatorAccumulator::<F> {
-            inner: Arc::downgrade(&u_and_w),
-        };
-        let validate_ctx = ctx.narrow(&Step::Validate);
-        let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
-        MaliciousValidator {
-            r_share,
-            u_and_w,
-            protocol_ctx,
-            validate_ctx,
-        }
-    }
-
-    pub fn r_share(&self) -> &Replicated<F::ExtendedField> {
-        &self.r_share
-    }
-
+#[async_trait]
+impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
-    pub fn context<'b>(&'b self) -> MaliciousContext<'a, F> {
+    fn context<'b>(&'b self) -> UpgradedMaliciousContext<'a, F> {
         self.protocol_ctx.clone()
     }
 
@@ -219,7 +235,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+    async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
@@ -244,6 +260,36 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
+    }
+}
+
+impl<'a, F: ExtendableField> Malicious<'a, F> {
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new(ctx: MaliciousContext<'a>) -> Self {
+        // Use the current step in the context for initialization.
+        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RecordId::FIRST);
+        let prss = ctx.prss();
+        let u: F::ExtendedField = prss.zero(RecordId::FIRST + 1);
+        let w: F::ExtendedField = prss.zero(RecordId::FIRST + 2);
+        let state = AccumulatorState::new(u, w);
+
+        let u_and_w = Arc::new(Mutex::new(state));
+        let accumulator = MaliciousAccumulator::<F> {
+            inner: Arc::downgrade(&u_and_w),
+        };
+        let validate_ctx = ctx.narrow(&Step::Validate).base_context();
+        let protocol_ctx = ctx.upgrade(&Step::MaliciousProtocol, accumulator, r_share.clone());
+        Self {
+            r_share,
+            u_and_w,
+            protocol_ctx,
+            validate_ctx,
+        }
+    }
+
+    pub fn r_share(&self) -> &Replicated<F::ExtendedField> {
+        &self.r_share
     }
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
@@ -276,7 +322,7 @@ impl<'a, F: Field + ExtendableField> MaliciousValidator<'a, F> {
     }
 }
 
-impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
+impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }
@@ -284,13 +330,15 @@ impl<F: Field + ExtendableField> Debug for MaliciousValidator<'_, F> {
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
-    use std::iter::{repeat, zip};
-
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
-        protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
+        protocol::{
+            basics::SecureMul,
+            context::{validator::Validator, Context, UpgradableContext, UpgradedContext},
+            RecordId,
+        },
         rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::{
@@ -302,6 +350,7 @@ mod tests {
         seq_join::SeqJoin,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
+    use std::iter::{repeat, zip};
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -320,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
         let world = TestWorld::default();
-        let context = world.contexts();
+        let context = world.malicious_contexts();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -331,11 +380,11 @@ mod tests {
 
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
-                let v = MaliciousValidator::new(ctx);
+                let v = ctx.validator();
                 let m_ctx = v.context();
 
                 let (a_malicious, b_malicious) =
-                    v.context().upgrade((a_share, b_share)).await.unwrap();
+                    m_ctx.clone().upgrade((a_share, b_share)).await.unwrap();
 
                 let m_result = a_malicious
                     .multiply(&b_malicious, m_ctx.set_total_records(1), RecordId::from(0))
@@ -373,8 +422,8 @@ mod tests {
         let a = rng.gen::<Fp32BitPrime>();
 
         let result = world
-            .semi_honest(a, |ctx, a| async move {
-                let v = MaliciousValidator::new(ctx);
+            .malicious(a, |ctx, a| async move {
+                let v = ctx.validator();
                 let m = v.context().upgrade(a).await.unwrap();
                 v.validate(m).await.unwrap()
             })
@@ -391,14 +440,14 @@ mod tests {
 
         for malicious_actor in Role::all() {
             world
-                .semi_honest(a, |ctx, a| async move {
+                .malicious(a, |ctx, a| async move {
                     let a = if ctx.role() == *malicious_actor {
                         // This role is spoiling the value.
                         Replicated::new(a.left(), a.right() + Fp32BitPrime::ONE)
                     } else {
                         a
                     };
-                    let v = MaliciousValidator::new(ctx);
+                    let v = ctx.validator();
                     let m = v.context().upgrade(a).await.unwrap();
                     match v.validate(m).await {
                         Ok(result) => panic!("Got a result {result:?}"),
@@ -433,7 +482,7 @@ mod tests {
     async fn complex_circuit() -> Result<(), Error> {
         const COUNT: usize = 100;
         let world = TestWorld::default();
-        let context = world.contexts();
+        let context = world.malicious_contexts();
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(COUNT);
@@ -453,7 +502,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = MaliciousValidator::new(ctx);
+                let v = ctx.validator();
                 let m_ctx = v.context();
 
                 let m_input = m_ctx.upgrade(input_shares).await.unwrap();

@@ -4,10 +4,7 @@ use crate::{
     ff::Fp32BitPrime,
     helpers::query::IpaQueryConfig,
     ipa_test_input,
-    protocol::{
-        ipa::{ipa, ipa_malicious},
-        BreakdownKey, MatchKey,
-    },
+    protocol::{ipa::ipa, BreakdownKey, MatchKey},
     rand::{thread_rng, Rng},
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
 };
@@ -21,48 +18,48 @@ const MAX_TRIGGER_VALUE: u32 = 5;
 const NUM_MULTI_BITS: u32 = 3;
 const MAX_MATCH_KEY: u128 = 3;
 
+/// The type of both the generated inputs and the reconstructed output of `ipa()`.
+type InputOutput = Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>;
+
+fn inputs() -> InputOutput {
+    let mut rng = thread_rng();
+    (0..BATCHSIZE)
+        .map(|_| {
+            ipa_test_input!(
+                {
+                    timestamp: 0,
+                    match_key: rng.gen_range(0..MAX_MATCH_KEY),
+                    is_trigger_report: rng.gen::<u32>(),
+                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+                };
+                (Fp32BitPrime, MatchKey, BreakdownKey)
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
+fn config() -> IpaQueryConfig {
+    IpaQueryConfig::new(
+        PER_USER_CAP,
+        MAX_BREAKDOWN_KEY,
+        ATTRIBUTION_WINDOW_SECONDS.unwrap().get(),
+        NUM_MULTI_BITS,
+    )
+}
+
 #[test]
-fn semi_honest_ipa() {
+fn semi_honest() {
     shuttle::check_random(
-        || {
+        move || {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
-                let mut rng = thread_rng();
-
-                let records = (0..BATCHSIZE)
-                    .map(|_| {
-                        ipa_test_input!(
-                            {
-                                timestamp: 0,
-                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                is_trigger_report: rng.gen::<u32>(),
-                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
-                            };
-                            (Fp32BitPrime, MatchKey, BreakdownKey)
-                        )
+                let result: InputOutput = world
+                    .semi_honest(inputs(), |ctx, input_rows| async move {
+                        ipa(ctx, &input_rows, config()).await.unwrap()
                     })
-                    .collect::<Vec<_>>();
-
-                let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
-                    world
-                        .semi_honest(records, |ctx, input_rows| async move {
-                            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                                ctx,
-                                &input_rows,
-                                IpaQueryConfig {
-                                    per_user_credit_cap: PER_USER_CAP,
-                                    max_breakdown_key: MAX_BREAKDOWN_KEY,
-                                    attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
-                                    num_multi_bits: NUM_MULTI_BITS,
-                                },
-                            )
-                            .await
-                            .unwrap()
-                        })
-                        .await
-                        .reconstruct();
-
+                    .await
+                    .reconstruct();
                 assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },
@@ -71,47 +68,17 @@ fn semi_honest_ipa() {
 }
 
 #[test]
-fn malicious_ipa() {
+fn malicious() {
     shuttle::check_random(
-        || {
+        move || {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
-                let mut rng = thread_rng();
-
-                let records = (0..BATCHSIZE)
-                    .map(|_| {
-                        ipa_test_input!(
-                            {
-                                timestamp: 0,
-                                match_key: rng.gen_range(0..MAX_MATCH_KEY),
-                                is_trigger_report: rng.gen::<u32>(),
-                                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
-                            };
-                            (Fp32BitPrime, MatchKey, BreakdownKey)
-                        )
+                let result: InputOutput = world
+                    .malicious(inputs(), |ctx, input_rows| async move {
+                        ipa(ctx, &input_rows, config()).await.unwrap()
                     })
-                    .collect::<Vec<_>>();
-
-                let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
-                    world
-                        .semi_honest(records, |ctx, input_rows| async move {
-                            ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                                ctx,
-                                &input_rows,
-                                IpaQueryConfig {
-                                    per_user_credit_cap: PER_USER_CAP,
-                                    max_breakdown_key: MAX_BREAKDOWN_KEY,
-                                    attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
-                                    num_multi_bits: NUM_MULTI_BITS,
-                                },
-                            )
-                            .await
-                            .unwrap()
-                        })
-                        .await
-                        .reconstruct();
-
+                    .await
+                    .reconstruct();
                 assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },

@@ -19,7 +19,12 @@ web-app = [
     "hyper", "hyper-tls", "rcgen", "time", "toml", "tower", "tower-http",
 ]
 self-signed-certs = ["hyper-tls"]
-test-fixture = ["enable-serde"]
+# The test-http and test-fixture features are mutually incompatible, and the
+# code doesn't support building tests without test-fixture. So if you want to
+# run the tests enabled by test-http, you unfortunately need to do something
+# like `s/cfg(any(test,/cfg(any(never, test/`.
+test-http = []
+test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 # TODO: we may want to use in-memory-bench and real-world-bench some time after
@@ -29,6 +34,8 @@ enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
 in-memory-infra = []
 real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
+# Enable this feature to enable our colossally weak Fp31.
+weak-field = []
 
 [dependencies]
 aes = "0.8"
@@ -124,7 +131,7 @@ bench = false
 
 [[bin]]
 name = "test_mpc"
-required-features = ["cli", "web-app", "test-fixture"]
+required-features = ["cli", "test-fixture", "web-app", "weak-field"]
 bench = false
 
 [[bench]]

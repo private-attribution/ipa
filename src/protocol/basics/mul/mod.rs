@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, UpgradedMaliciousContext},
         RecordId,
     },
     secret_sharing::replicated::{
@@ -51,16 +51,16 @@ use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: Field> SecureMul<SemiHonestContext<'a>> for Replicated<F> {
+impl<C: Context, F: Field> SecureMul<C> for Replicated<F> {
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: SemiHonestContext<'a>,
+        ctx: C,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        SemiHonestContext<'a>: 'fut,
+        C: 'fut,
     {
         semi_honest_mul(ctx, record_id, self, rhs, zeros_at).await
     }
@@ -68,16 +68,16 @@ impl<'a, F: Field> SecureMul<SemiHonestContext<'a>> for Replicated<F> {
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: Field + ExtendableField> SecureMul<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
+impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        MaliciousContext<'a, F>: 'fut,
+        UpgradedMaliciousContext<'a, F>: 'fut,
     {
         malicious_mul(ctx, record_id, self, rhs, zeros_at).await
     }

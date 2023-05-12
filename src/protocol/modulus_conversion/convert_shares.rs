@@ -211,8 +211,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{Direction, Role},
         protocol::{
-            context::Context,
-            malicious::MaliciousValidator,
+            context::{Context, UpgradableContext, UpgradedContext, Validator},
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             MatchKey, RecordId,
         },
@@ -249,10 +248,10 @@ mod tests {
         let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
-            .semi_honest(match_key, |ctx, mk_share| async move {
+            .malicious(match_key, |ctx, mk_share| async move {
                 let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
-                let v = MaliciousValidator::new(ctx);
+                let v = ctx.validator();
                 let m_ctx = v.context().set_total_records(1);
                 let m_triple = m_ctx.upgrade(triple).await.unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
@@ -307,12 +306,12 @@ mod tests {
         for tweak in TWEAKS {
             let match_key = rng.gen::<MatchKey>();
             world
-                .semi_honest(match_key, |ctx, mk_share| async move {
+                .malicious(match_key, |ctx, mk_share| async move {
                     let triple =
                         convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
-                    let v = MaliciousValidator::new(ctx);
+                    let v = ctx.validator();
                     let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
