@@ -15,10 +15,7 @@ use ipa::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{
         config::TestConfigBuilder,
-        ipa::{
-            ipa_in_the_clear,
-            TestRawDataRecord,
-        },
+        ipa::{ipa_in_the_clear, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
     },
 };
@@ -26,13 +23,14 @@ use rand::thread_rng;
 use std::{
     error::Error,
     fmt::Debug,
-    fs, io,
+    fs,
+    fs::OpenOptions,
+    io,
+    io::{stdout, Write},
     ops::Add,
     path::PathBuf,
     time::Duration,
 };
-use std::fs::{File, OpenOptions};
-use std::io::{stdout, Write};
 use tokio::time::sleep;
 
 #[derive(Debug, Parser)]
@@ -91,7 +89,7 @@ enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
     /// Execute IPA in semi-honest majority setting
-    SemiHonestIpa,
+    SemiHonestIpa(IpaQueryConfig),
     /// Generate inputs for IPA
     GenIpaInputs {
         /// Number of records to generate
@@ -160,7 +158,7 @@ where
         i += 1;
     }
 
-    tracing::info!("{table}");
+    tracing::info!("\n{table}\n");
 
     assert!(
         mismatch.is_empty(),
@@ -202,14 +200,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match args.action {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
-        TestAction::SemiHonestIpa => semi_honest_ipa(&args, &make_clients().await).await,
-        TestAction::GenIpaInputs { count, output_file, gen_args } => gen_inputs(count, output_file, gen_args).unwrap(),
+        TestAction::SemiHonestIpa(config) => {
+            semi_honest_ipa(&args, &config, &make_clients().await).await
+        }
+        TestAction::GenIpaInputs {
+            count,
+            output_file,
+            gen_args,
+        } => gen_inputs(count, output_file, gen_args).unwrap(),
     };
 
     Ok(())
 }
 
-fn gen_inputs(count: u32, output_file: Option<PathBuf>, args: EventGeneratorConfig) -> io::Result<()> {
+fn gen_inputs(
+    count: u32,
+    output_file: Option<PathBuf>,
+    args: EventGeneratorConfig,
+) -> io::Result<()> {
     let event_gen = EventGenerator::with_config(thread_rng(), args).take(count as usize);
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
@@ -225,14 +233,12 @@ fn gen_inputs(count: u32, output_file: Option<PathBuf>, args: EventGeneratorConf
     Ok(())
 }
 
-async fn semi_honest_ipa(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn semi_honest_ipa(
+    args: &Args,
+    ipa_query_config: &IpaQueryConfig,
+    helper_clients: &[MpcHelperClient; 3],
+) {
     let input = InputSource::from(&args.input);
-    let ipa_query_config = IpaQueryConfig {
-        per_user_credit_cap: 3,
-        max_breakdown_key: 3,
-        num_multi_bits: 3,
-        attribution_window_seconds: None,
-    };
     let query_type = QueryType::Ipa(ipa_query_config.clone());
     let query_config = QueryConfig {
         field_type: args.input.field,
