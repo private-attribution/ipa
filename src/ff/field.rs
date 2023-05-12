@@ -29,6 +29,7 @@ pub trait Field: SharedValue + TryFrom<u128, Error = error::Error> + Into<Self::
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum FieldType {
     #[cfg(any(test, feature = "weak-field"))]
     Fp31,

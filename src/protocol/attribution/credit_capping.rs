@@ -15,7 +15,10 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
-use futures::{stream::once, StreamExt, TryStreamExt};
+use futures::{
+    stream::{iter, once},
+    StreamExt, TryStreamExt,
+};
 use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
@@ -445,7 +448,7 @@ where
 
     let last = original_credits.last().ok_or(Error::Internal).cloned();
 
-    seq_join(ctx.active_work(), capped)
+    seq_join(ctx.active_work(), iter(capped))
         .chain(once(async { last }))
         .try_collect()
         .await

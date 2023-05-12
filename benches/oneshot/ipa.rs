@@ -5,14 +5,17 @@ use ipa::{
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
         ipa::{
-            generate_random_user_records_in_reverse_chronological_order, test_ipa,
-            update_expected_output_for_user, IpaSecurityModel,
+            generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
+            test_ipa, IpaSecurityModel,
         },
         TestWorld, TestWorldConfig,
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{num::NonZeroUsize, time::Instant};
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    time::Instant,
+};
 use tokio::runtime::Builder;
 
 #[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
@@ -46,7 +49,12 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "86400")]
+    #[arg(
+        short = 'w',
+        long,
+        default_value = "86400",
+        help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
+    )]
     attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
@@ -73,13 +81,17 @@ impl Args {
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
     }
 
+    fn attribution_window(&self) -> Option<NonZeroU32> {
+        NonZeroU32::new(self.attribution_window)
+    }
+
     fn config(&self) -> IpaQueryConfig {
-        IpaQueryConfig::new(
-            self.per_user_cap,
-            self.breakdown_keys,
-            self.attribution_window,
-            self.num_multi_bits,
-        )
+        IpaQueryConfig {
+            per_user_credit_cap: self.per_user_cap,
+            max_breakdown_key: self.breakdown_keys,
+            attribution_window_seconds: self.attribution_window(),
+            num_multi_bits: self.num_multi_bits,
+        }
     }
 }
 
@@ -99,7 +111,6 @@ async fn run(args: Args) -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
         let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
@@ -109,18 +120,14 @@ async fn run(args: Args) -> Result<(), Error> {
             args.max_trigger_value,
         );
         records_for_user.truncate(args.query_size - raw_data.len());
-        update_expected_output_for_user(
-            &records_for_user,
-            &mut expected_results,
-            args.per_user_cap,
-            args.attribution_window,
-        );
         raw_data.append(&mut records_for_user);
     }
 
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let expected_results =
+        ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
     println!("Preparation complete in {:?}", prep_time.elapsed());

@@ -273,7 +273,7 @@ mod tests {
     };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
-    use std::{future::Future, sync::Arc};
+    use std::{array, future::Future, sync::Arc};
     use tokio::sync::Barrier;
 
     fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
@@ -340,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let cb = [0, 1, 2].map(|_| TransportCallbacks {
+        let cb = array::from_fn(|_| TransportCallbacks {
             prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
             ..Default::default()
         });
@@ -496,7 +496,7 @@ mod tests {
                         query_type: QueryType::Ipa(IpaQueryConfig {
                             per_user_credit_cap: 3,
                             max_breakdown_key: 3,
-                            attribution_window_seconds: 0,
+                            attribution_window_seconds: None,
                             num_multi_bits: 3,
                         }),
                     },

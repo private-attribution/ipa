@@ -1,4 +1,5 @@
 use crate::{
+    config::{NetworkConfig, ServerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
@@ -28,11 +29,13 @@ impl HttpTransport {
     #[must_use]
     pub fn new(
         identity: HelperIdentity,
+        server_config: ServerConfig,
+        network_config: NetworkConfig,
         clients: [MpcHelperClient; 3],
         callbacks: TransportCallbacks<Arc<HttpTransport>>,
     ) -> (Arc<Self>, MpcHelperServer) {
         let transport = Self::new_internal(identity, clients, callbacks);
-        let server = MpcHelperServer::new(Arc::clone(&transport));
+        let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
         (transport, server)
     }
 
@@ -151,7 +154,7 @@ impl Transport for Arc<HttpTransport> {
 mod e2e_tests {
     use super::*;
     use crate::{
-        config::{NetworkConfig, PeerConfig, ServerConfig},
+        config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
         helpers::{query::QueryType, ByteArrStream},
         net::test::{body_stream, TestClients, TestServer},
@@ -219,17 +222,22 @@ mod e2e_tests {
         server_config: [ServerConfig; 3],
         network_config: &NetworkConfig,
     ) -> [HelperApp; 3] {
-        use crate::net::BindTarget;
-
         join_all(zip(ids, zip(sockets, server_config)).map(
-            |(id, (socket, _server_conf))| async move {
+            |(id, (socket, server_config))| async move {
                 let (setup, callbacks) = AppSetup::new();
                 let client_config = network_config.clone();
                 let clients = TestClients::builder()
                     .with_network_config(client_config)
-                    .build();
-                let (transport, server) = HttpTransport::new(id, clients.0, callbacks);
-                server.bind(BindTarget::HttpListener(socket), ()).await;
+                    .build()
+                    .into();
+                let (transport, server) = HttpTransport::new(
+                    id,
+                    server_config,
+                    network_config.clone(),
+                    clients,
+                    callbacks,
+                );
+                server.start_on(Some(socket), ()).await;
                 let app = setup.connect(transport);
                 app
             },
@@ -240,21 +248,12 @@ mod e2e_tests {
         .unwrap()
     }
 
-    fn make_clients(confs: &[PeerConfig; 3]) -> [MpcHelperClient; 3] {
-        confs
-            .iter()
-            .map(|conf| MpcHelperClient::new(conf.origin.clone()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
-    }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
         let mut conf = TestConfigBuilder::with_open_ports().build();
         let ids = HelperIdentity::make_three();
-        let clients = make_clients(conf.network.peers());
+        let clients = MpcHelperClient::from_conf(&conf.network);
         let _helpers = make_helpers(
             ids,
             conf.sockets.take().unwrap(),

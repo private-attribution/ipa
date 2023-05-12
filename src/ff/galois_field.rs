@@ -4,7 +4,10 @@ use crate::{
 };
 use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
-use std::ops::Index;
+use std::{
+    fmt::{Debug, Formatter},
+    ops::Index,
+};
 use typenum::{Unsigned, U1, U4, U5};
 
 /// Trait for data types storing arbitrary number of bits.
@@ -42,6 +45,79 @@ fn assert_copy<C: Copy>(c: C) -> C {
     c
 }
 
+#[cfg(all(target_arch = "x86_64", target_feature = "pclmulqdq"))]
+mod clmul_x86_64 {
+    use core::arch::x86_64::{__m128i, _mm_clmulepi64_si128, _mm_extract_epi64, _mm_set_epi64x};
+
+    #[inline]
+    unsafe fn clmul(a: u64, b: u64) -> __m128i {
+        #[allow(clippy::cast_possible_wrap)] // Thanks Intel.
+        unsafe fn to_m128i(v: u64) -> __m128i {
+            _mm_set_epi64x(0, v as i64)
+        }
+        _mm_clmulepi64_si128(to_m128i(a), to_m128i(b), 0)
+    }
+
+    #[allow(clippy::cast_sign_loss)] // Thanks Intel.
+    #[inline]
+    unsafe fn extract<const I: i32>(v: __m128i) -> u128 {
+        // Note: watch for sign extension that you get from casting i64 to u128 directly.
+        u128::from(_mm_extract_epi64(v, I) as u64)
+    }
+
+    /// clmul with 32-bit inputs (and a 64-bit answer).
+    #[inline]
+    pub unsafe fn clmul32(a: u64, b: u64) -> u128 {
+        extract::<0>(clmul(a, b))
+    }
+
+    /// clmul with 64-bit inputs (and a 128-bit answer).
+    #[inline]
+    pub unsafe fn clmul64(a: u64, b: u64) -> u128 {
+        let product = clmul(a, b);
+        extract::<1>(product) << 64 | extract::<0>(product)
+    }
+}
+
+#[allow(unreachable_code)]
+#[inline]
+fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
+    #[allow(clippy::cast_possible_truncation)] // Asserts will catch this later.
+    fn to_u64<GF: GaloisField>(x: GF) -> u64 {
+        x.as_u128() as u64
+    }
+    let (a, b) = (to_u64(a), to_u64(b));
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "pclmulqdq"))]
+    return if GF::BITS <= 32 {
+        unsafe { clmul_x86_64::clmul32(a, b) }
+    } else if GF::BITS <= 64 {
+        unsafe { clmul_x86_64::clmul64(a, b) }
+    } else {
+        unreachable!("Galois fields with more than 64 bits not supported");
+    };
+
+    debug_assert!(
+        2 * GF::BITS <= u128::BITS,
+        "Galois fields with more than 64 bits not supported"
+    );
+
+    #[cfg(all(
+        target_arch = "aarch64",
+        target_feature = "neon",
+        target_feature = "aes"
+    ))]
+    return unsafe { core::arch::aarch64::vmull_p64(a, b) };
+
+    let a = u128::from(a);
+    let mut product = 0;
+    for i in 0..GF::BITS {
+        let bit = u128::from(b >> i & 1);
+        product ^= bit * (a << i);
+    }
+    product
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
@@ -54,7 +130,7 @@ macro_rules! bit_array_impl {
             ///
             /// Bits are stored in the Little-Endian format. Accessing the first element
             /// like `b[0]` will return the LSB.
-            #[derive(std::fmt::Debug, Clone, Copy, PartialEq, Eq)]
+            #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name($store);
 
             impl SharedValue for $name {
@@ -204,14 +280,7 @@ macro_rules! bit_array_impl {
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    debug_assert!(2 * Self::BITS < u128::BITS);
-                    let a = <Self as GaloisField>::as_u128(self);
-                    let mut product = 0;
-                    for i in 0..Self::BITS {
-                        let bit = u128::from(rhs[i]);
-                        product ^= bit * (a << i);
-                    }
-
+                    let mut product = clmul(self, rhs);
                     let poly = <Self as GaloisField>::POLYNOMIAL;
                     while (u128::BITS - product.leading_zeros()) > Self::BITS {
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
@@ -326,6 +395,12 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl Debug for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                    write!(f, concat!(stringify!($name), "_{v:0", $bits, "b}"), v = self.as_u128())
+                }
+            }
+
             #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
             mod tests {
                 use super::*;
@@ -387,7 +462,7 @@ macro_rules! bit_array_impl {
                     let r = $name::truncate_from(rng.gen::<u128>());
                     let a_plus_b = a + b;
                     let r_a_plus_b = r * a_plus_b;
-                    assert_eq!(r_a_plus_b, r * a + r * b);
+                    assert_eq!(r_a_plus_b, r * a + r * b, "distributive {r:?}*({a:?}+{b:?})");
                 }
 
                 #[test]
@@ -399,7 +474,7 @@ macro_rules! bit_array_impl {
                     // This stupid hack is here to FORCE the compiler to not just optimize this away and really run the test
                     let b_copy = $name::truncate_from(b.as_u128());
                     let ba = b_copy * a;
-                    assert_eq!(ab, ba);
+                    assert_eq!(ab, ba, "commutative {a:?}*{b:?}");
                 }
 
                 #[test]
@@ -410,7 +485,7 @@ macro_rules! bit_array_impl {
                     let c = $name::truncate_from(rng.gen::<u128>());
                     let bc = b * c;
                     let ab = a * b;
-                    assert_eq!(a * bc, ab * c);
+                    assert_eq!(a * bc, ab * c, "associative {a:?}*{b:?}*{c:?}");
                 }
 
                 #[test]

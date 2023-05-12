@@ -60,13 +60,13 @@ jobs:
         run: cargo test
 
       - name: Run Web Tests
-        run: cargo test --no-default-features --features "web-app real-world-infra"
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
 
   extra:
     name: Additional Builds and Concurrency Tests
     env:
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: -D warnings -C target-cpu=native
       RUSTDOCFLAGS: -D warnings
 
     runs-on: ubuntu-latest

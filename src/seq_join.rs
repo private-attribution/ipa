@@ -1,9 +1,11 @@
-use futures::{stream::TryCollect, Future, Stream, TryStreamExt};
+use futures::{
+    stream::{iter, Iter as StreamIter, TryCollect},
+    Future, Stream, StreamExt, TryStreamExt,
+};
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
     future::IntoFuture,
-    iter::Fuse,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -41,16 +43,13 @@ pub fn assert_send<'a, O>(
 /// [`try_join_all`]: futures::future::try_join_all
 /// [`Stream`]: futures::stream::Stream
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<I, F, O>(active: NonZeroUsize, iter: I) -> SequentialFutures<I::IntoIter, F>
+pub fn seq_join<S, F, O>(active: NonZeroUsize, source: S) -> SequentialFutures<S, F>
 where
-    I: IntoIterator<Item = F>,
-    I::IntoIter: Send,
+    S: Stream<Item = F> + Send,
     F: Future<Output = O>,
 {
-    // TODO: Take a Stream instance instead of an IntoIterator so that we can chain these,
-    // which might help reduce the amount of state we hold in between operations.
     SequentialFutures {
-        iter: iter.into_iter().fuse(),
+        source: source.fuse(),
         active: VecDeque::with_capacity(active.get()),
     }
 }
@@ -100,21 +99,21 @@ pub trait SeqJoin {
     fn active_work(&self) -> NonZeroUsize;
 }
 
-type SeqTryJoinAll<I, F> = SequentialFutures<<I as IntoIterator>::IntoIter, F>;
+type SeqTryJoinAll<I, F> = SequentialFutures<StreamIter<<I as IntoIterator>::IntoIter>, F>;
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
 pub fn seq_try_join_all<I, F, O, E>(
     active: NonZeroUsize,
-    iterable: I,
+    source: I,
 ) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
     I::IntoIter: Send,
     F: Future<Output = Result<O, E>>,
 {
-    seq_join(active, iterable).try_collect()
+    seq_join(active, iter(source)).try_collect()
 }
 
 enum ActiveItem<F: IntoFuture> {
@@ -153,28 +152,29 @@ impl<F: IntoFuture> ActiveItem<F> {
 }
 
 #[pin_project]
-pub struct SequentialFutures<I, F>
+pub struct SequentialFutures<S, F>
 where
-    I: Iterator<Item = F> + Send,
+    S: Stream<Item = F> + Send,
     F: IntoFuture,
 {
-    iter: Fuse<I>,
+    #[pin]
+    source: futures::stream::Fuse<S>,
     active: VecDeque<ActiveItem<F>>,
 }
 
-impl<I, F> Stream for SequentialFutures<I, F>
+impl<S, F> Stream for SequentialFutures<S, F>
 where
-    I: Iterator<Item = F> + Send,
+    S: Stream<Item = F> + Send,
     F: IntoFuture,
 {
     type Item = F::Output;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
+        let mut this = self.project();
 
         // Draw more values from the input, up to the capacity.
         while this.active.len() < this.active.capacity() {
-            if let Some(f) = this.iter.next() {
+            if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
                 this.active
                     .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
             } else {
@@ -192,15 +192,16 @@ where
                 }
                 Poll::Pending
             }
-        } else {
-            assert!(this.iter.next().is_none());
+        } else if this.source.is_done() {
             Poll::Ready(None)
+        } else {
+            Poll::Pending
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let in_progress = self.active.len();
-        let (lower, upper) = self.iter.size_hint();
+        let (lower, upper) = self.source.size_hint();
         (
             lower.saturating_add(in_progress),
             upper.and_then(|u| u.checked_add(in_progress)),
@@ -213,14 +214,21 @@ mod test {
     use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{
         future::{lazy, BoxFuture},
-        stream::poll_immediate,
+        stream::{iter, poll_fn, poll_immediate, repeat_with},
         Future, StreamExt,
     };
-    use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
+    use std::{
+        convert::Infallible,
+        iter::once,
+        num::NonZeroUsize,
+        ptr::null,
+        sync::{Arc, Mutex},
+        task::{Context, Poll, Waker},
+    };
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
-        let values = seq_join(capacity, (0..count).map(|i| async move { i }))
+        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
             .collect::<Vec<_>>()
             .await;
         assert_eq!((0..count).collect::<Vec<_>>(), values);
@@ -247,7 +255,7 @@ mod test {
         });
         let it = once(unresolved)
             .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        let mut seq_futures = seq_join(capacity, it);
+        let mut seq_futures = seq_join(capacity, iter(it));
 
         assert_eq!(
             Some(Poll::Pending),
@@ -259,21 +267,13 @@ mod test {
 
     #[tokio::test]
     async fn join_success() {
-        fn fut<T>(v: T) -> impl Future<Output = T>
-        where
-            T: Send,
-        {
-            lazy(move |_| v)
+        fn f<T: Send>(v: T) -> impl Future<Output = Result<T, Infallible>> {
+            lazy(move |_| Ok(v))
         }
 
         let active = NonZeroUsize::new(10).unwrap();
-        let res = seq_try_join_all(
-            active,
-            [fut::<Result<_, Infallible>>(Ok(1)), fut(Ok(2)), fut(Ok(3))],
-        )
-        .await
-        .unwrap();
-        assert_eq!(vec![1, 2, 3], res);
+        let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
+        assert_eq!((1..5).collect::<Vec<_>>(), res);
     }
 
     #[tokio::test]
@@ -288,9 +288,116 @@ mod test {
         }
 
         let active = NonZeroUsize::new(10).unwrap();
-        let err = seq_try_join_all(active, [f(1), f(2), f(3)])
-            .await
-            .unwrap_err();
+        let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
         assert_eq!(err, ERROR);
+    }
+
+    fn fake_waker() -> Waker {
+        use std::task::{RawWaker, RawWakerVTable};
+        const fn fake_raw_waker() -> RawWaker {
+            const TABLE: RawWakerVTable =
+                RawWakerVTable::new(|_| fake_raw_waker(), |_| {}, |_| {}, |_| {});
+            RawWaker::new(null(), &TABLE)
+        }
+        unsafe { Waker::from_raw(fake_raw_waker()) }
+    }
+
+    /// Check the value of a counter, then reset it.
+    fn assert_count(counter_r: &Arc<Mutex<usize>>, expected: usize) {
+        let mut counter = counter_r.lock().unwrap();
+        assert_eq!(*counter, expected);
+        *counter = 0;
+    }
+
+    /// A fully synchronous test.
+    #[test]
+    fn synchronous() {
+        let capacity = NonZeroUsize::new(3).unwrap();
+        let v_r: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let v_w = Arc::clone(&v_r);
+        // Track when the stream was polled,
+        let polled_w: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+        let polled_r = Arc::clone(&polled_w);
+        // when the stream produced something, and
+        let produced_w: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+        let produced_r = Arc::clone(&produced_w);
+        // when the future was read.
+        let read_w: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+        let read_r = Arc::clone(&read_w);
+
+        let stream = poll_fn(|_cx| {
+            *polled_w.lock().unwrap() += 1;
+            if let Some(v) = v_r.lock().unwrap().take() {
+                *produced_w.lock().unwrap() += 1;
+                let read_w = Arc::clone(&read_w);
+                Poll::Ready(Some(lazy(move |_| {
+                    *read_w.lock().unwrap() += 1;
+                    v
+                })))
+            } else {
+                // Note: we can ignore `cx` because we are driving this directly.
+                Poll::Pending
+            }
+        });
+        let mut joined = seq_join(capacity, stream);
+        let waker = fake_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        let res = joined.poll_next_unpin(&mut cx);
+        assert_count(&polled_r, 1);
+        assert_count(&produced_r, 0);
+        assert_count(&read_r, 0);
+        assert!(res.is_pending());
+
+        *v_w.lock().unwrap() = Some(7);
+        let res = joined.poll_next_unpin(&mut cx);
+        assert_count(&polled_r, 2);
+        assert_count(&produced_r, 1);
+        assert_count(&read_r, 1);
+        assert!(matches!(res, Poll::Ready(Some(7))));
+    }
+
+    /// A fully synchronous test with a synthetic stream, all the way to the end.
+    #[test]
+    fn complete_stream() {
+        const VALUE: u32 = 20;
+        const COUNT: usize = 7;
+        let capacity = NonZeroUsize::new(3).unwrap();
+        // Track the number of values produced.
+        let produced_w: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+        let produced_r = Arc::clone(&produced_w);
+
+        let stream = repeat_with(|| {
+            *produced_w.lock().unwrap() += 1;
+            lazy(|_| VALUE)
+        })
+        .take(COUNT);
+        let mut joined = seq_join(capacity, stream);
+        let waker = fake_waker();
+        let mut cx = Context::from_waker(&waker);
+
+        // The first poll causes the active buffer to be filled if that is possible.
+        let res = joined.poll_next_unpin(&mut cx);
+        assert_count(&produced_r, capacity.get());
+        assert!(matches!(res, Poll::Ready(Some(VALUE))));
+
+        // A few more iterations, where each top up the buffer.
+        for _ in 0..(COUNT - capacity.get()) {
+            let res = joined.poll_next_unpin(&mut cx);
+            assert_count(&produced_r, 1);
+            assert!(matches!(res, Poll::Ready(Some(VALUE))));
+        }
+
+        // Then we drain the buffer.
+        for _ in 0..(capacity.get() - 1) {
+            let res = joined.poll_next_unpin(&mut cx);
+            assert_count(&produced_r, 0);
+            assert!(matches!(res, Poll::Ready(Some(VALUE))));
+        }
+
+        // Then the stream ends.
+        let res = joined.poll_next_unpin(&mut cx);
+        assert_count(&produced_r, 0);
+        assert!(matches!(res, Poll::Ready(None)));
     }
 }
