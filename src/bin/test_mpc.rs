@@ -246,11 +246,21 @@ async fn semi_honest_ipa(
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let expected = ipa_in_the_clear(
-        &input_rows,
-        ipa_query_config.per_user_credit_cap,
-        ipa_query_config.attribution_window_seconds,
-    );
+    let expected = {
+        let mut r = ipa_in_the_clear(
+            &input_rows,
+            ipa_query_config.per_user_credit_cap,
+            ipa_query_config.attribution_window_seconds,
+        );
+
+        // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
+        // truncate shouldn't happen unless in_the_clear is badly broken
+        r.resize(
+            usize::try_from(ipa_query_config.max_breakdown_key).unwrap(),
+            0,
+        );
+        r
+    };
 
     let actual = match args.input.field {
         FieldType::Fp31 => {
