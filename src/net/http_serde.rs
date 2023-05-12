@@ -91,6 +91,7 @@ pub mod query {
     use hyper::header::HeaderName;
     use std::{
         fmt::{Display, Formatter},
+        num::NonZeroU32,
         str::FromStr,
     };
 
@@ -129,7 +130,7 @@ pub mod query {
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
                         max_breakdown_key: u32,
-                        attribution_window_seconds: u32,
+                        attribution_window_seconds: Option<NonZeroU32>,
                         num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
@@ -161,15 +162,22 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::Ipa(config) => write!(
-                    f,
-                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
-                    QueryType::IPA_STR,
-                    config.per_user_credit_cap,
-                    config.max_breakdown_key,
-                    config.attribution_window_seconds,
-                    config.num_multi_bits,
-                ),
+                QueryType::Ipa(config) => {
+                    write!(
+                        f,
+                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        QueryType::IPA_STR,
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.num_multi_bits,
+                    )?;
+
+                    if let Some(window) = config.attribution_window_seconds {
+                        write!(f, "&attribution_window_seconds={}", window.get())?;
+                    }
+
+                    Ok(())
+                }
             }
         }
     }
@@ -450,7 +458,7 @@ pub mod query {
                 http_serde::query::{OriginHeader, BASE_AXUM_PATH},
                 Error,
             },
-            protocol::{QueryId, Step},
+            protocol::{step, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
@@ -464,12 +472,17 @@ pub mod query {
         pub struct Request<B> {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
-            pub step: Step,
+            pub step: step::Descriptive,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(origin: HelperIdentity, query_id: QueryId, step: Step, body: B) -> Self {
+            pub fn new(
+                origin: HelperIdentity,
+                query_id: QueryId,
+                step: step::Descriptive,
+                body: B,
+            ) -> Self {
                 Self {
                     origin,
                     query_id,

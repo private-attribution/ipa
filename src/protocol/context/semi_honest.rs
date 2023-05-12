@@ -11,7 +11,8 @@ use crate::{
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        RecordId, Step, Substep,
+        step::{self, Step},
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -49,11 +50,11 @@ impl<'a> super::Context for Context<'a> {
         self.inner.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         self.inner.step()
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: self.inner.narrow(step),
         }
@@ -132,11 +133,11 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         self.inner.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         self.inner.step()
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self::new(self.inner.narrow(step))
     }
 

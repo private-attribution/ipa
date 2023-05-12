@@ -66,7 +66,7 @@ where
     Ok(Replicated::new(lhs, rhs))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod test {
     use super::sum_of_products;
     use crate::{

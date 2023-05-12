@@ -6,7 +6,8 @@ use crate::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,
         context::Context,
-        IpaProtocolStep, RecordId,
+        step::IpaProtocolStep,
+        RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
@@ -42,7 +43,7 @@ enum Step {
     Xor2,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -203,7 +204,7 @@ where
     .await
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         error::Error,

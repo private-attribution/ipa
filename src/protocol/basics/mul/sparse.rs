@@ -185,7 +185,7 @@ impl MultiplyWork for MultiplyZeroPositions {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 pub(in crate::protocol) mod test {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
@@ -196,7 +196,8 @@ pub(in crate::protocol) mod test {
         protocol::{
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            BitOpStep, RecordId,
+            step::BitOpStep,
+            RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::{

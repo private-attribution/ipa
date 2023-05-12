@@ -41,7 +41,7 @@ where
     Ok(-(ab * F::truncate_from(2_u128)) + a + b)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::xor;
     use crate::{

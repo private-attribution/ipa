@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::PrimeField,
     helpers::TotalRecords,
-    protocol::{context::Context, BasicProtocols, RecordId, Substep},
+    protocol::{context::Context, step::Step, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{
@@ -39,7 +39,7 @@ impl AsRef<str> for FallbackStep {
     }
 }
 
-impl Substep for FallbackStep {}
+impl Step for FallbackStep {}
 
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
@@ -93,7 +93,7 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::RandomBitsGenerator;
     use crate::{

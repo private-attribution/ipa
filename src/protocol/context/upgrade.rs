@@ -2,9 +2,12 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        attribution::input::MCCappedCreditsWithAggregationBit, basics::ZeroPositions,
-        context::UpgradedContext, modulus_conversion::BitConversionTriple, BitOpStep, NoRecord,
-        RecordBinding, RecordId, Substep,
+        attribution::input::MCCappedCreditsWithAggregationBit,
+        basics::ZeroPositions,
+        context::UpgradedContext,
+        modulus_conversion::BitConversionTriple,
+        step::{self, BitOpStep, Step},
+        NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
     secret_sharing::{
@@ -77,7 +80,7 @@ where
         }
     }
 
-    fn narrow<SS: Substep>(&self, step: &SS) -> Self {
+    fn narrow<SS: Step>(&self, step: &SS) -> Self {
         Self::new(self.ctx.narrow(step), self.record_binding)
     }
 }
@@ -96,7 +99,7 @@ enum UpgradeTripleStep {
     V2,
 }
 
-impl crate::protocol::Substep for UpgradeTripleStep {}
+impl Step for UpgradeTripleStep {}
 
 impl AsRef<str> for UpgradeTripleStep {
     fn as_ref(&self) -> &str {
@@ -179,7 +182,7 @@ where
 enum Upgrade2DVectors {
     V(usize),
 }
-impl crate::protocol::Substep for Upgrade2DVectors {}
+impl Step for Upgrade2DVectors {}
 
 impl AsRef<str> for Upgrade2DVectors {
     fn as_ref(&self) -> &str {
@@ -290,7 +293,7 @@ enum UpgradeModConvStep {
     V3,
 }
 
-impl crate::protocol::Substep for UpgradeModConvStep {}
+impl Step for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
@@ -351,7 +354,7 @@ enum UpgradeMCCappedCreditsWithAggregationBit {
     V3,
 }
 
-impl crate::protocol::Substep for UpgradeMCCappedCreditsWithAggregationBit {}
+impl step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
 
 impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
     fn as_ref(&self) -> &str {

@@ -5,20 +5,20 @@ use ipa::{
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
         ipa::{
-            generate_random_user_records_in_reverse_chronological_order, test_ipa,
-            update_expected_output_for_user, IpaSecurityModel,
+            generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
+            test_ipa, IpaSecurityModel,
         },
         TestWorld, TestWorldConfig,
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{num::NonZeroUsize, time::Instant};
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    time::Instant,
+};
+use tokio::runtime::Builder;
 
-#[cfg(all(
-    target_arch = "x86_64",
-    not(target_env = "msvc"),
-    not(feature = "dhat-heap")
-))]
+#[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -30,6 +30,9 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 #[derive(Parser)]
 #[command(about, long_about = None)]
 struct Args {
+    /// The number of threads to use for running IPA.
+    #[arg(short = 'j', long, default_value = "3")]
+    threads: usize,
     /// The total number of records to process.
     #[arg(short = 'n', long, default_value = "1000")]
     query_size: usize,
@@ -46,7 +49,12 @@ struct Args {
     #[arg(short = 't', long, default_value = "5")]
     max_trigger_value: u32,
     /// The size of the attribution window, in seconds.
-    #[arg(short = 'w', long, default_value = "86400")]
+    #[arg(
+        short = 'w',
+        long,
+        default_value = "86400",
+        help = "The size of the attribution window, in seconds. Pass 0 for an infinite window."
+    )]
     attribution_window: u32,
     /// The number of sequential bits of breakdown key and match key to process in parallel
     /// while doing modulus conversion and attribution
@@ -72,16 +80,23 @@ impl Args {
             .map(NonZeroUsize::get)
             .unwrap_or_else(|| self.query_size.clamp(16, 1024))
     }
+
+    fn attribution_window(&self) -> Option<NonZeroU32> {
+        NonZeroU32::new(self.attribution_window)
+    }
+
+    fn config(&self) -> IpaQueryConfig {
+        IpaQueryConfig {
+            per_user_credit_cap: self.per_user_cap,
+            max_breakdown_key: self.breakdown_keys,
+            attribution_window_seconds: self.attribution_window(),
+            num_multi_bits: self.num_multi_bits,
+        }
+    }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
-async fn main() -> Result<(), Error> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
+async fn run(args: Args) -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
-
-    let args = Args::parse();
 
     let prep_time = Instant::now();
     let config = TestWorldConfig {
@@ -96,7 +111,6 @@ async fn main() -> Result<(), Error> {
     );
     let mut rng = StdRng::seed_from_u64(seed);
 
-    let mut expected_results = vec![0_u32; args.breakdown_keys.try_into().unwrap()];
     let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
     while raw_data.len() < args.query_size {
         let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
@@ -106,18 +120,14 @@ async fn main() -> Result<(), Error> {
             args.max_trigger_value,
         );
         records_for_user.truncate(args.query_size - raw_data.len());
-        update_expected_output_for_user(
-            &records_for_user,
-            &mut expected_results,
-            args.per_user_cap,
-            args.attribution_window,
-        );
         raw_data.append(&mut records_for_user);
     }
 
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let expected_results =
+        ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
     println!("Preparation complete in {:?}", prep_time.elapsed());
@@ -127,12 +137,7 @@ async fn main() -> Result<(), Error> {
         &world,
         &raw_data,
         &expected_results,
-        IpaQueryConfig::new(
-            args.per_user_cap,
-            args.breakdown_keys,
-            args.attribution_window,
-            args.num_multi_bits,
-        ),
+        args.config(),
         args.mode,
     )
     .await;
@@ -143,4 +148,19 @@ async fn main() -> Result<(), Error> {
         t = protocol_time.elapsed()
     );
     Ok(())
+}
+
+fn main() -> Result<(), Error> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
+    let args = Args::parse();
+    let rt = Builder::new_multi_thread()
+        .worker_threads(args.threads)
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = rt.enter();
+    let task = rt.spawn(run(args));
+    rt.block_on(task)?
 }

@@ -13,7 +13,8 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        RecordId, Step, Substep,
+        step::{self, Step, StepNarrow},
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -48,7 +49,7 @@ impl<'a> Context<'a> {
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
-    pub fn upgrade<S: Substep + ?Sized, F: ExtendableField>(
+    pub fn upgrade<S: Step + ?Sized, F: ExtendableField>(
         self,
         malicious_step: &S,
         accumulator: MaliciousAccumulator<F>,
@@ -67,11 +68,11 @@ impl<'a> super::Context for Context<'a> {
         self.inner.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         self.inner.step()
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: self.inner.narrow(step),
         }
@@ -137,12 +138,12 @@ pub struct Upgraded<'a, F: ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<UpgradedInner<'a, F>>,
-    step: Step,
+    step: step::Descriptive,
     total_records: TotalRecords,
 }
 
 impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new<S: Substep + ?Sized>(
+    pub(super) fn new<S: Step + ?Sized>(
         source: &Base<'a>,
         malicious_step: &S,
         acc: MaliciousAccumulator<F>,
@@ -241,11 +242,11 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         &self.step
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),

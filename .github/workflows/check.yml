@@ -59,11 +59,14 @@ jobs:
       - name: Run Tests
         run: cargo test
 
+      - name: Run Web Tests
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
+
   extra:
     name: Additional Builds and Concurrency Tests
     env:
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: -D warnings -C target-cpu=native
       RUSTDOCFLAGS: -D warnings
 
     runs-on: ubuntu-latest
@@ -89,7 +92,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --features enable-benches
+        run: cargo build --benches --no-default-features --features enable-benches
 
       - name: Build concurrency tests
         run: cargo build --release --features shuttle
@@ -101,4 +104,4 @@ jobs:
         run: cargo test --release --features shuttle
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches"
+        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches

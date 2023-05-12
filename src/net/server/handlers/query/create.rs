@@ -29,7 +29,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{
@@ -45,8 +45,12 @@ mod tests {
         protocol::QueryId,
     };
     use axum::http::Request;
-    use hyper::{Body, StatusCode};
-    use std::future::ready;
+
+    use hyper::{
+        http::uri::{Authority, Scheme},
+        Body, StatusCode,
+    };
+    use std::{future::ready, num::NonZeroU32};
 
     async fn create_test(expected_query_config: QueryConfig) {
         let cb = TransportCallbacks {
@@ -56,10 +60,22 @@ mod tests {
             }),
             ..Default::default()
         };
+        let TestServer { server, .. } = TestServer::builder().with_callbacks(cb).build().await;
         let req = http_serde::query::create::Request::new(expected_query_config);
-        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
-        let Json(resp) = handler(Extension(transport), req).await.unwrap();
-        assert_eq!(resp.query_id, QueryId);
+        let req = req
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("127.0.0.1"))
+            .unwrap();
+        let resp = server.handle_req(req).await;
+
+        let status = resp.status();
+        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        let response_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        assert_eq!(StatusCode::OK, status, "Request failed: {}", &response_str);
+
+        let http_serde::query::create::ResponseBody { query_id } =
+            serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(QueryId, query_id);
     }
 
     #[tokio::test]
@@ -72,13 +88,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_test_ipa() {
+    async fn create_test_ipa_no_attr_window() {
         create_test(QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::Ipa(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
-                attribution_window_seconds: 0,
+                attribution_window_seconds: None,
+                num_multi_bits: 3,
+            }),
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_ipa_with_attr_window() {
+        create_test(QueryConfig {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::Ipa(IpaQueryConfig {
+                per_user_credit_cap: 1,
+                max_breakdown_key: 1,
+                attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
             }),
         })

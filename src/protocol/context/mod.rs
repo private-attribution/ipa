@@ -7,9 +7,7 @@ pub mod validator;
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{
-        basics::ZeroPositions, prss::Endpoint as PrssEndpoint, NoRecord, RecordId, Step, Substep,
-    },
+    protocol::{basics::ZeroPositions, prss::Endpoint as PrssEndpoint, step, NoRecord, RecordId},
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -25,6 +23,8 @@ pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHone
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
 
+use super::step::StepNarrow;
+
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context: Clone + Send + Sync + SeqJoin {
@@ -33,12 +33,12 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    fn step(&self) -> &Step;
+    fn step(&self) -> &step::Descriptive;
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
+    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self;
 
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
@@ -87,7 +87,7 @@ pub trait UpgradableContext: Context {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct UpgradeStep;
 
-impl Substep for UpgradeStep {}
+impl step::Step for UpgradeStep {}
 
 impl AsRef<str> for UpgradeStep {
     fn as_ref(&self) -> &str {
@@ -171,7 +171,7 @@ pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<Inner<'a>>,
-    step: Step,
+    step: step::Descriptive,
     total_records: TotalRecords,
 }
 
@@ -180,7 +180,7 @@ impl<'a> Base<'a> {
         Self::new_complete(
             participant,
             gateway,
-            Step::default(),
+            step::Descriptive::default(),
             TotalRecords::Unspecified,
         )
     }
@@ -188,7 +188,7 @@ impl<'a> Base<'a> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        step: Step,
+        step: step::Descriptive,
         total_records: TotalRecords,
     ) -> Self {
         Self {
@@ -204,11 +204,11 @@ impl<'a> Context for Base<'a> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &Step {
+    fn step(&self) -> &step::Descriptive {
         &self.step
     }
 
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
@@ -277,7 +277,7 @@ impl<'a> Inner<'a> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
@@ -399,7 +399,7 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = Step::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             .narrow("metrics");
 
@@ -456,7 +456,7 @@ mod tests {
             })
             .await;
 
-        let metrics_step = Step::default()
+        let metrics_step = step::Descriptive::default()
             .narrow(&TestWorld::execution_step(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)

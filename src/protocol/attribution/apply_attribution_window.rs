@@ -12,7 +12,10 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use std::iter::{repeat, zip};
+use std::{
+    iter::{repeat, zip},
+    num::NonZeroU32,
+};
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to
@@ -24,16 +27,40 @@ pub async fn apply_attribution_window<C, S, F>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, S>],
     stop_bits: &[S],
-    attribution_window_seconds: u32,
+    attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
 where
     C: Context + RandomBits<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
     F: PrimeField,
 {
-    // if `attribution_window_seconds` is 0, skip the entire protocol
-    if attribution_window_seconds == 0 {
-        return Ok(input
+    if let Some(attribution_window_seconds) = attribution_window_seconds {
+        let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
+
+        let result = zero_out_expired_trigger_values(
+            &ctx,
+            input,
+            &mut t_deltas,
+            attribution_window_seconds.get(),
+        )
+        .await?;
+
+        Ok(input
+            .iter()
+            .zip(result)
+            .map(|(x, (active_bit, value))| {
+                MCApplyAttributionWindowOutputRow::new(
+                    x.is_trigger_report.clone(),
+                    x.helper_bit.clone(),
+                    active_bit,
+                    x.breakdown_key.clone(),
+                    value,
+                )
+            })
+            .collect::<Vec<_>>())
+    } else {
+        // attribution window is not set, skip the entire protocol
+        Ok(input
             .iter()
             .map(|x| {
                 MCApplyAttributionWindowOutputRow::new(
@@ -44,28 +71,8 @@ where
                     x.trigger_value.clone(),
                 )
             })
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>())
     }
-
-    let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
-
-    let result =
-        zero_out_expired_trigger_values(&ctx, input, &mut t_deltas, attribution_window_seconds)
-            .await?;
-
-    Ok(input
-        .iter()
-        .zip(result)
-        .map(|(x, (active_bit, value))| {
-            MCApplyAttributionWindowOutputRow::new(
-                x.is_trigger_report.clone(),
-                x.helper_bit.clone(),
-                active_bit,
-                x.breakdown_key.clone(),
-                value,
-            )
-        })
-        .collect::<Vec<_>>())
 }
 
 /// Computes time deltas from each trigger event to its nearest matching source event.
@@ -181,7 +188,7 @@ enum Step {
     CompareBitTimesTriggerValue,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -194,7 +201,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{
         attribution_window_test_input,
@@ -215,17 +222,17 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use std::iter::zip;
+    use std::{iter::zip, num::NonZeroU32};
 
     #[tokio::test]
     pub async fn attribution_window() {
-        const ATTRIBUTION_WINDOW: u32 = 600;
         const EXPECTED_TRIGGER_VALUES: &[u128; 23] = &[
             0, 0, 0, 10, 2, 1, 5, 1, 0, 0, 0, 10, 0, 3, 12, 0, 0, 6, 4, 0, 6, 1, 0,
         ];
         const EXPECTED_ACTIVE_BITS: &[u128; 23] = &[
             1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
         ];
+        const ATTRIBUTION_WINDOW: Option<NonZeroU32> = NonZeroU32::new(600);
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = attribution_window_test_input!(
             [
                 { timestamp: 500, is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 }, // delta: 0

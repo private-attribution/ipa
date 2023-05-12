@@ -4,11 +4,14 @@ use crate::{
         transport::{ByteArrStream, NoQueryId, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{QueryId, Substep},
+    protocol::{step::Step, QueryId},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroU32,
+};
 use tokio::sync::oneshot;
 
 #[derive(Copy, Clone, Debug)]
@@ -176,14 +179,14 @@ impl AsRef<str> for QueryType {
     }
 }
 
-impl Substep for QueryType {}
+impl Step for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct IpaQueryConfig {
     pub per_user_credit_cap: u32,
     pub max_breakdown_key: u32,
-    pub attribution_window_seconds: u32,
+    pub attribution_window_seconds: Option<NonZeroU32>,
     pub num_multi_bits: u32,
 }
 
@@ -192,13 +195,15 @@ impl Default for IpaQueryConfig {
         Self {
             per_user_credit_cap: 3,
             max_breakdown_key: 64,
-            attribution_window_seconds: 0,
+            attribution_window_seconds: None,
             num_multi_bits: 3,
         }
     }
 }
 
 impl IpaQueryConfig {
+    /// ## Panics
+    /// If attribution window is 0
     #[must_use]
     pub fn new(
         per_user_credit_cap: u32,
@@ -209,7 +214,28 @@ impl IpaQueryConfig {
         Self {
             per_user_credit_cap,
             max_breakdown_key,
-            attribution_window_seconds,
+            attribution_window_seconds: Some(
+                NonZeroU32::new(attribution_window_seconds)
+                    .expect("attribution window must be a positive value > 0"),
+            ),
+            num_multi_bits,
+        }
+    }
+
+    /// Creates an IPA query config that does not specify attribution window. That leads to short-cutting
+    /// some of the IPA steps inside attribution circuit and getting the answer faster. What it practically
+    /// means is that any trigger event can be attributed if there is at least one preceding source event
+    /// from the same user in the input.
+    #[must_use]
+    pub fn no_window(
+        per_user_credit_cap: u32,
+        max_breakdown_key: u32,
+        num_multi_bits: u32,
+    ) -> Self {
+        Self {
+            per_user_credit_cap,
+            max_breakdown_key,
+            attribution_window_seconds: None,
             num_multi_bits,
         }
     }

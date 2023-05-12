@@ -9,7 +9,8 @@ use crate::{
         },
         modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         prss::SharedRandomness,
-        BitOpStep, RecordId,
+        step::{self, BitOpStep},
+        RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -81,7 +82,7 @@ enum Step {
     UpgradeBitTriples,
 }
 
-impl crate::protocol::Substep for Step {}
+impl step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

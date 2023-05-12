@@ -83,7 +83,7 @@ enum Step {
     AddDtoG,
 }
 
-impl crate::protocol::Substep for Step {}
+impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -96,7 +96,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::BitDecomposition;
     use crate::{
@@ -111,7 +111,7 @@ mod tests {
 
     pub struct GenerateRandomBits;
 
-    impl crate::protocol::Substep for GenerateRandomBits {}
+    impl crate::protocol::step::Step for GenerateRandomBits {}
 
     impl AsRef<str> for GenerateRandomBits {
         fn as_ref(&self) -> &str {
