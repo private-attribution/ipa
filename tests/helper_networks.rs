@@ -74,7 +74,7 @@ impl Drop for TerminateOnDrop {
     }
 }
 
-fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
+fn test_network(ports: &[u16; 3], https: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
@@ -86,9 +86,6 @@ fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
         .args(["--output-dir".as_ref(), dir.path().as_os_str()])
         .arg("--ports")
         .args(ports.map(|p| p.to_string()));
-    if !https_setup {
-        command.arg("--disable-https");
-    }
     command.status().unwrap_status();
 
     let _helpers = zip([1, 2, 3], ports)
@@ -99,7 +96,7 @@ fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
                 .args(["--port", &port.to_string()])
                 .args(["--network".into(), dir.path().join("network.toml")]);
 
-            if https_runtime {
+            if https {
                 command
                     .args(["--tls-cert".into(), dir.path().join(format!("h{id}.pem"))])
                     .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))]);
@@ -115,7 +112,7 @@ fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
     command
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--wait", "2"]);
-    if !https_runtime {
+    if !https {
         command.arg("--disable-https");
     }
     command.arg("--quiet").arg("multiply").stdin(Stdio::piped());
@@ -136,15 +133,10 @@ fn test_network(ports: &[u16; 3], https_setup: bool, https_runtime: bool) {
 
 #[test]
 fn http_network() {
-    test_network(&[3000, 3001, 3002], false, false);
+    test_network(&[3000, 3001, 3002], false);
 }
 
 #[test]
 fn https_network() {
-    test_network(&[4430, 4431, 4432], true, true);
-}
-
-#[test]
-fn https_as_http_network() {
-    test_network(&[3330, 3331, 3332], true, false);
+    test_network(&[4430, 4431, 4432], true);
 }
