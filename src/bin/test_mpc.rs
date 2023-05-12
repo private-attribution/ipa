@@ -31,6 +31,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
+use std::fs::{File, OpenOptions};
 use std::io::{stdout, Write};
 use tokio::time::sleep;
 
@@ -96,6 +97,10 @@ enum TestAction {
         /// Number of records to generate
         #[clap(long, short = 'c')]
         count: u32,
+
+        /// The destination file for generated records
+        #[arg(long)]
+        output_file: Option<PathBuf>,
 
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
@@ -198,15 +203,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match args.action {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
         TestAction::SemiHonestIpa => semi_honest_ipa(&args, &make_clients().await).await,
-        TestAction::GenIpaInputs { count, gen_args } => gen_inputs(count, gen_args).await.unwrap(),
+        TestAction::GenIpaInputs { count, output_file, gen_args } => gen_inputs(count, output_file, gen_args).unwrap(),
     };
 
     Ok(())
 }
 
-async fn gen_inputs(count: u32, args: EventGeneratorConfig) -> io::Result<()> {
+fn gen_inputs(count: u32, output_file: Option<PathBuf>, args: EventGeneratorConfig) -> io::Result<()> {
     let event_gen = EventGenerator::with_config(thread_rng(), args).take(count as usize);
-    let mut writer = stdout().lock();
+    let mut writer: Box<dyn Write> = if let Some(path) = output_file {
+        Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
+    } else {
+        Box::new(stdout().lock())
+    };
 
     for event in event_gen {
         event.to_csv(&mut writer)?;
