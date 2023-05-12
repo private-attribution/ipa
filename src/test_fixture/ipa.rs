@@ -27,8 +27,8 @@ pub enum IpaSecurityModel {
 
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
+    pub timestamp: u64,
     pub user_id: u64,
-    pub timestamp: u32,
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
@@ -104,7 +104,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
     );
     let mut records_for_user = Vec::with_capacity(usize::try_from(num_records_for_user).unwrap());
     for _ in 0..num_records_for_user {
-        let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
+        let random_timestamp = u64::from(rng.gen_range(0..SECONDS_IN_EPOCH));
         let is_trigger_report = rng.gen::<bool>();
         let random_breakdown_key = if is_trigger_report {
             0
@@ -140,9 +140,9 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     per_user_cap: u32,
     attribution_window_seconds: Option<NonZeroU32>,
 ) {
-    let within_window = |value: u32| -> bool {
+    let within_window = |value: u64| -> bool {
         if let Some(window) = attribution_window_seconds {
-            value <= window.get()
+            value <= u64::from(window.get())
         } else {
             // if window is not specified, it is considered of infinite size. Everything is
             // within that window.

@@ -1,3 +1,4 @@
+mod csv;
 #[cfg(feature = "web-app")]
 mod keygen;
 mod metric_collector;
@@ -7,6 +8,7 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 
+pub use csv::CsvSerializer;
 #[cfg(feature = "web-app")]
 pub use keygen::{keygen, KeygenArgs};
 pub use metric_collector::{install_collector, CollectorHandle};

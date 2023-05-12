@@ -11,10 +11,10 @@ mod app;
 #[cfg(feature = "in-memory-infra")]
 pub mod circuit;
 pub mod config;
+mod event_gen;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-mod event_gen;
 
 use crate::{
     ff::Field,
@@ -23,6 +23,7 @@ use crate::{
 };
 #[cfg(feature = "in-memory-infra")]
 pub use app::TestApp;
+pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};

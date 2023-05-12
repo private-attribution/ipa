@@ -5,7 +5,7 @@ use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
         playbook::{secure_mul, semi_honest, InputSource},
-        Verbosity,
+        CsvSerializer, Verbosity,
     },
     config::NetworkConfig,
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
@@ -15,14 +15,24 @@ use ipa::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{
         config::TestConfigBuilder,
-        ipa::{ipa_in_the_clear, TestRawDataRecord},
+        ipa::{
+            ipa_in_the_clear,
+            TestRawDataRecord,
+        },
+        EventGenerator, EventGeneratorConfig,
     },
 };
-use std::{error::Error, fmt::Debug, fs, ops::Add, path::PathBuf, time::Duration};
-use std::io::{stdin, stdout, Write};
 use rand::thread_rng;
+use std::{
+    error::Error,
+    fmt::Debug,
+    fs, io,
+    ops::Add,
+    path::PathBuf,
+    time::Duration,
+};
+use std::io::{stdout, Write};
 use tokio::time::sleep;
-use ipa::test_fixture::ipa::generate_random_user_records_in_reverse_chronological_order;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -82,22 +92,24 @@ enum TestAction {
     /// Execute IPA in semi-honest majority setting
     SemiHonestIpa,
     /// Generate inputs for IPA
-    GenIpaInputs(GenInputArgs)
+    GenIpaInputs {
+        /// Number of records to generate
+        #[clap(long, short = 'c')]
+        count: u32,
+
+        #[clap(flatten)]
+        gen_args: EventGeneratorConfig,
+    },
 }
 
 #[derive(Debug, clap::Args)]
 struct GenInputArgs {
-    /// Number of records to generate
-    #[clap(long, short = 'c')]
-    count: u32,
     /// Maximum records per user
     #[clap(long)]
     max_per_user: u32,
-
     /// number of breakdowns
     breakdowns: u32,
 }
-
 
 async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
     clients[0].echo("").await.is_ok()
@@ -171,7 +183,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
             TestConfigBuilder::with_default_test_ports().build().network
-        }.override_scheme(&scheme);
+        }
+        .override_scheme(&scheme);
         let clients = MpcHelperClient::from_conf(&config);
         while wait > 0 && !clients_ready(&clients).await {
             tracing::debug!("waiting for servers to come up");
@@ -185,28 +198,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match args.action {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
         TestAction::SemiHonestIpa => semi_honest_ipa(&args, &make_clients().await).await,
-        TestAction::GenIpaInputs(gen_args) => gen_inputs(&gen_args).await
+        TestAction::GenIpaInputs { count, gen_args } => gen_inputs(count, gen_args).await.unwrap(),
     };
 
     Ok(())
 }
 
-async fn gen_inputs(args: &GenInputArgs) {
-    const MAX_TRIGGER_VALUE: u32 = 5;
-    let mut written = 0;
-    let mut w: dyn Write = stdout();
+async fn gen_inputs(count: u32, args: EventGeneratorConfig) -> io::Result<()> {
+    let event_gen = EventGenerator::with_config(thread_rng(), args).take(count as usize);
+    let mut writer = stdout().lock();
 
-    loop {
-        let next_set = generate_random_user_records_in_reverse_chronological_order(
-            &mut thread_rng(),
-            args.max_per_user,
-            args.breakdowns,
-            MAX_TRIGGER_VALUE
-        );
-        while written < args.count && !next_set.is_empty() {
-            w.write()
-        }
+    for event in event_gen {
+        event.to_csv(&mut writer)?;
+        writer.write(&[b'\n'])?;
     }
+
+    Ok(())
 }
 
 async fn semi_honest_ipa(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
