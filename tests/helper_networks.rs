@@ -76,9 +76,24 @@ impl Drop for TerminateOnDrop {
     }
 }
 
+trait CommandExt {
+    fn silent(&mut self) -> &mut Self;
+}
+
+impl CommandExt for Command {
+    fn silent(&mut self) -> &mut Self {
+        if std::env::var("VERBOSE").ok().is_none() {
+            self.arg("--quiet")
+        } else {
+            self.arg("-vv")
+        }
+    }
+}
+
 fn test_setup(config_path: &Path, ports: &[u16; 3]) {
     let mut command = Command::new(HELPER_BIN);
     command
+        .silent()
         .arg("test-setup")
         .args(["--output-dir".as_ref(), config_path.as_os_str()])
         .arg("--ports")
@@ -94,7 +109,8 @@ fn spawn_helpers(config_path: &Path, ports: &[u16; 3], https: bool) -> Vec<Termi
             command
                 .args(["-i", &id.to_string()])
                 .args(["--port", &port.to_string()])
-                .args(["--network".into(), config_path.join("network.toml")]);
+                .args(["--network".into(), config_path.join("network.toml")])
+                .silent();
 
             if https {
                 command
@@ -124,7 +140,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
     if !https {
         command.arg("--disable-https");
     }
-    command.arg("--quiet").arg("multiply").stdin(Stdio::piped());
+    command.silent().arg("multiply").stdin(Stdio::piped());
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
@@ -156,7 +172,7 @@ fn test_ipa(ports: &[u16; 3], mode: IpaSecurityModel, https: bool) {
         .args(["--count", "10"])
         .args(["--max-breakdown-key", "20"])
         .args(["--output-file".as_ref(), inputs_file.as_os_str()])
-        .arg("--quiet")
+        .silent()
         .stdin(Stdio::piped());
     command.status().unwrap_status();
 
@@ -165,8 +181,8 @@ fn test_ipa(ports: &[u16; 3], mode: IpaSecurityModel, https: bool) {
     command
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--input-file".as_ref(), inputs_file.as_os_str()])
-        .arg("--quiet")
-        .args(["--wait", "2"]);
+        .args(["--wait", "2"])
+        .silent();
 
     if !https {
         command.arg("--disable-https");
