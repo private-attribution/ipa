@@ -160,7 +160,7 @@ impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
 }
 
 #[async_trait]
-impl<F: Field + ExtendableField> DowngradeMalicious
+impl<F: ExtendableField> DowngradeMalicious
     for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>
 {
     type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
@@ -180,7 +180,17 @@ impl<F: Field + ExtendableField> DowngradeMalicious
 }
 
 #[async_trait]
-impl<F: Field + ExtendableField, BK: GaloisField> DowngradeMalicious
+impl<F: ExtendableField> DowngradeMalicious
+    for MCCappedCreditsWithAggregationBit<F, Replicated<F>>
+{
+    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper::new(self)
+    }
+}
+
+#[async_trait]
+impl<F: ExtendableField, BK: GaloisField> DowngradeMalicious
     for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
 where
     Replicated<F>: Serializable,
@@ -194,6 +204,16 @@ where
                 .collect::<Vec<_>>(),
             self.credit.x().access_without_downgrade().clone(),
         ))
+    }
+}
+
+#[async_trait]
+impl<F: ExtendableField, BK: GaloisField> DowngradeMalicious
+    for MCAggregateCreditOutputRow<F, Replicated<F>, BK>
+{
+    type Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper::new(self)
     }
 }
 
@@ -239,9 +259,11 @@ pub struct MCAggregateCreditOutputRow<F, T, BK> {
     _marker: PhantomData<(F, BK)>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> MCAggregateCreditOutputRow<F, T, BK>
+impl<F, T, BK> MCAggregateCreditOutputRow<F, T, BK>
 where
-    T: Serializable,
+    F: Field,
+    T: LinearSecretSharing<F> + Serializable,
+    BK: GaloisField,
 {
     /// We know there will be exactly `BK::BITS` number of `breakdown_key` parts
     pub const SIZE: usize = (BK::BITS as usize + 1) * <T as Serializable>::Size::USIZE;

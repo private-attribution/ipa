@@ -195,8 +195,7 @@ pub(in crate::protocol) mod test {
         },
         protocol::{
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
-            context::Context,
-            malicious::MaliciousValidator,
+            context::{Context, UpgradableContext, UpgradedContext, Validator},
             step::BitOpStep,
             RecordId,
         },
@@ -411,8 +410,8 @@ pub(in crate::protocol) mod test {
                 let v1 = SparseField::new(rng.gen::<Fp31>(), a);
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
-                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        let v = MaliciousValidator::new(ctx);
+                    .malicious((v1, v2), |ctx, (v_a, v_b)| async move {
+                        let v = ctx.validator();
                         let m_ctx = v.context().set_total_records(1);
                         let (m_a, m_b) = try_join(
                             m_ctx.narrow(&BitOpStep::from(0)).upgrade_sparse(v_a, a),

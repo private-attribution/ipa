@@ -3,7 +3,7 @@ use ipa::{
     ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
     helpers::GatewayConfig,
     protocol::{
-        context::Context,
+        context::{Context, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
@@ -48,12 +48,13 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let start = Instant::now();
-    let result = join3(
+    let [(v0, r0), (v1, r1), (v2, r2)] = join3(
         generate_permutation_opt(ctx0, converted_shares[0].iter()),
         generate_permutation_opt(ctx1, converted_shares[1].iter()),
         generate_permutation_opt(ctx2, converted_shares[2].iter()),
     )
     .await;
+    let result = join3(v0.validate(r0), v1.validate(r1), v2.validate(r2)).await;
 
     let duration = start.elapsed().as_secs_f32();
     println!("sort benchmark BATCHSIZE {BATCHSIZE} NUM_MULTI_BITS {NUM_MULTI_BITS} complete after {duration}s");

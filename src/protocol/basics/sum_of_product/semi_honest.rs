@@ -2,11 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{
-        context::{Context, SemiHonestContext},
-        prss::SharedRandomness,
-        RecordId,
-    },
+    protocol::{context::Context, prss::SharedRandomness, RecordId},
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
@@ -23,13 +19,14 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn sum_of_products<F>(
-    ctx: SemiHonestContext<'_>,
+pub async fn sum_of_products<C, F>(
+    ctx: C,
     record_id: RecordId,
     a: &[Replicated<F>],
     b: &[Replicated<F>],
 ) -> Result<Replicated<F>, Error>
 where
+    C: Context,
     F: Field,
 {
     assert_eq!(a.len(), b.len());

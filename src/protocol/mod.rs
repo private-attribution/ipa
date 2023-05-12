@@ -3,7 +3,6 @@ pub mod basics;
 pub mod boolean;
 pub mod context;
 pub mod ipa;
-pub mod malicious;
 pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;

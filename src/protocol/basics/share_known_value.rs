@@ -1,7 +1,7 @@
 use crate::{
     ff::Field,
     helpers::Role,
-    protocol::context::{Context, MaliciousContext, SemiHonestContext},
+    protocol::context::{Context, UpgradedContext, UpgradedMaliciousContext},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -16,8 +16,8 @@ pub trait ShareKnownValue<C: Context, V: SharedValue> {
     fn share_known_value(ctx: &C, value: V) -> Self;
 }
 
-impl<'a, F: Field> ShareKnownValue<SemiHonestContext<'a>, F> for Replicated<F> {
-    fn share_known_value(ctx: &SemiHonestContext<'a>, value: F) -> Self {
+impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
+    fn share_known_value(ctx: &C, value: F) -> Self {
         match ctx.role() {
             Role::H1 => Self::new(value, F::ZERO),
             Role::H2 => Self::new(F::ZERO, F::ZERO),
@@ -26,10 +26,10 @@ impl<'a, F: Field> ShareKnownValue<SemiHonestContext<'a>, F> for Replicated<F> {
     }
 }
 
-impl<'a, F: Field + ExtendableField> ShareKnownValue<MaliciousContext<'a, F>, F>
+impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousReplicated<F>
 {
-    fn share_known_value(ctx: &MaliciousContext<'a, F>, value: F) -> Self {
+    fn share_known_value(ctx: &UpgradedMaliciousContext<'a, F>, value: F) -> Self {
         ctx.share_known_value(value)
     }
 }
@@ -71,7 +71,7 @@ mod tests {
         let a = rng.gen::<Fp31>();
 
         let result = world
-            .malicious((), |ctx, ()| async move {
+            .upgraded_malicious((), |ctx, ()| async move {
                 MaliciousReplicated::<Fp31>::share_known_value(&ctx, a)
             })
             .await

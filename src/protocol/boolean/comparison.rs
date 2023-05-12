@@ -352,7 +352,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(input, |ctx, a_share| async move {
+            .upgraded_malicious(input, |ctx, a_share| async move {
                 bitwise_less_than_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -387,7 +387,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .malicious(input, |ctx, a_share| async move {
+            .upgraded_malicious(input, |ctx, a_share| async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(bitwise_result, result);
 
         let m_result = world
-            .malicious(lhs, |ctx, lhs| async move {
+            .upgraded_malicious(lhs, |ctx, lhs| async move {
                 let ctx = ctx.set_total_records(1);
                 greater_than_constant(
                     ctx.clone(),

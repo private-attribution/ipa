@@ -1,19 +1,29 @@
 pub mod malicious;
-mod prss;
+pub mod prss;
 mod semi_honest;
+pub mod upgrade;
+pub mod validator;
 
 use crate::{
-    helpers::{Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{
-        step::{self, Step},
-        RecordId,
+    error::Error,
+    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
+    protocol::{basics::ZeroPositions, prss::Endpoint as PrssEndpoint, step, NoRecord, RecordId},
+    secret_sharing::{
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        SecretSharing,
     },
     seq_join::SeqJoin,
 };
-pub(super) use malicious::SpecialAccessToMaliciousContext;
-pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
-pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::SemiHonestContext;
+use async_trait::async_trait;
+use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
+use std::{num::NonZeroUsize, sync::Arc};
+
+pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
+pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use upgrade::{UpgradeContext, UpgradeToMalicious};
+pub use validator::Validator;
+
+use super::step::StepNarrow;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -28,16 +38,16 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self;
+    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self;
 
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
     #[must_use]
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
 
-    /// Returns true if this is the last record.
+    /// Returns the current setting for the number of records
     #[must_use]
-    fn is_last_record<T: Into<RecordId>>(&self, record_id: T) -> bool;
+    fn total_records(&self) -> TotalRecords;
 
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
@@ -66,17 +76,213 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+pub trait UpgradableContext: Context {
+    type UpgradedContext<F: ExtendableField>: UpgradedContext<F>;
+    type Validator<F: ExtendableField>: Validator<Self, F>;
+
+    fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+}
+
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct UpgradeStep;
+
+impl step::Step for UpgradeStep {}
+
+impl AsRef<str> for UpgradeStep {
+    fn as_ref(&self) -> &str {
+        "upgrade"
+    }
+}
+
+#[async_trait]
+pub trait UpgradedContext<F: ExtendableField>: Context {
+    // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
+    type Share: SecretSharing<F> + 'static;
+
+    fn share_known_value(&self, value: F) -> Self::Share;
+
+    async fn upgrade_one(
+        &self,
+        record_id: RecordId,
+        x: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::Share, Error>;
+
+    /// Upgrade an input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
+    where
+        T: Send,
+        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
+            .upgrade(input)
+            .await
+    }
+
+    /// Upgrade an input for a specific bit index and record using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
+    where
+        T: Send,
+        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
+            .upgrade(input)
+            .await
+    }
+
+    /// Upgrade a sparse input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    #[cfg(test)]
+    async fn upgrade_sparse(
+        &self,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<Self::Share, Error>;
+}
+
+pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
+    /// This is the base context type.  This will always be `Base`, but use
+    /// an associated type to avoid having to bind this trait to the lifetime
+    /// associated with the `Base` struct.
+    type Base: Context;
+
+    /// Take a secret sharing and add it to the running MAC that this context maintains (if any).
+    fn accumulate_macs(self, record_id: RecordId, x: &Self::Share);
+
+    /// Get a base context that is an exact copy of this malicious
+    /// context, so it will be tied up to the same step and prss.
+    #[must_use]
+    fn base_context(self) -> Self::Base;
+}
+
+/// Context for protocol executions suitable for semi-honest security model, i.e. secure against
+/// honest-but-curious adversary parties.
+#[derive(Clone)]
+pub struct Base<'a> {
+    /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
+    /// may operate with raw references and be more efficient
+    inner: Arc<Inner<'a>>,
+    step: step::Descriptive,
+    total_records: TotalRecords,
+}
+
+impl<'a> Base<'a> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_complete(
+            participant,
+            gateway,
+            step::Descriptive::default(),
+            TotalRecords::Unspecified,
+        )
+    }
+
+    fn new_complete(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        step: step::Descriptive,
+        total_records: TotalRecords,
+    ) -> Self {
+        Self {
+            inner: Inner::new(participant, gateway),
+            step,
+            total_records,
+        }
+    }
+}
+
+impl<'a> Context for Base<'a> {
+    fn role(&self) -> Role {
+        self.inner.gateway.role()
+    }
+
+    fn step(&self) -> &step::Descriptive {
+        &self.step
+    }
+
+    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            step: self.step.narrow(step),
+            total_records: self.total_records,
+        }
+    }
+
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            step: self.step.clone(),
+            total_records: self.total_records.overwrite(total_records),
+        }
+    }
+
+    fn total_records(&self) -> TotalRecords {
+        self.total_records
+    }
+
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
+        let prss = self.inner.prss.indexed(self.step());
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
+    }
+
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
+    }
+
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner
+            .gateway
+            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_receiver(&ChannelId::new(role, self.step.clone()))
+    }
+}
+
+impl<'a> SeqJoin for Base<'a> {
+    fn active_work(&self) -> NonZeroUsize {
+        self.inner.gateway.config().active_work()
+    }
+}
+
+struct Inner<'a> {
+    pub prss: &'a PrssEndpoint,
+    pub gateway: &'a Gateway,
+}
+
+impl<'a> Inner<'a> {
+    fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
+        Arc::new(Self { prss, gateway })
+    }
+}
+
+#[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::Direction,
-        protocol::{
-            malicious::{MaliciousValidator, Step::MaliciousProtocol},
-            prss::SharedRandomness,
-            step::StepNarrow,
-            RecordId,
-        },
+        protocol::{context::validator::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
@@ -116,7 +322,7 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field + ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
+    impl<F: ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
         fn l(&self) -> F::ExtendedField {
             (self as &MaliciousReplicated<F>).rx().left()
         }
@@ -237,7 +443,7 @@ mod tests {
         let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let _result = world
-            .malicious(input.clone(), |ctx, a| async move {
+            .upgraded_malicious(input.clone(), |ctx, a| async move {
                 let ctx = ctx.set_total_records(input_len);
                 join_all(
                     a.iter()
@@ -313,9 +519,9 @@ mod tests {
         let world = TestWorld::default();
 
         world
-            .semi_honest(input, |ctx, shares| async move {
+            .malicious(input, |ctx, shares| async move {
                 // upgrade shares two times using different contexts
-                let v = MaliciousValidator::new(ctx);
+                let v = ctx.validator();
                 let ctx = v.context().narrow("step1");
                 ctx.upgrade(shares.clone()).await.unwrap();
                 let ctx = v.context().narrow("step2");

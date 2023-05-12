@@ -1,30 +1,31 @@
 use crate::{
     error::Error,
-    ff::Field,
     protocol::{
-        basics::{Reshare, Reveal},
-        context::{Context, MaliciousContext},
-        malicious::MaliciousValidator,
+        basics::Reveal,
+        context::{
+            Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext, Validator,
+        },
         sort::{
-            ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
+            generate_permutation_opt::generate_permutation_opt,
+            shuffle::{get_two_of_three_random_permutations, shuffle_shares},
+            ShuffleRevealStep::{GeneratePermutation, RevealPermutation, ShufflePermutation},
             SortStep::{ShuffleRevealPermutation, SortKeys},
         },
-        NoRecord, RecordId,
+        BasicProtocols, NoRecord,
     },
     secret_sharing::{
         replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+                UnauthorizedDowngradeWrapper,
+            },
             semi_honest::AdditiveShare as Replicated,
         },
-        SecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
-
-use super::{
-    generate_permutation_opt::{generate_permutation_opt, malicious_generate_permutation_opt},
-    shuffle::{get_two_of_three_random_permutations, shuffle_shares},
-};
-use crate::protocol::{context::SemiHonestContext, sort::ShuffleRevealStep::GeneratePermutation};
+use async_trait::async_trait;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -44,53 +45,23 @@ pub struct ShuffledPermutationWrapper<T, C: Context> {
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-pub(super) async fn shuffle_and_reveal_permutation<
-    F: Field,
-    S: SecretSharing<F> + Reshare<C, RecordId> + Reveal<C, RecordId, Output = F>,
-    C: Context,
->(
-    ctx: C,
-    input_permutation: Vec<S>,
-) -> Result<RevealedAndRandomPermutations, Error> {
-    let random_permutations_for_shuffle = get_two_of_three_random_permutations(
-        u32::try_from(input_permutation.len()).expect("Input size fits into u32"),
-        ctx.narrow(&GeneratePermutation).prss_rng(),
-    );
-
-    let shuffled_permutation = shuffle_shares(
-        input_permutation,
-        (
-            random_permutations_for_shuffle.0.as_slice(),
-            random_permutations_for_shuffle.1.as_slice(),
-        ),
-        ctx.narrow(&ShufflePermutation),
-    )
-    .await?;
-
-    let reveal_ctx = ctx.narrow(&RevealPermutation);
-    let wrapper = ShuffledPermutationWrapper {
-        perm: shuffled_permutation,
-        ctx,
-    };
-    let revealed_permutation = wrapper.reveal(reveal_ctx, NoRecord).await?;
-
-    Ok(RevealedAndRandomPermutations {
-        revealed: revealed_permutation,
-        randoms_for_shuffle: random_permutations_for_shuffle,
-    })
-}
-
-/// This is a malicious implementation of shuffle and reveal.
 ///
 /// Steps
 /// 1. Get random permutation 2/3 shared across helpers
 /// 2. Shuffle shares three times
 /// 3. Validate the accumulated macs - this returns the revealed permutation
-pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field + ExtendableField>(
-    m_ctx: MaliciousContext<'_, F>,
-    input_permutation: Vec<MaliciousReplicated<F>>,
-    malicious_validator: MaliciousValidator<'_, F>,
-) -> Result<RevealedAndRandomPermutations, Error> {
+pub(super) async fn shuffle_and_reveal_permutation<C, S, F>(
+    m_ctx: C::UpgradedContext<F>,
+    input_permutation: Vec<S>,
+    malicious_validator: C::Validator<F>,
+) -> Result<RevealedAndRandomPermutations, Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    F: ExtendableField,
+    S: SecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F>,
+    ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+{
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_permutation.len().try_into().unwrap(),
         m_ctx.narrow(&GeneratePermutation).prss_rng(),
@@ -126,39 +97,59 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field + Extendab
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
-pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
-    ctx: SemiHonestContext<'_>,
+pub async fn generate_permutation_and_reveal_shuffled<C, S, F>(
+    sh_ctx: C,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
-) -> Result<RevealedAndRandomPermutations, Error> {
-    let sort_permutation = generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
-    shuffle_and_reveal_permutation(ctx.narrow(&ShuffleRevealPermutation), sort_permutation).await
-}
+) -> Result<RevealedAndRandomPermutations, Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
+    F: ExtendableField,
+    ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+{
+    let (validator, sort_permutation) =
+        generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
 
-/// This function takes in a semihonest context and sort keys, generates a sort permutation, shuffles and reveals it and
-/// returns both shuffle-revealed permutation and 2/3 randoms which were used to shuffle the permutation
-/// The output of this can be applied to any of semihonest/malicious context
-/// # Panics
-/// If unable to convert sort keys length to u32
-/// # Errors
-/// If unable to convert sort keys length to u32
-pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field + ExtendableField>(
-    sh_ctx: SemiHonestContext<'_>,
-    sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
-) -> Result<RevealedAndRandomPermutations, Error> {
-    let (malicious_validator, sort_permutation) =
-        malicious_generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
-
-    let m_ctx = malicious_validator.context();
-
-    malicious_shuffle_and_reveal_permutation(
+    let m_ctx = validator.context();
+    shuffle_and_reveal_permutation::<C, _, _>(
         m_ctx.narrow(&ShuffleRevealPermutation),
         sort_permutation,
-        malicious_validator,
+        validator,
     )
     .await
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[async_trait]
+impl<'a, F: ExtendableField> DowngradeMalicious
+    for ShuffledPermutationWrapper<MaliciousReplicated<F>, UpgradedMaliciousContext<'a, F>>
+{
+    type Target = Vec<u32>;
+    /// For ShuffledPermutationWrapper on downgrading, we reveal the permutation. This runs reveal on the malicious context
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = self
+            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
+            .await
+            .unwrap();
+        UnauthorizedDowngradeWrapper::new(output)
+    }
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> DowngradeMalicious
+    for ShuffledPermutationWrapper<Replicated<F>, UpgradedSemiHonestContext<'a, F>>
+{
+    type Target = Vec<u32>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = self
+            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
+            .await
+            .unwrap();
+        UnauthorizedDowngradeWrapper::new(output)
+    }
+}
+
+#[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
 mod tests {
     use std::iter::zip;
 
@@ -167,6 +158,7 @@ mod tests {
     use crate::{
         ff::GaloisField,
         protocol::{
+            context::{SemiHonestContext, UpgradableContext, Validator},
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,
@@ -202,9 +194,11 @@ mod tests {
                     convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
-                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                    .await
-                    .unwrap()
+                let (_validator, result) =
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                        .await
+                        .unwrap();
+                result
             })
             .await;
 
@@ -217,7 +211,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_shuffle_and_reveal_permutation() {
+    pub async fn shuffle_and_reveal() {
         const BATCHSIZE: u32 = 25;
 
         let mut rng = thread_rng();
@@ -231,9 +225,17 @@ mod tests {
 
         let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-        let h0_future = shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), perm0);
-        let h1_future = shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), perm1);
-        let h2_future = shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), perm2);
+        let v0 = ctx0.validator();
+        let v1 = ctx1.validator();
+        let v2 = ctx2.validator();
+
+        let ctx0 = v0.context().narrow("shuffle_reveal");
+        let ctx1 = v1.context().narrow("shuffle_reveal");
+        let ctx2 = v2.context().narrow("shuffle_reveal");
+
+        let h0_future = shuffle_and_reveal_permutation::<SemiHonestContext, _, _>(ctx0, perm0, v0);
+        let h1_future = shuffle_and_reveal_permutation::<SemiHonestContext, _, _>(ctx1, perm1, v1);
+        let h2_future = shuffle_and_reveal_permutation::<SemiHonestContext, _, _>(ctx2, perm2, v2);
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 

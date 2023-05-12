@@ -1,7 +1,11 @@
 use crate::{
-    ff::{Field, Fp31},
+    ff::Field,
     helpers::TotalRecords,
-    protocol::{basics::SecureMul, context::Context, RecordId},
+    protocol::{
+        basics::SecureMul,
+        context::{Context, SemiHonestContext},
+        RecordId,
+    },
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{narrow_contexts, Reconstruct, TestWorld},
@@ -14,7 +18,11 @@ use super::join3v;
 ///
 /// # Panics
 /// panics when circuits did not produce the expected value.
-pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
+pub async fn arithmetic<F>(width: u32, depth: u8)
+where
+    F: Field + IntoShares<Replicated<F>>,
+    for<'a> Replicated<F>: SecureMul<SemiHonestContext<'a>>,
+{
     let world = TestWorld::default();
 
     let mut multiplications = Vec::new();
@@ -33,12 +41,16 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
+async fn circuit<'a, F>(world: &'a TestWorld, record_id: RecordId, depth: u8) -> [Replicated<F>; 3]
+where
+    F: Field + IntoShares<Replicated<F>>,
+    Replicated<F>: SecureMul<SemiHonestContext<'a>>,
+{
     let top_ctx = world.contexts();
-    let mut a = Fp31::ONE.share_with(&mut thread_rng());
+    let mut a = F::ONE.share_with(&mut thread_rng());
 
     for bit in 0..depth {
-        let b = Fp31::ONE.share_with(&mut thread_rng());
+        let b = F::ONE.share_with(&mut thread_rng());
         let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
         a = async move {
             let mut coll = Vec::new();

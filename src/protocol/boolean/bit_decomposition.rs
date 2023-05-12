@@ -104,6 +104,7 @@ mod tests {
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
+        secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -120,7 +121,7 @@ mod tests {
 
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
-        F: PrimeField + Sized,
+        F: PrimeField + ExtendableField + Sized,
         Standard: Distribution<F>,
     {
         let result = world
