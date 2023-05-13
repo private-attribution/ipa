@@ -478,7 +478,7 @@ pub mod tests {
     };
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
-    use std::num::{NonZeroU32, NonZeroU64};
+    use std::num::NonZeroU32;
     use typenum::Unsigned;
 
     #[tokio::test]

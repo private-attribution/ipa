@@ -39,6 +39,11 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Creates a new instance of [`Self`]
+    ///
+    /// ## Panics
+    /// If any argument is 0.
+    #[must_use]
     pub fn new(
         max_user_id: u64,
         max_trigger_value: u32,
@@ -196,7 +201,7 @@ impl<R: Rng> Iterator for EventGenerator<R> {
         let idx = self.rng.gen_range(0..self.users.len());
         let user_id = self.users[idx].user_id;
         if self.users[idx].add_one() {
-            drop(self.users.swap_remove(idx));
+            self.users.swap_remove(idx);
         }
 
         Some(self.gen_event(user_id))
@@ -251,7 +256,7 @@ mod tests {
             )
         }
 
-        fn does_not_exceed_config_maximums(rng_seed: u64, config: Config, total_events: usize) {
+        fn does_not_exceed_config_maximums(rng_seed: u64, config: &Config, total_events: usize) {
             let max_breakdown = config.max_breakdown_key.get();
             let max_events = config.max_events_per_user.get();
 
@@ -287,7 +292,7 @@ mod tests {
         proptest! {
             #[test]
             fn iter_test(rng_seed: u64, config in arb_config(), total_events in 1_usize..2000) {
-                does_not_exceed_config_maximums(rng_seed, config, total_events)
+                does_not_exceed_config_maximums(rng_seed, &config, total_events);
             }
         }
     }

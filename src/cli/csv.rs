@@ -1,6 +1,9 @@
 use std::{io, io::Write};
 
 pub trait CsvSerializer {
+    /// Converts self into a CSV-encoded byte string
+    /// ## Errors
+    /// If this conversion fails due to insufficient capacity in `buf` or other reasons.
     fn to_csv<W: Write>(&self, buf: &mut W) -> io::Result<()>;
 }
 
