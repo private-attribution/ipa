@@ -77,6 +77,7 @@ impl Runner {
 mod tests {
     use super::*;
     use crate::{
+        ff::Fp31,
         secret_sharing::IntoShares,
         test_fixture::{join3v, Reconstruct, TestWorld},
     };

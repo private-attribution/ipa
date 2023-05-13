@@ -34,16 +34,25 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            max_user_id: NonZeroU64::new(1_000_000_000_000).unwrap(),
-            max_trigger_value: NonZeroU32::new(5).unwrap(),
-            max_breakdown_key: NonZeroU32::new(20).unwrap(),
-            max_events_per_user: NonZeroU32::new(50).unwrap(),
-        }
+        Self::new(1_000_000_000_000, 5, 20, 50)
     }
 }
 
 impl Config {
+    pub fn new(
+        max_user_id: u64,
+        max_trigger_value: u32,
+        max_breakdown_key: u32,
+        max_events_per_user: u32,
+    ) -> Self {
+        Self {
+            max_user_id: NonZeroU64::try_from(max_user_id).unwrap(),
+            max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
+            max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
+            max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
+        }
+    }
+
     fn max_user_id(&self) -> usize {
         usize::try_from(self.max_user_id.get()).unwrap()
     }
@@ -226,15 +235,10 @@ mod tests {
 
     mod proptests {
         use super::*;
-        use proptest::{
-            arbitrary::any,
-            prelude::{ProptestConfig, Strategy},
-            proptest,
-            test_runner::TestRng,
-        };
+        use proptest::{prelude::Strategy, proptest};
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
 
         fn arb_config() -> impl Strategy<Value = Config> {
             (1..u32::MAX, 1..u32::MAX, 1..u32::MAX).prop_map(

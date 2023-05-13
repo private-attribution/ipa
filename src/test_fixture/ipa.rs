@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, num::NonZeroU32, ops::Deref};
+use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::{
@@ -12,8 +12,6 @@ use crate::{
     },
     test_fixture::{input::GenericReportTestInput, Reconstruct},
 };
-
-use rand::Rng;
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
@@ -83,49 +81,6 @@ pub fn ipa_in_the_clear(
     }
 
     breakdowns
-}
-
-pub fn generate_random_user_records_in_reverse_chronological_order(
-    rng: &mut impl Rng,
-    max_records_per_user: u32,
-    max_breakdown_key: u32,
-    max_trigger_value: u32,
-) -> Vec<TestRawDataRecord> {
-    const MAX_USER_ID: u64 = 1_000_000_000_000;
-    const SECONDS_IN_EPOCH: u32 = 604_800;
-
-    let random_user_id = rng.gen_range(0..MAX_USER_ID);
-    let num_records_for_user = min(
-        rng.gen_range(1..max_records_per_user),
-        rng.gen_range(1..max_records_per_user),
-    );
-    let mut records_for_user = Vec::with_capacity(usize::try_from(num_records_for_user).unwrap());
-    for _ in 0..num_records_for_user {
-        let random_timestamp = u64::from(rng.gen_range(0..SECONDS_IN_EPOCH));
-        let is_trigger_report = rng.gen::<bool>();
-        let random_breakdown_key = if is_trigger_report {
-            0
-        } else {
-            rng.gen_range(0..max_breakdown_key)
-        };
-        let trigger_value = if is_trigger_report {
-            rng.gen_range(1..max_trigger_value)
-        } else {
-            0
-        };
-        records_for_user.push(TestRawDataRecord {
-            user_id: random_user_id,
-            timestamp: random_timestamp,
-            is_trigger_report,
-            breakdown_key: random_breakdown_key,
-            trigger_value,
-        });
-    }
-
-    // sort in reverse time order
-    records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-    records_for_user
 }
 
 /// Assumes records all belong to the same user, and are in reverse chronological order
