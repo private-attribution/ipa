@@ -258,7 +258,7 @@ mod tests {
 
     /// Passing 32 records for Fp31 doesn't work.
     #[tokio::test]
-    #[should_panic]
+    #[should_panic = "prime field ipa::ff::prime_field::fp31::Fp31 is too small to sort 32 records"]
     async fn fp31_overflow() {
         const COUNT: usize = 32;
         const NUM_MULTI_BITS: u32 = 3;

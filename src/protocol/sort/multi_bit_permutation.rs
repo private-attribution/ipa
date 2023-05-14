@@ -45,7 +45,9 @@ where
 
     if u128::try_from(num_records).unwrap() >= <F as PrimeField>::PRIME.into() {
         return Err(Error::FieldValueTruncation(format!(
-            "prime field {} is too small to sort {} records", std::any::type_name::<F>(), num_records)
+            "prime field {} is too small to sort {} records",
+            std::any::type_name::<F>(),
+            num_records
         )));
     }
 
