@@ -44,8 +44,8 @@ where
     assert!(num_multi_bits > 0);
 
     if u128::try_from(num_records).unwrap() >= <F as PrimeField>::PRIME.into() {
-        return Err(Error::FieldValueTruncation(String::from(
-            "prime field is too small to sort this many records",
+        return Err(Error::FieldValueTruncation(format!(
+            "prime field {} is too small to sort {} records", std::any::type_name::<F>(), num_records)
         )));
     }
 
