@@ -1,3 +1,4 @@
+use crate::exact::ExactSizeStream;
 use futures::{
     stream::{iter, Iter as StreamIter, TryCollect},
     Future, Stream, StreamExt, TryStreamExt,
@@ -207,6 +208,13 @@ where
             upper.and_then(|u| u.checked_add(in_progress)),
         )
     }
+}
+
+impl<S, F> ExactSizeStream for SequentialFutures<S, F>
+where
+    S: Stream<Item = F> + Send + ExactSizeStream,
+    F: IntoFuture,
+{
 }
 
 #[cfg(test)]

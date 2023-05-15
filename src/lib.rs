@@ -29,6 +29,7 @@ pub mod uri;
 pub mod test_fixture;
 
 mod app;
+mod exact;
 mod seq_join;
 mod tests;
 
