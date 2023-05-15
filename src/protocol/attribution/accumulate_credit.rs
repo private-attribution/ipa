@@ -159,8 +159,6 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
-    use std::{iter, num::NonZeroU32};
-
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -176,14 +174,16 @@ mod tests {
             },
             basics::Reshare,
             context::Context,
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            modulus_conversion::{convert_all_bits, LocalBitConverter},
             BreakdownKey, MatchKey, RecordId,
         },
         rand::thread_rng,
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{iter as stream_iter, StreamExt};
     use rand::Rng;
+    use std::{iter, num::NonZeroU32};
 
     async fn accumulate_credit_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
@@ -200,7 +200,9 @@ mod tests {
 
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                            .collect::<Vec<_>>()
+                            .await,
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
@@ -432,7 +434,9 @@ mod tests {
                         let bk_shares = iter::once(share.breakdown_key);
                         let mut converted_bk_shares = convert_all_bits(
                             &ctx,
-                            &convert_all_bits_local(ctx.role(), bk_shares),
+                            &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                                .collect::<Vec<_>>()
+                                .await,
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,
                         )

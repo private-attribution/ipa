@@ -48,7 +48,7 @@ mod tests {
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            modulus_conversion::{convert_all_bits, LocalBitConverter},
             sort::{
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
@@ -60,6 +60,7 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{iter as stream_iter, StreamExt};
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -100,10 +101,12 @@ mod tests {
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
                     let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                        LocalBitConverter::<Fp31, _, _>::new(ctx.role(), stream_iter(mk_shares))
+                            .collect::<Vec<_>>()
+                            .await;
                     let converted_shares = convert_all_bits(
                         &ctx.narrow("convert_all_bits"),
-                        &local_lists,
+                        &local_lists[..],
                         MatchKey::BITS,
                         NUM_MULTI_BITS,
                     )
@@ -120,7 +123,9 @@ mod tests {
 
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                            .collect::<Vec<_>>()
+                            .await[..],
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )

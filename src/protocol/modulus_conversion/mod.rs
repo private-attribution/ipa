@@ -1,8 +1,8 @@
 mod convert_shares;
 
 pub use convert_shares::{
-    convert_all_bits, convert_all_bits_local, convert_bit, convert_bit_list, convert_bit_local,
-    BitConversionTriple,
+    convert_all_bits, convert_bit, convert_bit_list, convert_bit_local, BitConversionTriple,
+    LocalBitConverter,
 };
 
 /// Split rows of bits into bits of rows such that each 2D vector can be processed as a set

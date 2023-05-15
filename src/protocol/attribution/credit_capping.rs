@@ -498,12 +498,13 @@ mod tests {
                 input::{CreditCappingInputRow, MCCreditCappingInputRow, MCCreditCappingOutputRow},
             },
             context::Context,
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            modulus_conversion::{convert_all_bits, LocalBitConverter},
             BreakdownKey, MatchKey,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{iter as stream_iter, StreamExt};
 
     async fn run_credit_capping_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
@@ -518,7 +519,9 @@ mod tests {
 
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                            .collect::<Vec<_>>()
+                            .await,
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )

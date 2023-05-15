@@ -152,27 +152,24 @@ impl<'a, F: ExtendableField> DowngradeMalicious
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
 mod tests {
-    use std::iter::zip;
-
-    use rand::seq::SliceRandom;
-
     use crate::{
-        ff::GaloisField,
+        ff::{Field, Fp31, GaloisField},
         protocol::{
-            context::{SemiHonestContext, UpgradableContext, Validator},
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
-            sort::generate_permutation_opt::generate_permutation_opt,
+            context::{Context, SemiHonestContext, UpgradableContext, Validator},
+            modulus_conversion::{convert_all_bits, LocalBitConverter},
+            sort::{
+                generate_permutation::shuffle_and_reveal_permutation,
+                generate_permutation_opt::generate_permutation_opt,
+            },
             MatchKey,
         },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
-    };
-
-    use crate::{
-        ff::{Field, Fp31},
-        protocol::{context::Context, sort::generate_permutation::shuffle_and_reveal_permutation},
         test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{iter as stream_iter, StreamExt};
+    use rand::seq::SliceRandom;
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -190,7 +187,9 @@ mod tests {
         let result = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists =
-                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                    LocalBitConverter::<Fp31, _>::new(ctx.role(), stream_iter(mk_shares))
+                        .collect::<Vec<_>>()
+                        .await;
                 let converted_shares =
                     convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                         .await

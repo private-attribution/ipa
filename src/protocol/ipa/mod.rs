@@ -13,7 +13,7 @@ use crate::{
             upgrade::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
             UpgradedContext, Validator,
         },
-        modulus_conversion::{convert_all_bits, convert_all_bits_local},
+        modulus_conversion::{convert_all_bits, LocalBitConverter},
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
@@ -32,7 +32,10 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::try_join4;
+use futures::{
+    future::try_join4,
+    stream::{iter as stream_iter, StreamExt},
+};
 use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
@@ -330,7 +333,9 @@ where
         .unzip();
 
     // Match key modulus conversion, and then sort
-    let locally_converted = convert_all_bits_local(m_ctx.role(), mk_shares.into_iter());
+    let locally_converted = LocalBitConverter::new(m_ctx.role(), stream_iter(mk_shares))
+        .collect::<Vec<_>>()
+        .await;
     let converted_mk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &m_ctx.upgrade(locally_converted).await?,
@@ -361,11 +366,14 @@ where
     let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
 
     // Breakdown key modulus conversion
+    let local_mk_bits = LocalBitConverter::new(m_ctx.role(), stream_iter(bk_shares))
+        .collect::<Vec<_>>()
+        .await;
     let mut converted_bk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
-            .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
+            .upgrade(local_mk_bits)
             .await?,
         BK::BITS,
         BK::BITS,

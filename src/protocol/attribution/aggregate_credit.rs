@@ -426,12 +426,13 @@ mod tests {
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
             context::{Context, UpgradableContext},
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            modulus_conversion::{convert_all_bits, LocalBitConverter},
             BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{iter as stream_iter, StreamExt};
 
     #[tokio::test]
     pub async fn aggregate() {
@@ -483,7 +484,9 @@ mod tests {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                            .collect::<Vec<_>>()
+                            .await,
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )

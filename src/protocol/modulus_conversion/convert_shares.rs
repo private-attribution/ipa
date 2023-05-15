@@ -1,5 +1,6 @@
 use crate::{
     error::Error,
+    exact::ExactSizeStream,
     ff::{Field, GaloisField},
     helpers::Role,
     protocol::{
@@ -15,7 +16,14 @@ use crate::{
     },
     seq_join::assert_send,
 };
-use std::iter::{repeat, zip};
+use futures::stream::Stream;
+use pin_project::pin_project;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+    pin::Pin,
+    task::{Context as TaskContext, Poll},
+};
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
 ///! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
@@ -92,18 +100,66 @@ pub fn convert_bit_local<F: Field, B: GaloisField>(
     })
 }
 
-#[must_use]
-pub fn convert_all_bits_local<F: Field, B: GaloisField>(
-    helper_role: Role,
-    input: impl Iterator<Item = Replicated<B>>,
-) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
-    input
-        .map(move |record| {
-            (0..B::BITS)
-                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, &record))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
+#[pin_project]
+pub struct LocalBitConverter<F, B, S>
+where
+    F: Field,
+    B: GaloisField,
+    S: Stream<Item = Replicated<B>>,
+{
+    role: Role,
+    #[pin]
+    input: S,
+    _f: PhantomData<F>,
+}
+
+impl<F, B, S> LocalBitConverter<F, B, S>
+where
+    F: Field,
+    B: GaloisField,
+    S: Stream<Item = Replicated<B>>,
+{
+    pub fn new(role: Role, input: S) -> Self {
+        Self {
+            role,
+            input,
+            _f: PhantomData,
+        }
+    }
+}
+
+impl<F, B, S> Stream for LocalBitConverter<F, B, S>
+where
+    F: Field,
+    B: GaloisField,
+    S: Stream<Item = Replicated<B>> + Send,
+{
+    type Item = Vec<BitConversionTriple<Replicated<F>>>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        match this.input.as_mut().poll_next(cx) {
+            Poll::Ready(Some(input)) => Poll::Ready(Some(
+                (0..B::BITS)
+                    .map(|bit_index: u32| convert_bit_local::<F, B>(*this.role, bit_index, &input))
+                    .collect::<Vec<_>>(),
+            )),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.input.size_hint()
+    }
+}
+
+impl<F, B, S> ExactSizeStream for LocalBitConverter<F, B, S>
+where
+    F: Field,
+    B: GaloisField,
+    S: Stream<Item = Replicated<B>> + Send + ExactSizeStream,
+{
 }
 
 /// Convert a locally-decomposed single bit into field elements.

@@ -115,31 +115,28 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            ff::GaloisField,
+            ff::{Fp31, Fp32BitPrime, GaloisField},
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
-                modulus_conversion::{convert_all_bits, convert_all_bits_local},
-                BreakdownKey, MatchKey,
-            },
-            rand::{thread_rng, Rng},
-            secret_sharing::replicated::ReplicatedSecretSharing,
-        };
-
-        use crate::{
-            ff::{Fp31, Fp32BitPrime},
-            protocol::{
                 context::Context,
+                modulus_conversion::{convert_all_bits, LocalBitConverter},
                 sort::{
                     apply_sort::shuffle::shuffle_shares,
                     shuffle::get_two_of_three_random_permutations,
                 },
+                BreakdownKey, MatchKey,
             },
-            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+            rand::{thread_rng, Rng},
+            secret_sharing::{
+                replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+                SharedValue,
+            },
             test_fixture::{
                 bits_to_value, get_bits, input::GenericReportTestInput, Reconstruct, Runner,
                 TestWorld,
             },
         };
+        use futures::stream::{iter as stream_iter, StreamExt};
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -185,7 +182,9 @@ mod tests {
 
                         let mut converted_bk_shares = convert_all_bits(
                             &ctx,
-                            &convert_all_bits_local(ctx.role(), bk_shares),
+                            &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
+                                .collect::<Vec<_>>()
+                                .await[..],
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,
                         )

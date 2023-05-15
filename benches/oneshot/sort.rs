@@ -1,10 +1,11 @@
+use futures::stream::{iter, StreamExt};
 use ipa::{
     error::Error,
     ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
     helpers::GatewayConfig,
     protocol::{
         context::{Context, Validator},
-        modulus_conversion::{convert_all_bits, convert_all_bits_local},
+        modulus_conversion::{convert_all_bits, LocalBitConverter},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
     },
@@ -38,7 +39,9 @@ async fn main() -> Result<(), Error> {
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
             convert_all_bits::<BenchField, _, _>(
                 &ctx,
-                &convert_all_bits_local(ctx.role(), match_key.into_iter()),
+                &LocalBitConverter::new(ctx.role(), iter(match_key))
+                    .collect::<Vec<_>>()
+                    .await,
                 Gf40Bit::BITS,
                 NUM_MULTI_BITS,
             )
