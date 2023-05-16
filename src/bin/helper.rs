@@ -129,7 +129,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     match args.command {
         None => server(args.server).await,
-        Some(HelperCommand::Keygen(args)) => keygen(args),
+        Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
     }
 }

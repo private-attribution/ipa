@@ -96,6 +96,8 @@ pub struct PeerConfig {
     /// If a certificate is specified here, only the specified certificate will be accepted. The system
     /// truststore will not be used.
     pub certificate: Option<String>,
+
+    pub matchkey_encryption_key: Option<String>,
 }
 
 impl PeerConfig {
@@ -103,6 +105,7 @@ impl PeerConfig {
         Self {
             url,
             certificate: None,
+            matchkey_encryption_key: None,
         }
     }
 
@@ -117,6 +120,7 @@ impl PeerConfig {
         PeerConfig {
             url: format!("https://localhost:{port}").parse().unwrap(),
             certificate: Some(TEST_CERT.to_owned()),
+            matchkey_encryption_key: Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned()),
         }
     }
 }
@@ -264,6 +268,16 @@ ZdJtrEnGRc0RGSBwP3N/fkcEAzuPw1ivcqOH5bWXPzSqPqQfADOrd8lK
 -----END PRIVATE KEY-----
 ";
 
+#[cfg(any(test))]
+const TEST_MATCHKEY_ENCRYPTION_KEY: &str = "\
+0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
+";
+
+#[allow(dead_code)]
+#[cfg(any(test))]
+const TEST_MATCHKEY_DECRYPTION_KEY: &str = "\
+a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
+";
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{helpers::HelperIdentity, test_fixture::config::TestConfigBuilder};

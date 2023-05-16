@@ -19,9 +19,9 @@ pub use info::Info;
 pub use registry::KeyRegistry;
 
 /// IPA ciphersuite
-type IpaKem = hpke::kem::X25519HkdfSha256;
-type IpaAead = hpke::aead::AesGcm128;
-type IpaKdf = hpke::kdf::HkdfSha256;
+pub type IpaKem = hpke::kem::X25519HkdfSha256;
+pub type IpaAead = hpke::aead::AesGcm128;
+pub type IpaKdf = hpke::kdf::HkdfSha256;
 
 pub type KeyIdentifier = u8;
 
@@ -37,8 +37,8 @@ type XorReplicated = AdditiveShare<Gf40Bit>;
 ///
 /// [`ipa-spec`]: https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#other-key-terms
 pub type Epoch = u16;
-type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
-type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
+pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
+pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 /// Event type as described [`ipa-issue`]
 /// Initially we will just support trigger vs source event types but could extend to others in

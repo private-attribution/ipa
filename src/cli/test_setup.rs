@@ -48,11 +48,19 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
         .map(|(id, port)| {
             let tls_cert = args.output_dir.join(format!("h{id}.pem"));
             let tls_key = args.output_dir.join(format!("h{id}.key"));
+            let matchkey_encryption_key = args
+                .output_dir
+                .join(format!("h{id}_matchkey_encryption_key"));
+            let matchkey_decryption_key = args
+                .output_dir
+                .join(format!("h{id}_matchkey_decryption_key"));
 
-            keygen(KeygenArgs {
+            keygen(&KeygenArgs {
                 name: String::from("localhost"),
                 tls_cert: tls_cert.clone(),
                 tls_key,
+                matchkey_encryption_key,
+                matchkey_decryption_key,
             })?;
 
             let certificate = Some(fs::read_to_string(&tls_cert)?);
@@ -60,6 +68,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
             Ok::<_, Box<dyn Error>>(PeerConfig {
                 url: format!("localhost:{port}").parse().unwrap(),
                 certificate,
+                matchkey_encryption_key: None,
             })
         })
         .collect::<Result<Vec<_>, _>>()?
