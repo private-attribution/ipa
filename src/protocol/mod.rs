@@ -7,6 +7,7 @@ pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;
 pub mod step;
+pub mod dp;
 
 use crate::{
     error::Error,
