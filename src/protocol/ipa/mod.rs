@@ -343,7 +343,7 @@ where
         config.num_multi_bits,
     )
     .await
-    .unwrap();
+    .unwrap(); // TODO multi-bits
 
     //Validate before calling sort with downgraded context
     let converted_mk_shares = validator.validate(converted_mk_shares).await?;

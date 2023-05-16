@@ -14,9 +14,9 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         Linear as LinearSecretSharing,
     },
-    seq_join::assert_send,
+    seq_join::seq_join,
 };
-use futures::stream::Stream;
+use futures::stream::{unfold, Stream, StreamExt};
 use pin_project::pin_project;
 use std::{
     iter::{repeat, zip},
@@ -165,7 +165,7 @@ where
 /// Convert a locally-decomposed single bit into field elements.
 /// # Errors
 /// Fails only if multiplication fails.
-pub async fn convert_bit<F, C, S>(
+async fn convert_bit<F, C, S>(
     ctx: C,
     record_id: RecordId,
     locally_converted_bits: &BitConversionTriple<S>,
@@ -194,40 +194,35 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
-pub async fn convert_all_bits<F, C, S>(
+pub async fn convert_all_bits<F, B, C, S, LS>(
     ctx: &C,
-    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
-    num_bits: u32,
-    num_multi_bits: u32,
-) -> Result<Vec<Vec<Vec<S>>>, Error>
+    locally_converted_bits: LS,
+) -> impl Stream<Item = Result<Vec<S>, Error>>
 where
     F: Field,
-    C: Context,
+    B: GaloisField,
+    C: Context + 'static,
     S: LinearSecretSharing<F> + SecureMul<C>,
+    LS: Stream<Item = Vec<BitConversionTriple<S>>> + ExactSizeStream + Unpin + Send,
 {
+    let active = ctx.active_work();
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
-    let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
-    // The outer loop is concurrent; the inner is fully sequential.
-    ctx.parallel_join(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
-        assert_send(
-            ctx.try_join(
-                zip(locally_converted_bits, repeat(ctx.clone()))
-                    .enumerate()
-                    .map(move |(idx, (record, ctx))| async move {
-                        convert_bit_list(
-                            ctx.narrow(&IpaProtocolStep::ModulusConversion(
-                                chunk[0].try_into().unwrap(),
-                            )),
-                            &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
-                            RecordId::from(idx),
-                        )
-                        .await
-                    }),
-            ),
-        )
-    }))
-    .await
+    let stream = unfold(
+        (ctx, locally_converted_bits, RecordId::FIRST),
+        |(ctx, mut locally_converted_bits, record_id)| async move {
+            let Some(triples) = locally_converted_bits.next().await else { return None; };
+            let converted = ctx.parallel_join(
+                zip(
+                    (0..B::BITS).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
+                    triples,
+                )
+                .map(|(ctx, bit)| async move { convert_bit(ctx, record_id, &bit).await }),
+            );
+            Some((converted, (ctx, locally_converted_bits, record_id + 1)))
+        },
+    );
+    seq_join(active, stream)
 }
 
 /// # Errors
@@ -235,7 +230,7 @@ where
 /// # Panics
 /// Propagates panics from convert shares
 pub async fn convert_bit_list<F, C, S>(
-    ctx: C,
+    ctx: &C,
     locally_converted_bits: &[&BitConversionTriple<S>],
     record_id: RecordId,
 ) -> Result<Vec<S>, Error>

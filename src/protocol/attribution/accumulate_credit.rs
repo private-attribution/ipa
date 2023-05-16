@@ -174,7 +174,7 @@ mod tests {
             },
             basics::Reshare,
             context::Context,
-            modulus_conversion::{convert_all_bits, LocalBitConverter},
+            modulus_conversion::convert_all_bits,
             BreakdownKey, MatchKey, RecordId,
         },
         rand::thread_rng,
@@ -198,16 +198,9 @@ mod tests {
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
-                            .collect::<Vec<_>>()
-                            .await,
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
+                    let mut converted_bk_shares = convert_all_bits(&ctx, stream_iter(bk_shares))
+                        .await
+                        .unwrap();
                     let converted_bk_shares = converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .iter()
@@ -432,16 +425,10 @@ mod tests {
                     secret,
                     |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
                         let bk_shares = iter::once(share.breakdown_key);
-                        let mut converted_bk_shares = convert_all_bits(
-                            &ctx,
-                            &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
-                                .collect::<Vec<_>>()
-                                .await,
-                            BreakdownKey::BITS,
-                            BreakdownKey::BITS,
-                        )
-                        .await
-                        .unwrap();
+                        let mut converted_bk_shares =
+                            convert_all_bits(&ctx, stream_iter(bk_shares))
+                                .await
+                                .unwrap();
                         let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                         let modulus_converted_share = MCAccumulateCreditInputRow::new(

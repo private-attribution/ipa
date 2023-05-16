@@ -119,7 +119,7 @@ mod tests {
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
                 context::Context,
-                modulus_conversion::{convert_all_bits, LocalBitConverter},
+                modulus_conversion::convert_all_bits,
                 sort::{
                     apply_sort::shuffle::shuffle_shares,
                     shuffle::get_two_of_three_random_permutations,
@@ -180,16 +180,10 @@ mod tests {
 
                         let bk_shares = shares.iter().map(|x| x.breakdown_key.clone());
 
-                        let mut converted_bk_shares = convert_all_bits(
-                            &ctx,
-                            &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
-                                .collect::<Vec<_>>()
-                                .await[..],
-                            BreakdownKey::BITS,
-                            BreakdownKey::BITS,
-                        )
-                        .await
-                        .unwrap();
+                        let mut converted_bk_shares =
+                            convert_all_bits(&ctx, stream_iter(bk_shares))
+                                .await
+                                .unwrap();
                         let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                         let converted_shares = shares

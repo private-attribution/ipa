@@ -16,10 +16,16 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::{
+    future::{try_join, try_join3},
+    stream::Stream,
+};
+use pin_project::pin_project;
 use std::{
     iter::{repeat, zip},
     marker::PhantomData,
+    pin::Pin,
+    task::{Context as TaskContext, Poll},
 };
 
 /// Special context type used for malicious upgrades.
@@ -255,6 +261,54 @@ where
             .await
     }
 }
+
+// #[pin_project]
+// pub struct UpgradeStream<'a, C, F, T, M, ST>
+// where
+//     C: UpgradedContext<F>,
+//     F: ExtendableField,
+//     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+//     ST: Stream<Item = T>,
+// {
+//     ctx: UpgradeContext<'a, C, F, NoRecord>,
+//     #[pin]
+//     input: ST,
+//     active:
+// }
+
+// impl<'a, C, F, T, ST, M> Stream for UpgradeStream<'a, C, F, T, ST, M>
+// where
+//     C: UpgradedContext<F>,
+//     F: ExtendableField,
+//     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+//     ST: Stream<Item = T>,
+//  {
+//     fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+//         let this = self.project();
+//         let res = this.input.as_mut().poll_next(cx);
+//         let Poll::Ready(Some(v)) = res else { return res; };
+
+//     }
+
+//     fn size_hint(&self) -> (usize, Option<usize>) {
+//         self.input.size_hint()
+//     }
+// }
+
+// #[async_trait]
+// impl<'a, C, F, T, M, ST> UpgradeToMalicious<'a, ST, UpgradeStream<'a, C, F, T, ST, M>>
+//     for UpgradeContext<'a, C, F, NoRecord>
+// where
+//     ST: Stream<Item = T> + Send + ExactSizeIterator,
+//     T: Send + 'static,
+//     M: Send + 'static,
+//     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+// {
+//     async fn upgrade(self, input: ST) -> Result<UpgradeStream<'a, C, F, T, ST, M>, Error> {
+//         self.ctx = self.ctx.set_total_records(input.len());
+//         Ok(UpgradeStream { ctx: self, input })
+//     }
+// }
 
 #[async_trait]
 impl<'a, C, F> UpgradeToMalicious<'a, Replicated<F>, C::Share>

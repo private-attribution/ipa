@@ -44,7 +44,7 @@ where
 mod tests {
     use crate::{
         accumulation_test_input,
-        ff::{Fp31, Fp32BitPrime, GaloisField},
+        ff::{Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
@@ -100,18 +100,10 @@ mod tests {
                     Vec<AdditiveShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
-                    let local_lists =
-                        LocalBitConverter::<Fp31, _, _>::new(ctx.role(), stream_iter(mk_shares))
-                            .collect::<Vec<_>>()
-                            .await;
-                    let converted_shares = convert_all_bits(
-                        &ctx.narrow("convert_all_bits"),
-                        &local_lists[..],
-                        MatchKey::BITS,
-                        NUM_MULTI_BITS,
-                    )
-                    .await
-                    .unwrap();
+                    let converted_shares =
+                        convert_all_bits(&ctx.narrow("convert_all_bits"), stream_iter(mk_shares))
+                            .await
+                            .unwrap(); // TODO split into multi-bit
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
                         converted_shares.iter(),
@@ -121,16 +113,9 @@ mod tests {
 
                     let bk_shares = secret.iter().map(|x| x.breakdown_key.clone());
 
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares))
-                            .collect::<Vec<_>>()
-                            .await[..],
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
+                    let mut converted_bk_shares = convert_all_bits(&ctx, stream_iter(bk_shares))
+                        .await
+                        .unwrap();
                     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                     let converted_secret = secret
