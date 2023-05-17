@@ -99,7 +99,15 @@ fn test_network(ports: &[u16; 3], https: bool) {
             if https {
                 command
                     .args(["--tls-cert".into(), dir.path().join(format!("h{id}.pem"))])
-                    .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))]);
+                    .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))])
+                    .args([
+                        "--matchkey-encryption-file".into(),
+                        dir.path().join(format!("h{id}_matchkey_encryption")),
+                    ])
+                    .args([
+                        "--matchkey-decryption-file".into(),
+                        dir.path().join(format!("h{id}_matchkey_decryption")),
+                    ]);
             } else {
                 command.arg("--disable-https");
             }

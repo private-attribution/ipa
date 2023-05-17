@@ -96,8 +96,6 @@ pub struct PeerConfig {
     /// If a certificate is specified here, only the specified certificate will be accepted. The system
     /// truststore will not be used.
     pub certificate: Option<String>,
-
-    pub matchkey_encryption_key: Option<String>,
 }
 
 impl PeerConfig {
@@ -105,7 +103,6 @@ impl PeerConfig {
         Self {
             url,
             certificate: None,
-            matchkey_encryption_key: None,
         }
     }
 
@@ -120,7 +117,6 @@ impl PeerConfig {
         PeerConfig {
             url: format!("https://localhost:{port}").parse().unwrap(),
             certificate: Some(TEST_CERT.to_owned()),
-            matchkey_encryption_key: Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned()),
         }
     }
 }
@@ -158,6 +154,24 @@ pub enum TlsConfig {
     },
 }
 
+#[derive(Clone, Debug)]
+pub enum MatchKeyEncryptionConfig {
+    File {
+        /// Path to file containing public key which encrypts match keys
+        public_key_file: PathBuf,
+
+        /// Path to file containing private key which decrypts match keys
+        private_key_file: PathBuf,
+    },
+    Inline {
+        /// Public key in hex format
+        public_key: String,
+
+        // Private key in hex format
+        private_key: String,
+    },
+}
+
 /// Configuration information for launching an instance of the helper party web service.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
@@ -171,6 +185,8 @@ pub struct ServerConfig {
 
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
+
+    pub matchkey_encryption_info: Option<MatchKeyEncryptionConfig>,
 }
 
 impl ServerConfig {
@@ -180,6 +196,10 @@ impl ServerConfig {
             port: None,
             disable_https: true,
             tls: None,
+            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
+                public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
+                private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
+            }),
         }
     }
 
@@ -189,6 +209,10 @@ impl ServerConfig {
             port: Some(port),
             disable_https: true,
             tls: None,
+            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
+                public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
+                private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
+            }),
         }
     }
 
@@ -205,6 +229,10 @@ impl ServerConfig {
             tls: Some(TlsConfig::Inline {
                 certificate: TEST_CERT.to_owned(),
                 private_key: TEST_KEY.to_owned(),
+            }),
+            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
+                public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
+                private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
             }),
         }
     }
@@ -268,13 +296,10 @@ ZdJtrEnGRc0RGSBwP3N/fkcEAzuPw1ivcqOH5bWXPzSqPqQfADOrd8lK
 -----END PRIVATE KEY-----
 ";
 
-#[cfg(any(test))]
 const TEST_MATCHKEY_ENCRYPTION_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";
 
-#[allow(dead_code)]
-#[cfg(any(test))]
 const TEST_MATCHKEY_DECRYPTION_KEY: &str = "\
 a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 ";

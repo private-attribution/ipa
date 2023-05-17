@@ -282,7 +282,6 @@ pub(crate) mod tests {
                 .parse()
                 .unwrap(),
             certificate: None,
-            matchkey_encryption_key: None,
         };
         let client = MpcHelperClient::new(client_config);
 

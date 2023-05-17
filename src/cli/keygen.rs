@@ -35,11 +35,11 @@ pub struct KeygenArgs {
 
     /// Writes the generated report public key to the file
     #[arg(long, visible_alias("matchkey-enc"))]
-    pub(crate) matchkey_encryption_key: PathBuf,
+    pub(crate) matchkey_encryption_file: PathBuf,
 
     /// Writes the generated report private key to the file
     #[arg(long, visible_alias("matchkey-dec"))]
-    pub(crate) matchkey_decryption_key: PathBuf,
+    pub(crate) matchkey_decryption_file: PathBuf,
 }
 
 fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
@@ -100,9 +100,9 @@ fn keygen_matchkey<R: Rng + CryptoRng>(
     let (private_key, public_key): (IpaPrivateKey, IpaPublicKey) =
         <IpaKem as hpke::Kem>::gen_keypair(&mut rng);
 
-    create_new(&args.matchkey_encryption_key)?
+    create_new(&args.matchkey_encryption_file)?
         .write_all(hex::encode(hpke::Serializable::to_bytes(&private_key)).as_bytes())?;
-    create_new(&args.matchkey_decryption_key)?
+    create_new(&args.matchkey_decryption_file)?
         .write_all(hex::encode(hpke::Serializable::to_bytes(&public_key)).as_bytes())?;
 
     Ok(())
