@@ -95,6 +95,7 @@ dhat = "0.3.2"
 tikv-jemallocator = "0.5.0"
 
 [dev-dependencies]
+command-fds = "0.2.2"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"
