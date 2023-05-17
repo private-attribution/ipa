@@ -175,8 +175,6 @@ pub enum MatchKeyEncryptionConfig {
 /// Configuration information for launching an instance of the helper party web service.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    // Report public key
-    // Report private key
     /// Port to listen. If not specified, will ask Kernel to assign the port
     pub port: Option<u16>,
 
@@ -186,11 +184,13 @@ pub struct ServerConfig {
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
 
+    /// Configuration needed for encrypting and decrypting match keys
     pub matchkey_encryption_info: Option<MatchKeyEncryptionConfig>,
 }
 
 impl ServerConfig {
     #[must_use]
+    #[cfg(test)]
     pub fn insecure_http() -> ServerConfig {
         ServerConfig {
             port: None,
@@ -204,6 +204,7 @@ impl ServerConfig {
     }
 
     #[must_use]
+    #[cfg(any(test, feature = "test-fixture"))]
     pub fn insecure_http_port(port: u16) -> ServerConfig {
         ServerConfig {
             port: Some(port),
@@ -296,13 +297,16 @@ ZdJtrEnGRc0RGSBwP3N/fkcEAzuPw1ivcqOH5bWXPzSqPqQfADOrd8lK
 -----END PRIVATE KEY-----
 ";
 
+#[cfg(any(test, feature = "test-fixture"))]
 const TEST_MATCHKEY_ENCRYPTION_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";
 
+#[cfg(any(test, feature = "test-fixture"))]
 const TEST_MATCHKEY_DECRYPTION_KEY: &str = "\
 a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 ";
+
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{helpers::HelperIdentity, test_fixture::config::TestConfigBuilder};
