@@ -109,7 +109,7 @@ impl TestConfigBuilder {
     pub fn build(self) -> TestConfig {
         let mut sockets = None;
         let ports = self.ports.unwrap_or_else(|| {
-            let socks = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+            let socks = array::from_fn(|_| TcpListener::bind("localhost:0").unwrap());
             let ports = socks
                 .iter()
                 .map(|sock| sock.local_addr().unwrap().port())
@@ -262,7 +262,7 @@ fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static 
     let key = TEST_KEYS[id];
     #[cfg(target_os = "macos")]
     let key = TEST_KEYS_MUNGED[id];
-    (TEST_CERTS[id].as_bytes(), key.as_bytes())
+    (TEST_CERTS[id], key)
 }
 
 #[must_use]
@@ -271,8 +271,8 @@ pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
     ClientIdentity::Certificate(Identity::from_pkcs8(certificate, private_key).unwrap())
 }
 
-pub const TEST_CERTS: [&str; 3] = [
-    "\
+pub const TEST_CERTS: [&[u8]; 3] = [
+    b"\
 -----BEGIN CERTIFICATE-----
 MIIBZjCCAQugAwIBAgIIIw4wCKfWSPwwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
 bG9jYWxob3N0MB4XDTIzMDUxNDIwNDQ0MloXDTIzMDgxMzIwNDQ0MlowFDESMBAG
@@ -284,7 +284,7 @@ SQAwRgIhAOyM9wLZFviaBJxofO1biI14hsfF83ZjmJ3ecfTt/HdfAiEAgzGzmJQC
 T0I681GCNIl5G+81QhtxZU+L/wTFEDvZab8=
 -----END CERTIFICATE-----
 ",
-    "\
+    b"\
 -----BEGIN CERTIFICATE-----
 MIIBZTCCAQugAwIBAgIIALb+d1gYZ6wwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
 bG9jYWxob3N0MB4XDTIzMDUxNDIwNDQ0MloXDTIzMDgxMzIwNDQ0MlowFDESMBAG
@@ -296,7 +296,7 @@ SAAwRQIgAxmYy2xWLuT7Tj4mPN4o2dN6hUUrLgDoaB3ANKGn6HUCIQDWCWDEFYz6
 axKi9RVXFKJRTl+2uDnvJDlByuu9eO7Zcw==
 -----END CERTIFICATE-----
 ",
-    "\
+    b"\
 -----BEGIN CERTIFICATE-----
 MIIBZjCCAQugAwIBAgIICNNqnceOGYowCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
 bG9jYWxob3N0MB4XDTIzMDUxNDIwNDQ0MloXDTIzMDgxMzIwNDQ0MlowFDESMBAG
@@ -311,8 +311,8 @@ ap/vPUI/erdbh9kBXcOaHSDVR3gCfhuPhyI=
 ];
 
 pub static TEST_CERTS_DER: Lazy<[Vec<u8>; 3]> = Lazy::new(|| {
-    TEST_CERTS.map(|pem| {
-        rustls_pemfile::certs(&mut pem.as_bytes())
+    TEST_CERTS.map(|mut pem| {
+        rustls_pemfile::certs(&mut pem)
             .unwrap()
             .into_iter()
             .next()
@@ -320,22 +320,22 @@ pub static TEST_CERTS_DER: Lazy<[Vec<u8>; 3]> = Lazy::new(|| {
     })
 });
 
-pub const TEST_KEYS: [&str; 3] = [
-    "\
+pub const TEST_KEYS: [&[u8]; 3] = [
+    b"\
 -----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgSgj+YneEAzry+Tc6
 dPeYP2chY5GtaXAl0vp5rxx8ccqhRANCAASbWRKgUuv42qnGwP26btId4yQ7A32e
 5xVz7aSnfysEl1BcyftjbitKYZ+V7RyoVkYyv3JfvKJo+Uj2F7dscbFR
 -----END PRIVATE KEY-----
 ",
-    "\
+    b"\
 -----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgB1nJigUsvqfOv9Zr
 TNczUB6PexVrfUqmmqLC2uE5KZyhRANCAATj6piXMn3sedHSXvlzVJt9wSHbrhXF
 KbSMVpfYjvuxPuyewHVRdrjP4M9y2lMSxoJqjzF/a+Gun9mD52thraTr
 -----END PRIVATE KEY-----
 ",
-    "\
+    b"\
 -----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgn46qbscTVwdDs5sO
 IyJbB/BrsRFSMBvLsUkh30dLdFyhRANCAATBOYXVQSeJ+ZDbja5BbNmChkPRIcP5
@@ -347,22 +347,22 @@ yV8EGPwurXSVtO3V2WHGFicoOuS5mEWAQJdgBHxlR+nn/EFOMN2JI7HV
 // These keys are re-coded by the munge_private_key function in `src/bin/helper.rs`.
 // TODO(640): to be removed when we standardize on rustls
 #[cfg(target_os = "macos")]
-pub const TEST_KEYS_MUNGED: [&str; 3] = [
-    "\
+pub const TEST_KEYS_MUNGED: [&[u8]; 3] = [
+    b"\
 -----BEGIN PRIVATE KEY-----
 MHcCAQEEIEoI/mJ3hAM68vk3OnT3mD9nIWORrWlwJdL6ea8cfHHKoAoGCCqGSM49
 AwEHoUQDQgAEm1kSoFLr+NqpxsD9um7SHeMkOwN9nucVc+2kp38rBJdQXMn7Y24r
 SmGfle0cqFZGMr9yX7yiaPlI9he3bHGxUQ==
 -----END PRIVATE KEY-----
 ",
-    "\
+    b"\
 -----BEGIN PRIVATE KEY-----
 MHcCAQEEIAdZyYoFLL6nzr/Wa0zXM1Aej3sVa31KppqiwtrhOSmcoAoGCCqGSM49
 AwEHoUQDQgAE4+qYlzJ97HnR0l75c1SbfcEh264VxSm0jFaX2I77sT7snsB1UXa4
 z+DPctpTEsaCao8xf2vhrp/Zg+drYa2k6w==
 -----END PRIVATE KEY-----
 ",
-    "\
+    b"\
 -----BEGIN PRIVATE KEY-----
 MHcCAQEEIJ+Oqm7HE1cHQ7ObDiMiWwfwa7ERUjAby7FJId9HS3RcoAoGCCqGSM49
 AwEHoUQDQgAEwTmF1UEnifmQ242uQWzZgoZD0SHD+clfBBj8Lq10lbTt1dlhxhYn

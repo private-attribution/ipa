@@ -86,17 +86,12 @@ pub struct PeerConfig {
 
     /// Peer's TLS certificate
     ///
+    /// The peer's end-entity TLS certificate must be specified here, unless HTTPS is disabled.
     /// In `network.toml`, the certificate must be in PEM format. It is converted to DER
     /// when the config is loaded.
     ///
-    /// Either the peer's TLS certificate, or the authority certificate that issues the peer
-    /// certificate, must be specified here, unless HTTPS is disabled.
-    ///
-    /// It is possible to rely on the system truststore and omit this configuration if the peers use
-    /// certificates from public CAs, but the client certificate verification is not currently
-    /// configured to work off of the system truststore. (Besides the mechanics of accessing the
-    /// system truststore, there is also the issue of what client CA names the server should send
-    /// in that case.)
+    /// Verifying a peer's TLS certificate against the system truststore or a custom root of
+    /// trust is not currently supported.
     #[serde(default, deserialize_with = "certificate_from_pem")]
     pub certificate: Option<Certificate>,
 }
@@ -122,21 +117,6 @@ where
         )),
     }
 }
-
-/*
- * TODO(tls): delete this if not needed when TLS and config work is finished
-
-fn pk_from_str<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: String = Deserialize::deserialize(deserializer)?;
-    let mut buf = [0_u8; 32];
-    hex::decode_to_slice(s, &mut buf).map_err(<D::Error as serde::de::Error>::custom)?;
-
-    Ok(PublicKey::from(buf))
-}
-*/
 
 #[derive(Clone, Debug)]
 pub enum TlsConfig {

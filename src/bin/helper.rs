@@ -24,9 +24,11 @@ mod pkcs8 {
     };
     use std::str;
 
-    // Well this is annoying. The `native-tls` implementation on Mac OS cannot
-    // import unencrypted PKCS8-format EC keys. So we rewrite the key into a
-    // format that it will accept (OpenSSL format).
+    // Well this is annoying. `native-tls` on Mac OS cannot import unencrypted
+    // PKCS8-format EC keys. So we rewrite the key into a format that it will
+    // accept (OpenSSL format). It appears the problem is in Mac OS itself, so a
+    // fix in native-tls would at best be a workaround. For more discussion, see
+    // https://github.com/sfackler/rust-native-tls/issues/225#issuecomment-1544741380
     // TODO(640): to be removed when we standardize on rustls
     pub fn munge_private_key(key: &[u8]) -> Vec<u8> {
         let doc = SecretDocument::from_pem(&str::from_utf8(key).unwrap())

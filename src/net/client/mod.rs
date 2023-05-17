@@ -21,9 +21,9 @@ use hyper_tls::{
     HttpsConnector,
 };
 use std::{collections::HashMap, iter::repeat};
-use tracing::warn;
+use tracing::error;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum ClientIdentity {
     /// Claim the specified helper identity without any additional authentication.
     ///
@@ -36,13 +36,8 @@ pub enum ClientIdentity {
     Certificate(Identity),
 
     /// Do not authenticate nor claim a helper identity.
+    #[default]
     None,
-}
-
-impl Default for ClientIdentity {
-    fn default() -> Self {
-        ClientIdentity::None
-    }
 }
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
@@ -93,7 +88,7 @@ impl MpcHelperClient {
             // but would make the type of `self.client` variable.
             let auth_header = match identity {
                 ClientIdentity::Certificate(_) => {
-                    warn!("certificate identity ignored for HTTP client");
+                    error!("certificate identity ignored for HTTP client");
                     None
                 }
                 ClientIdentity::Helper(id) => Some((HTTP_CLIENT_ID_HEADER.clone(), id.into())),
@@ -111,7 +106,7 @@ impl MpcHelperClient {
                         builder.identity(identity);
                     }
                     ClientIdentity::Helper(_) => {
-                        warn!("header-passed identity ignored for HTTPS client");
+                        error!("header-passed identity ignored for HTTPS client");
                     }
                     ClientIdentity::None => (),
                 };

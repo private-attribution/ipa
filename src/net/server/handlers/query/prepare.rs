@@ -95,7 +95,7 @@ mod tests {
     impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://127.0.0.1:{}{}/{}?field_type={}&query_type=test-multiply",
+                "http://localhost:{}{}/{}?field_type={}&query_type=test-multiply",
                 port,
                 http_serde::query::BASE_AXUM_PATH,
                 self.query_id,

@@ -86,7 +86,6 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     fn call(&mut self, req: Request<B>) -> Self::Future {
         match req.extensions().get() {
             Some(ClientIdentity(_)) => self.inner.call(req).left_future(),
-            // rustfmt's handling of this may be a bug?
             None => ready(Ok((
                 StatusCode::UNAUTHORIZED,
                 "This API requires the client helper to authenticate",

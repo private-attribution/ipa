@@ -20,10 +20,9 @@ use axum_server::{
     tls_rustls::{RustlsAcceptor, RustlsConfig},
     Handle, Server,
 };
-use futures::{future::BoxFuture, Future};
-use futures_util::{
-    future::{ready, Either, Ready},
-    FutureExt,
+use futures::{
+    future::{ready, BoxFuture, Either, Ready},
+    Future, FutureExt,
 };
 use hyper::{header::HeaderName, server::conn::AddrStream, Request};
 use metrics::increment_counter;
@@ -42,7 +41,6 @@ use tokio_rustls::{
         ServerConfig as RustlsServerConfig,
     },
     server::TlsStream,
-    webpki::{self, DnsNameRef, EndEntityCert},
 };
 use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
@@ -353,37 +351,19 @@ impl ClientCertRecognizingAcceptor {
         let Some(cert) = cert_option else {
             return None;
         };
-        // Fast and easy -- look for an exact match of certificate
+        // We currently require an exact match with the peer cert (i.e. we don't support verifying
+        // the certificate against a truststore and identifying the peer by the certificate
+        // subject). This could be changed if the need arises.
         for (id, peer) in network_config.enumerate_peers() {
             if peer.certificate.as_ref() == Some(cert) {
                 return Some(ClientIdentity(id));
             }
         }
-        // No exact match, look for a trust relationship
-        let end_entity_cert = match EndEntityCert::try_from(cert.as_ref()) {
-            Ok(cert) => cert,
-            Err(err) => {
-                error!("unable to parse client certificate: {err}");
-                return None;
-            }
-        };
-        for (id, peer) in network_config.enumerate_peers() {
-            let Ok(name) = DnsNameRef::try_from_ascii_str(peer.url.host().unwrap()) else {
-                error!("peer {} has an invalid hostname", peer.url.host().unwrap());
-                return None;
-            };
-            match end_entity_cert.verify_is_valid_for_dns_name(name) {
-                Ok(()) => {
-                    return Some(ClientIdentity(id));
-                }
-                Err(webpki::Error::CertNotValidForName) => continue,
-                Err(err) => {
-                    error!("error checking client certificate: {err}");
-                }
-            }
-        }
         // It might be nice to log something here. We could log the certificate base64?
-        error!("a client certificate was supplied, but did not match any known helper");
+        error!(
+            "A client certificate was presented that does not match a known helper. Certificate: {}",
+            base64::encode(cert),
+        );
         None
     }
 }
