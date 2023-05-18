@@ -8,7 +8,7 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 
-pub use csv::CsvSerializer;
+pub use csv::Serializer as CsvSerializer;
 #[cfg(feature = "web-app")]
 pub use keygen::{keygen, KeygenArgs};
 pub use metric_collector::{install_collector, CollectorHandle};

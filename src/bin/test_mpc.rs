@@ -93,7 +93,7 @@ enum TestAction {
     /// Generate inputs for IPA
     GenIpaInputs {
         /// Number of records to generate
-        #[clap(long, short = 'c')]
+        #[clap(long, short = 'n')]
         count: u32,
 
         /// The destination file for generated records

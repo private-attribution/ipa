@@ -262,6 +262,7 @@ mod tests {
 
             let gen = EventGenerator::with_default_config(StdRng::seed_from_u64(rng_seed));
             let mut events_per_users = HashMap::<_, u32>::new();
+            let mut last_ts = 0;
             for event in gen.take(total_events) {
                 let counter = events_per_users.entry(event.user_id).or_default();
                 *counter += 1_u32;
@@ -275,6 +276,10 @@ mod tests {
                 );
 
                 // basic correctness checks
+                assert!(
+                    event.timestamp >= last_ts,
+                    "Found an event with timestamp preceding the previous event timestamp"
+                );
                 if event.is_trigger_report {
                     assert_eq!(
                         0, event.breakdown_key,
@@ -286,6 +291,8 @@ mod tests {
                         "Found source report with trigger value set"
                     );
                 }
+
+                last_ts = event.timestamp;
             }
         }
 

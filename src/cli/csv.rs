@@ -1,6 +1,6 @@
 use std::{io, io::Write};
 
-pub trait CsvSerializer {
+pub trait Serializer {
     /// Converts self into a CSV-encoded byte string
     /// ## Errors
     /// If this conversion fails due to insufficient capacity in `buf` or other reasons.
@@ -8,7 +8,7 @@ pub trait CsvSerializer {
 }
 
 #[cfg(any(test, feature = "test-fixture"))]
-impl CsvSerializer for crate::test_fixture::ipa::TestRawDataRecord {
+impl Serializer for crate::test_fixture::ipa::TestRawDataRecord {
     fn to_csv<W: Write>(&self, buf: &mut W) -> io::Result<()> {
         // fmt::write is cool because it does not allocate when serializing integers
         write!(buf, "{},", self.timestamp)?;
