@@ -11,7 +11,7 @@ use axum::{routing::IntoMakeService, Router};
 use axum_server::{
     accept::Accept,
     service::{MakeServiceRef, SendService},
-    Handle, Server,
+    Handle, HttpConfig, Server,
 };
 use futures::Future;
 use hyper::{server::conn::AddrStream, Request};
@@ -202,6 +202,12 @@ where
     tokio::spawn({
         async move {
             server
+                // TODO: configuration
+                .http_config(
+                    HttpConfig::default()
+                        .http2_max_concurrent_streams(Some(256))
+                        .build(),
+                )
                 .handle(handle)
                 .serve(svc)
                 .await

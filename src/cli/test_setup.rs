@@ -1,6 +1,6 @@
 use crate::{
     cli::{keygen, KeygenArgs},
-    config::{NetworkConfig, PeerConfig},
+    config::{ClientConfig, NetworkConfig, PeerConfig},
 };
 use clap::Args;
 use std::{
@@ -23,6 +23,10 @@ pub struct TestSetupArgs {
     /// Ignored. The same configuration can be used for HTTP and HTTPS.
     #[arg(long)]
     disable_https: bool,
+
+    /// Configure helper clients to use HTTP1 instead of default HTTP version (HTTP2 at the moment).
+    #[arg(long, default_value_t = false)]
+    use_http1: bool,
 
     #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
@@ -66,7 +70,15 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
         .try_into()
         .unwrap();
 
-    let network_config = toml::to_string_pretty(&NetworkConfig { peers })?;
+    let client_config = if args.use_http1 {
+        ClientConfig::use_http1()
+    } else {
+        ClientConfig::default()
+    };
+    let network_config = toml::to_string_pretty(&NetworkConfig {
+        peers,
+        client: client_config,
+    })?;
 
     fs::write(args.output_dir.join("network.toml"), network_config)?;
 

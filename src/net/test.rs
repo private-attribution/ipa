@@ -1,5 +1,5 @@
 use crate::{
-    config::{NetworkConfig, PeerConfig, ServerConfig},
+    config::{ClientConfig, NetworkConfig, PeerConfig, ServerConfig},
     helpers::{HelperIdentity, TransportCallbacks},
     net::{HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
@@ -20,7 +20,7 @@ use once_cell::sync::Lazy;
 use std::{array, error::Error as StdError, net::SocketAddr, ops::Deref};
 use tokio::task::JoinHandle;
 
-static DEFAULT_CLIENT_CONFIG: Lazy<PeerConfig> =
+static DEFAULT_PEER_CONFIG: Lazy<PeerConfig> =
     Lazy::new(|| PeerConfig::new("http://localhost:3000".parse().unwrap()));
 
 type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
@@ -66,13 +66,14 @@ pub struct TestServerBuilder {
     callbacks: Option<HttpTransportCallbacks>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
+    use_http1: bool,
 }
 
 /// Construct an *insecure* HTTPS client for a test server.
 ///
 /// The resulting client accepts invalid server certificates and is thus only suitable for test
 /// usage.
-fn https_client(addr: SocketAddr) -> MpcHelperClient {
+fn https_client(addr: SocketAddr, client_config: &ClientConfig) -> MpcHelperClient {
     // requires custom client to use self signed certs
     let conn = TlsConnector::builder()
         .danger_accept_invalid_certs(true)
@@ -87,7 +88,7 @@ fn https_client(addr: SocketAddr) -> MpcHelperClient {
         .path_and_query("/")
         .build()
         .unwrap();
-    MpcHelperClient::new_with_connector(uri, https)
+    MpcHelperClient::new_with_connector(uri, https, client_config)
 }
 
 impl TestServerBuilder {
@@ -104,6 +105,12 @@ impl TestServerBuilder {
 
     pub fn disable_https(mut self) -> Self {
         self.disable_https = true;
+        self
+    }
+
+    #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+    pub fn use_http1(mut self) -> Self {
+        self.use_http1 = true;
         self
     }
 
@@ -124,9 +131,15 @@ impl TestServerBuilder {
         );
         let (addr, handle) = server.start(self.metrics).await;
         let client = if self.disable_https {
-            MpcHelperClient::with_str_addr(&format!("http://{addr}")).unwrap()
+            MpcHelperClient::with_str_addr_default(&format!("http://{addr}")).unwrap()
         } else {
-            https_client(addr)
+            https_client(
+                addr,
+                &self
+                    .use_http1
+                    .then(ClientConfig::use_http1)
+                    .unwrap_or_default(),
+            )
         };
         TestServer {
             addr,
@@ -183,7 +196,9 @@ impl TestClientsBuilder {
     pub fn build(self) -> TestClients {
         TestClients(match self.network_config {
             Some(config) => MpcHelperClient::from_conf(&config),
-            None => array::from_fn(|_| MpcHelperClient::new(DEFAULT_CLIENT_CONFIG.clone())),
+            None => array::from_fn(|_| {
+                MpcHelperClient::new(&ClientConfig::default(), DEFAULT_PEER_CONFIG.clone())
+            }),
         })
     }
 }
