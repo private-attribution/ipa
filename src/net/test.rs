@@ -66,6 +66,7 @@ pub struct TestServerBuilder {
     callbacks: Option<HttpTransportCallbacks>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
+    disable_matchkey_encryption: bool,
 }
 
 /// Construct an *insecure* HTTPS client for a test server.
@@ -107,11 +108,24 @@ impl TestServerBuilder {
         self
     }
 
+    #[allow(dead_code)]
+    // TODO(richaj) Add tests for checking the handling of this. At present the code to decrypt does not exist.
+    pub fn disable_matchkey_encryption(mut self) -> Self {
+        self.disable_matchkey_encryption = true;
+        self
+    }
+
     pub async fn build(self) -> TestServer {
         let (scheme, server_config) = if self.disable_https {
-            (Scheme::HTTP, ServerConfig::insecure_http())
+            (
+                Scheme::HTTP,
+                ServerConfig::insecure_http(!self.disable_matchkey_encryption),
+            )
         } else {
-            (Scheme::HTTPS, ServerConfig::https_self_signed())
+            (
+                Scheme::HTTPS,
+                ServerConfig::https_self_signed(!self.disable_matchkey_encryption),
+            )
         };
         let clients = TestClients::default();
         let network_config = NetworkConfig::default().override_scheme(&scheme);

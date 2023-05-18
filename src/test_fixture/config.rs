@@ -70,20 +70,27 @@ where
 # H1
 [[peers]]
 url = "http://localhost:{}"
+[[client_config]]
+public_key = ""
 
 # H2
 [[peers]]
 url = "http://localhost:{}"
+[[client_config]]
+public_key = ""
 
 # H3
 [[peers]]
 url = "http://localhost:{}"
+[[client_config]]
+public_key = ""
+
 "#,
         ports[0], ports[1], ports[2]
     );
 
     let network = NetworkConfig::from_toml_str(&config_str).unwrap();
-    let servers = ports.map(ServerConfig::insecure_http_port);
+    let servers = ports.map(|port| ServerConfig::insecure_http_port(port, false));
 
     (network, servers)
 }

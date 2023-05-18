@@ -23,6 +23,7 @@ pub struct NetworkConfig {
     /// listed here determines their assigned helper identities in the network. Note that while the
     /// helper identities are stable, roles are assigned per query.
     pub peers: [PeerConfig; 3],
+    pub client_config: [ClientConfig; 3],
 }
 
 impl NetworkConfig {
@@ -62,6 +63,7 @@ impl NetworkConfig {
                 peer.url = Uri::try_from(parts).unwrap();
                 peer
             }),
+            client_config: self.client_config,
         }
     }
 }
@@ -74,6 +76,11 @@ impl Default for NetworkConfig {
                 PeerConfig::new("localhost:3000".parse().unwrap()),
                 PeerConfig::new("localhost:3001".parse().unwrap()),
                 PeerConfig::new("localhost:3002".parse().unwrap()),
+            ],
+            client_config: [
+                ClientConfig::test_matchkey_encryption(),
+                ClientConfig::test_matchkey_encryption(),
+                ClientConfig::test_matchkey_encryption(),
             ],
         }
     }
@@ -117,6 +124,24 @@ impl PeerConfig {
         PeerConfig {
             url: format!("https://localhost:{port}").parse().unwrap(),
             certificate: Some(TEST_CERT.to_owned()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientConfig {
+    /// Configuration to send to the clients of IPA.
+    /// This includes public key which should be used to encrypt match keys
+    pub public_key: Option<String>,
+}
+
+impl ClientConfig {
+    /// Returns `ClientConfig` with default test public key.
+    #[must_use]
+    #[cfg(any(test))]
+    pub fn test_matchkey_encryption() -> ClientConfig {
+        ClientConfig {
+            public_key: Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned()),
         }
     }
 }
@@ -190,30 +215,38 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     #[must_use]
-    #[cfg(test)]
-    pub fn insecure_http() -> ServerConfig {
+    #[cfg(any(test, feature = "test-fixture"))]
+    pub fn insecure_http(matchkey_encryption: bool) -> ServerConfig {
         ServerConfig {
             port: None,
             disable_https: true,
             tls: None,
-            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
+            matchkey_encryption_info: Self::get_dummy_matchkey_encryption_info(matchkey_encryption),
+        }
+    }
+
+    #[cfg(any(test, feature = "test-fixture"))]
+    fn get_dummy_matchkey_encryption_info(
+        matchkey_encryption: bool,
+    ) -> Option<MatchKeyEncryptionConfig> {
+        if matchkey_encryption {
+            Some(MatchKeyEncryptionConfig::Inline {
                 public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
                 private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
-            }),
+            })
+        } else {
+            None
         }
     }
 
     #[must_use]
     #[cfg(any(test, feature = "test-fixture"))]
-    pub fn insecure_http_port(port: u16) -> ServerConfig {
+    pub fn insecure_http_port(port: u16, matchkey_encryption: bool) -> ServerConfig {
         ServerConfig {
             port: Some(port),
             disable_https: true,
             tls: None,
-            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
-                public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
-                private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
-            }),
+            matchkey_encryption_info: Self::get_dummy_matchkey_encryption_info(matchkey_encryption),
         }
     }
 
@@ -223,7 +256,7 @@ impl ServerConfig {
     /// if cert is invalid
     #[must_use]
     #[cfg(any(test, feature = "self-signed-certs"))]
-    pub fn https_self_signed() -> ServerConfig {
+    pub fn https_self_signed(matchkey_encryption: bool) -> ServerConfig {
         ServerConfig {
             port: None,
             disable_https: false,
@@ -231,10 +264,7 @@ impl ServerConfig {
                 certificate: TEST_CERT.to_owned(),
                 private_key: TEST_KEY.to_owned(),
             }),
-            matchkey_encryption_info: Some(MatchKeyEncryptionConfig::Inline {
-                public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
-                private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
-            }),
+            matchkey_encryption_info: Self::get_dummy_matchkey_encryption_info(matchkey_encryption),
         }
     }
 
