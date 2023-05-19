@@ -1,6 +1,6 @@
 use crate::{
     cli::{keygen, KeygenArgs},
-    config::{ClientConfig, NetworkConfig, PeerConfig},
+    config::{NetworkConfig, PeerConfig},
 };
 use clap::Args;
 use std::{
@@ -44,7 +44,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
         DirBuilder::new().create(&args.output_dir)?;
     }
 
-    let configs: [(PeerConfig, ClientConfig); 3] = zip([1, 2, 3], args.ports)
+    let peers = zip([1, 2, 3], args.ports)
         .map(|(id, port)| {
             let tls_cert = args.output_dir.join(format!("h{id}.pem"));
             let tls_key = args.output_dir.join(format!("h{id}.key"));
@@ -64,34 +64,19 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
             })?;
 
             let certificate = Some(fs::read_to_string(&tls_cert)?);
-            let matchkey_encryption = Some(fs::read_to_string(&matchkey_encryption_file)?);
+            let matchkey_encryption_key = Some(fs::read_to_string(&matchkey_encryption_file)?);
 
-            Ok::<_, Box<dyn Error>>((
-                PeerConfig {
-                    url: format!("localhost:{port}").parse().unwrap(),
-                    certificate,
-                },
-                ClientConfig {
-                    public_key: matchkey_encryption,
-                },
-            ))
+            Ok::<_, Box<dyn Error>>(PeerConfig {
+                url: format!("localhost:{port}").parse().unwrap(),
+                certificate,
+                matchkey_encryption_key,
+            })
         })
         .collect::<Result<Vec<_>, _>>()?
         .try_into()
         .unwrap();
 
-    let network_config = toml::to_string_pretty(&NetworkConfig {
-        peers: [
-            configs[0].0.clone(),
-            configs[1].0.clone(),
-            configs[2].0.clone(),
-        ],
-        client_config: [
-            configs[0].1.clone(),
-            configs[1].1.clone(),
-            configs[2].1.clone(),
-        ],
-    })?;
+    let network_config = toml::to_string_pretty(&NetworkConfig { peers })?;
 
     fs::write(args.output_dir.join("network.toml"), network_config)?;
 

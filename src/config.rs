@@ -23,7 +23,6 @@ pub struct NetworkConfig {
     /// listed here determines their assigned helper identities in the network. Note that while the
     /// helper identities are stable, roles are assigned per query.
     pub peers: [PeerConfig; 3],
-    pub client_config: [ClientConfig; 3],
 }
 
 impl NetworkConfig {
@@ -63,7 +62,6 @@ impl NetworkConfig {
                 peer.url = Uri::try_from(parts).unwrap();
                 peer
             }),
-            client_config: self.client_config,
         }
     }
 }
@@ -76,11 +74,6 @@ impl Default for NetworkConfig {
                 PeerConfig::new("localhost:3000".parse().unwrap()),
                 PeerConfig::new("localhost:3001".parse().unwrap()),
                 PeerConfig::new("localhost:3002".parse().unwrap()),
-            ],
-            client_config: [
-                ClientConfig::test_matchkey_encryption(),
-                ClientConfig::test_matchkey_encryption(),
-                ClientConfig::test_matchkey_encryption(),
             ],
         }
     }
@@ -103,6 +96,8 @@ pub struct PeerConfig {
     /// If a certificate is specified here, only the specified certificate will be accepted. The system
     /// truststore will not be used.
     pub certificate: Option<String>,
+    /// public key which should be used to encrypt match keys
+    pub matchkey_encryption_key: Option<String>,
 }
 
 impl PeerConfig {
@@ -110,6 +105,7 @@ impl PeerConfig {
         Self {
             url,
             certificate: None,
+            matchkey_encryption_key: None,
         }
     }
 
@@ -120,28 +116,15 @@ impl PeerConfig {
     /// never, but clippy doesn't understand that
     #[must_use]
     #[cfg(any(test, feature = "self-signed-certs"))]
-    pub fn https_self_signed(port: u16) -> PeerConfig {
+    pub fn https_self_signed(port: u16, matchkey_encryption: bool) -> PeerConfig {
         PeerConfig {
             url: format!("https://localhost:{port}").parse().unwrap(),
             certificate: Some(TEST_CERT.to_owned()),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientConfig {
-    /// Configuration to send to the clients of IPA.
-    /// This includes public key which should be used to encrypt match keys
-    pub public_key: Option<String>,
-}
-
-impl ClientConfig {
-    /// Returns `ClientConfig` with default test public key.
-    #[must_use]
-    #[cfg(any(test))]
-    pub fn test_matchkey_encryption() -> ClientConfig {
-        ClientConfig {
-            public_key: Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned()),
+            matchkey_encryption_key: if matchkey_encryption {
+                Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned())
+            } else {
+                None
+            },
         }
     }
 }

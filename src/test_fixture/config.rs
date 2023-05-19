@@ -70,20 +70,14 @@ where
 # H1
 [[peers]]
 url = "http://localhost:{}"
-[[client_config]]
-public_key = ""
 
 # H2
 [[peers]]
 url = "http://localhost:{}"
-[[client_config]]
-public_key = ""
 
 # H3
 [[peers]]
 url = "http://localhost:{}"
-[[client_config]]
-public_key = ""
 
 "#,
         ports[0], ports[1], ports[2]
