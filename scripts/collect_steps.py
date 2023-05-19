@@ -6,8 +6,7 @@ import subprocess
 # all possible configurations.
 
 IPA_ENV = [["RUST_LOG", "ipa=DEBUG"]]
-CARGO = "cargo"
-OPTIONS = [
+ARGS = [
     "cargo",
     "bench",
     "--bench",
@@ -58,7 +57,6 @@ def collect_steps(args):
     output = []
 
     proc = subprocess.Popen(
-        executable=CARGO,
         args=args,
         env=set_env(),
         stdout=subprocess.PIPE,
@@ -146,7 +144,7 @@ if __name__ == "__main__":
         for w in ATTRIBUTION_WINDOW:
             for b in BREAKDOWN_KEYS:
                 for m in SECURITY_MODEL:
-                    args = OPTIONS + [
+                    args = ARGS + [
                         "-n",
                         str(QUERY_SIZE),
                         "-c",
