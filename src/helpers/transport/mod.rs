@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{step, QueryId},
+    protocol::{step::GateImpl, QueryId},
 };
 use async_trait::async_trait;
 use futures::Stream;
@@ -28,7 +28,7 @@ where
 }
 pub trait StepBinding: Sized
 where
-    Option<step::Descriptive>: From<Self>,
+    Option<GateImpl>: From<Self>,
 {
 }
 
@@ -55,32 +55,30 @@ impl From<NoQueryId> for Option<QueryId> {
 impl QueryIdBinding for NoQueryId {}
 impl QueryIdBinding for QueryId {}
 
-impl From<NoStep> for Option<step::Descriptive> {
+impl From<NoStep> for Option<GateImpl> {
     fn from(_: NoStep) -> Self {
         None
     }
 }
 
 impl StepBinding for NoStep {}
-impl StepBinding for step::Descriptive {}
+impl StepBinding for GateImpl {}
 
 pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
 where
     Option<QueryId>: From<Q>,
-    Option<step::Descriptive>: From<S>,
+    Option<GateImpl>: From<S>,
 {
     type Params: Borrow<str>;
 
     fn resource_identifier(&self) -> R;
     fn query_id(&self) -> Q;
-    fn step(&self) -> S;
+    fn gate(&self) -> S;
 
     fn extra(&self) -> Self::Params;
 }
 
-impl RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>
-    for (QueryId, step::Descriptive)
-{
+impl RouteParams<NoResourceIdentifier, QueryId, GateImpl> for (QueryId, GateImpl) {
     type Params = &'static str;
 
     fn resource_identifier(&self) -> NoResourceIdentifier {
@@ -91,7 +89,7 @@ impl RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>
         self.0
     }
 
-    fn step(&self) -> step::Descriptive {
+    fn gate(&self) -> GateImpl {
         self.1.clone()
     }
 
@@ -100,7 +98,7 @@ impl RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>
     }
 }
 
-impl RouteParams<RouteId, QueryId, step::Descriptive> for (RouteId, QueryId, step::Descriptive) {
+impl RouteParams<RouteId, QueryId, GateImpl> for (RouteId, QueryId, GateImpl) {
     type Params = &'static str;
 
     fn resource_identifier(&self) -> RouteId {
@@ -111,7 +109,7 @@ impl RouteParams<RouteId, QueryId, step::Descriptive> for (RouteId, QueryId, ste
         self.1
     }
 
-    fn step(&self) -> step::Descriptive {
+    fn gate(&self) -> GateImpl {
         self.2.clone()
     }
 
@@ -139,7 +137,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     ) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
-        Option<step::Descriptive>: From<S>,
+        Option<GateImpl>: From<S>,
         Q: QueryIdBinding,
         S: StepBinding,
         R: RouteParams<RouteId, Q, S>,
@@ -147,7 +145,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GateImpl>>(
         &self,
         from: HelperIdentity,
         route: R,

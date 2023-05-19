@@ -6,7 +6,7 @@ use crate::{
         basics::ZeroPositions,
         context::UpgradedContext,
         modulus_conversion::BitConversionTriple,
-        step::{self, BitOpStep, Step},
+        step::{BitOpStep, Step},
         NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
@@ -354,7 +354,7 @@ enum UpgradeMCCappedCreditsWithAggregationBit {
     V3,
 }
 
-impl step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
+impl crate::protocol::step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
 
 impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
     fn as_ref(&self) -> &str {

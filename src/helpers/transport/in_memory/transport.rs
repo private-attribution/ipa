@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    protocol::{step, QueryId},
+    protocol::{step::GateImpl, QueryId},
 };
 use ::tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -107,7 +107,7 @@ impl InMemoryTransport {
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
-                                let step = addr.step.unwrap();
+                                let step = addr.gate.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, step), stream);
                                 Ok(())
@@ -166,7 +166,7 @@ impl Transport for Weak<InMemoryTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<step::Descriptive>: From<S>,
+        Option<GateImpl>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
@@ -189,13 +189,13 @@ impl Transport for Weak<InMemoryTransport> {
             .and_then(convert::identity)
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GateImpl>>(
         &self,
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
         ReceiveRecords::new(
-            (route.query_id(), from, route.step()),
+            (route.query_id(), from, route.gate()),
             self.upgrade().unwrap().record_streams.clone(),
         )
     }
@@ -259,7 +259,7 @@ struct Addr {
     route: RouteId,
     origin: Option<HelperIdentity>,
     query_id: Option<QueryId>,
-    step: Option<step::Descriptive>,
+    gate: Option<GateImpl>,
     params: String,
 }
 
@@ -271,13 +271,13 @@ impl Addr {
     ) -> Self
     where
         Option<QueryId>: From<Q>,
-        Option<step::Descriptive>: From<S>,
+        Option<GateImpl>: From<S>,
     {
         Self {
             route: route.resource_identifier(),
             origin: Some(origin),
             query_id: route.query_id().into(),
-            step: route.step().into(),
+            gate: route.gate().into(),
             params: route.extra().borrow().to_string(),
         }
     }
@@ -287,12 +287,12 @@ impl Addr {
     }
 
     #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
-    fn records(from: HelperIdentity, query_id: QueryId, step: step::Descriptive) -> Self {
+    fn records(from: HelperIdentity, query_id: QueryId, gate: GateImpl) -> Self {
         Self {
             route: RouteId::Records,
             origin: Some(from),
             query_id: Some(query_id),
-            step: Some(step),
+            gate: Some(gate),
             params: String::new(),
         }
     }
@@ -303,7 +303,7 @@ impl Debug for Addr {
         write!(
             f,
             "Addr[route={:?}, query_id={:?}, step={:?}, params={}]",
-            self.route, self.query_id, self.step, self.params
+            self.route, self.query_id, self.gate, self.params
         )
     }
 }
@@ -369,7 +369,6 @@ mod tests {
         helpers::{
             query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
         },
-        protocol::step,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
@@ -432,10 +431,7 @@ mod tests {
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport.receive(
-            HelperIdentity::TWO,
-            (QueryId, step::Descriptive::from(STEP)),
-        );
+        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, GateImpl::from(STEP)));
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -444,7 +440,7 @@ mod tests {
         ));
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, step::Descriptive::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, GateImpl::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
@@ -460,15 +456,13 @@ mod tests {
 
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, step::Descriptive::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, GateImpl::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
 
-        let stream = Arc::downgrade(&transport).receive(
-            HelperIdentity::TWO,
-            (QueryId, step::Descriptive::from(STEP)),
-        );
+        let stream = Arc::downgrade(&transport)
+            .receive(HelperIdentity::TWO, (QueryId, GateImpl::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -485,7 +479,7 @@ mod tests {
 
             let from_transport = transports.get(&from).unwrap();
             let to_transport = transports.get(&to).unwrap();
-            let step = step::Descriptive::from(STEP);
+            let step = GateImpl::from(STEP);
 
             let mut recv = to_transport.receive(from, (QueryId, step.clone()));
             assert!(matches!(
@@ -535,7 +529,7 @@ mod tests {
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
-        let step = step::Descriptive::from(STEP);
+        let step = GateImpl::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
@@ -584,7 +578,7 @@ mod tests {
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);
 
-        let step = step::Descriptive::from(STEP);
+        let step = GateImpl::from(STEP);
         transport1
             .send(
                 HelperIdentity::TWO,

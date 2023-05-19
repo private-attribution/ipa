@@ -458,7 +458,7 @@ pub mod query {
                 http_serde::query::{OriginHeader, BASE_AXUM_PATH},
                 Error,
             },
-            protocol::{step, QueryId},
+            protocol::{step::GateImpl, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
@@ -472,21 +472,16 @@ pub mod query {
         pub struct Request<B> {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
-            pub step: step::Descriptive,
+            pub gate: GateImpl,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(
-                origin: HelperIdentity,
-                query_id: QueryId,
-                step: step::Descriptive,
-                body: B,
-            ) -> Self {
+            pub fn new(origin: HelperIdentity, query_id: QueryId, gate: GateImpl, body: B) -> Self {
                 Self {
                     origin,
                     query_id,
-                    step,
+                    gate,
                     body,
                 }
             }
@@ -506,7 +501,7 @@ pub mod query {
                         "{}/{}/step/{}",
                         BASE_AXUM_PATH,
                         self.query_id.as_ref(),
-                        self.step.as_ref()
+                        self.gate.as_ref()
                     ))
                     .build()?;
                 // TODO(597): this is a misuse of the origin header, and is insecure.
@@ -535,13 +530,13 @@ pub mod query {
             // the form of trait bounds on the impl) to see that PathRejection can be converted to
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let Path((query_id, step)) = req.extract::<Path<_>>().await?;
+                let Path((query_id, gate)) = req.extract::<Path<_>>().await?;
                 let origin_header = req.extract::<OriginHeader>().await?;
                 let body = req.extract::<BodyStream>().await?;
                 Ok(Self {
                     origin: origin_header.origin,
                     query_id,
-                    step,
+                    gate,
                     body,
                 })
             }

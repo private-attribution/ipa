@@ -54,7 +54,7 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
         NoQueryId
     }
 
-    fn step(&self) -> NoStep {
+    fn gate(&self) -> NoStep {
         NoStep
     }
 
@@ -80,7 +80,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
         self.query_id
     }
 
-    fn step(&self) -> NoStep {
+    fn gate(&self) -> NoStep {
         NoStep
     }
 

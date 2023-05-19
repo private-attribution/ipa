@@ -13,7 +13,7 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{self, Step, StepNarrow},
+        step::{GateImpl, Step, StepNarrow},
         RecordId,
     },
     secret_sharing::replicated::{
@@ -68,8 +68,8 @@ impl<'a> super::Context for Context<'a> {
         self.inner.role()
     }
 
-    fn step(&self) -> &step::Descriptive {
-        self.inner.step()
+    fn gate(&self) -> &GateImpl {
+        self.inner.gate()
     }
 
     fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
@@ -138,7 +138,7 @@ pub struct Upgraded<'a, F: ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<UpgradedInner<'a, F>>,
-    step: step::Descriptive,
+    gate: GateImpl,
     total_records: TotalRecords,
 }
 
@@ -151,7 +151,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
     ) -> Self {
         Self {
             inner: UpgradedInner::new(source, acc, r_share),
-            step: source.step().narrow(malicious_step),
+            gate: source.gate().narrow(malicious_step),
             total_records: TotalRecords::Unspecified,
         }
     }
@@ -167,7 +167,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
         Base::new_complete(
             self.inner.prss,
             self.inner.gateway,
-            self.step.clone(),
+            self.gate.clone(),
             self.total_records,
         )
     }
@@ -242,14 +242,14 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &step::Descriptive {
-        &self.step
+    fn gate(&self) -> &GateImpl {
+        &self.gate
     }
 
     fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
-            step: self.step.narrow(step),
+            gate: self.gate.narrow(step),
             total_records: self.total_records,
         }
     }
@@ -257,7 +257,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
-            step: self.step.clone(),
+            gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
         }
     }
@@ -267,9 +267,9 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
-        let prss = self.inner.prss.indexed(self.step());
+        let prss = self.inner.prss.indexed(self.gate());
 
-        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
+        InstrumentedIndexedSharedRandomness::new(prss, &self.gate, self.role())
     }
 
     fn prss_rng(
@@ -278,23 +278,23 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         InstrumentedSequentialSharedRandomness<'_>,
         InstrumentedSequentialSharedRandomness<'_>,
     ) {
-        let (left, right) = self.inner.prss.sequential(self.step());
+        let (left, right) = self.inner.prss.sequential(self.gate());
         (
-            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
-            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(left, self.gate(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.gate(), self.role()),
         )
     }
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
         self.inner
             .gateway
-            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+            .get_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
         self.inner
             .gateway
-            .get_receiver(&ChannelId::new(role, self.step.clone()))
+            .get_receiver(&ChannelId::new(role, self.gate.clone()))
     }
 }
 

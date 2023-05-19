@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity,
     },
     net::{http_serde, Error},
-    protocol::{step, QueryId},
+    protocol::{step::GateImpl, QueryId},
 };
 use axum::http::uri::{self, Parts, Scheme};
 use futures::{Stream, StreamExt};
@@ -193,11 +193,11 @@ impl MpcHelperClient {
         &self,
         origin: HelperIdentity,
         query_id: QueryId,
-        step: &step::Descriptive,
+        gate: &GateImpl,
         data: S,
     ) -> Result<ResponseFuture, Error> {
         let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
-        let req = http_serde::query::step::Request::new(origin, query_id, step.clone(), body);
+        let req = http_serde::query::step::Request::new(origin, query_id, gate.clone(), body);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         Ok(self.client.request(req))
     }
@@ -430,7 +430,7 @@ pub(crate) mod tests {
         } = TestServer::builder().build().await;
         let origin = HelperIdentity::ONE;
         let expected_query_id = QueryId;
-        let expected_step = step::Descriptive::default().narrow("test-step");
+        let expected_step = GateImpl::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let resp = client
