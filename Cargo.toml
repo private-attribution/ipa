@@ -36,6 +36,7 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
+step-trace = []
 
 [dependencies]
 aes = "0.8"
