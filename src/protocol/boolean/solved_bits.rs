@@ -1,8 +1,13 @@
-use super::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits};
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{
+        boolean::{
+            bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
+        },
+        context::{Context, UpgradedContext},
+        BasicProtocols, RecordId,
+    },
     secret_sharing::{
         replicated::malicious::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
@@ -79,15 +84,12 @@ pub async fn solved_bits<F, S, C>(
 where
     F: PrimeField,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F>,
 {
     //
     // step 1 & 2
     //
-    let b_b = ctx
-        .narrow(&Step::RandomBits)
-        .generate_random_bits(record_id)
-        .await?;
+    let b_b = one_random_bit(ctx.narrow(&Step::RandomBits), record_id).await?;
 
     //
     // step 3, 4 & 5

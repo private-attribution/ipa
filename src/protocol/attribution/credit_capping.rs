@@ -8,8 +8,8 @@ use crate::{
     ff::{Field, PrimeField},
     protocol::{
         basics::{if_else, SecureMul},
-        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
+        context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
@@ -33,7 +33,7 @@ pub async fn credit_capping<F, C, S>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, S>>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
@@ -252,7 +252,7 @@ async fn report_level_capping<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
+    C: UpgradedContext<F>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let share_of_cap = T::share_known_value(&ctx, F::truncate_from(cap));
@@ -306,7 +306,7 @@ async fn is_credit_larger_than_cap<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
+    C: UpgradedContext<F>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let ctx_ref = &ctx;
@@ -341,7 +341,7 @@ async fn propagate_overflow_detection<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
+    C: UpgradedContext<F>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let helper_bits = input
@@ -497,14 +497,14 @@ mod tests {
                 credit_capping::credit_capping,
                 input::{CreditCappingInputRow, MCCreditCappingInputRow, MCCreditCappingOutputRow},
             },
-            context::Context,
+            context::{UpgradableContext, Validator},
             modulus_conversion::convert_all_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt};
+    use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
 
     async fn run_credit_capping_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
@@ -515,12 +515,17 @@ mod tests {
             .semi_honest(
                 input,
                 |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
-                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
+                    let validator = ctx.validator(); // We're not running validation for this in this case.
+                    let ctx = validator.context();
 
-                    let mut converted_bk_shares = convert_all_bits(&ctx, stream_iter(bk_shares))
+                    // TODO: it seems like modulus conversion could operate over a stream of references.
+                    // Investigate taking `AsRef<Replicated<F>>` to avoid this clone.
+                    let bk_shares = stream_iter(input.iter().map(|x| x.breakdown_key.clone()));
+
+                    let converted_bk_shares = convert_all_bits(ctx.clone(), bk_shares)
+                        .try_collect::<Vec<_>>()
                         .await
                         .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

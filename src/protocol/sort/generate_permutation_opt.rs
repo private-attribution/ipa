@@ -159,7 +159,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField, Gf40Bit},
         protocol::{
-            context::{Context, Validator},
+            context::{Context, UpgradableContext, Validator},
             modulus_conversion::{convert_all_bits, LocalBitConverter},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,
@@ -187,14 +187,12 @@ mod tests {
 
         let result = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    LocalBitConverter::<Fp31, _, _>::new(ctx.role(), stream_iter(mk_shares))
-                        .collect::<Vec<_>>()
-                        .await;
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
+                let validator = ctx.validator();
+                let m_ctx = validator.context();
+                let converted_shares = convert_all_bits(m_ctx.clone(), stream_iter(mk_shares))
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .unwrap(); // TODO split into multi-bits
 
                 let (_validator, result) =
                     generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
@@ -228,14 +226,10 @@ mod tests {
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
             .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    LocalBitConverter::<Fp31, _, _>::new(ctx.role(), stream_iter(mk_shares))
-                        .collect::<Vec<_>>()
-                        .await;
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
+                let converted_shares = convert_all_bits(&ctx, stream_iter(mk_shares))
+                    .try_collect()
+                    .await
+                    .unwrap();
                 generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                     .await
                     .unwrap()
@@ -276,15 +270,10 @@ mod tests {
 
         _ = world
             .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    LocalBitConverter::<Fp31, _, _>::new(ctx.role(), stream_iter(mk_shares))
-                        .collect::<Vec<_>>()
-                        .await;
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
-
+                let converted_shares = convert_all_bits(ctx, stream_iter(mk_shares))
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .unwrap();
                 generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                     .await
                     .unwrap()

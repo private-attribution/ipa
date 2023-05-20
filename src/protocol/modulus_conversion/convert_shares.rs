@@ -1,12 +1,12 @@
 use crate::{
     error::Error,
     exact::ExactSizeStream,
-    ff::{Field, GaloisField},
+    ff::{Field, GaloisField, PrimeField},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,
-        context::Context,
+        context::{Context, UpgradeContext, UpgradeToMalicious, UpgradedContext},
         step::IpaProtocolStep,
         RecordId,
     },
@@ -19,7 +19,7 @@ use crate::{
 use futures::stream::{unfold, Stream, StreamExt};
 use pin_project::pin_project;
 use std::{
-    iter::{repeat, zip},
+    iter::zip,
     marker::PhantomData,
     pin::Pin,
     task::{Context as TaskContext, Poll},
@@ -64,48 +64,58 @@ impl AsRef<str> for Step {
 
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 
-/// Convert one bit of an XOR sharing into a triple of replicated sharings of that bit.
-/// This is not a usable construct, but it can be used with `convert_one_bit` to produce
-/// a single replicated sharing of that bit.
-///
-/// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
-///
-/// # Panics
-/// If any bits in the bitwise shared input cannot be converted into the given field `F`
-/// without truncation.
-#[must_use]
-pub fn convert_bit_local<F: Field, B: GaloisField>(
-    helper_role: Role,
-    bit_index: u32,
-    input: &Replicated<B>,
-) -> BitConversionTriple<Replicated<F>> {
-    let left = u128::from(input.left()[bit_index]);
-    let right = u128::from(input.right()[bit_index]);
-    BitConversionTriple(match helper_role {
-        Role::H1 => [
-            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
-            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
-            Replicated::new(F::ZERO, F::ZERO),
-        ],
-        Role::H2 => [
-            Replicated::new(F::ZERO, F::ZERO),
-            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
-            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
-        ],
-        Role::H3 => [
-            Replicated::new(F::ZERO, F::try_from(right).unwrap()),
-            Replicated::new(F::ZERO, F::ZERO),
-            Replicated::new(F::try_from(left).unwrap(), F::ZERO),
-        ],
-    })
+impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
+    /// Convert one bit of an XOR sharing into a triple of replicated sharings of that bit.
+    /// This is not a usable construct, but it can be used with `convert_one_bit` to produce
+    /// a single replicated sharing of that bit.
+    ///
+    /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
+    ///
+    /// # Panics
+    /// If any bits in the bitwise shared input cannot be converted into the given field `F`
+    /// without truncation or if the bit index is out of range for `B`.
+    #[must_use]
+    pub fn new(helper_role: Role, left: bool, right: bool) -> Self {
+        let left = F::try_from(u128::from(left)).unwrap();
+        let right = F::try_from(u128::from(right)).unwrap();
+        Self(match helper_role {
+            Role::H1 => [
+                Replicated::new(left, F::ZERO),
+                Replicated::new(F::ZERO, right),
+                Replicated::new(F::ZERO, F::ZERO),
+            ],
+            Role::H2 => [
+                Replicated::new(F::ZERO, F::ZERO),
+                Replicated::new(left, F::ZERO),
+                Replicated::new(F::ZERO, right),
+            ],
+            Role::H3 => [
+                Replicated::new(F::ZERO, right),
+                Replicated::new(F::ZERO, F::ZERO),
+                Replicated::new(left, F::ZERO),
+            ],
+        })
+    }
+}
+
+pub trait ToBitConversionTriples {
+    fn to_triples<F: PrimeField>(&self, role: Role) -> Vec<BitConversionTriple<Replicated<F>>>;
+}
+
+impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
+    fn to_triples<F: PrimeField>(&self, role: Role) -> Vec<BitConversionTriple<Replicated<F>>> {
+        (0..B::BITS)
+            .map(|i| BitConversionTriple::new(role, self.left()[i], self.right()[i]))
+            .collect::<Vec<_>>()
+    }
 }
 
 #[pin_project]
-pub struct LocalBitConverter<F, B, S>
+pub struct LocalBitConverter<F, V, S>
 where
-    F: Field,
-    B: GaloisField,
-    S: Stream<Item = Replicated<B>>,
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    S: Stream<Item = V> + Send,
 {
     role: Role,
     #[pin]
@@ -113,11 +123,11 @@ where
     _f: PhantomData<F>,
 }
 
-impl<F, B, S> LocalBitConverter<F, B, S>
+impl<F, V, S> LocalBitConverter<F, V, S>
 where
-    F: Field,
-    B: GaloisField,
-    S: Stream<Item = Replicated<B>>,
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    S: Stream<Item = V> + Send,
 {
     pub fn new(role: Role, input: S) -> Self {
         Self {
@@ -128,22 +138,18 @@ where
     }
 }
 
-impl<F, B, S> Stream for LocalBitConverter<F, B, S>
+impl<F, V, S> Stream for LocalBitConverter<F, V, S>
 where
-    F: Field,
-    B: GaloisField,
-    S: Stream<Item = Replicated<B>> + Send,
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    S: Stream<Item = V> + Send,
 {
     type Item = Vec<BitConversionTriple<Replicated<F>>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         match this.input.as_mut().poll_next(cx) {
-            Poll::Ready(Some(input)) => Poll::Ready(Some(
-                (0..B::BITS)
-                    .map(|bit_index: u32| convert_bit_local::<F, B>(*this.role, bit_index, &input))
-                    .collect::<Vec<_>>(),
-            )),
+            Poll::Ready(Some(input)) => Poll::Ready(Some(input.into_triples())),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -154,11 +160,11 @@ where
     }
 }
 
-impl<F, B, S> ExactSizeStream for LocalBitConverter<F, B, S>
+impl<F, V, S> ExactSizeStream for LocalBitConverter<F, V, S>
 where
-    F: Field,
-    B: GaloisField,
-    S: Stream<Item = Replicated<B>> + Send + ExactSizeStream,
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    S: Stream<Item = V> + Send,
 {
 }
 
@@ -190,69 +196,54 @@ where
     xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, ZeroPositions::AVVZ_BZZV).await
 }
 
+/// Perform modulus conversion.
+///
+/// This takes a stream of simple (as in semi-honest or without an extension) replicated `GaloisField` shares.
+/// It produces a stream of lists of duplicate (as in malicious or with extension) replicated `PrimeField` shares.
+/// Each value in the produced list (or `Vec`) corresponds to a single bit of the input value.
+///
+/// The output values are upgraded into the `UpgradedContext` that is provided.  The caller is responsible for
+/// validating the MAC that this process adds these values to.
+///
 /// # Errors
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
-pub async fn convert_all_bits<F, B, C, S, LS>(
-    ctx: &C,
-    locally_converted_bits: LS,
+pub fn convert_all_bits<F, V, C, S, VS>(
+    ctx: C,
+    binary_shares: VS,
 ) -> impl Stream<Item = Result<Vec<S>, Error>>
 where
-    F: Field,
-    B: GaloisField,
-    C: Context + 'static,
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    LS: Stream<Item = Vec<BitConversionTriple<S>>> + ExactSizeStream + Unpin + Send,
+    VS: Stream<Item = V> + ExactSizeStream + Unpin + Send,
+    for<'u> UpgradeContext<'u, C, F>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
     let active = ctx.active_work();
-    let ctx = ctx.set_total_records(locally_converted_bits.len());
+    let ctx = ctx.set_total_records(binary_shares.len()); // TODO move the len() call to outer.
+    let locally_converted = LocalBitConverter::new(ctx.role(), binary_shares);
 
     let stream = unfold(
-        (ctx, locally_converted_bits, RecordId::FIRST),
-        |(ctx, mut locally_converted_bits, record_id)| async move {
-            let Some(triples) = locally_converted_bits.next().await else { return None; };
+        (ctx, locally_converted, RecordId::FIRST),
+        |(ctx, mut locally_converted, record_id)| async move {
+            let Some(triple) = locally_converted.next().await else { return None; };
             let converted = ctx.parallel_join(
                 zip(
-                    (0..B::BITS).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
-                    triples,
+                    (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
+                    triple,
                 )
-                .map(|(ctx, bit)| async move { convert_bit(ctx, record_id, &bit).await }),
+                .map(|(ctx, triple)| async move {
+                    let upgraded = ctx.upgrade_for(record_id, triple).await?;
+                    convert_bit(ctx, record_id, &upgraded).await
+                }),
             );
-            Some((converted, (ctx, locally_converted_bits, record_id + 1)))
+            Some((converted, (ctx, locally_converted, record_id + 1)))
         },
     );
     seq_join(active, stream)
-}
-
-/// # Errors
-/// Propagates errors from convert shares
-/// # Panics
-/// Propagates panics from convert shares
-pub async fn convert_bit_list<F, C, S>(
-    ctx: &C,
-    locally_converted_bits: &[&BitConversionTriple<S>],
-    record_id: RecordId,
-) -> Result<Vec<S>, Error>
-where
-    F: Field,
-    C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
-{
-    // True concurrency needed here (different contexts).
-    ctx.parallel_join(
-        zip(repeat(ctx.clone()), locally_converted_bits.iter())
-            .enumerate()
-            .map(|(i, (ctx, bit))| async move {
-                convert_bit(
-                    ctx.narrow(&IpaProtocolStep::ModulusConversion(i.try_into().unwrap())),
-                    record_id,
-                    bit,
-                )
-                .await
-            }),
-    )
-    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
@@ -263,7 +254,7 @@ mod tests {
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+            modulus_conversion::{convert_all_bits, BitConversionTriple, LocalBitConverter},
             MatchKey, RecordId,
         },
         rand::{thread_rng, Rng},
@@ -272,6 +263,8 @@ mod tests {
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::{once, StreamExt, TryStreamExt};
+    use std::future::ready;
 
     #[tokio::test]
     pub async fn one_bit() {
@@ -282,10 +275,13 @@ mod tests {
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
-                convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
+                let v = ctx.validator();
+                let bits = convert_all_bits(v.context(), once(ready(mk_share)))
+                    .try_collect::<Vec<_>>()
                     .await
-                    .unwrap()
+                    .unwrap();
+                assert_eq!(bits.len(), 1);
+                bits[0][0]
             })
             .await;
         assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
@@ -300,15 +296,13 @@ mod tests {
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .malicious(match_key, |ctx, mk_share| async move {
-                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
-
                 let v = ctx.validator();
-                let m_ctx = v.context().set_total_records(1);
-                let m_triple = m_ctx.upgrade(triple).await.unwrap();
-                let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                let m_bit = convert_all_bits(v.context(), once(ready(mk_share)))
+                    .try_collect::<Vec<_>>()
                     .await
                     .unwrap();
-                v.validate(m_bit).await.unwrap()
+                assert_eq!(m_bit.len(), 1);
+                v.validate(m_bit[0][0]).await.unwrap()
             })
             .await;
         assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
@@ -358,14 +352,20 @@ mod tests {
             let match_key = rng.gen::<MatchKey>();
             world
                 .malicious(match_key, |ctx, mk_share| async move {
-                    let triple =
-                        convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
+                    let triple = LocalBitConverter::<Fp32BitPrime, MatchKey, _>::new(
+                        ctx.role(),
+                        once(ready(mk_share)),
+                    )
+                    .next()
+                    .await
+                    .unwrap()
+                    .remove(0);
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = ctx.validator();
                     let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
-                    let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                    let m_bit = super::convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
                         .unwrap();
                     let err = v

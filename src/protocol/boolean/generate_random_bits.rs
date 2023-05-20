@@ -1,153 +1,76 @@
 use crate::{
     error::Error,
-    ff::{Field, Gf40Bit, PrimeField},
+    ff::PrimeField,
     protocol::{
-        basics::SecureMul,
-        context::{
-            Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext,
-        },
-        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
-        prss::SharedRandomness,
-        step::{self, BitOpStep},
+        context::{Context, UpgradedContext},
+        modulus_conversion::{convert_all_bits, BitConversionTriple, ToBitConversionTriples},
+        prss::{IndexedSharedRandomness, SharedRandomness},
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        Linear as LinearSecretSharing, SecretSharing, SharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        SharedValue,
     },
-    seq_join::SeqJoin,
 };
-use async_trait::async_trait;
+use futures::{
+    future::ready,
+    stream::{once, unfold, Stream},
+};
 
-#[async_trait]
-pub trait RandomBits<V: SharedValue> {
-    type Share: SecretSharing<V>;
-
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error>;
+struct RawRandomBits {
+    // TODO: use a const generic instead of a field, when generic_const_expr hits stable.
+    count: u32,
+    left: u64,
+    right: u64,
 }
 
-fn random_bits_triples<F, C>(
-    ctx: &C,
-    record_id: RecordId,
-) -> Vec<BitConversionTriple<Replicated<F>>>
-where
-    F: PrimeField,
-    C: Context,
-{
-    // Calculate the number of bits we need to form a random number that
-    // has the same number of bits as the prime.
-    let l = u128::BITS - F::PRIME.into().leading_zeros();
-
-    // Generate a pair of random numbers. We'll use these numbers as
-    // the source of `l`-bit long uniformly random sequence of bits.
-    let (b_bits_left, b_bits_right) = ctx.prss().generate_values(record_id);
-
-    // Same here. For now, 256-bit is enough for our F_p
-    let xor_share = Replicated::new(
-        Gf40Bit::truncate_from(b_bits_left),
-        Gf40Bit::truncate_from(b_bits_right),
-    );
-
-    // Convert each bit to secret sharings of that bit in the target field
-    (0..l)
-        .map(|i| convert_bit_local::<F, Gf40Bit>(ctx.role(), i, &xor_share))
-        .collect::<Vec<_>>()
-}
-
-async fn convert_triples_to_shares<F, C, S>(
-    ctx: C,
-    record_id: RecordId,
-    triples: &[BitConversionTriple<S>],
-) -> Result<Vec<S>, Error>
-where
-    F: Field,
-    C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
-{
-    ctx.parallel_join(triples.iter().enumerate().map(|(i, t)| {
-        let c = ctx.narrow(&BitOpStep::from(i));
-        async move { convert_bit(c, record_id, t).await }
-    }))
-    .await
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
-    ConvertShares,
-    UpgradeBitTriples,
-}
-
-impl step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ConvertShares => "convert_shares",
-            Self::UpgradeBitTriples => "upgrade_bit_triples",
+impl RawRandomBits {
+    fn generate<C: UpgradedContext<F>, F: PrimeField>(
+        prss: &IndexedSharedRandomness,
+        record_id: RecordId,
+    ) -> Self {
+        assert!(<F as SharedValue>::BITS <= u64::BITS);
+        let (left, right) = prss.generate_values(record_id);
+        Self {
+            count: <F as SharedValue>::BITS,
+            left,
+            right,
         }
     }
 }
 
-#[async_trait]
-impl<C, F> RandomBits<F> for C
-where
-    C: UpgradableContext,
-    F: PrimeField + ExtendableField,
-{
-    type Share = Replicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
-
-        convert_triples_to_shares(self.narrow(&Step::ConvertShares), record_id, &triples).await
+impl ToBitConversionTriples for RawRandomBits {
+    fn to_triples<F: PrimeField>(
+        &self,
+        role: crate::helpers::Role,
+    ) -> Vec<BitConversionTriple<Replicated<F>>> {
+        debug_assert!(F::BITS >= self.count);
+        (0..self.count)
+            .map(|i| BitConversionTriple::new(role, (self.left >> i) == 1, (self.right >> i) == 1))
+            .collect::<Vec<_>>()
     }
 }
 
-#[async_trait]
-impl<F> RandomBits<F> for UpgradedSemiHonestContext<'_, F>
-where
-    F: PrimeField + ExtendableField,
-{
-    type Share = Replicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
-
-        convert_triples_to_shares(self.narrow(&Step::ConvertShares), record_id, &triples).await
-    }
+/// Produce a stream of random bits using the provided context.
+pub fn random_bits<C: UpgradedContext<F>, F: PrimeField>(
+    ctx: C,
+) -> impl Stream<Item = Result<Vec<C::Share>, Error>> {
+    let randomness = unfold((ctx.clone().prss(), 0), |(prss, i)| {
+        Some((RawRandomBits::generate(&prss, i), (prss, i + 1)))
+    })
+    .take(
+        ctx.total_records()
+            .count()
+            .expect("random_bits needs a fixed number of records"),
+    );
+    convert_all_bits(ctx, randomness)
 }
 
-#[async_trait]
-impl<F: PrimeField + ExtendableField> RandomBits<F> for UpgradedMaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples::<F, _>(&self, record_id);
-
-        // Upgrade the replicated shares to malicious, in parallel,
-        let c = self.narrow(&Step::UpgradeBitTriples);
-        let ctx = &c;
-        let malicious_triples = ctx
-            .parallel_join(triples.into_iter().enumerate().map(|(i, t)| async move {
-                ctx.narrow(&BitOpStep::from(i))
-                    .upgrade_for(record_id, t)
-                    .await
-            }))
-            .await?;
-
-        convert_triples_to_shares(
-            self.narrow(&Step::ConvertShares),
-            record_id,
-            &malicious_triples,
-        )
-        .await
-    }
+// TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner
+pub async fn one_random_bit<C: UpgradedContext<F>, F: PrimeField>(
+    ctx: C,
+    record_id: RecordId,
+) -> Result<Vec<C::Share>, Error> {
+    let randomness = once(ready(RawRandomBits::generate(&ctx.prss(), record_id)));
+    convert_all_bits(ctx, randomness).next().await
 }

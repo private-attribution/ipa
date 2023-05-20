@@ -113,10 +113,9 @@ mod tests {
 
                     let bk_shares = secret.iter().map(|x| x.breakdown_key.clone());
 
-                    let mut converted_bk_shares = convert_all_bits(&ctx, stream_iter(bk_shares))
+                    let converted_bk_shares = convert_all_bits(ctx.clone(), stream_iter(bk_shares))
                         .await
                         .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                     let converted_secret = secret
                         .into_iter()

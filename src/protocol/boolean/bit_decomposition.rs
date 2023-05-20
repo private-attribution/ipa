@@ -1,13 +1,15 @@
-use super::{
-    add_constant::{add_constant, maybe_add_constant_mod2l},
-    bitwise_less_than_prime::BitwiseLessThanPrime,
-    random_bits_generator::RandomBitsGenerator,
-    RandomBits,
-};
 use crate::{
     error::Error,
     ff::PrimeField,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{
+        boolean::{
+            add_constant::{add_constant, maybe_add_constant_mod2l},
+            bitwise_less_than_prime::BitwiseLessThanPrime,
+            random_bits_generator::RandomBitsGenerator,
+        },
+        context::{Context, UpgradedContext},
+        BasicProtocols, RecordId,
+    },
     secret_sharing::Linear as LinearSecretSharing,
 };
 
@@ -36,7 +38,7 @@ impl BitDecomposition {
     where
         F: PrimeField,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-        C: Context + RandomBits<F, Share = S>,
+        C: UpgradedContext<F>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 

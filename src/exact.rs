@@ -1,6 +1,7 @@
 use futures::stream::Stream;
 use pin_project::pin_project;
 use std::{
+    ops::DerefMut,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -24,6 +25,12 @@ pub trait ExactSizeStream: Stream {
         self.len() == 0
     }
 }
+
+impl<I> ExactSizeStream for futures::stream::Iter<I> where I: ExactSizeIterator {}
+impl<T> ExactSizeStream for futures::stream::Empty<T> {}
+impl<T> ExactSizeStream for futures::stream::Once<T> where T: futures::Future {}
+impl<S> ExactSizeStream for Pin<Box<S>> where S: ExactSizeStream {}
+impl<S> ExactSizeStream for futures::stream::Take<S> where S: Stream {}
 
 #[pin_project]
 pub struct FixedLength<S> {

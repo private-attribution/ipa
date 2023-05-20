@@ -118,7 +118,7 @@ mod tests {
             ff::{Fp31, Fp32BitPrime, GaloisField},
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
-                context::Context,
+                context::{Context, UpgradableContext, Validator},
                 modulus_conversion::convert_all_bits,
                 sort::{
                     apply_sort::shuffle::shuffle_shares,
@@ -136,7 +136,7 @@ mod tests {
                 TestWorld,
             },
         };
-        use futures::stream::{iter as stream_iter, StreamExt};
+        use futures::stream::{iter as stream_iter, TryStreamExt};
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -175,17 +175,18 @@ mod tests {
                 .semi_honest(
                     input.clone(),
                     |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| async move {
+                        let validator = ctx.validator(); // Just ignore this here.
+                        let ctx = validator.context();
+
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
 
                         let bk_shares = shares.iter().map(|x| x.breakdown_key.clone());
 
-                        let mut converted_bk_shares =
-                            convert_all_bits(&ctx, stream_iter(bk_shares))
-                                .await
-                                .unwrap();
-                        let converted_bk_shares = converted_bk_shares.pop().unwrap();
-
+                        let converted_bk_shares = convert_all_bits(ctx, stream_iter(bk_shares))
+                            .try_collect::<Vec<_>>()
+                            .await
+                            .unwrap();
                         let converted_shares = shares
                             .into_iter()
                             .zip(converted_bk_shares)

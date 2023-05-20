@@ -3,8 +3,8 @@ use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::random_bits_generator::RandomBitsGenerator,
+        context::{Context, UpgradedContext},
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
@@ -69,7 +69,7 @@ pub async fn greater_than_constant<F, C, S>(
 ) -> Result<S, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     use GreaterThanConstantStep as Step;

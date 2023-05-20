@@ -6,8 +6,8 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
+        context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
@@ -30,7 +30,7 @@ pub async fn apply_attribution_window<C, S, F>(
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
 where
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
     F: PrimeField,
 {
@@ -145,7 +145,7 @@ async fn zero_out_expired_trigger_values<F, C, T>(
 ) -> Result<Vec<(T, T)>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
+    C: UpgradedContext<F>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let ctx = ctx.set_total_records(input.len());
@@ -215,14 +215,14 @@ mod tests {
                     MCApplyAttributionWindowOutputRow,
                 },
             },
-            context::Context,
-            modulus_conversion::{convert_all_bits, LocalBitConverter},
+            context::{Context, UpgradableContext, Validator},
+            modulus_conversion::convert_all_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt};
+    use futures::stream::{iter as stream_iter, TryStreamExt};
     use std::{iter::zip, num::NonZeroU32};
 
     #[tokio::test]
@@ -269,19 +269,16 @@ mod tests {
             .semi_honest(
                 input,
                 |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                    let validator = ctx.validator();
+                    let ctx = validator.context();
                     let bk_shares = input
                         .iter()
                         .map(|x| x.breakdown_key.clone());
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &LocalBitConverter::new(ctx.role(), stream_iter(bk_shares)).collect::<Vec<_>>().await,
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
+                    let converted_bk_shares = convert_all_bits(
+                        ctx.clone(), stream_iter(bk_shares)
+                    ).try_collect::<Vec<_>>()
                         .await
                         .unwrap();
-                    let converted_bk_shares =
-                    converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

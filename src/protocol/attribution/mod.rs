@@ -20,10 +20,9 @@ use crate::{
     helpers::query::IpaQueryConfig,
     protocol::{
         basics::SecureMul,
-        boolean::{bitwise_equal::bitwise_equal_gf2, or::or, RandomBits},
+        boolean::{bitwise_equal::bitwise_equal_gf2, or::or},
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         ipa::IPAModulusConvertedInputRow,
-        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         sort::generate_permutation::ShuffledPermutationWrapper,
         step, BasicProtocols, RecordId,
     },
@@ -37,8 +36,13 @@ use crate::{
     },
     seq_join::assert_send,
 };
-use futures::future::try_join;
+use futures::{
+    future::try_join,
+    stream::{iter as stream_iter, StreamExt, TryStreamExt},
+};
 use std::iter::{empty, once, zip};
+
+use super::modulus_conversion::convert_all_bits;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -54,7 +58,7 @@ pub async fn secure_attribution<C, S, SB, F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
@@ -73,11 +77,10 @@ where
 
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
     let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
-    let semi_honest_fp_helper_bits =
-        mod_conv_helper_bits(sh_ctx.clone(), &validated_helper_bits_gf2).await?;
-    let helper_bits = once(S::ZERO)
-        .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
-        .collect::<Vec<_>>();
+    let helper_bits = convert_all_bits(m_ctx.clone(), stream_iter(validated_helper_bits_gf2))
+        .map_ok(|b| b.into_iter().next().unwrap())
+        .try_collect::<Vec<_>>()
+        .await?;
 
     let is_trigger_bits = sorted_rows
         .iter()
@@ -393,30 +396,6 @@ where
         async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
     }))
     .await
-}
-
-async fn mod_conv_helper_bits<C: Context, F: Field>(
-    sh_ctx: C,
-    semi_honest_helper_bits_gf2: &[Replicated<Gf2>],
-) -> Result<Vec<Replicated<F>>, Error> {
-    let hb_mod_conv_ctx = sh_ctx
-        .narrow(&Step::ModConvHelperBits)
-        .set_total_records(semi_honest_helper_bits_gf2.len());
-
-    sh_ctx
-        .try_join(
-            semi_honest_helper_bits_gf2
-                .iter()
-                .enumerate()
-                .map(|(i, gf2_bit)| {
-                    let bit_triple: BitConversionTriple<Replicated<F>> =
-                        convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
-                    let record_id = RecordId::from(i);
-                    let c = hb_mod_conv_ctx.clone();
-                    async move { convert_bit(c, record_id, &bit_triple).await }
-                }),
-        )
-        .await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

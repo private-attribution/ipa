@@ -425,14 +425,14 @@ mod tests {
         ff::{Field, Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
-            context::{Context, UpgradableContext},
+            context::{Context, UpgradableContext, Validator},
             modulus_conversion::convert_all_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt};
+    use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
 
     #[tokio::test]
     pub async fn aggregate() {
@@ -481,11 +481,14 @@ mod tests {
             .semi_honest(
                 input,
                 |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                    let validator = ctx.validator::<Fp32BitPrime>();
+                    let u_ctx = validator.context();
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
-                    let mut converted_bk_shares = convert_all_bits(&ctx, stream_iter(bk_shares))
-                        .await
-                        .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+                    let converted_bk_shares =
+                        convert_all_bits(u_ctx.clone(), stream_iter(bk_shares))
+                            .try_collect::<Vec<_>>()
+                            .await
+                            .unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
