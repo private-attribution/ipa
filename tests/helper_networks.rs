@@ -1,9 +1,13 @@
+use command_fds::CommandFdExt;
 use ipa::test_fixture::ipa::IpaSecurityModel;
 use std::{
+    array,
     error::Error,
     io::{self, Write},
     iter::zip,
+    net::TcpListener,
     ops::Deref,
+    os::fd::AsRawFd,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
     str,
@@ -90,7 +94,15 @@ impl CommandExt for Command {
     }
 }
 
-fn test_setup(config_path: &Path, ports: &[u16; 3]) {
+fn test_setup(config_path: &Path) -> [TcpListener; 3] {
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
+        .iter()
+        .map(|sock| sock.local_addr().unwrap().port())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+
     let mut command = Command::new(HELPER_BIN);
     command
         .silent()
@@ -100,15 +112,19 @@ fn test_setup(config_path: &Path, ports: &[u16; 3]) {
         .args(ports.map(|p| p.to_string()));
 
     command.status().unwrap_status();
+    sockets
 }
 
-fn spawn_helpers(config_path: &Path, ports: &[u16; 3], https: bool) -> Vec<TerminateOnDrop> {
-    zip([1, 2, 3], ports)
-        .map(|(id, port)| {
+fn spawn_helpers(
+    config_path: &Path,
+    sockets: &[TcpListener; 3],
+    https: bool,
+) -> Vec<TerminateOnDrop> {
+    zip([1, 2, 3], sockets)
+        .map(|(id, socket)| {
             let mut command = Command::new(HELPER_BIN);
             command
                 .args(["-i", &id.to_string()])
-                .args(["--port", &port.to_string()])
                 .args(["--network".into(), config_path.join("network.toml")])
                 .silent();
 
@@ -120,18 +136,21 @@ fn spawn_helpers(config_path: &Path, ports: &[u16; 3], https: bool) -> Vec<Termi
                 command.arg("--disable-https");
             }
 
+            command.preserved_fds(vec![socket.as_raw_fd()]);
+            command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
+
             command.spawn().unwrap().terminate_on_drop()
         })
         .collect::<Vec<_>>()
 }
 
-fn test_network(ports: &[u16; 3], https: bool) {
+fn test_network(https: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
-    test_setup(path, ports);
-    let _helpers = spawn_helpers(path, ports, https);
+    let sockets = test_setup(path);
+    let _helpers = spawn_helpers(path, &sockets, https);
 
     let mut command = Command::new(TEST_MPC_BIN);
     command
@@ -156,13 +175,13 @@ fn test_network(ports: &[u16; 3], https: bool) {
     test_mpc.wait().unwrap_status();
 }
 
-fn test_ipa(ports: &[u16; 3], mode: IpaSecurityModel, https: bool) {
+fn test_ipa(mode: IpaSecurityModel, https: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
-    test_setup(path, ports);
-    let _helpers = spawn_helpers(path, ports, https);
+    let sockets = test_setup(path);
+    let _helpers = spawn_helpers(path, &sockets, https);
 
     // Gen inputs
     let inputs_file = dir.path().join("ipa_inputs.txt");
@@ -206,20 +225,20 @@ fn test_ipa(ports: &[u16; 3], mode: IpaSecurityModel, https: bool) {
 
 #[test]
 fn http_network() {
-    test_network(&[3000, 3001, 3002], false);
+    test_network(false);
 }
 
 #[test]
 fn https_network() {
-    test_network(&[4430, 4431, 4432], true);
+    test_network(true);
 }
 
 #[test]
 fn http_semi_honest_ipa() {
-    test_ipa(&[3003, 3004, 3005], IpaSecurityModel::SemiHonest, false);
+    test_ipa(IpaSecurityModel::SemiHonest, false);
 }
 
 #[test]
 fn https_semi_honest_ipa() {
-    test_ipa(&[4433, 4434, 4435], IpaSecurityModel::SemiHonest, true);
+    test_ipa(IpaSecurityModel::SemiHonest, true);
 }
