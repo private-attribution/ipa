@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::{
             do_the_binary_tree_thing,
@@ -55,7 +55,7 @@ where
     C: UpgradableContext<Validator<F> = V>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     V: Validator<C, F>,
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     BK: GaloisField,
     I: Iterator<Item = MCAggregateCreditInputRow<F, S>>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
@@ -302,7 +302,7 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     for<'a> UpgradeContext<'a, C::UpgradedContext<F>, F>: UpgradeToMalicious<
         'a,
         Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
@@ -356,7 +356,7 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the

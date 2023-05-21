@@ -1,5 +1,6 @@
 use crate::{
     error::Error,
+    ff::PrimeField,
     protocol::{
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         sort::{
@@ -83,7 +84,7 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     I: IntoIterator<Item = &'a Vec<Vec<Replicated<F>>>>,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
@@ -208,9 +209,58 @@ mod tests {
         assert_eq!(expected, mpc_sorted_list);
     }
 
+    async fn sortn(count: usize) {
+        const NUM_MULTI_BITS: u32 = 3;
+        let world = TestWorld::default();
+        let mut rng = thread_rng();
+
+        let mut match_keys = Vec::with_capacity(count);
+        match_keys.resize_with(count, || rng.gen::<MatchKey>());
+
+        let mut expected = match_keys.iter().map(Field::as_u128).collect::<Vec<_>>();
+        if count > 1 {
+            // Explicitly don't sort if sorting isn't needed (for noop test).
+            expected.sort_unstable();
+        }
+
+        let [(v0, result0), (v1, result1), (v2, result2)] = world
+            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists =
+                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                let converted_shares =
+                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
+                        .await
+                        .unwrap();
+                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        let result = join3(
+            v0.validate(result0),
+            v1.validate(result1),
+            v2.validate(result2),
+        )
+        .await;
+        let mut mpc_sorted_list = (0..u128::try_from(count).unwrap()).collect::<Vec<_>>();
+        for (match_key, index) in zip(match_keys, result.reconstruct()) {
+            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
+        }
+
+        assert_eq!(expected, mpc_sorted_list);
+    }
+
     #[tokio::test]
     pub async fn malicious() {
-        const COUNT: usize = 10;
+        sortn(10).await;
+    }
+
+    /// Passing 32 records for Fp31 doesn't work.
+    #[tokio::test]
+    #[should_panic = "prime field ipa::ff::prime_field::fp31::Fp31 is too small to sort 32 records"]
+    async fn fp31_overflow() {
+        const COUNT: usize = 32;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::default();
@@ -219,10 +269,7 @@ mod tests {
         let mut match_keys = Vec::with_capacity(COUNT);
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
-        let mut expected = match_keys.iter().map(Field::as_u128).collect::<Vec<_>>();
-        expected.sort_unstable();
-
-        let [(v0, result0), (v1, result1), (v2, result2)] = world
+        _ = world
             .malicious(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists =
                     convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
@@ -236,18 +283,12 @@ mod tests {
                     .unwrap()
             })
             .await;
+    }
 
-        let result = join3(
-            v0.validate(result0),
-            v1.validate(result1),
-            v2.validate(result2),
-        )
-        .await;
-        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
-        for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
-        }
-
-        assert_eq!(expected, mpc_sorted_list);
+    /// These are totally silly, but the code handles them elegantly, if necessary.
+    #[tokio::test]
+    pub async fn noop_sorts() {
+        sortn(1).await;
+        sortn(0).await;
     }
 }

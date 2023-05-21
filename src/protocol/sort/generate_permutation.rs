@@ -1,5 +1,6 @@
 use crate::{
     error::Error,
+    ff::PrimeField,
     protocol::{
         basics::Reveal,
         context::{
@@ -105,7 +106,7 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     let (validator, sort_permutation) =

@@ -1,5 +1,6 @@
 use crate::{
     error::Error,
+    ff::PrimeField,
     protocol::{
         basics::SumOfProducts, context::UpgradedContext, sort::check_everything, BasicProtocols,
         RecordId,
@@ -30,15 +31,25 @@ use std::iter::repeat;
 /// 4. Compute the final output using sum of products executed in parallel for each record.
 pub async fn multi_bit_permutation<'a, C, S, F>(ctx: C, input: &[Vec<S>]) -> Result<Vec<S>, Error>
 where
-    F: ExtendableField,
+    F: PrimeField + ExtendableField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
 {
     let num_records = input.len();
-    assert!(num_records > 0);
+    if num_records < 2 {
+        return Ok(vec![ctx.share_known_value(F::ZERO); num_records]);
+    }
 
     let num_multi_bits = (input[0]).len();
     assert!(num_multi_bits > 0);
+
+    if u128::try_from(num_records).unwrap() >= <F as PrimeField>::PRIME.into() {
+        return Err(Error::FieldValueTruncation(format!(
+            "prime field {} is too small to sort {} records",
+            std::any::type_name::<F>(),
+            num_records
+        )));
+    }
 
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 

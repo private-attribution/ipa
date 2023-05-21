@@ -233,8 +233,8 @@ where
     /// Panics if input is empty
     async fn upgrade(self, input: Vec<Vec<T>>) -> Result<Vec<Vec<M>>, Error> {
         let num_records = input.len();
-        assert_ne!(num_records, 0);
-        let num_columns = input[0].len();
+        let num_columns = input.first().map_or(1, Vec::len);
+        assert_ne!(num_columns, 0);
         let ctx = self.ctx.set_total_records(num_records);
         let ctx_ref = &self.ctx;
         let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
