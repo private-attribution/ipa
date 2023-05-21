@@ -1,8 +1,12 @@
+use command_fds::CommandFdExt;
 use std::{
+    array,
     error::Error,
     io::{self, Write},
     iter::zip,
+    net::TcpListener,
     ops::Deref,
+    os::fd::AsRawFd,
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
@@ -74,11 +78,19 @@ impl Drop for TerminateOnDrop {
     }
 }
 
-fn test_network(ports: &[u16; 3], https: bool) {
+fn test_network(https: bool) {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
+
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
+        .iter()
+        .map(|sock| sock.local_addr().unwrap().port())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
 
     let mut command = Command::new(HELPER_BIN);
     command
@@ -88,12 +100,11 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .args(ports.map(|p| p.to_string()));
     command.status().unwrap_status();
 
-    let _helpers = zip([1, 2, 3], ports)
-        .map(|(id, port)| {
+    let _helpers = zip([1, 2, 3], sockets)
+        .map(|(id, socket)| {
             let mut command = Command::new(HELPER_BIN);
             command
                 .args(["-i", &id.to_string()])
-                .args(["--port", &port.to_string()])
                 .args(["--network".into(), dir.path().join("network.toml")]);
 
             if https {
@@ -103,6 +114,9 @@ fn test_network(ports: &[u16; 3], https: bool) {
             } else {
                 command.arg("--disable-https");
             }
+
+            command.preserved_fds(vec![socket.as_raw_fd()]);
+            command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
 
             command.spawn().unwrap().terminate_on_drop()
         })
@@ -133,10 +147,10 @@ fn test_network(ports: &[u16; 3], https: bool) {
 
 #[test]
 fn http_network() {
-    test_network(&[3000, 3001, 3002], false);
+    test_network(false);
 }
 
 #[test]
 fn https_network() {
-    test_network(&[4430, 4431, 4432], true);
+    test_network(true);
 }
