@@ -4,11 +4,8 @@ use ipa::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{
-            generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
-            test_ipa, IpaSecurityModel,
-        },
-        TestWorld, TestWorldConfig,
+        ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+        EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -38,7 +35,7 @@ struct Args {
     query_size: usize,
     /// The maximum number of records for each person.
     #[arg(short = 'u', long, default_value = "50")]
-    records_per_user: usize,
+    records_per_user: u32,
     /// The contribution cap for each person.
     #[arg(short = 'c', long, default_value = "3")]
     per_user_cap: u32,
@@ -109,23 +106,19 @@ async fn run(args: Args) -> Result<(), Error> {
         "Using random seed: {seed} for {q} records",
         q = args.query_size
     );
-    let mut rng = StdRng::seed_from_u64(seed);
+    let rng = StdRng::seed_from_u64(seed);
+    let raw_data = EventGenerator::with_config(
+        rng,
+        EventGeneratorConfig {
+            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
+            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
+            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+            ..Default::default()
+        },
+    )
+    .take(args.query_size)
+    .collect::<Vec<_>>();
 
-    let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
-    while raw_data.len() < args.query_size {
-        let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
-            &mut rng,
-            args.records_per_user,
-            args.breakdown_keys,
-            args.max_trigger_value,
-        );
-        records_for_user.truncate(args.query_size - raw_data.len());
-        raw_data.append(&mut records_for_user);
-    }
-
-    // Sort the records in chronological order
-    // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
-    raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
     let expected_results =
         ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 

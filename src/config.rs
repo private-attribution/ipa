@@ -1,7 +1,12 @@
 use axum_server::tls_rustls::RustlsConfig;
-use hyper::{http::uri::Scheme, Uri};
+use hyper::{client::Builder, http::uri::Scheme, Uri};
 use serde::{Deserialize, Serialize};
-use std::{io, path::PathBuf};
+use std::{
+    borrow::Borrow,
+    fmt::{Debug, Formatter},
+    io,
+    path::PathBuf,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -23,6 +28,10 @@ pub struct NetworkConfig {
     /// listed here determines their assigned helper identities in the network. Note that while the
     /// helper identities are stable, roles are assigned per query.
     pub peers: [PeerConfig; 3],
+
+    /// HTTP client configuration.
+    #[serde(default)]
+    pub client: ClientConfig,
 }
 
 impl NetworkConfig {
@@ -62,6 +71,7 @@ impl NetworkConfig {
                 peer.url = Uri::try_from(parts).unwrap();
                 peer
             }),
+            ..self
         }
     }
 }
@@ -75,6 +85,7 @@ impl Default for NetworkConfig {
                 PeerConfig::new("localhost:3001".parse().unwrap()),
                 PeerConfig::new("localhost:3002".parse().unwrap()),
             ],
+            client: ClientConfig::default(),
         }
     }
 }
@@ -234,6 +245,111 @@ impl ServerConfig {
                 private_key_file,
             }) => RustlsConfig::from_pem_file(&certificate_file, &private_key_file).await,
         }
+    }
+}
+
+pub trait HyperClientConfigurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConfig {
+    pub http_config: HttpClientConfigurator,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        ClientConfig::use_http2()
+    }
+}
+
+impl ClientConfig {
+    #[must_use]
+    pub fn use_http2() -> Self {
+        Self {
+            http_config: HttpClientConfigurator::http2(),
+        }
+    }
+
+    #[must_use]
+    pub fn use_http1() -> Self {
+        Self {
+            http_config: HttpClientConfigurator::http1(),
+        }
+    }
+}
+
+impl<B: Borrow<ClientConfig>> HyperClientConfigurator for B {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        self.borrow().http_config.configure(client_builder)
+    }
+}
+
+/// Configure Hyper client to use the specific version of HTTP protocol when communicating with
+/// MPC helpers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "version")]
+#[serde(rename_all = "lowercase")]
+pub enum HttpClientConfigurator {
+    Http1(Http1Configurator),
+    Http2(Http2Configurator),
+}
+
+impl HyperClientConfigurator for HttpClientConfigurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        match self {
+            HttpClientConfigurator::Http1(configurator) => configurator.configure(client_builder),
+            HttpClientConfigurator::Http2(configurator) => configurator.configure(client_builder),
+        }
+    }
+}
+
+impl HttpClientConfigurator {
+    #[must_use]
+    pub fn http1() -> Self {
+        Self::Http1(Http1Configurator::default())
+    }
+
+    #[must_use]
+    pub fn http2() -> Self {
+        Self::Http2(Http2Configurator::default())
+    }
+}
+
+/// Clients will initiate connections using HTTP/1.1 but can upgrade to use HTTP/2 if server
+/// suggests it.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Http1Configurator;
+
+impl HyperClientConfigurator for Http1Configurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        // See https://github.com/private-attribution/ipa/issues/650
+        // and https://github.com/hyperium/hyper/issues/2312
+        // This makes it very inefficient to use, so better to avoid HTTP 1.1
+        client_builder.pool_max_idle_per_host(0)
+    }
+}
+
+impl Debug for Http1Configurator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "http version: HTTP 1.1")
+    }
+}
+
+/// Clients will use HTTP/2 exclusively. This will make client requests fail if server does not
+/// support HTTP/2.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Http2Configurator;
+
+impl HyperClientConfigurator for Http2Configurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        client_builder.http2_only(true)
+    }
+}
+
+impl Debug for Http2Configurator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "http version: HTTP 2")
     }
 }
 

@@ -78,8 +78,11 @@ url = "http://localhost:{}"
 # H3
 [[peers]]
 url = "http://localhost:{}"
+
+[client.http_config]
+version = "http2"
 "#,
-        ports[0], ports[1], ports[2]
+        ports[0], ports[1], ports[2],
     );
 
     let network = NetworkConfig::from_toml_str(&config_str).unwrap();
