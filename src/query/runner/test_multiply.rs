@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
+    ff::{Field, FieldType, Fp32BitPrime, Serializable},
     helpers::{ByteArrStream, TotalRecords},
     protocol::{
         basics::SecureMul,
@@ -23,7 +23,12 @@ impl Runner {
         input: ByteArrStream,
     ) -> Box<dyn ProtocolResult> {
         match field {
-            FieldType::Fp31 => Box::new(self.run_internal::<Fp31>(ctx, input).await.unwrap()),
+            #[cfg(any(test, feature = "weak-field"))]
+            FieldType::Fp31 => Box::new(
+                self.run_internal::<crate::ff::Fp31>(ctx, input)
+                    .await
+                    .unwrap(),
+            ),
             FieldType::Fp32BitPrime => {
                 Box::new(self.run_internal::<Fp32BitPrime>(ctx, input).await.unwrap())
             }
@@ -72,6 +77,7 @@ impl Runner {
 mod tests {
     use super::*;
     use crate::{
+        ff::Fp31,
         secret_sharing::IntoShares,
         test_fixture::{join3v, Reconstruct, TestWorld},
     };

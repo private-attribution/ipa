@@ -8,7 +8,15 @@ use ipa::{
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
 };
-use std::{error::Error, fs, path::PathBuf};
+use std::{
+    error::Error,
+    fs,
+    net::TcpListener,
+    os::fd::{FromRawFd, RawFd},
+    path::PathBuf,
+    process,
+};
+use tracing::{error, info};
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -93,6 +101,12 @@ struct ServerArgs {
     #[arg(short, long, default_value = "3000")]
     port: Option<u16>,
 
+    /// Use the supplied prebound socket instead of binding a new socket
+    ///
+    /// This is only intended for avoiding port conflicts in tests.
+    #[arg(hide = true, long)]
+    server_socket_fd: Option<RawFd>,
+
     /// Use insecure HTTP
     #[arg(short = 'k', long)]
     disable_https: bool,
@@ -172,8 +186,25 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
 
     let _app = setup.connect(transport.clone());
 
+    let listener = args.server_socket_fd
+        .map(|fd| {
+            // SAFETY:
+            //  1. The `--server-socket-fd` option is only intended for use in tests, not in production.
+            //  2. This must be the only call to from_raw_fd for this file descriptor, to ensure it has
+            //     only one owner.
+            let listener = unsafe { TcpListener::from_raw_fd(fd) };
+            if listener.local_addr().is_ok() {
+                info!("adopting fd {fd} as listening socket");
+                Ok(listener)
+            } else {
+                Err(Box::<dyn Error>::from(format!("the server was asked to listen on fd {fd}, but it does not appear to be a valid socket")))
+            }
+        })
+        .transpose()?;
+
     let (_addr, server_handle) = server
-        .start(
+        .start_on(
+            listener,
             // TODO, trace based on the content of the query.
             None as Option<()>,
         )
@@ -185,13 +216,18 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn main() {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    match args.command {
+    let res = match args.command {
         None => server(args.server).await,
         Some(HelperCommand::Keygen(args)) => keygen(args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
+    };
+
+    if let Err(e) = res {
+        error!("{e}");
+        process::exit(1);
     }
 }

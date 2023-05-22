@@ -1,10 +1,18 @@
-use hyper::{http::uri::Scheme, Uri};
+use crate::helpers::HelperIdentity;
+
+use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
-use serde::{Deserialize, Deserializer};
-use std::{array, iter::Zip, path::PathBuf, slice};
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio_rustls::rustls::Certificate;
 
-use crate::helpers::HelperIdentity;
+use std::{
+    array,
+    borrow::Borrow,
+    fmt::{Debug, Formatter},
+    iter::Zip,
+    path::PathBuf,
+    slice,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -26,6 +34,10 @@ pub struct NetworkConfig {
     /// listed here determines their assigned helper identities in the network. Note that while the
     /// helper identities are stable, roles are assigned per query.
     pub peers: [PeerConfig; 3],
+
+    /// HTTP client configuration.
+    #[serde(default)]
+    pub client: ClientConfig,
 }
 
 impl NetworkConfig {
@@ -74,6 +86,7 @@ impl NetworkConfig {
                 peer.url = Uri::try_from(parts).unwrap();
                 peer
             }),
+            ..self
         }
     }
 }
@@ -149,6 +162,131 @@ pub struct ServerConfig {
 
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
+}
+
+impl ServerConfig {
+    #[must_use]
+    pub fn insecure_http() -> ServerConfig {
+        ServerConfig {
+            port: None,
+            disable_https: true,
+            tls: None,
+        }
+    }
+
+    #[must_use]
+    pub fn insecure_http_port(port: u16) -> ServerConfig {
+        ServerConfig {
+            port: Some(port),
+            disable_https: true,
+            tls: None,
+        }
+    }
+}
+
+pub trait HyperClientConfigurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConfig {
+    pub http_config: HttpClientConfigurator,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        ClientConfig::use_http2()
+    }
+}
+
+impl ClientConfig {
+    #[must_use]
+    pub fn use_http2() -> Self {
+        Self {
+            http_config: HttpClientConfigurator::http2(),
+        }
+    }
+
+    #[must_use]
+    pub fn use_http1() -> Self {
+        Self {
+            http_config: HttpClientConfigurator::http1(),
+        }
+    }
+}
+
+impl<B: Borrow<ClientConfig>> HyperClientConfigurator for B {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        self.borrow().http_config.configure(client_builder)
+    }
+}
+
+/// Configure Hyper client to use the specific version of HTTP protocol when communicating with
+/// MPC helpers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "version")]
+#[serde(rename_all = "lowercase")]
+pub enum HttpClientConfigurator {
+    Http1(Http1Configurator),
+    Http2(Http2Configurator),
+}
+
+impl HyperClientConfigurator for HttpClientConfigurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        match self {
+            HttpClientConfigurator::Http1(configurator) => configurator.configure(client_builder),
+            HttpClientConfigurator::Http2(configurator) => configurator.configure(client_builder),
+        }
+    }
+}
+
+impl HttpClientConfigurator {
+    #[must_use]
+    pub fn http1() -> Self {
+        Self::Http1(Http1Configurator::default())
+    }
+
+    #[must_use]
+    pub fn http2() -> Self {
+        Self::Http2(Http2Configurator::default())
+    }
+}
+
+/// Clients will initiate connections using HTTP/1.1 but can upgrade to use HTTP/2 if server
+/// suggests it.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Http1Configurator;
+
+impl HyperClientConfigurator for Http1Configurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        // See https://github.com/private-attribution/ipa/issues/650
+        // and https://github.com/hyperium/hyper/issues/2312
+        // This makes it very inefficient to use, so better to avoid HTTP 1.1
+        client_builder.pool_max_idle_per_host(0)
+    }
+}
+
+impl Debug for Http1Configurator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "http version: HTTP 1.1")
+    }
+}
+
+/// Clients will use HTTP/2 exclusively. This will make client requests fail if server does not
+/// support HTTP/2.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Http2Configurator;
+
+impl HyperClientConfigurator for Http2Configurator {
+    fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
+        client_builder.http2_only(true)
+    }
+}
+
+impl Debug for Http2Configurator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "http version: HTTP 2")
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]

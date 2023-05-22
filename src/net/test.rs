@@ -10,7 +10,7 @@
 #![allow(clippy::missing_panics_doc)]
 
 use crate::{
-    config::{NetworkConfig, PeerConfig, ServerConfig, TlsConfig},
+    config::{ClientConfig, NetworkConfig, PeerConfig, ServerConfig, TlsConfig},
     helpers::{HelperIdentity, TransportCallbacks},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
@@ -80,6 +80,7 @@ pub fn server_config_https(id: HelperIdentity, port: u16) -> ServerConfig {
 pub struct TestConfigBuilder {
     ports: Option<[u16; 3]>,
     disable_https: bool,
+    use_http1: bool,
 }
 
 impl TestConfigBuilder {
@@ -88,6 +89,7 @@ impl TestConfigBuilder {
         Self {
             ports: Some(DEFAULT_TEST_PORTS),
             disable_https: true,
+            use_http1: false,
         }
     }
 
@@ -96,12 +98,19 @@ impl TestConfigBuilder {
         Self {
             ports: None,
             disable_https: false,
+            use_http1: false,
         }
     }
 
     #[must_use]
     pub fn with_disable_https_option(mut self, value: bool) -> Self {
         self.disable_https = value;
+        self
+    }
+
+    #[must_use]
+    pub fn with_use_http1_option(mut self, value: bool) -> Self {
+        self.use_http1 = value;
         self
     }
 
@@ -136,7 +145,13 @@ impl TestConfigBuilder {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let network = NetworkConfig { peers };
+        let network = NetworkConfig {
+            peers,
+            client: self
+                .use_http1
+                .then(ClientConfig::use_http1)
+                .unwrap_or_default(),
+        };
         let servers = if self.disable_https {
             ports.map(server_config_insecure_http)
         } else {
@@ -195,6 +210,7 @@ pub struct TestServerBuilder {
     callbacks: Option<HttpTransportCallbacks>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
+    use_http1: bool,
 }
 
 impl TestServerBuilder {
@@ -217,18 +233,28 @@ impl TestServerBuilder {
         self
     }
 
+    #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+    pub fn use_http1(mut self) -> Self {
+        self.use_http1 = true;
+        self
+    }
+
     pub async fn build(self) -> TestServer {
         let identity = if self.disable_https {
             ClientIdentity::Helper(HelperIdentity::ONE)
         } else {
             get_test_identity(HelperIdentity::ONE)
         };
+        let test_config = TestConfig::builder()
+            .with_disable_https_option(self.disable_https)
+            .with_use_http1_option(self.use_http1)
+            .build();
         let TestConfig {
             network: network_config,
             servers: [server_config, _, _],
             sockets: Some([server_socket, _, _]),
             ..
-        } = TestConfig::builder().with_disable_https_option(self.disable_https).build() else {
+        } = test_config else {
             panic!("TestConfig should have allocated ports");
         };
         let clients = MpcHelperClient::from_conf(&network_config, identity.clone());
@@ -245,7 +271,7 @@ impl TestServerBuilder {
         // At some point it might be appropriate to return two clients here -- the first being
         // another helper and the second being a report collector. For now we use the same client
         // for both types of calls.
-        let client = MpcHelperClient::new(h1_peer_config, identity);
+        let client = MpcHelperClient::new(&network_config.client, h1_peer_config, identity);
         TestServer {
             addr,
             handle,

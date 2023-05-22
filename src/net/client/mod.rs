@@ -1,5 +1,5 @@
 use crate::{
-    config::{NetworkConfig, PeerConfig},
+    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -68,7 +68,7 @@ impl MpcHelperClient {
         conf.peers()
             .iter()
             .zip(repeat(identity))
-            .map(|(conf, identity)| Self::new(conf.clone(), identity))
+            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -82,8 +82,12 @@ impl MpcHelperClient {
     /// # Panics
     /// If some aspect of the configuration is not valid.
     #[must_use]
-    pub fn new(config: PeerConfig, identity: ClientIdentity) -> Self {
-        let (connector, auth_header) = if config.url.scheme() == Some(&Scheme::HTTP) {
+    pub fn new(
+        client_config: &ClientConfig,
+        peer_config: PeerConfig,
+        identity: ClientIdentity,
+    ) -> Self {
+        let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
             // but would make the type of `self.client` variable.
             let auth_header = match identity {
@@ -97,7 +101,7 @@ impl MpcHelperClient {
             (HttpsConnector::new(), auth_header)
         } else {
             let mut builder = TlsConnector::builder();
-            if let Some(certificate) = config.certificate {
+            if let Some(certificate) = peer_config.certificate {
                 builder
                     .disable_built_in_roots(true)
                     .add_root_certificate(Certificate::from_der(certificate.as_ref()).unwrap());
@@ -120,24 +124,17 @@ impl MpcHelperClient {
                 None,
             )
         };
-        Self::new_internal(config.url, connector, auth_header)
-    }
-
-    /// addr must have a valid scheme and authority
-    /// # Panics
-    /// if addr does not have scheme and authority
-    #[must_use]
-    pub fn new_with_connector(addr: Uri, connector: HttpsConnector<HttpConnector>) -> Self {
-        Self::new_internal(addr, connector, None)
+        Self::new_internal(peer_config.url, connector, auth_header, client_config)
     }
 
     #[must_use]
-    fn new_internal(
+    fn new_internal<C: HyperClientConfigurator>(
         addr: Uri,
         connector: HttpsConnector<HttpConnector>,
         auth_header: Option<(HeaderName, HeaderValue)>,
+        conf: &C,
     ) -> Self {
-        let client = Client::builder().build(connector);
+        let client = conf.configure(&mut Client::builder()).build(connector);
         let Parts {
             scheme: Some(scheme),
             authority: Some(authority),
@@ -151,16 +148,6 @@ impl MpcHelperClient {
             authority,
             auth_header,
         }
-    }
-
-    /// same as new, but first parses the addr from a [&str]
-    /// # Errors
-    /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, Error> {
-        Ok(Self::new(
-            PeerConfig::new(addr.parse()?, None),
-            ClientIdentity::None,
-        ))
     }
 
     pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
@@ -310,6 +297,7 @@ pub(crate) mod tests {
     use std::{
         fmt::Debug,
         future::{ready, Future},
+        iter::zip,
         task::Poll,
     };
 
@@ -345,13 +333,14 @@ pub(crate) mod tests {
 
         let TestServer { addr, .. } = TestServer::default().await;
 
-        let client_config = PeerConfig {
+        let peer_config = PeerConfig {
             url: format!("https://localhost:{}", addr.port())
                 .parse()
                 .unwrap(),
             certificate: None,
         };
-        let client = MpcHelperClient::new(client_config, ClientIdentity::None);
+        let client =
+            MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
@@ -365,9 +354,9 @@ pub(crate) mod tests {
     /// (`serverf`), and executing them simultaneously (via a `join!`). Finally, return the results
     /// of `clientf` for final checks.
     ///
-    /// Also tests that the same functionality works for both `http` and `https`. In order to ensure
-    /// this, the return type of `clientf` must be `Eq + Debug` so that the results of `http` and
-    /// `https` can be compared.
+    /// Also tests that the same functionality works for both `http` and `https` and all supported
+    /// HTTP versions (HTTP 1.1 and HTTP 2 at the moment) . In order to ensure
+    /// this, the return type of `clientf` must be `Eq + Debug` so that the results can be compared.
     async fn test_query_command<ClientOut, ClientFut, ClientF>(
         clientf: ClientF,
         server_cb: TransportCallbacks<Arc<HttpTransport>>,
@@ -377,28 +366,32 @@ pub(crate) mod tests {
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(MpcHelperClient) -> ClientFut,
     {
-        let (http_cb, https_cb) = clone_callbacks(server_cb);
+        let mut cb = server_cb;
+        let mut results = Vec::with_capacity(4);
+        for (use_https, use_http1) in zip([true, false], [true, false]) {
+            let (cur, next) = clone_callbacks(cb);
+            cb = next;
 
-        let TestServer {
-            client: http_client,
-            ..
-        } = TestServer::builder()
-            .disable_https()
-            .with_callbacks(http_cb)
-            .build()
-            .await;
+            let mut test_server_builder = TestServer::builder();
+            if !use_https {
+                test_server_builder = test_server_builder.disable_https();
+            }
 
-        let clientf_res_http = clientf(http_client).await;
+            if use_http1 {
+                test_server_builder = test_server_builder.use_http1();
+            }
 
-        let TestServer {
-            client: https_client,
-            ..
-        } = TestServer::builder().with_callbacks(https_cb).build().await;
+            let TestServer {
+                client: http_client,
+                ..
+            } = test_server_builder.with_callbacks(cur).build().await;
 
-        let clientf_res_https = clientf(https_client).await;
+            results.push(clientf(http_client).await);
+        }
 
-        assert_eq!(clientf_res_http, clientf_res_https);
-        clientf_res_http
+        assert!(results.windows(2).all(|slice| slice[0] == slice[1]));
+
+        results.pop().unwrap()
     }
 
     #[tokio::test]

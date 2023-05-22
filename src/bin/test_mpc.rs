@@ -5,17 +5,31 @@ use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
         playbook::{secure_mul, semi_honest, InputSource},
-        Verbosity,
+        CsvSerializer, Verbosity,
     },
-    config::{NetworkConfig, PeerConfig},
+    config::{ClientConfig, NetworkConfig, PeerConfig},
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     net::{ClientIdentity, MpcHelperClient},
     protocol::{BreakdownKey, MatchKey, QueryId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-    test_fixture::ipa::{ipa_in_the_clear, TestRawDataRecord},
+    test_fixture::{
+        ipa::{ipa_in_the_clear, TestRawDataRecord},
+        EventGenerator, EventGeneratorConfig,
+    },
 };
-use std::{error::Error, fmt::Debug, fs, ops::Add, path::PathBuf, time::Duration};
+use rand::thread_rng;
+use std::{
+    error::Error,
+    fmt::Debug,
+    fs,
+    fs::OpenOptions,
+    io,
+    io::{stdout, Write},
+    ops::Add,
+    path::PathBuf,
+    time::Duration,
+};
 use tokio::time::sleep;
 
 #[derive(Debug, Parser)]
@@ -74,7 +88,29 @@ enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
     /// Execute IPA in semi-honest majority setting
-    SemiHonestIPA,
+    SemiHonestIpa(IpaQueryConfig),
+    /// Generate inputs for IPA
+    GenIpaInputs {
+        /// Number of records to generate
+        #[clap(long, short = 'n')]
+        count: u32,
+
+        /// The destination file for generated records
+        #[arg(long)]
+        output_file: Option<PathBuf>,
+
+        #[clap(flatten)]
+        gen_args: EventGeneratorConfig,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct GenInputArgs {
+    /// Maximum records per user
+    #[clap(long)]
+    max_per_user: u32,
+    /// number of breakdowns
+    breakdowns: u32,
 }
 
 async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
@@ -121,7 +157,7 @@ where
         i += 1;
     }
 
-    tracing::info!("{table}");
+    tracing::info!("\n{table}\n");
 
     assert!(
         mismatch.is_empty(),
@@ -132,12 +168,19 @@ where
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    fn make_clients(disable_https: bool, config_path: Option<&PathBuf>) -> [MpcHelperClient; 3] {
-        let scheme = if disable_https {
+    let args = Args::parse();
+    let _handle = args.logging.setup_logging();
+
+    let make_clients = || async {
+        let scheme = if args.disable_https {
             Scheme::HTTP
         } else {
             Scheme::HTTPS
         };
+
+        let config_path = args.network.as_deref();
+        let mut wait = args.wait;
+
         let config = if let Some(path) = config_path {
             NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
         } else {
@@ -147,40 +190,61 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     PeerConfig::new("localhost:3001".parse().unwrap(), None),
                     PeerConfig::new("localhost:3002".parse().unwrap(), None),
                 ],
+                client: ClientConfig::default(),
             }
         }
         .override_scheme(&scheme);
-        MpcHelperClient::from_conf(&config, ClientIdentity::None)
-    }
+        let clients = MpcHelperClient::from_conf(&config, ClientIdentity::None);
+        while wait > 0 && !clients_ready(&clients).await {
+            tracing::debug!("waiting for servers to come up");
+            sleep(Duration::from_secs(1)).await;
+            wait -= 1;
+        }
 
-    let args = Args::parse();
-    let _handle = args.logging.setup_logging();
-
-    let clients = make_clients(args.disable_https, args.network.as_ref());
-
-    let mut wait = args.wait;
-    while wait > 0 && !clients_ready(&clients).await {
-        println!("waiting for servers to come up");
-        sleep(Duration::from_secs(1)).await;
-        wait -= 1;
-    }
+        clients
+    };
 
     match args.action {
-        TestAction::Multiply => multiply(args, &clients).await,
-        TestAction::SemiHonestIPA => semi_honest_ipa(args, &clients).await,
+        TestAction::Multiply => multiply(&args, &make_clients().await).await,
+        TestAction::SemiHonestIpa(config) => {
+            semi_honest_ipa(&args, &config, &make_clients().await).await
+        }
+        TestAction::GenIpaInputs {
+            count,
+            output_file,
+            gen_args,
+        } => gen_inputs(count, output_file, gen_args).unwrap(),
     };
 
     Ok(())
 }
 
-async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
-    let input = InputSource::from(&args.input);
-    let ipa_query_config = IpaQueryConfig {
-        per_user_credit_cap: 3,
-        max_breakdown_key: 3,
-        num_multi_bits: 3,
-        attribution_window_seconds: None,
+fn gen_inputs(
+    count: u32,
+    output_file: Option<PathBuf>,
+    args: EventGeneratorConfig,
+) -> io::Result<()> {
+    let event_gen = EventGenerator::with_config(thread_rng(), args).take(count as usize);
+    let mut writer: Box<dyn Write> = if let Some(path) = output_file {
+        Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
+    } else {
+        Box::new(stdout().lock())
     };
+
+    for event in event_gen {
+        event.to_csv(&mut writer)?;
+        writer.write(&[b'\n'])?;
+    }
+
+    Ok(())
+}
+
+async fn semi_honest_ipa(
+    args: &Args,
+    ipa_query_config: &IpaQueryConfig,
+    helper_clients: &[MpcHelperClient; 3],
+) {
+    let input = InputSource::from(&args.input);
     let query_type = QueryType::Ipa(ipa_query_config.clone());
     let query_config = QueryConfig {
         field_type: args.input.field,
@@ -188,11 +252,21 @@ async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let expected = ipa_in_the_clear(
-        &input_rows,
-        ipa_query_config.per_user_credit_cap,
-        ipa_query_config.attribution_window_seconds,
-    );
+    let expected = {
+        let mut r = ipa_in_the_clear(
+            &input_rows,
+            ipa_query_config.per_user_credit_cap,
+            ipa_query_config.attribution_window_seconds,
+        );
+
+        // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
+        // truncate shouldn't happen unless in_the_clear is badly broken
+        r.resize(
+            usize::try_from(ipa_query_config.max_breakdown_key).unwrap(),
+            0,
+        );
+        r
+    };
 
     let actual = match args.input.field {
         FieldType::Fp31 => {
@@ -213,7 +287,7 @@ async fn semi_honest_ipa(args: Args, helper_clients: &[MpcHelperClient; 3]) {
 }
 
 async fn multiply_in_field<F: Field>(
-    args: Args,
+    args: &Args,
     helper_clients: &[MpcHelperClient; 3],
     query_id: QueryId,
 ) where
@@ -229,7 +303,7 @@ async fn multiply_in_field<F: Field>(
     validate(expected, actual);
 }
 
-async fn multiply(args: Args, helper_clients: &[MpcHelperClient; 3]) {
+async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type: QueryType::TestMultiply,
