@@ -4,8 +4,21 @@ mod prepare;
 mod results;
 mod step;
 
-use crate::{net::HttpTransport, sync::Arc};
-use axum::Router;
+use crate::{
+    net::{server::ClientIdentity, HttpTransport},
+    sync::Arc,
+};
+use axum::{
+    response::{IntoResponse, Response},
+    Router,
+};
+use futures_util::{
+    future::{ready, Either, Ready},
+    FutureExt,
+};
+use hyper::{http::request, Request, StatusCode};
+use std::any::Any;
+use tower::{layer::layer_fn, Service};
 
 /// Construct router for IPA query web service
 ///
@@ -30,6 +43,72 @@ pub fn h2h_router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .merge(prepare::router(Arc::clone(&transport)))
         .merge(step::router(transport))
+        .layer(layer_fn(HelperAuthentication::new))
+}
+
+/// Returns HTTP 401 Unauthorized if the request does not have valid authentication.
+///
+/// Authentication information is carried via the `ClientIdentity` request extension. The extension
+/// is populated (by `ClientCertRecognizingAcceptor` / `SetClientIdentityFromCertificate`) when a
+/// valid client certificate is presented. When using plain HTTP (only for testing), the extension
+/// is populated by `SetClientIdentityFromHeader`.
+///
+/// Note that there are two partially redundant mechanisms enforcing authentication for
+/// helper-to-helper RPC. This middleware is one. The other is the argument of type
+/// `Extension<ClientIdentity>` to the handler.  Even without this middleware, unauthenticated
+/// requests would not have this request extension, causing axum to fail the request with
+/// `ExtensionRejection::MissingExtension`, however, this would return a 500 error instead of 401.
+#[derive(Clone)]
+pub struct HelperAuthentication<S> {
+    inner: S,
+}
+
+impl<S> HelperAuthentication<S> {
+    fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
+    for HelperAuthentication<S>
+{
+    type Response = Response;
+    type Error = S::Error;
+    type Future = Either<S::Future, Ready<Result<Response, S::Error>>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<B>) -> Self::Future {
+        match req.extensions().get() {
+            Some(ClientIdentity(_)) => self.inner.call(req).left_future(),
+            None => ready(Ok((
+                StatusCode::UNAUTHORIZED,
+                "This API requires the client helper to authenticate",
+            )
+                .into_response()))
+            .right_future(),
+        }
+    }
+}
+
+/// Helper trait for optionally adding an extension to a request.
+trait MaybeExtensionExt {
+    fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self;
+}
+
+impl MaybeExtensionExt for request::Builder {
+    fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self {
+        if let Some(extension) = extension {
+            self.extension(extension)
+        } else {
+            self
+        }
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]

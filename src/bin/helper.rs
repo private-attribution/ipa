@@ -1,10 +1,11 @@
 use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
+use hyper_tls::native_tls::Identity;
 use ipa::{
     cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
     config::{NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
-    net::{HttpTransport, MpcHelperClient},
+    net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
 };
 use std::{
@@ -21,6 +22,55 @@ use tracing::{error, info};
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+#[cfg(target_os = "macos")]
+mod pkcs8 {
+    use sec1::{
+        der::{asn1::ObjectIdentifier, Encode, PemWriter},
+        pem,
+        pkcs8::{PrivateKeyInfo, SecretDocument},
+        EcParameters, EcPrivateKey, LineEnding,
+    };
+    use std::str;
+
+    // Well this is annoying. `native-tls` on Mac OS cannot import unencrypted
+    // PKCS8-format EC keys. So we rewrite the key into a format that it will
+    // accept (OpenSSL format). It appears the problem is in Mac OS itself, so a
+    // fix in native-tls would at best be a workaround. For more discussion, see
+    // https://github.com/sfackler/rust-native-tls/issues/225#issuecomment-1544741380
+    // TODO(640): to be removed when we standardize on rustls
+    pub fn munge_private_key(key: &[u8]) -> Vec<u8> {
+        let doc = SecretDocument::from_pem(&str::from_utf8(key).unwrap())
+            .unwrap()
+            .1;
+        let private_key_info = PrivateKeyInfo::try_from(doc.as_bytes()).unwrap();
+
+        // If the key type is not id-ecPublicKey, don't do anything.
+        if private_key_info.algorithm.oid != ObjectIdentifier::new_unwrap("1.2.840.10045.2.1") {
+            return key.to_owned();
+        }
+
+        let curve_oid =
+            ObjectIdentifier::try_from(private_key_info.algorithm.parameters.unwrap()).unwrap();
+
+        let mut ec_key = EcPrivateKey::try_from(private_key_info.private_key).unwrap();
+        ec_key.parameters = Some(EcParameters::NamedCurve(curve_oid));
+
+        // Here is where it gets really ugly. The PEM marker line for an OpenSSL format EC key is
+        // "EC PRIVATE KEY". However, we want to give the key to the PKCS8 importer in native-tls's
+        // security framework (Mac OS) backend, which requires the PKCS8 PEM marker "PRIVATE KEY".
+        // Construct the PEM manually so we can force the PEM marker. This means we are representing
+        // as PKCS8 something that is not actually PKCS8, so any consumer would be justified in
+        // rejecting it.
+        let der_len = ec_key.encoded_len().unwrap().try_into().unwrap();
+        let pem_len = pem::encapsulated_len("PRIVATE KEY", LineEnding::LF, der_len).unwrap();
+        let mut pem = vec![0u8; pem_len];
+        let mut w = PemWriter::new("PRIVATE KEY", LineEnding::LF, &mut pem).unwrap();
+        ec_key.encode(&mut w).unwrap();
+        let len = w.finish().unwrap();
+        pem.truncate(len);
+        pem
+    }
+}
 #[derive(Debug, Parser)]
 #[clap(
     name = "helper",
@@ -88,18 +138,30 @@ enum HelperCommand {
 async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
-    let tls = match (args.tls_cert, args.tls_key) {
-        (Some(cert), Some(key)) => Some(TlsConfig::File {
-            certificate_file: cert,
-            private_key_file: key,
-        }),
-        (None, None) => None,
+    let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
+        (Some(cert), Some(key_file)) => {
+            let key = fs::read_to_string(&key_file).unwrap().into_bytes();
+            #[cfg(target_os = "macos")]
+            let key = pkcs8::munge_private_key(&key);
+
+            (
+                ClientIdentity::Certificate(
+                    Identity::from_pkcs8(fs::read_to_string(&cert).unwrap().as_bytes(), &key)
+                        .unwrap(),
+                ),
+                Some(TlsConfig::File {
+                    certificate_file: cert,
+                    private_key_file: key_file,
+                }),
+            )
+        }
+        (None, None) => (ClientIdentity::Helper(my_identity), None),
         _ => panic!("should have been rejected by clap"),
     };
     let server_config = ServerConfig {
         port: args.port,
         disable_https: args.disable_https,
-        tls,
+        tls: server_tls,
     };
 
     let (setup, callbacks) = AppSetup::new();
@@ -112,7 +174,7 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
-    let clients = MpcHelperClient::from_conf(&network_config);
+    let clients = MpcHelperClient::from_conf(&network_config, identity);
 
     let (transport, server) = HttpTransport::new(
         my_identity,

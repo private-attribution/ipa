@@ -80,19 +80,14 @@ pub mod echo {
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
-            HelperIdentity,
-        },
+        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
         net::Error,
     };
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
-    use hyper::header::HeaderName;
     use std::{
         fmt::{Display, Formatter},
         num::NonZeroU32,
-        str::FromStr,
     };
 
     /// wrapper around [`QueryConfig`] to enable extraction from an `Axum` request. To be used with
@@ -182,46 +177,6 @@ pub mod query {
         }
     }
 
-    /// name of the `origin` header to use for [`OriginHeader`]
-    static ORIGIN_HEADER_NAME: HeaderName = HeaderName::from_static("origin");
-
-    fn get_header<B, H: FromStr>(req: &RequestParts<B>, header_name: HeaderName) -> Result<H, Error>
-    where
-        Error: From<<H as FromStr>::Err>,
-    {
-        let header_name_string = header_name.to_string();
-        req.headers()
-            .get(header_name)
-            .ok_or(Error::MissingHeader(header_name_string))
-            .and_then(|header_value| header_value.to_str().map_err(Into::into))
-            .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
-    }
-
-    /// Header indicating the originating `HelperIdentity`.
-    /// May be replaced in the future with a method with better security
-    #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-    struct OriginHeader {
-        origin: HelperIdentity,
-    }
-
-    impl OriginHeader {
-        fn add_to(self, req: axum::http::request::Builder) -> axum::http::request::Builder {
-            req.header(ORIGIN_HEADER_NAME.clone(), self.origin)
-        }
-    }
-
-    #[async_trait]
-    impl<B: Send> FromRequest<B> for OriginHeader {
-        type Rejection = Error;
-
-        async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-            let origin: usize = get_header(req, ORIGIN_HEADER_NAME.clone())?;
-            let origin =
-                HelperIdentity::try_from(origin).map_err(|err| Error::InvalidHeader(err.into()))?;
-            Ok(OriginHeader { origin })
-        }
-    }
-
     pub const BASE_AXUM_PATH: &str = "/query";
 
     pub mod create {
@@ -285,9 +240,9 @@ pub mod query {
 
     pub mod prepare {
         use crate::{
-            helpers::{query::PrepareQuery, HelperIdentity, RoleAssignment},
+            helpers::{query::PrepareQuery, RoleAssignment},
             net::{
-                http_serde::query::{OriginHeader, QueryConfigQueryParams, BASE_AXUM_PATH},
+                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
                 Error,
             },
         };
@@ -301,13 +256,12 @@ pub mod query {
 
         #[derive(Debug, Clone)]
         pub struct Request {
-            pub origin: HelperIdentity,
             pub data: PrepareQuery,
         }
 
         impl Request {
-            pub fn new(origin: HelperIdentity, data: PrepareQuery) -> Self {
-                Self { origin, data }
+            pub fn new(data: PrepareQuery) -> Self {
+                Self { data }
             }
             pub fn try_into_http_request(
                 self,
@@ -324,15 +278,11 @@ pub mod query {
                         QueryConfigQueryParams(self.data.config),
                     ))
                     .build()?;
-                let origin_header = OriginHeader {
-                    origin: self.origin,
-                };
                 let body = RequestBody {
                     roles: self.data.roles,
                 };
                 let body = hyper::Body::from(serde_json::to_string(&body)?);
-                Ok(origin_header
-                    .add_to(hyper::Request::post(uri))
+                Ok(hyper::Request::post(uri)
                     .header(CONTENT_TYPE, "application/json")
                     .body(body)?)
             }
@@ -347,10 +297,8 @@ pub mod query {
             ) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
                 let QueryConfigQueryParams(config) = req.extract().await?;
-                let origin_header = req.extract::<OriginHeader>().await?;
                 let Json(RequestBody { roles }) = req.extract().await?;
                 Ok(Request {
-                    origin: origin_header.origin,
                     data: PrepareQuery {
                         query_id,
                         config,
@@ -453,11 +401,7 @@ pub mod query {
 
     pub mod step {
         use crate::{
-            helpers::HelperIdentity,
-            net::{
-                http_serde::query::{OriginHeader, BASE_AXUM_PATH},
-                Error,
-            },
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
             protocol::{step, QueryId},
         };
         use async_trait::async_trait;
@@ -470,21 +414,14 @@ pub mod query {
         // is used on the server side, `B` can be any body type supported by axum.
         #[derive(Debug)]
         pub struct Request<B> {
-            pub origin: HelperIdentity,
             pub query_id: QueryId,
             pub step: step::Descriptive,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(
-                origin: HelperIdentity,
-                query_id: QueryId,
-                step: step::Descriptive,
-                body: B,
-            ) -> Self {
+            pub fn new(query_id: QueryId, step: step::Descriptive, body: B) -> Self {
                 Self {
-                    origin,
                     query_id,
                     step,
                     body,
@@ -509,14 +446,7 @@ pub mod query {
                         self.step.as_ref()
                     ))
                     .build()?;
-                // TODO(597): this is a misuse of the origin header, and is insecure.
-                // need to authenticate clients with TLS.
-                let origin_header = OriginHeader {
-                    origin: self.origin,
-                };
-                let req = hyper::Request::post(uri);
-                let req = origin_header.add_to(req);
-                Ok(req.body(self.body)?)
+                Ok(hyper::Request::post(uri).body(self.body)?)
             }
         }
 
@@ -536,10 +466,8 @@ pub mod query {
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let Path((query_id, step)) = req.extract::<Path<_>>().await?;
-                let origin_header = req.extract::<OriginHeader>().await?;
                 let body = req.extract::<BodyStream>().await?;
                 Ok(Self {
-                    origin: origin_header.origin,
                     query_id,
                     step,
                     body,

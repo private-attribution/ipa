@@ -40,7 +40,7 @@ impl<T: Transport, M: Message> ReceivingEnd<T, M> {
     /// This will panic if message size does not fit into 8 bytes and it somehow got serialized
     /// and sent to this helper.
     pub async fn receive(&self, record_id: RecordId) -> Result<M, Error> {
-        // TODO: proper error handling
+        // TODO(651): proper error handling
         let v = self.unordered_rx.recv::<M, _>(record_id).await?;
         Ok(v)
     }
