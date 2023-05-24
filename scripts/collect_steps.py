@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import re
 import subprocess
@@ -54,7 +55,7 @@ def natural_sort_key(s):
 
 
 def collect_steps(args):
-    output = []
+    output = set()
 
     proc = subprocess.Popen(
         args=args,
@@ -75,7 +76,7 @@ def collect_steps(args):
             header += 1
             continue
 
-        output.append(remove_root_step_name_from_line(line))
+        output.update([remove_root_step_name_from_line(line)])
         count += 1
 
     # safeguard against empty output
@@ -114,32 +115,24 @@ def collect_steps(args):
 # protocol which is a pretty rare case. The duplicates will be removed in the
 # `remove_duplicates_and_sort`.
 def extract_intermediate_steps(steps):
-    output = []
+    output = set()
     for step in steps:
         substeps = step.split("/")
         for i in range(1, len(substeps)):
-            output.append("/".join(substeps[:i]))
-    steps.extend(output)
-
-
-def remove_duplicates_and_sort(steps):
-    # Converting a list to dict removes duplicates. We want a list for the sorting.
-    unique_steps = list(dict.fromkeys(steps))
-
-    # "natural" sort
-    unique_steps.sort(key=natural_sort_key)
+            output.add("/".join(substeps[:i]))
+    steps.update(output)
 
     # remove empty string if present
     try:
-        unique_steps.remove("")
+        steps.remove("")
     except Exception:
         pass
 
-    return unique_steps
+    return steps
 
 
 if __name__ == "__main__":
-    steps = []
+    steps = set()
     for c in PER_USER_CAP:
         for w in ATTRIBUTION_WINDOW:
             for b in BREAKDOWN_KEYS:
@@ -156,10 +149,10 @@ if __name__ == "__main__":
                         "-m",
                         m,
                     ]
-                    steps.extend(collect_steps(args))
+                    steps.update(collect_steps(args))
 
-    extract_intermediate_steps(steps)
-    steps = remove_duplicates_and_sort(steps)
+    full_steps = extract_intermediate_steps(steps)
+    sorted_steps = sorted(full_steps, key=natural_sort_key)
 
-    for step in steps:
+    for step in sorted_steps:
         print(step)
