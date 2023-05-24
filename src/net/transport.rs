@@ -255,7 +255,6 @@ mod tests {
     }
 
     async fn test_three_helpers(mut conf: TestConfig) {
-        const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
         let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
@@ -264,6 +263,28 @@ mod tests {
             conf.disable_https,
         )
         .await;
+
+        test_multiply(&clients).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn happy_case_twice() {
+        let mut conf = TestConfigBuilder::with_open_ports().build();
+        let ids = HelperIdentity::make_three();
+        let clients = MpcHelperClient::from_conf(&conf.network);
+        let _helpers = make_helpers(
+            ids,
+            conf.sockets.take().unwrap(),
+            conf.servers,
+            &conf.network,
+        ).await;
+
+        test_multiply(&clients).await;
+        test_multiply(&clients).await;
+    }
+
+    async fn test_multiply(clients: &[MpcHelperClient; 3]) {
+        const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
 
         // send a create query command
         let leader_client = &clients[0];
@@ -296,13 +317,13 @@ mod tests {
         }
         try_join_all(handle_resps).await.unwrap();
 
-        let result: [_; 3] = join_all(clients.map(|client| async move {
+        let result: [_; 3] = join_all(clients.clone().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();
             AdditiveShare::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
         }))
-        .await
-        .try_into()
-        .unwrap();
+            .await
+            .try_into()
+            .unwrap();
         let res = result.reconstruct();
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
     }
