@@ -95,7 +95,10 @@ impl MpcHelperClient {
                     error!("certificate identity ignored for HTTP client");
                     None
                 }
-                ClientIdentity::Helper(id) => Some((HTTP_CLIENT_ID_HEADER.clone(), id.into())),
+                ClientIdentity::Helper(id) => Some((
+                    HTTP_CLIENT_ID_HEADER.clone(),
+                    id.try_into().expect("integer not ascii?"),
+                )),
                 ClientIdentity::None => None,
             };
             (HttpsConnector::new(), auth_header)

@@ -32,7 +32,6 @@ use std::{
     io,
     net::{Ipv4Addr, SocketAddr, TcpListener},
     ops::Deref,
-    str::FromStr,
     task::{Context, Poll},
 };
 use tokio_rustls::{
@@ -447,7 +446,7 @@ pub static HTTP_CLIENT_ID_HEADER: HeaderName =
 /// Since this allows a client to claim any identity, it is completely
 /// insecure. It must only be used in contexts where that is acceptable.
 #[derive(Clone)]
-pub(super) struct SetClientIdentityFromHeader<S> {
+struct SetClientIdentityFromHeader<S> {
     inner: S,
 }
 
@@ -470,16 +469,9 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 
     fn call(&mut self, mut req: Request<B>) -> Self::Future {
-        if let Some(header_value) = req.headers().get(HTTP_CLIENT_ID_HEADER.clone()) {
-            let id_result = header_value
-                .to_str()
-                .map_err(Into::into)
-                .and_then(|value_str| usize::from_str(value_str).map_err(Into::into))
-                .and_then(|value_int| {
-                    HelperIdentity::try_from(value_int).map_err(|e| {
-                        Error::InvalidHeader(format!("{HTTP_CLIENT_ID_HEADER}: {e:?}").into())
-                    })
-                });
+        if let Some(header_value) = req.headers().get(&HTTP_CLIENT_ID_HEADER) {
+            let id_result = serde_json::from_slice(header_value.as_ref())
+                .map_err(|e| Error::InvalidHeader(format!("{HTTP_CLIENT_ID_HEADER}: {e}").into()));
             match id_result {
                 Ok(id) => req.extensions_mut().insert(ClientIdentity(id)),
                 Err(err) => return ready(Ok(err.into_response())).right_future(),
