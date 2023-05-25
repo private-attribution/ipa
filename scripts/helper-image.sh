@@ -34,9 +34,9 @@ fi
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$branch" == "main" ]]; then
-  tag="private-attribution/ipa:latest"
+  tag="private-attribution/ipa:latest.$identity"
 else
-  tag="private-attribution/ipa:${branch}"
+  tag="private-attribution/ipa:$branch.$identity"
 fi
 
 cd "$(dirname "$0")"/.. || exit 1
