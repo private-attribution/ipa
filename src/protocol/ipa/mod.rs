@@ -467,11 +467,8 @@ pub mod tests {
         },
         test_fixture::{
             input::GenericReportTestInput,
-            ipa::{
-                generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
-                test_ipa, IpaSecurityModel,
-            },
-            Reconstruct, Runner, TestWorld, TestWorldConfig,
+            ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+            EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
     };
     use generic_array::GenericArray;
@@ -878,31 +875,26 @@ pub mod tests {
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: u32 = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 8;
-        const MAX_RECORDS_PER_USER: usize = 8;
+        const NUM_USERS: u64 = 8;
+        const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
-        let mut rng = StdRng::seed_from_u64(random_seed);
-
-        let mut random_user_records = Vec::with_capacity(NUM_USERS);
-        for _ in 0..NUM_USERS {
-            let records_for_user = generate_random_user_records_in_reverse_chronological_order(
-                &mut rng,
-                MAX_RECORDS_PER_USER,
-                MAX_BREAKDOWN_KEY,
+        let rng = StdRng::seed_from_u64(random_seed);
+        let raw_data = EventGenerator::with_config(
+            rng,
+            EventGeneratorConfig::new(
+                NUM_USERS,
                 MAX_TRIGGER_VALUE,
-            );
-            random_user_records.push(records_for_user);
-        }
-        let mut raw_data = random_user_records.concat();
-
-        // Sort the records in chronological order
-        // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
-        raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+                MAX_BREAKDOWN_KEY,
+                MAX_RECORDS_PER_USER,
+            ),
+        )
+        .take(usize::try_from(NUM_USERS * u64::from(MAX_RECORDS_PER_USER)).unwrap())
+        .collect::<Vec<_>>();
 
         let config = TestWorldConfig {
             gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),

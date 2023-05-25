@@ -15,10 +15,9 @@ disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
 web-app = [
-    "axum", "axum-server", "clap", "comfy-table", "enable-serde", "hex",
-    "hyper", "hyper-tls", "rcgen", "time", "toml", "tower", "tower-http",
+    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hex", "hyper", "hyper-tls",
+    "rcgen", "rustls-pemfile", "sec1", "time", "tokio-rustls", "toml", "tower", "tower-http",
 ]
-self-signed-certs = ["hyper-tls"]
 # The test-http and test-fixture features are mutually incompatible, and the
 # code doesn't support building tests without test-fixture. So if you want to
 # run the tests enabled by test-http, you unfortunately need to do something
@@ -36,12 +35,14 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
+step-trace = []
 
 [dependencies]
 aes = "0.8"
 async-trait = "0.1.57"
 axum = { version = "0.5.16", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
+base64 = { version = "0.13", optional = true }
 bitvec = "1.0.1"
 # TODO: the only place where we use bytes is in ByteArrStream. ordering_mpsc is a replacement for it
 # so we can remove this dependency after migrating to it. It is added only to avoid having `web-app` feature enabled
@@ -70,7 +71,9 @@ pin-project = "1.0.12"
 rand = "0.8"
 rand_core = "0.6"
 rcgen = { version = "0.10", optional = true }
-
+rustls-pemfile = { version = "1", optional = true }
+# TODO(640): sec1 only needed until we standardize on rustls
+sec1 = { version = "0.7", features = ["alloc", "pem", "pkcs8"], optional = true }
 # TODO consider using zerocopy or serde_bytes or in-house serialization
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
@@ -80,6 +83,7 @@ thiserror = "1.0"
 time = { version = "0.3", optional = true }
 tinyvec = "1.6.0"
 tokio = { version = "1.21.2", features = ["rt", "rt-multi-thread", "macros"] }
+tokio-rustls = { version = "0.23", optional = true }
 tokio-stream = "0.1.10"
 tokio-util = "0.7.4"
 toml = { version = "0.7", optional = true }
@@ -95,6 +99,7 @@ dhat = "0.3.2"
 tikv-jemallocator = "0.5.0"
 
 [dev-dependencies]
+command-fds = "0.2.2"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"

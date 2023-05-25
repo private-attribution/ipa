@@ -96,7 +96,7 @@ impl<T: Transport> Gateway<T> {
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
                 async move {
-                    // TODO: In the HTTP case we probably need more robust error handling here.
+                    // TODO(651): In the HTTP case we probably need more robust error handling here.
                     transport
                         .send(&channel_id, stream)
                         .await

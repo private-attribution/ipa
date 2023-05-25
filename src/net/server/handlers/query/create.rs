@@ -63,7 +63,7 @@ mod tests {
         let TestServer { server, .. } = TestServer::builder().with_callbacks(cb).build().await;
         let req = http_serde::query::create::Request::new(expected_query_config);
         let req = req
-            .try_into_http_request(Scheme::HTTP, Authority::from_static("127.0.0.1"))
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
         let resp = server.handle_req(req).await;
 
@@ -123,7 +123,7 @@ mod tests {
     impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> hyper::Request<hyper::Body> {
             let uri = format!(
-                "http://127.0.0.1:{}{}?field_type={}&{}",
+                "http://localhost:{}{}?field_type={}&{}",
                 port,
                 http_serde::query::BASE_AXUM_PATH,
                 self.field_type,

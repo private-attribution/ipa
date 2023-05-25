@@ -1,6 +1,6 @@
 use crate::{
     cli::{keygen, KeygenArgs},
-    config::{NetworkConfig, PeerConfig},
+    config::ClientConfig,
 };
 use clap::Args;
 use std::{
@@ -9,6 +9,7 @@ use std::{
     iter::zip,
     path::PathBuf,
 };
+use toml::{map::Map, Table, Value};
 
 #[derive(Debug, Args)]
 #[clap(
@@ -23,6 +24,10 @@ pub struct TestSetupArgs {
     /// Ignored. The same configuration can be used for HTTP and HTTPS.
     #[arg(long)]
     disable_https: bool,
+
+    /// Configure helper clients to use HTTP1 instead of default HTTP version (HTTP2 at the moment).
+    #[arg(long, default_value_t = false)]
+    use_http1: bool,
 
     #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
     ports: Vec<u16>,
@@ -63,20 +68,37 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
                 matchkey_decryption_file,
             })?;
 
-            let certificate = Some(fs::read_to_string(&tls_cert)?);
+            let certificate = fs::read_to_string(&tls_cert)?;
             let matchkey_encryption_key = Some(fs::read_to_string(&matchkey_encryption_file)?);
 
-            Ok::<_, Box<dyn Error>>(PeerConfig {
-                url: format!("localhost:{port}").parse().unwrap(),
-                certificate,
-                matchkey_encryption_key,
-            })
+            // Constructing toml directly because it avoids linking
+            // a PEM library to serialize the certificate.
+            let mut peer = Map::new();
+            peer.insert(
+                String::from("url"),
+                Value::String(format!("localhost:{port}")),
+            );
+            peer.insert(String::from("certificate"), Value::String(certificate));
+            if let Some(key) = matchkey_encryption_key.as_deref() {
+                peer.insert(String::from("matchkey_encryption_key"), key.into());
+            }
+            Ok::<_, Box<dyn Error>>(peer.into())
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .unwrap();
+        .collect::<Result<Vec<Value>, _>>()?
+        .into();
 
-    let network_config = toml::to_string_pretty(&NetworkConfig { peers })?;
+    let client_config = if args.use_http1 {
+        ClientConfig::use_http1()
+    } else {
+        ClientConfig::default()
+    };
+    let mut network_config = Map::new();
+    network_config.insert(String::from("peers"), peers);
+    network_config.insert(
+        String::from("client"),
+        Table::try_from(client_config)?.into(),
+    );
+    let network_config = toml::to_string_pretty(&network_config)?;
 
     fs::write(args.output_dir.join("network.toml"), network_config)?;
 

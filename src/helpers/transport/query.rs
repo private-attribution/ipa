@@ -183,10 +183,15 @@ impl Step for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
+    #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub per_user_credit_cap: u32,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_breakdown_key: u32,
+    #[cfg_attr(feature = "clap", arg(long))]
     pub attribution_window_seconds: Option<NonZeroU32>,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
 }
 
