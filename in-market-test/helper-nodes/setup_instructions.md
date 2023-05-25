@@ -16,7 +16,7 @@ Here are the instructions for setting up node for running IPA.
    IPA team is still working on this and we will populate this section once the instructions are ready
 
 1. Generate public and private keys for encrypting match keys and also, to secure the report files while in transit.
-   `mkdir ~/Keys && cargo run --bin=helper --no-default-features --features "web-app real-world-infra" keygen --name "test" --tls-cert ~/Keys/TLSCert --tls-key ~/Keys/TLSKey --matchkey-enc ~/Keys/MatchKeyEncryptionKey --matchkey-dec ~/Keys/MatchKeyDecryptionKey`
+   `mkdir ~/Keys && cargo run --bin=helper --no-default-features --features "web-app real-world-infra" keygen --name "test" --tls-cert ~/Keys/TLSCert --tls-key ~/Keys/TLSKey --mk-public-key ~/Keys/MatchKeyEncryptionKey --mk-private-key ~/Keys/MatchKeyDecryptionKey`
 
 ## Step 3: Run sample test across 3 helper parties
    IPA team is still working on this and we will populate this section once the instructions are ready
