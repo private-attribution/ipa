@@ -1,4 +1,4 @@
-use crate::hpke::{IpaKem, IpaPrivateKey, IpaPublicKey};
+use crate::hpke::KeyPair;
 use clap::Args;
 use rand::{thread_rng, Rng};
 use rand_core::CryptoRng;
@@ -13,6 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use time::{Duration, OffsetDateTime};
+
 #[derive(Debug, Args)]
 #[clap(
     name = "keygen",
@@ -34,12 +35,12 @@ pub struct KeygenArgs {
     pub(crate) tls_key: PathBuf,
 
     /// Writes the generated report public key to the file
-    #[arg(long, visible_alias("matchkey-enc"))]
-    pub(crate) matchkey_encryption_file: PathBuf,
+    #[arg(long)]
+    pub(crate) mk_public_key: PathBuf,
 
     /// Writes the generated report private key to the file
-    #[arg(long, visible_alias("matchkey-dec"))]
-    pub(crate) matchkey_decryption_file: PathBuf,
+    #[arg(long)]
+    pub(crate) mk_private_key: PathBuf,
 }
 
 fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
@@ -99,13 +100,10 @@ fn keygen_matchkey<R: Rng + CryptoRng>(
     args: &KeygenArgs,
     mut rng: &mut R,
 ) -> Result<(), Box<dyn Error>> {
-    let (private_key, public_key): (IpaPrivateKey, IpaPublicKey) =
-        <IpaKem as hpke::Kem>::gen_keypair(&mut rng);
+    let keypair = KeyPair::gen(&mut rng);
 
-    create_new(&args.matchkey_encryption_file)?
-        .write_all(hex::encode(hpke::Serializable::to_bytes(&private_key)).as_bytes())?;
-    create_new(&args.matchkey_decryption_file)?
-        .write_all(hex::encode(hpke::Serializable::to_bytes(&public_key)).as_bytes())?;
+    create_new(&args.mk_public_key)?.write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
+    create_new(&args.mk_private_key)?.write_all(hex::encode(keypair.sk_bytes()).as_bytes())?;
 
     Ok(())
 }

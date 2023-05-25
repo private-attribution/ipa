@@ -108,8 +108,9 @@ pub struct PeerConfig {
     #[serde(default, deserialize_with = "certificate_from_pem")]
     pub certificate: Option<Certificate>,
 
-    /// public key which should be used to encrypt match keys
-    pub matchkey_encryption_key: Option<String>,
+    /// Match key encryption configuration.
+    #[serde(default, rename = "hpke")]
+    pub hpke_config: Option<HpkeClientConfig>,
 }
 
 impl PeerConfig {
@@ -117,8 +118,22 @@ impl PeerConfig {
         Self {
             url,
             certificate,
-            matchkey_encryption_key: None,
+            hpke_config: None,
         }
+    }
+}
+
+/// Match key encryption client configuration. To encrypt match keys towards a helper node, clients
+/// need to know helper's public key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HpkeClientConfig {
+    pub public_key: String,
+}
+
+impl HpkeClientConfig {
+    #[must_use]
+    pub fn new(public_key: String) -> Self {
+        Self { public_key }
     }
 }
 
@@ -157,7 +172,7 @@ pub enum TlsConfig {
 }
 
 #[derive(Clone, Debug)]
-pub enum MatchKeyEncryptionConfig {
+pub enum HpkeServerConfig {
     File {
         /// Path to file containing public key which encrypts match keys
         public_key_file: PathBuf,
@@ -187,7 +202,7 @@ pub struct ServerConfig {
     pub tls: Option<TlsConfig>,
 
     /// Configuration needed for encrypting and decrypting match keys
-    pub matchkey_encryption_info: Option<MatchKeyEncryptionConfig>,
+    pub hpke_config: Option<HpkeServerConfig>,
 }
 
 pub trait HyperClientConfigurator {

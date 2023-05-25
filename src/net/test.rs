@@ -11,7 +11,8 @@
 
 use crate::{
     config::{
-        ClientConfig, MatchKeyEncryptionConfig, NetworkConfig, PeerConfig, ServerConfig, TlsConfig,
+        ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
+        TlsConfig,
     },
     helpers::{HelperIdentity, TransportCallbacks},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
@@ -57,13 +58,11 @@ impl Default for TestConfig {
 }
 
 // TODO: move these standalone functions into a new funcion `TestConfigBuilder::server_config`.
-fn get_dummy_matchkey_encryption_info(
-    matchkey_encryption: bool,
-) -> Option<MatchKeyEncryptionConfig> {
+fn get_dummy_matchkey_encryption_info(matchkey_encryption: bool) -> Option<HpkeServerConfig> {
     if matchkey_encryption {
-        Some(MatchKeyEncryptionConfig::Inline {
-            public_key: TEST_MATCHKEY_ENCRYPTION_KEY.to_owned(),
-            private_key: TEST_MATCHKEY_DECRYPTION_KEY.to_owned(),
+        Some(HpkeServerConfig::Inline {
+            public_key: TEST_HPKE_PUBLIC_KEY.to_owned(),
+            private_key: TEST_HPKE_PRIVATE_KEY.to_owned(),
         })
     } else {
         None
@@ -76,7 +75,7 @@ fn server_config_insecure_http(port: u16, matchkey_encryption: bool) -> ServerCo
         port: Some(port),
         disable_https: true,
         tls: None,
-        matchkey_encryption_info: get_dummy_matchkey_encryption_info(matchkey_encryption),
+        hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
     }
 }
 
@@ -94,7 +93,7 @@ pub fn server_config_https(
             certificate: String::from_utf8(certificate.to_owned()).unwrap(),
             private_key: String::from_utf8(private_key.to_owned()).unwrap(),
         }),
-        matchkey_encryption_info: get_dummy_matchkey_encryption_info(matchkey_encryption),
+        hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
     }
 }
 
@@ -174,10 +173,10 @@ impl TestConfigBuilder {
                     .parse()
                     .unwrap(),
                 certificate: cert.map(Certificate),
-                matchkey_encryption_key: if self.disable_matchkey_encryption {
+                hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
-                    Some(TEST_MATCHKEY_ENCRYPTION_KEY.to_owned())
+                    Some(HpkeClientConfig::new(TEST_HPKE_PUBLIC_KEY.to_owned()))
                 },
             })
             .collect::<Vec<_>>()
@@ -446,10 +445,10 @@ KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
 ",
 ];
 
-const TEST_MATCHKEY_ENCRYPTION_KEY: &str = "\
+const TEST_HPKE_PUBLIC_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";
 
-const TEST_MATCHKEY_DECRYPTION_KEY: &str = "\
+const TEST_HPKE_PRIVATE_KEY: &str = "\
 a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
 ";

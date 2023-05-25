@@ -3,7 +3,7 @@ use hyper::http::uri::Scheme;
 use hyper_tls::native_tls::Identity;
 use ipa::{
     cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
-    config::{MatchKeyEncryptionConfig, NetworkConfig, ServerConfig, TlsConfig},
+    config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
@@ -129,12 +129,12 @@ struct ServerArgs {
     tls_key: Option<PathBuf>,
 
     /// Public key for encrypting match keys
-    #[arg(long, visible_alias("mk_enc"), requires = "matchkey_encryption_file")]
-    matchkey_encryption_file: Option<PathBuf>,
+    #[arg(long, requires = "mk_private_key")]
+    mk_public_key: Option<PathBuf>,
 
     /// Private key for decrypting match keys
-    #[arg(long, visible_alias("mk_dec"), requires = "matchkey_decryption_file")]
-    matchkey_decryption_file: Option<PathBuf>,
+    #[arg(long, requires = "mk_public_key")]
+    mk_private_key: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -167,23 +167,19 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
         _ => panic!("should have been rejected by clap"),
     };
 
-    let matchkey_encryption_info =
-        match (args.matchkey_encryption_file, args.matchkey_decryption_file) {
-            (Some(matchkey_encryption_file), Some(matchkey_decryption_file)) => {
-                Some(MatchKeyEncryptionConfig::File {
-                    public_key_file: matchkey_encryption_file,
-                    private_key_file: matchkey_decryption_file,
-                })
-            }
-            (None, None) => None,
-            _ => panic!("should have been rejected by clap"),
-        };
+    let mk_encryption = args
+        .mk_public_key
+        .zip(args.mk_private_key)
+        .map(|(pk_path, sk_path)| HpkeServerConfig::File {
+            public_key_file: pk_path,
+            private_key_file: sk_path,
+        });
 
     let server_config = ServerConfig {
         port: args.port,
         disable_https: args.disable_https,
         tls: server_tls,
-        matchkey_encryption_info,
+        hpke_config: mk_encryption,
     };
 
     let (setup, callbacks) = AppSetup::new();
