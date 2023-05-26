@@ -10,7 +10,10 @@
 #![allow(clippy::missing_panics_doc)]
 
 use crate::{
-    config::{ClientConfig, NetworkConfig, PeerConfig, ServerConfig, TlsConfig},
+    config::{
+        ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
+        TlsConfig,
+    },
     helpers::{HelperIdentity, TransportCallbacks},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
@@ -54,17 +57,34 @@ impl Default for TestConfig {
     }
 }
 
-#[must_use]
-fn server_config_insecure_http(port: u16) -> ServerConfig {
-    ServerConfig {
-        port: Some(port),
-        disable_https: true,
-        tls: None,
+// TODO: move these standalone functions into a new funcion `TestConfigBuilder::server_config`.
+fn get_dummy_matchkey_encryption_info(matchkey_encryption: bool) -> Option<HpkeServerConfig> {
+    if matchkey_encryption {
+        Some(HpkeServerConfig::Inline {
+            public_key: TEST_HPKE_PUBLIC_KEY.to_owned(),
+            private_key: TEST_HPKE_PRIVATE_KEY.to_owned(),
+        })
+    } else {
+        None
     }
 }
 
 #[must_use]
-pub fn server_config_https(id: HelperIdentity, port: u16) -> ServerConfig {
+fn server_config_insecure_http(port: u16, matchkey_encryption: bool) -> ServerConfig {
+    ServerConfig {
+        port: Some(port),
+        disable_https: true,
+        tls: None,
+        hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
+    }
+}
+
+#[must_use]
+pub fn server_config_https(
+    id: HelperIdentity,
+    port: u16,
+    matchkey_encryption: bool,
+) -> ServerConfig {
     let (certificate, private_key) = get_test_certificate_and_key(id);
     ServerConfig {
         port: Some(port),
@@ -73,6 +93,7 @@ pub fn server_config_https(id: HelperIdentity, port: u16) -> ServerConfig {
             certificate: String::from_utf8(certificate.to_owned()).unwrap(),
             private_key: String::from_utf8(private_key.to_owned()).unwrap(),
         }),
+        hpke_config: get_dummy_matchkey_encryption_info(matchkey_encryption),
     }
 }
 
@@ -81,6 +102,7 @@ pub struct TestConfigBuilder {
     ports: Option<[u16; 3]>,
     disable_https: bool,
     use_http1: bool,
+    disable_matchkey_encryption: bool,
 }
 
 impl TestConfigBuilder {
@@ -90,6 +112,7 @@ impl TestConfigBuilder {
             ports: Some(DEFAULT_TEST_PORTS),
             disable_https: true,
             use_http1: false,
+            disable_matchkey_encryption: false,
         }
     }
 
@@ -99,6 +122,7 @@ impl TestConfigBuilder {
             ports: None,
             disable_https: false,
             use_http1: false,
+            disable_matchkey_encryption: false,
         }
     }
 
@@ -111,6 +135,14 @@ impl TestConfigBuilder {
     #[must_use]
     pub fn with_use_http1_option(mut self, value: bool) -> Self {
         self.use_http1 = value;
+        self
+    }
+
+    #[allow(dead_code)]
+    #[must_use]
+    // TODO(richaj) Add tests for checking the handling of this. At present the code to decrypt does not exist.
+    pub fn disable_matchkey_encryption(mut self) -> Self {
+        self.disable_matchkey_encryption = true;
         self
     }
 
@@ -141,6 +173,11 @@ impl TestConfigBuilder {
                     .parse()
                     .unwrap(),
                 certificate: cert.map(Certificate),
+                hpke_config: if self.disable_matchkey_encryption {
+                    None
+                } else {
+                    Some(HpkeClientConfig::new(TEST_HPKE_PUBLIC_KEY.to_owned()))
+                },
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -153,9 +190,10 @@ impl TestConfigBuilder {
                 .unwrap_or_default(),
         };
         let servers = if self.disable_https {
-            ports.map(server_config_insecure_http)
+            ports.map(|ports| server_config_insecure_http(ports, !self.disable_matchkey_encryption))
         } else {
-            HelperIdentity::make_three().map(|id| server_config_https(id, ports[id]))
+            HelperIdentity::make_three()
+                .map(|id| server_config_https(id, ports[id], !self.disable_matchkey_encryption))
         };
         TestConfig {
             network,
@@ -211,6 +249,7 @@ pub struct TestServerBuilder {
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
+    disable_matchkey_encryption: bool,
 }
 
 impl TestServerBuilder {
@@ -233,6 +272,14 @@ impl TestServerBuilder {
         self
     }
 
+    #[allow(dead_code)]
+    #[must_use]
+    // TODO(richaj) Add tests for checking the handling of this. At present the code to decrypt does not exist.
+    pub fn disable_matchkey_encryption(mut self) -> Self {
+        self.disable_matchkey_encryption = true;
+        self
+    }
+
     #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
     pub fn use_http1(mut self) -> Self {
         self.use_http1 = true;
@@ -248,6 +295,7 @@ impl TestServerBuilder {
         let test_config = TestConfig::builder()
             .with_disable_https_option(self.disable_https)
             .with_use_http1_option(self.use_http1)
+            // TODO: add disble_matchkey here
             .build();
         let TestConfig {
             network: network_config,
@@ -396,3 +444,11 @@ KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
 -----END PRIVATE KEY-----
 ",
 ];
+
+const TEST_HPKE_PUBLIC_KEY: &str = "\
+0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
+";
+
+const TEST_HPKE_PRIVATE_KEY: &str = "\
+a0778c3e9960576cbef4312a3b7ca34137880fd588c11047bd8b6a8b70b5a151
+";

@@ -107,11 +107,33 @@ pub struct PeerConfig {
     /// trust is not currently supported.
     #[serde(default, deserialize_with = "certificate_from_pem")]
     pub certificate: Option<Certificate>,
+
+    /// Match key encryption configuration.
+    #[serde(default, rename = "hpke")]
+    pub hpke_config: Option<HpkeClientConfig>,
 }
 
 impl PeerConfig {
     pub fn new(url: Uri, certificate: Option<Certificate>) -> Self {
-        Self { url, certificate }
+        Self {
+            url,
+            certificate,
+            hpke_config: None,
+        }
+    }
+}
+
+/// Match key encryption client configuration. To encrypt match keys towards a helper node, clients
+/// need to know helper's public key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HpkeClientConfig {
+    pub public_key: String,
+}
+
+impl HpkeClientConfig {
+    #[must_use]
+    pub fn new(public_key: String) -> Self {
+        Self { public_key }
     }
 }
 
@@ -149,11 +171,27 @@ pub enum TlsConfig {
     },
 }
 
+#[derive(Clone, Debug)]
+pub enum HpkeServerConfig {
+    File {
+        /// Path to file containing public key which encrypts match keys
+        public_key_file: PathBuf,
+
+        /// Path to file containing private key which decrypts match keys
+        private_key_file: PathBuf,
+    },
+    Inline {
+        /// Public key in hex format
+        public_key: String,
+
+        // Private key in hex format
+        private_key: String,
+    },
+}
+
 /// Configuration information for launching an instance of the helper party web service.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    // Report public key
-    // Report private key
     /// Port to listen. If not specified, will ask Kernel to assign the port
     pub port: Option<u16>,
 
@@ -162,26 +200,9 @@ pub struct ServerConfig {
 
     /// TLS configuration for helper-to-helper communication
     pub tls: Option<TlsConfig>,
-}
 
-impl ServerConfig {
-    #[must_use]
-    pub fn insecure_http() -> ServerConfig {
-        ServerConfig {
-            port: None,
-            disable_https: true,
-            tls: None,
-        }
-    }
-
-    #[must_use]
-    pub fn insecure_http_port(port: u16) -> ServerConfig {
-        ServerConfig {
-            port: Some(port),
-            disable_https: true,
-            tls: None,
-        }
-    }
+    /// Configuration needed for encrypting and decrypting match keys
+    pub hpke_config: Option<HpkeServerConfig>,
 }
 
 pub trait HyperClientConfigurator {
