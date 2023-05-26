@@ -26,9 +26,37 @@ Here are the instructions for setting up node for running IPA.
    
    Link: TBD
 
-3. Docker image already contains public and private keys for encrypting match keys and also, to secure the report files while in transit. Retrieve them
+3. Docker image already contains (default) public and private keys for encrypting match keys and also, 
+   to secure the report files while in transit.
+  
+   1. If you need to install docker, follow the instructions [here](https://docs.docker.com/engine/install/). 
    
-   Command: TBD
+   2.  To see what docker images are available run and what their TAGs and IDs are run:
+   
+       `docker images`
+
+   3. To run the docker container with a bash terminal and see what is inside the image run: 
+   
+       `docker run -it docker.io/private-attribution/ipa:<IMAGE_TAG> /bin/bash`
+   
+   4. To copy a TLS public key from the docker image to the host run the following command in a terminal open in the host directory 
+      to which you want to copy the key.  You will know what your Helper party number is yours `{1,2,3}`, here we show for Helper `1`: 
+   
+      `docker cp <IMAGE_ID>:/etc/ipa/pub/1.pem .  `
+   5. To copy a TLS public key from Helper `2` from the host onto the docker image run from the directory with the public key `2.pem`: 
+   
+      `docker cp 2.pem <IMAGE_ID>:/etc/ipa/pub/`
+   6. To copy a public key used to encrypt the matchkeys from the docker image to the host run:
+
+      Command: TBD
+   
+   7. To copy a public key used to encrypt the matchkeys from the host to the docker image run:
+
+      Command: TBD
+
+
+
+
 
 4. Upload the public TLS and matchkey encryption keys in a shared folder. Save the private TLS and decryption keys in a safe place.
 
