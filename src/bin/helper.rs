@@ -3,7 +3,7 @@ use hyper::http::uri::Scheme;
 use hyper_tls::native_tls::Identity;
 use ipa::{
     cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
-    config::{NetworkConfig, ServerConfig, TlsConfig},
+    config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
@@ -127,6 +127,14 @@ struct ServerArgs {
     /// TLS key for helper-to-helper communication
     #[arg(long, visible_alias("key"), requires = "tls_cert")]
     tls_key: Option<PathBuf>,
+
+    /// Public key for encrypting match keys
+    #[arg(long, requires = "mk_private_key")]
+    mk_public_key: Option<PathBuf>,
+
+    /// Private key for decrypting match keys
+    #[arg(long, requires = "mk_public_key")]
+    mk_private_key: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -158,10 +166,20 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
         (None, None) => (ClientIdentity::Helper(my_identity), None),
         _ => panic!("should have been rejected by clap"),
     };
+
+    let mk_encryption = args
+        .mk_public_key
+        .zip(args.mk_private_key)
+        .map(|(pk_path, sk_path)| HpkeServerConfig::File {
+            public_key_file: pk_path,
+            private_key_file: sk_path,
+        });
+
     let server_config = ServerConfig {
         port: args.port,
         disable_https: args.disable_https,
         tls: server_tls,
+        hpke_config: mk_encryption,
     };
 
     let (setup, callbacks) = AppSetup::new();
@@ -222,7 +240,7 @@ pub async fn main() {
 
     let res = match args.command {
         None => server(args.server).await,
-        Some(HelperCommand::Keygen(args)) => keygen(args),
+        Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
     };
 

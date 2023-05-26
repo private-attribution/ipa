@@ -131,7 +131,15 @@ fn spawn_helpers(
             if https {
                 command
                     .args(["--tls-cert".into(), config_path.join(format!("h{id}.pem"))])
-                    .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))]);
+                    .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))])
+                    .args([
+                        "--mk-public-key".into(),
+                        config_path.join(format!("h{id}_mk.pub")),
+                    ])
+                    .args([
+                        "--mk-private-key".into(),
+                        config_path.join(format!("h{id}_mk")),
+                    ]);
             } else {
                 command.arg("--disable-https");
             }
@@ -164,7 +172,7 @@ fn test_network(https: bool) {
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
     // Uncomment this to preserve the temporary directory after the test runs.
-    //std::mem::forget(dir);
+    // std::mem::forget(dir);
 
     test_mpc
         .stdin

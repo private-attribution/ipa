@@ -16,7 +16,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 pub use info::Info;
-pub use registry::KeyRegistry;
+pub use registry::{KeyPair, KeyRegistry};
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;

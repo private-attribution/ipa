@@ -341,6 +341,7 @@ pub(crate) mod tests {
                 .parse()
                 .unwrap(),
             certificate: None,
+            hpke_config: None,
         };
         let client =
             MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);

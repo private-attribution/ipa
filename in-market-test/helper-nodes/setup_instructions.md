@@ -17,8 +17,8 @@ Here are the instructions for setting up node for running IPA.
    
 ## Step 2: Setup helper configuration
 1. Provide details of how the machine can be accessed from public internet. For this, we would need to know
-   i. IP address/DNS which is accessible from public internet (i.e. firewall is not running)
-   ii. Confirm if machine is able to listen on port 80 
+   i. IP address/DNS which is accessible from public internet (i.e. firewall allows connecting to the helper port (443))
+   ii. Confirm if machine is able to listen on port 443 
 
 2. Download docker image of IPA from shared folder. 
     
