@@ -17,7 +17,7 @@ Here are the instructions for setting up node for running IPA.
    
 ## Step 2: Setup helper configuration
 1. Provide details of how the machine can be accessed from public internet. For this, we would need to know
-   i. IP address/DNS which is accessible from public internet (i.e. firewall allows connecting to the helper port (443))
+   i.  IP address/DNS which is accessible from public internet (i.e. firewall allows connecting to the helper port (443))
    ii. Confirm if machine is able to listen on port 443 
 
 2. Download docker image of IPA from shared folder. 
@@ -26,11 +26,9 @@ Here are the instructions for setting up node for running IPA.
    
    Link: TBD
 
-3. Generate public and private keys for encrypting match keys and also, to secure the report files while in transit.
+3. Docker image already contains public and private keys for encrypting match keys and also, to secure the report files while in transit. Retrieve them
    
-   Command: 
-   
-   `mkdir ~/Keys && cargo run --bin=helper --no-default-features --features "web-app real-world-infra" keygen --name "test" --tls-cert ~/Keys/TLSCert --tls-key ~/Keys/TLSKey --matchkey-enc ~/Keys/MatchKeyEncryptionKey --matchkey-dec ~/Keys/MatchKeyDecryptionKey`
+   Command: TBD
 
 4. Upload the public TLS and matchkey encryption keys in a shared folder. Save the private TLS and decryption keys in a safe place.
 
