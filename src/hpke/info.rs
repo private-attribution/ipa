@@ -74,7 +74,7 @@ impl<'a> Info<'a> {
         let info_len = DOMAIN.len()
             + self.helper_origin.len()
             + self.site_domain.len()
-            + 3 // account for 4 delimiters
+            + 3 // account for 3 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch)
             + std::mem::size_of_val(&self.event_type);
