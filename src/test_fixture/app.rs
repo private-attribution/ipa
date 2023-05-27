@@ -47,7 +47,7 @@ where
 /// [`TestWorld`]: crate::test_fixture::TestWorld
 pub struct TestApp {
     drivers: [HelperApp; 3],
-    _network: InMemoryNetwork,
+    network: InMemoryNetwork,
 }
 
 fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
@@ -71,10 +71,7 @@ impl Default for TestApp {
             .map_err(|_| "infallible")
             .unwrap();
 
-        Self {
-            drivers,
-            _network: network,
-        }
+        Self { drivers, network }
     }
 }
 
@@ -110,6 +107,8 @@ impl TestApp {
             })
         }))
         .await?;
+
+        self.network.reset();
 
         Ok(<[_; 3]>::try_from(r).unwrap())
     }

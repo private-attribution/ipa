@@ -13,7 +13,12 @@ use crate::{
 use async_trait::async_trait;
 use axum::{body::Bytes, extract::BodyStream};
 use futures::{Stream, TryFutureExt};
-use std::borrow::Borrow;
+use std::{
+    borrow::Borrow,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 type LogHttpErrors = LogErrors<BodyStream, Bytes, axum::Error>;
 
@@ -22,6 +27,8 @@ pub struct HttpTransport {
     identity: HelperIdentity,
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
+    // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
+    // only allow one query at a time.
     record_streams: StreamCollection<LogHttpErrors>,
 }
 
@@ -65,7 +72,31 @@ impl HttpTransport {
     }
 
     pub fn complete_query(self: Arc<Self>, query_id: QueryId) -> CompleteQueryResult {
-        (Arc::clone(&self).callbacks.complete_query)(self, query_id)
+        /// Cleans up the `records_stream` collection after drop to ensure this transport
+        /// can process the next query even in case of a panic.
+        struct ClearOnDrop {
+            transport: Arc<HttpTransport>,
+            qr: CompleteQueryResult,
+        }
+
+        impl Future for ClearOnDrop {
+            type Output = <CompleteQueryResult as Future>::Output;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                self.qr.as_mut().poll(cx)
+            }
+        }
+
+        impl Drop for ClearOnDrop {
+            fn drop(&mut self) {
+                self.transport.record_streams.clear();
+            }
+        }
+
+        Box::pin(ClearOnDrop {
+            transport: Arc::clone(&self),
+            qr: Box::pin((Arc::clone(&self).callbacks.complete_query)(self, query_id)),
+        })
     }
 
     /// Connect an inbound stream of MPC record data.
@@ -270,14 +301,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let mut conf = TestConfigBuilder::with_open_ports().build();
-        let ids = HelperIdentity::make_three();
-        let clients = MpcHelperClient::from_conf(&conf.network);
+        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
         let _helpers = make_helpers(
-            ids,
             conf.sockets.take().unwrap(),
             conf.servers,
             &conf.network,
-        ).await;
+            conf.disable_https,
+        )
+        .await;
 
         test_multiply(&clients).await;
         test_multiply(&clients).await;
@@ -321,9 +352,9 @@ mod tests {
             let r = client.query_results(query_id).await.unwrap();
             AdditiveShare::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
         }))
-            .await
-            .try_into()
-            .unwrap();
+        .await
+        .try_into()
+        .unwrap();
         let res = result.reconstruct();
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
     }

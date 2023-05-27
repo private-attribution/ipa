@@ -1,7 +1,7 @@
 use crate::{
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
-    query::ProtocolResult,
+    query::runner::QueryResult,
     sync::Mutex,
     task::JoinHandle,
 };
@@ -44,7 +44,7 @@ pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
     AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
-    Running(JoinHandle<Box<dyn ProtocolResult>>),
+    Running(JoinHandle<QueryResult>),
     AwaitingCompletion,
 }
 
@@ -125,6 +125,30 @@ impl RunningQueries {
         QueryHandle {
             query_id,
             queries: self,
+        }
+    }
+}
+
+/// RAII guard to clean up query state when dropped.
+pub struct RemoveQuery<'a> {
+    pub query_id: QueryId,
+    pub queries: &'a RunningQueries,
+}
+
+impl Drop for RemoveQuery<'_> {
+    fn drop(&mut self) {
+        if self
+            .queries
+            .inner
+            .lock()
+            .unwrap()
+            .remove_entry(&self.query_id)
+            .is_none()
+        {
+            tracing::warn!(
+                "{q} query is not registered, but attempted to terminate",
+                q = self.query_id
+            );
         }
     }
 }
