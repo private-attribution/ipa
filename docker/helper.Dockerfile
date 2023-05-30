@@ -23,4 +23,9 @@ COPY --from=builder ${SOURCES_DIR}/target/release/helper $HELPER_BIN_PATH
 # generate certificate/private key for TLS
 RUN set -eux; \
     mkdir -p $CONF_DIR/pub; \
-    $HELPER_BIN_PATH keygen --name $HOSTNAME --tls-cert $CONF_DIR/pub/$IDENTITY.pem --tls-key $CONF_DIR/$IDENTITY.key
+    $HELPER_BIN_PATH keygen \
+    --name $HOSTNAME \
+    --tls-cert $CONF_DIR/pub/$IDENTITY.pem \
+    --tls-key $CONF_DIR/$IDENTITY.key \
+    --mk-public-key $CONF_DIR/pub/$IDENTITY-mk.pub \
+    --mk-private-key $CONF_DIR/$IDENTITY-mk.key
