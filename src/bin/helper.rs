@@ -140,7 +140,7 @@ struct ServerArgs {
 
 #[derive(Debug, Subcommand)]
 enum HelperCommand {
-    ClientConfGen(ConfGenArgs),
+    Confgen(ConfGenArgs),
     Keygen(KeygenArgs),
     TestSetup(TestSetupArgs),
 }
@@ -244,7 +244,7 @@ pub async fn main() {
         None => server(args.server).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
-        Some(HelperCommand::ClientConfGen(args)) => client_config_setup(args),
+        Some(HelperCommand::Confgen(args)) => client_config_setup(args),
     };
 
     if let Err(e) = res {

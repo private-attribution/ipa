@@ -8,6 +8,7 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 mod clientconf;
+mod paths;
 
 pub use csv::Serializer as CsvSerializer;
 #[cfg(feature = "web-app")]

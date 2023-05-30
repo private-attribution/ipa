@@ -2,77 +2,88 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
+use std::iter::zip;
 use std::path::{Path, PathBuf};
 use clap::Args;
 use config::Map;
 use toml::{Table, Value};
+use crate::cli::paths::PathExt;
 use crate::config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig};
 use crate::helpers::HelperIdentity;
 
 #[derive(Debug, Args)]
-#[clap(name = "conf-gen", about = "Generate client config for 3 MPC helper parties")]
+#[clap(about = "Generate client config for 3 MPC helper parties")]
 pub struct ConfGenArgs {
-    #[arg(long, visible_alias = "h1")]
-    pub(crate) h1_url: String,
-    #[arg(long, visible_alias = "h2")]
-    pub(crate) h2_url: String,
-    #[arg(long, visible_alias = "h3")]
-    pub(crate) h3_url: String,
+    #[arg(short, long, num_args = 3, value_name = "PORT", default_values = vec!["3000", "3001", "3002"])]
+    ports: Vec<u16>,
+
+    #[arg(long, num_args = 3, default_values = vec!["localhost", "localhost", "localhost"])]
+    hosts: Vec<String>,
 
     /// Path to the folder where certificates and public keys are stored. It must have all 3 helper's
     /// public keys and TLS certificates. Additionally DNS names on the certificates must match
     /// `h1_name`,..,`h3_name` values provided for this command, otherwise configuration won't work.
     #[arg(long)]
-    pub(crate) keys_folder: PathBuf,
+    pub(crate) keys_dir: PathBuf,
 
     /// Destination folder for the config file. If not specified, `keys_folder` will be used.
     #[arg(long)]
-    pub(crate) out_folder: Option<PathBuf>,
+    pub(crate) output_dir: Option<PathBuf>,
 
     /// Overwrite configuration file if it exists at destination.
-    #[arg(long)]
+    #[arg(long, default_value_t = false)]
     pub(crate) overwrite: bool,
 }
 
 
 pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
-    // let peers = [
-    //     peer_config(HelperIdentity::ONE, &args.keys_folder),
-    //     peer_config(HelperIdentity::TWO, &args.keys_folder),
-    //     peer_config(HelperIdentity::THREE, &args.keys_folder),
-    // ];
-    //
-    // let network_config = NetworkConfig::new(peers, ClientConfig::use_http2());
-    // let out_folder = args.out_folder.unwrap_or(args.keys_folder);
-    // let mut conf_file = File::options().write(true)
-    //     .create_new(!args.overwrite)
-    //     .truncate(args.overwrite)
-    //     .open(out_folder.join("network.toml"))?;
-    // conf_file.write(toml::to_string_pretty(&network_config)?.as_bytes())?;
-    // Ok(())
-    todo!()
+    let clients_conf: [_; 3] = zip(args.hosts.iter(), args.ports)
+        .enumerate()
+        .map(|(id, (host, port))| {
+            let id: u8 = u8::try_from(id).unwrap() + 1;
+            HelperClientConf {
+                host,
+                port,
+                tls_cert_file: args.keys_dir.helper_tls_cert(id),
+                mk_public_key_file: args.keys_dir.helper_mk_public_key(id),
+            }
+        }).collect::<Vec<_>>().try_into().unwrap();
+
+    if let Some(ref dir) = args.output_dir {
+        fs::create_dir_all(dir)?
+    }
+    let conf_file_path = args.output_dir.unwrap_or(args.keys_dir).join("network.toml");
+    let mut conf_file = File::options().write(true).create(true).truncate(args.overwrite).create_new(!args.overwrite)
+        .open(&conf_file_path)
+        .map_err(|e| format!("failed to create or open {}: {e}", conf_file_path.display()))?;
+
+    gen_client_config(clients_conf, false, &mut conf_file)?;
+    tracing::info!("{} configuration file has been successfully created", conf_file_path.display());
+    Ok(())
 }
 
+#[derive(Debug)]
 pub struct HelperClientConf<'a> {
     host: &'a str,
     port: u16,
-    tls_cert_file: &'a Path,
-    mk_public_key_file: &'a Path
+    tls_cert_file: PathBuf,
+    mk_public_key_file: PathBuf,
 }
 
-/// Generates client configuration file at the destination requested.
+/// Generates client configuration file at the requested destination. The destination must exist
+/// before this function is called
 pub fn gen_client_config<'a>(
     clients_conf: [HelperClientConf<'a>; 3],
     use_http1: bool,
-    conf_file_name: &Path
+    conf_file: &'a mut File,
 ) -> Result<(), Box<dyn Error>> {
-
-    conf_file_name.is_file().then_some(()).ok_or_else(|| format!("{} is not a file", conf_file_name.display()))?;
 
     let mut peers = Vec::<Value>::with_capacity(3);
     for client_conf in clients_conf {
-        let certificate = fs::read_to_string(&client_conf.tls_cert_file)?;
-        let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file)?;
+        let certificate = fs::read_to_string(&client_conf.tls_cert_file)
+            .map_err(|e| format!("Failed to open {}", client_conf.tls_cert_file.display()))?;
+        let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file)
+            .map_err(|e| format!("Failed to open {}", client_conf.mk_public_key_file.display()))?;
 
         // Constructing toml directly because it avoids linking
         // a PEM library to serialize the certificate.
@@ -107,9 +118,7 @@ pub fn gen_client_config<'a>(
         assert_network_config(&network_config, &config_str);
     }
 
-    fs::write(conf_file_name, config_str)?;
-
-    Ok(())
+    Ok(conf_file.write_all(config_str.as_bytes())?)
 }
 
 /// Creates a section in TOML that describes the HPKE configuration for match key encryption.
