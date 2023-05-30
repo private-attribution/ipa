@@ -87,6 +87,11 @@ pub fn start_query(
                     .run(ctx, config.field_type, input)
                     .await
             }
+            QueryType::MaliciousIpa(ipa_query_config) => {
+                IpaRunner(ipa_query_config)
+                    .run(ctx, config.field_type, input)
+                    .await
+            }
         }
     })
 }

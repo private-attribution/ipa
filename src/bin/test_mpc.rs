@@ -297,7 +297,7 @@ async fn malicious_ipa(
     helper_clients: &[MpcHelperClient; 3],
 ) {
     let input = InputSource::from(&args.input);
-    let query_type = QueryType::Ipa(ipa_query_config.clone());
+    let query_type = QueryType::MaliciousIpa(ipa_query_config.clone());
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type,
@@ -323,6 +323,7 @@ async fn malicious_ipa(
     let actual = match args.input.field {
         FieldType::Fp31 => {
             malicious::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id).await
+
         }
         FieldType::Fp32BitPrime => {
             malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(

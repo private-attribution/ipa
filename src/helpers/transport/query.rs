@@ -160,12 +160,14 @@ impl QueryCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    Ipa(IpaQueryConfig),
+    Ipa(IpaQueryConfig),  ///TODO: rename SemiHonestIpa
+    MaliciousIpa(IpaQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const IPA_STR: &'static str = "ipa";
+    pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -175,6 +177,7 @@ impl AsRef<str> for QueryType {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::Ipa(_) => Self::IPA_STR,
+            QueryType::MaliciousIpa(_) =>Self::MALICIOUS_IPA_STR,
         }
     }
 }

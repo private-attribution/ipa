@@ -173,6 +173,22 @@ pub mod query {
 
                     Ok(())
                 }
+                QueryType::MaliciousIpa(config) => {
+                    write!(
+                        f,
+                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        QueryType::MALICIOUS_IPA_STR,
+                        config.per_user_credit_cap,
+                        config.max_breakdown_key,
+                        config.num_multi_bits,
+                    )?;
+
+                    if let Some(window) = config.attribution_window_seconds {
+                        write!(f, "&attribution_window_seconds={}", window.get())?;
+                    }
+
+                    Ok(())
+                }
             }
         }
     }
