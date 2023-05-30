@@ -64,10 +64,10 @@ pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
 
 #[derive(Debug)]
 pub struct HelperClientConf<'a> {
-    host: &'a str,
-    port: u16,
-    tls_cert_file: PathBuf,
-    mk_public_key_file: PathBuf,
+    pub(crate) host: &'a str,
+    pub(crate) port: u16,
+    pub(crate) tls_cert_file: PathBuf,
+    pub(crate) mk_public_key_file: PathBuf,
 }
 
 /// Generates client configuration file at the requested destination. The destination must exist
@@ -81,9 +81,9 @@ pub fn gen_client_config<'a>(
     let mut peers = Vec::<Value>::with_capacity(3);
     for client_conf in clients_conf {
         let certificate = fs::read_to_string(&client_conf.tls_cert_file)
-            .map_err(|e| format!("Failed to open {}", client_conf.tls_cert_file.display()))?;
+            .map_err(|e| format!("Failed to open {}: {e}", client_conf.tls_cert_file.display()))?;
         let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file)
-            .map_err(|e| format!("Failed to open {}", client_conf.mk_public_key_file.display()))?;
+            .map_err(|e| format!("Failed to open {}: {e}", client_conf.mk_public_key_file.display()))?;
 
         // Constructing toml directly because it avoids linking
         // a PEM library to serialize the certificate.
