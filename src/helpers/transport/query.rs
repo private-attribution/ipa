@@ -39,6 +39,8 @@ impl Default for QueryConfig {
             query_type: QueryType::TestMultiply,
             #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
             query_type: QueryType::Ipa(IpaQueryConfig::default()),
+            // #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
+            // query_type: QueryType::MaliciousIpa(IpaQueryConfig::default()),
         }
     }
 }
