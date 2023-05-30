@@ -7,6 +7,7 @@ pub mod playbook;
 #[cfg(feature = "web-app")]
 mod test_setup;
 mod verbosity;
+mod clientconf;
 
 pub use csv::Serializer as CsvSerializer;
 #[cfg(feature = "web-app")]
@@ -15,3 +16,4 @@ pub use metric_collector::{install_collector, CollectorHandle};
 #[cfg(feature = "web-app")]
 pub use test_setup::{test_setup, TestSetupArgs};
 pub use verbosity::Verbosity;
+pub use clientconf::{setup as client_config_setup, ConfGenArgs};

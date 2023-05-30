@@ -17,6 +17,7 @@ use std::{
     process,
 };
 use tracing::{error, info};
+use ipa::cli::{client_config_setup, ConfGenArgs};
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -139,6 +140,7 @@ struct ServerArgs {
 
 #[derive(Debug, Subcommand)]
 enum HelperCommand {
+    ClientConfGen(ConfGenArgs),
     Keygen(KeygenArgs),
     TestSetup(TestSetupArgs),
 }
@@ -242,6 +244,7 @@ pub async fn main() {
         None => server(args.server).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
+        Some(HelperCommand::ClientConfGen(args)) => client_config_setup(args),
     };
 
     if let Err(e) = res {

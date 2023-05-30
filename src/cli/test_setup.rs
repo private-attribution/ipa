@@ -56,7 +56,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
                 tls_cert: args.output_dir.join(format!("h{id}.pem")),
                 tls_key: args.output_dir.join(format!("h{id}.key")),
                 mk_public_key: args.output_dir.join(format!("h{id}_mk.pub")),
-                mk_private_key: args.output_dir.join(format!("h{id}_mk")),
+                mk_private_key: args.output_dir.join(format!("h{id}_mk.key")),
             };
 
             keygen(&keygen_args)?;
