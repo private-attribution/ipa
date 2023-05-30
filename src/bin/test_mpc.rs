@@ -4,7 +4,7 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
-        playbook::{secure_mul, semi_honest, InputSource},
+        playbook::{ipa::malicious, secure_mul, semi_honest, InputSource},
         CsvSerializer, Verbosity,
     },
     config::{ClientConfig, NetworkConfig, PeerConfig},
@@ -87,8 +87,10 @@ impl From<&CommandInput> for InputSource {
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
-    /// Execute IPA in semi-honest majority setting
+    /// Execute IPA in semi-honest honest majority setting
     SemiHonestIpa(IpaQueryConfig),
+    /// Execute IPA in malicious honest majority setting
+    MaliciousIpa(IpaQueryConfig),
     /// Generate inputs for IPA
     GenIpaInputs {
         /// Number of records to generate
@@ -209,6 +211,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         TestAction::SemiHonestIpa(config) => {
             semi_honest_ipa(&args, &config, &make_clients().await).await
         }
+        TestAction::MaliciousIpa(config) => {
+            malicious_ipa(&args, &config, &make_clients().await).await
+        }
         TestAction::GenIpaInputs {
             count,
             output_file,
@@ -275,6 +280,52 @@ async fn semi_honest_ipa(
         }
         FieldType::Fp32BitPrime => {
             semi_honest::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                &input_rows,
+                &helper_clients,
+                query_id,
+            )
+            .await
+        }
+    };
+
+    validate(expected, actual)
+}
+
+async fn malicious_ipa(
+    args: &Args,
+    ipa_query_config: &IpaQueryConfig,
+    helper_clients: &[MpcHelperClient; 3],
+) {
+    let input = InputSource::from(&args.input);
+    let query_type = QueryType::Ipa(ipa_query_config.clone());
+    let query_config = QueryConfig {
+        field_type: args.input.field,
+        query_type,
+    };
+    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
+    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
+    let expected = {
+        let mut r = ipa_in_the_clear(
+            &input_rows,
+            ipa_query_config.per_user_credit_cap,
+            ipa_query_config.attribution_window_seconds,
+        );
+
+        // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
+        // truncate shouldn't happen unless in_the_clear is badly broken
+        r.resize(
+            usize::try_from(ipa_query_config.max_breakdown_key).unwrap(),
+            0,
+        );
+        r
+    };
+
+    let actual = match args.input.field {
+        FieldType::Fp31 => {
+            malicious::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id).await
+        }
+        FieldType::Fp32BitPrime => {
+            malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 &input_rows,
                 &helper_clients,
                 query_id,

@@ -1,5 +1,5 @@
 mod input;
-mod ipa;
+pub mod ipa;
 mod multiply;
 
 pub use self::ipa::semi_honest;
