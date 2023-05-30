@@ -20,11 +20,10 @@ Here are the instructions for setting up node for running IPA.
    i.  IP address/DNS which is accessible from public internet (i.e. firewall allows connecting to the helper port (443))
    ii. Confirm if machine is able to listen on port 443 
 
-2. Download docker image of IPA from shared folder. 
-    
-   We will be uploading an executable docker image which will have IPA code.
-   
-   Link: TBD
+2. Download docker image of IPA from shared folder. It we will be uploading an executable docker image which will have IPA code. 
+   Link: TBD.  Alternatively, you can build the docker image directly from the Rust code with this command
+
+   `scripts/helper-image.sh --identity 1 --hostname localhost 1`
 
 3. Docker image already contains (default) public and private keys for encrypting match keys and also, 
    to secure the report files while in transit.
