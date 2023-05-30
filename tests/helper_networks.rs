@@ -162,7 +162,8 @@ fn spawn_helpers(
 }
 
 fn test_network(https: bool) {
-    let dir = TempDir::new(false); // set to true if tempdir needs to be preserved
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
@@ -190,7 +191,8 @@ fn test_network(https: bool) {
 }
 
 fn test_ipa(mode: IpaSecurityModel, https: bool) {
-    let dir = TempDir::new(false); // set to true if tempdir needs to be preserved
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
