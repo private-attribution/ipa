@@ -28,20 +28,32 @@ Here are the instructions for setting up node for running IPA.
 3. Docker image already contains (default) public and private keys for encrypting match keys and also, 
    to secure the report files while in transit.
   
-   1. If you need to install docker, follow the instructions [here](https://docs.docker.com/engine/install/). 
+   1. Installing/Upgrading Docker
+       - If you need to install docker, follow the instructions [here](https://docs.docker.com/engine/install/). 
+       - If you already have docker, ensure that you are running at least Docker Version 20.10.22. 
+          You can check version by running command `docker -v` on the terminal.
    
-   2.  To see what docker images are available run and what their TAGs and IDs are run:
+   2. Create a docker image of the helper 
+       cd <path_to_ipa_source_code>
+       `scripts/helper-image.sh --identity 1 --hostname localhost`
+
+   3.  Check which docker images are available to run and what is its TAG, run following command:
    
        `docker images`
+       You should be able to see "private-attribution/ipa" in the list along with its TAG
 
    3. To run the docker container with a bash terminal and see what is inside the image run: 
    
        `docker run -it docker.io/private-attribution/ipa:<IMAGE_TAG> /bin/bash`
    
-   4. To copy a TLS public key from the docker image to the host run the following command in a terminal open in the host directory 
-      to which you want to copy the key.  You will know what your Helper party number is yours `{1,2,3}`, here we show for Helper `1`: 
+   4. To copy a TLS public key from the docker image to the host : 
+        Open a separate terminal and run following command to see available docker images
+       `docker container ls` 
+       Copy the CONTAINER ID corresponding to your IMAGE.
+       
+       You will know what is your Helper party number i.e. 1,2 or 3. Here we show for Helper `1`:
    
-      `docker cp <IMAGE_ID>:/etc/ipa/pub/1.pem .  `
+      `docker cp <CONTAINER_ID>:/etc/ipa/pub/1.pem .  `
    5. To copy a TLS public key from Helper `2` from the host onto the docker image run from the directory with the public key `2.pem`: 
    
       `docker cp 2.pem <IMAGE_ID>:/etc/ipa/pub/`
