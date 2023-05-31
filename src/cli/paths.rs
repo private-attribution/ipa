@@ -1,5 +1,6 @@
 use std::path::Path;
 
+/// Naming conventions for files that store public/private HPKE and TLS keys.
 pub trait PathExt: ToOwned {
     fn helper_tls_cert<I: Into<u8>>(&self, id: I) -> Self::Owned;
     fn helper_tls_key<I: Into<u8>>(&self, id: I) -> Self::Owned;

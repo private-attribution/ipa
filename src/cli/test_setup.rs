@@ -67,8 +67,8 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
             Ok(HelperClientConf {
                 host: &localhost,
                 port,
-                tls_cert_file: keygen_args.tls_cert.clone(),
-                mk_public_key_file: keygen_args.mk_public_key.clone(),
+                tls_cert_file: keygen_args.tls_cert,
+                mk_public_key_file: keygen_args.mk_public_key,
             })
         })
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?
@@ -76,9 +76,5 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    Ok(gen_client_config(
-        clients_config,
-        args.use_http1,
-        &mut conf_file,
-    )?)
+    gen_client_config(clients_config, args.use_http1, &mut conf_file)
 }

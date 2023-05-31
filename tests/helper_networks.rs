@@ -277,26 +277,39 @@ fn keygen_confgen() {
         .try_into()
         .unwrap();
 
-    /// generate keys for all 3 helpers
+    // closure that generates the client config file (network.toml)
+    let exec_conf_gen = |overwrite| {
+        let mut command = Command::new(HELPER_BIN);
+        command
+            .silent()
+            .arg("confgen")
+            .args(["--output-dir".as_ref(), path.as_os_str()])
+            .args(["--keys-dir".as_ref(), path.as_os_str()])
+            .arg("--ports")
+            .args(ports.map(|p| p.to_string()))
+            .arg("--hosts")
+            .args(["localhost", "localhost", "localhost"]);
+        if overwrite {
+            command.arg("--overwrite");
+        }
+        command.status().unwrap_status();
+    };
+
+    // generate keys for all 3 helpers
     for id in HelperIdentity::make_three() {
         exec_keygen_cmd(id, &path)
     }
 
-    /// generate config file (network.toml)
-    let mut command = Command::new(HELPER_BIN);
-    command
-        .silent()
-        .arg("confgen")
-        .args(["--output-dir".as_ref(), path.as_os_str()])
-        .args(["--keys-dir".as_ref(), path.as_os_str()])
-        .arg("--ports")
-        .args(ports.map(|p| p.to_string()))
-        .arg("--hosts")
-        .args(["localhost", "localhost", "localhost"]);
-    command.status().unwrap_status();
-
-    let _helpers = spawn_helpers(path, &sockets, true);
+    exec_conf_gen(false);
+    let helpers = spawn_helpers(path, &sockets, true);
     test_multiply(&path, true);
+    drop(helpers);
+
+    // now overwrite the configuration file and try again
+    exec_conf_gen(true);
+    let helpers = spawn_helpers(path, &sockets, true);
+    test_multiply(&path, true);
+    drop(helpers);
 }
 
 fn exec_keygen_cmd(helper_identity: HelperIdentity, dest_dir: &Path) {

@@ -17,8 +17,9 @@ pub struct ConfGenArgs {
     hosts: Vec<String>,
 
     /// Path to the folder where certificates and public keys are stored. It must have all 3 helper's
-    /// public keys and TLS certificates. Additionally DNS names on the certificates must match
-    /// `h1_name`,..,`h3_name` values provided for this command, otherwise configuration won't work.
+    /// public keys and TLS certificates named according to the naming [`convention`].
+    ///
+    /// [`convention`]: crate::cli::CliPaths
     #[arg(long)]
     pub(crate) keys_dir: PathBuf,
 
@@ -31,6 +32,23 @@ pub struct ConfGenArgs {
     pub(crate) overwrite: bool,
 }
 
+/// Generate client configuration file that is understood by helper binaries and report collector
+/// binary. This configuration describes the public interface to each helper: tls certificate and
+/// the public key for HPKE encryption along with the endpoint to talk to.
+///
+/// It expects certain naming convention for TLS and encryption stuff, see [`Paths`] for more
+/// details.
+///
+/// ## Errors
+/// Returns an error if it can't find all three helper's public keys and TLS certs in the folder
+/// specified in [`ConfGenArgs`] or if it fails to create the configuration file. Note that if file
+/// already exists, without `--overwrite` flag specified, this command will also fail.
+///
+/// ## Panics
+/// It does not panic, but compiler does not know about it.
+///
+/// [`ConfGenArgs`]: ConfGenArgs
+/// [`Paths`]: crate::cli::paths::PathExt
 pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
     let clients_conf: [_; 3] = zip(args.hosts.iter(), args.ports)
         .enumerate()
@@ -48,7 +66,7 @@ pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     if let Some(ref dir) = args.output_dir {
-        fs::create_dir_all(dir)?
+        fs::create_dir_all(dir)?;
     }
     let conf_file_path = args
         .output_dir
@@ -116,7 +134,7 @@ pub fn gen_client_config<'a>(
             String::from("hpke"),
             Value::Table(encode_hpke(mk_public_key)),
         );
-        peers.push(peer.into())
+        peers.push(peer.into());
     }
 
     let client_config = if use_http1 {

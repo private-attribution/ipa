@@ -1,3 +1,4 @@
+#[cfg(feature = "web-app")]
 mod clientconf;
 mod csv;
 #[cfg(feature = "web-app")]
@@ -10,6 +11,7 @@ pub mod playbook;
 mod test_setup;
 mod verbosity;
 
+#[cfg(feature = "web-app")]
 pub use clientconf::{setup as client_config_setup, ConfGenArgs};
 pub use csv::Serializer as CsvSerializer;
 #[cfg(feature = "web-app")]
