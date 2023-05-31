@@ -38,4 +38,12 @@ rev=$(git log -n 1 --format='format:%H' | cut -c1-10)
 tag="private-attribution/ipa:$rev-h$identity"
 
 cd "$(dirname "$0")"/.. || exit 1
-docker build -t "$tag" -f docker/helper.Dockerfile --build-arg IDENTITY="$identity" --build-arg HOSTNAME="$hostname" .
+
+# Docker can only pick up .dockerignore from the root folder (see https://github.com/moby/moby/issues/12886).
+# Use tar to create the build context manually before sending it to Docker CLI
+tar -cvzf - --exclude-from="docker/.dockerignore" ./* \
+  | docker build \
+    -t "$tag" \
+    -f docker/helper.Dockerfile \
+    --build-arg IDENTITY="$identity" \
+    --build-arg HOSTNAME="$hostname" -
