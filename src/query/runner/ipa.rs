@@ -5,6 +5,7 @@ use crate::{
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
         context::SemiHonestContext,
+        context::MaliciousContext,
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey,
     },
@@ -53,6 +54,54 @@ impl Runner {
     where
         IPAInputRow<F, MK, BK>: Serializable,
         AdditiveShare<F>: Serializable,
+    {
+        let config = self.0;
+        async move {
+            let mut input = input.align(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE);
+            let mut input_vec = Vec::new();
+            while let Some(data) = input.next().await {
+                input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
+            }
+
+            ipa(ctx, input_vec.as_slice(), config).await
+        }
+    }
+
+    pub async fn malicious_run(
+        &self,
+        ctx: MaliciousContext<'_>,
+        field: FieldType,
+        input: ByteArrStream,
+    ) -> Box<dyn ProtocolResult> {
+        match field {
+            #[cfg(any(test, feature = "weak-field"))]
+            FieldType::Fp31 => Box::new(
+                self.malicious_run_internal::<crate::ff::Fp31, MatchKey, BreakdownKey>(ctx, input)
+                    .await
+                    .expect("IPA query failed"),
+            ),
+            FieldType::Fp32BitPrime => Box::new(
+                self.malicious_run_internal::<Fp32BitPrime, MatchKey, BreakdownKey>(ctx, input)
+                    .await
+                    .expect("IPA query failed"),
+            ),
+        }
+    }
+
+    // This is intentionally made not async because it does not capture `self`.
+    fn malicious_run_internal<'a, F: PrimeField, MK: GaloisField, BK: GaloisField>(
+        &self,
+        ctx: MaliciousContext<'a>,
+        input: ByteArrStream,
+    ) -> impl Future<
+        Output = std::result::Result<
+            Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>,
+            Error,
+        >,
+    > + 'a
+        where
+            IPAInputRow<F, MK, BK>: Serializable,
+            AdditiveShare<F>: Serializable,
     {
         let config = self.0;
         async move {
@@ -178,7 +227,7 @@ mod tests {
             });
 
         let world = TestWorld::default();
-        let contexts = world.malicious_contexts();
+        let contexts = world.malicious_contextsAAAAA();
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
