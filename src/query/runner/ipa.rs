@@ -15,6 +15,7 @@ use crate::{
 use futures_util::StreamExt;
 use std::future::Future;
 use typenum::Unsigned;
+use crate::protocol::context::validator::Malicious;
 
 pub struct Runner(pub IpaQueryConfig);
 
@@ -89,7 +90,7 @@ impl Runner {
     }
 
     // This is intentionally made not async because it does not capture `self`.
-    fn malicious_run_internal<'a, F: PrimeField, MK: GaloisField, BK: GaloisField>(
+    fn malicious_run_internal<'a, F: PrimeField + crate::secret_sharing::replicated::malicious::ExtendableField, MK: GaloisField, BK: GaloisField>(
         &self,
         ctx: MaliciousContext<'a>,
         input: ByteArrStream,
@@ -117,15 +118,14 @@ impl Runner {
 }
 
 #[cfg(all(
-    test,
-    not(feature = "shuttle"),
-    feature = "in-memory-infra",
-    feature = "weak-field"
+any(test, feature = "weak-field"),
+not(feature = "shuttle"),
+feature = "in-memory-infra",
 ))]
 mod tests {
     use super::*;
     use crate::{
-        ff::Field,
+        ff::{Field, Fp31},
         ipa_test_input,
         secret_sharing::IntoShares,
         test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
@@ -227,7 +227,7 @@ mod tests {
             });
 
         let world = TestWorld::default();
-        let contexts = world.malicious_contextsAAAAA();
+        let contexts = world.malicious_contextsAA();
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,

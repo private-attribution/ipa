@@ -90,6 +90,7 @@ pub fn start_query(
             }
             QueryType::MaliciousIpa(ipa_query_config) => {
                 IpaRunner(ipa_query_config)
+                    //.run(SemiHonestContext::new(&prss, &gateway), config.field_type, input)
                     .malicious_run(MaliciousContext::new(&prss, &gateway), config.field_type, input)
                     .await
             }
