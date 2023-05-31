@@ -58,10 +58,7 @@ impl NetworkConfig {
     }
 
     pub fn new(peers: [PeerConfig; 3], client: ClientConfig) -> Self {
-        Self {
-            peers,
-            client,
-        }
+        Self { peers, client }
     }
 
     pub fn peers(&self) -> &[PeerConfig; 3] {

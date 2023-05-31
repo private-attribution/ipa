@@ -1,15 +1,11 @@
-use std::error::Error;
-use std::fs;
-use std::fs::File;
-use std::io::Write;
-use std::iter::zip;
-use std::path::{Path, PathBuf};
+use crate::{
+    cli::paths::PathExt,
+    config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
+};
 use clap::Args;
 use config::Map;
+use std::{error::Error, fs, fs::File, io::Write, iter::zip, path::PathBuf};
 use toml::{Table, Value};
-use crate::cli::paths::PathExt;
-use crate::config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig};
-use crate::helpers::HelperIdentity;
 
 #[derive(Debug, Args)]
 #[clap(about = "Generate client config for 3 MPC helper parties")]
@@ -35,7 +31,6 @@ pub struct ConfGenArgs {
     pub(crate) overwrite: bool,
 }
 
-
 pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
     let clients_conf: [_; 3] = zip(args.hosts.iter(), args.ports)
         .enumerate()
@@ -47,18 +42,31 @@ pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
                 tls_cert_file: args.keys_dir.helper_tls_cert(id),
                 mk_public_key_file: args.keys_dir.helper_mk_public_key(id),
             }
-        }).collect::<Vec<_>>().try_into().unwrap();
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
 
     if let Some(ref dir) = args.output_dir {
         fs::create_dir_all(dir)?
     }
-    let conf_file_path = args.output_dir.unwrap_or(args.keys_dir).join("network.toml");
-    let mut conf_file = File::options().write(true).create(true).truncate(args.overwrite).create_new(!args.overwrite)
+    let conf_file_path = args
+        .output_dir
+        .unwrap_or(args.keys_dir)
+        .join("network.toml");
+    let mut conf_file = File::options()
+        .write(true)
+        .create(true)
+        .truncate(args.overwrite)
+        .create_new(!args.overwrite)
         .open(&conf_file_path)
         .map_err(|e| format!("failed to create or open {}: {e}", conf_file_path.display()))?;
 
     gen_client_config(clients_conf, false, &mut conf_file)?;
-    tracing::info!("{} configuration file has been successfully created", conf_file_path.display());
+    tracing::info!(
+        "{} configuration file has been successfully created",
+        conf_file_path.display()
+    );
     Ok(())
 }
 
@@ -77,20 +85,31 @@ pub fn gen_client_config<'a>(
     use_http1: bool,
     conf_file: &'a mut File,
 ) -> Result<(), Box<dyn Error>> {
-
     let mut peers = Vec::<Value>::with_capacity(3);
     for client_conf in clients_conf {
-        let certificate = fs::read_to_string(&client_conf.tls_cert_file)
-            .map_err(|e| format!("Failed to open {}: {e}", client_conf.tls_cert_file.display()))?;
-        let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file)
-            .map_err(|e| format!("Failed to open {}: {e}", client_conf.mk_public_key_file.display()))?;
+        let certificate = fs::read_to_string(&client_conf.tls_cert_file).map_err(|e| {
+            format!(
+                "Failed to open {}: {e}",
+                client_conf.tls_cert_file.display()
+            )
+        })?;
+        let mk_public_key = fs::read_to_string(&client_conf.mk_public_key_file).map_err(|e| {
+            format!(
+                "Failed to open {}: {e}",
+                client_conf.mk_public_key_file.display()
+            )
+        })?;
 
         // Constructing toml directly because it avoids linking
         // a PEM library to serialize the certificate.
         let mut peer = Map::new();
         peer.insert(
             String::from("url"),
-            Value::String(format!("{host}:{port}", host = client_conf.host, port = client_conf.port)),
+            Value::String(format!(
+                "{host}:{port}",
+                host = client_conf.host,
+                port = client_conf.port
+            )),
         );
         peer.insert(String::from("certificate"), Value::String(certificate));
         peer.insert(

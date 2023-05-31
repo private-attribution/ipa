@@ -2,7 +2,9 @@ use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
 use hyper_tls::native_tls::Identity;
 use ipa::{
-    cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
+    cli::{
+        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, TestSetupArgs, Verbosity,
+    },
     config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
@@ -17,7 +19,6 @@ use std::{
     process,
 };
 use tracing::{error, info};
-use ipa::cli::{client_config_setup, ConfGenArgs};
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]

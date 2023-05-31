@@ -1,5 +1,5 @@
 use command_fds::CommandFdExt;
-use ipa::test_fixture::ipa::IpaSecurityModel;
+use ipa::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
 use std::{
     array,
     error::Error,
@@ -12,8 +12,6 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
-use ipa::cli::CliPaths;
-use ipa::helpers::HelperIdentity;
 use tempdir::TempDir;
 
 #[cfg(all(test, feature = "cli"))]
@@ -307,10 +305,22 @@ fn exec_keygen_cmd(helper_identity: HelperIdentity, dest_dir: &Path) {
         .silent()
         .arg("keygen")
         .args(["--name", "localhost"])
-        .args(["--tls-cert".as_ref(), dest_dir.helper_tls_cert(helper_identity).as_os_str()])
-        .args(["--tls-key".as_ref(), dest_dir.helper_tls_key(helper_identity).as_os_str()])
-        .args(["--mk-private-key".as_ref(), dest_dir.helper_mk_private_key(helper_identity).as_os_str()])
-        .args(["--mk-public-key".as_ref(), dest_dir.helper_mk_public_key(helper_identity).as_os_str()]);
+        .args([
+            "--tls-cert".as_ref(),
+            dest_dir.helper_tls_cert(helper_identity).as_os_str(),
+        ])
+        .args([
+            "--tls-key".as_ref(),
+            dest_dir.helper_tls_key(helper_identity).as_os_str(),
+        ])
+        .args([
+            "--mk-private-key".as_ref(),
+            dest_dir.helper_mk_private_key(helper_identity).as_os_str(),
+        ])
+        .args([
+            "--mk-public-key".as_ref(),
+            dest_dir.helper_mk_public_key(helper_identity).as_os_str(),
+        ]);
 
     command.status().unwrap_status();
 }

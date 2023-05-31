@@ -1,18 +1,16 @@
-use crate::{
-    cli::{keygen, KeygenArgs},
-    config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
-};
+use crate::cli::{keygen, KeygenArgs};
 use clap::Args;
 use std::{
     error::Error,
-    fs::{self, DirBuilder},
+    fs::{DirBuilder, File},
     iter::zip,
     path::PathBuf,
 };
-use std::fs::File;
-use toml::{map::Map, Table, Value};
-use crate::cli::clientconf::{gen_client_config, HelperClientConf};
-use crate::cli::paths::PathExt;
+
+use crate::cli::{
+    clientconf::{gen_client_config, HelperClientConf},
+    paths::PathExt,
+};
 
 #[derive(Debug, Args)]
 #[clap(
@@ -54,25 +52,33 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
 
     let localhost = String::from("localhost");
 
-    let clients_config: [_; 3] = zip([1, 2, 3], args.ports).map(|(id, port)| {
-        let keygen_args = KeygenArgs {
-            name: localhost.clone(),
-            tls_cert: args.output_dir.helper_tls_cert(id),
-            tls_key: args.output_dir.helper_tls_key(id),
-            mk_public_key: args.output_dir.helper_mk_public_key(id),
-            mk_private_key: args.output_dir.helper_mk_private_key(id),
-        };
+    let clients_config: [_; 3] = zip([1, 2, 3], args.ports)
+        .map(|(id, port)| {
+            let keygen_args = KeygenArgs {
+                name: localhost.clone(),
+                tls_cert: args.output_dir.helper_tls_cert(id),
+                tls_key: args.output_dir.helper_tls_key(id),
+                mk_public_key: args.output_dir.helper_mk_public_key(id),
+                mk_private_key: args.output_dir.helper_mk_private_key(id),
+            };
 
-        keygen(&keygen_args)?;
+            keygen(&keygen_args)?;
 
-        Ok(HelperClientConf {
-            host: &localhost,
-            port,
-            tls_cert_file: keygen_args.tls_cert.clone(),
-            mk_public_key_file: keygen_args.mk_public_key.clone()
+            Ok(HelperClientConf {
+                host: &localhost,
+                port,
+                tls_cert_file: keygen_args.tls_cert.clone(),
+                mk_public_key_file: keygen_args.mk_public_key.clone(),
+            })
         })
-    }).collect::<Result<Vec<_>, Box<dyn Error>>>()?.try_into().unwrap();
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?
+        .try_into()
+        .unwrap();
 
     let mut conf_file = File::create(args.output_dir.join("network.toml"))?;
-    Ok(gen_client_config(clients_config, args.use_http1, &mut conf_file)?)
+    Ok(gen_client_config(
+        clients_config,
+        args.use_http1,
+        &mut conf_file,
+    )?)
 }
