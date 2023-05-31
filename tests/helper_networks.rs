@@ -12,6 +12,8 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
+use ipa::cli::CliPaths;
+use ipa::helpers::HelperIdentity;
 use tempdir::TempDir;
 
 #[cfg(all(test, feature = "cli"))]
@@ -161,18 +163,10 @@ fn spawn_helpers(
         .collect::<Vec<_>>()
 }
 
-fn test_network(https: bool) {
-    // set to true to always keep the temp dir after test finishes
-    let dir = TempDir::new(false);
-    let path = dir.path();
-
-    println!("generating configuration in {}", path.display());
-    let sockets = test_setup(path);
-    let _helpers = spawn_helpers(path, &sockets, https);
-
+fn test_multiply(config_dir: &Path, https: bool) {
     let mut command = Command::new(TEST_MPC_BIN);
     command
-        .args(["--network".into(), dir.path().join("network.toml")])
+        .args(["--network".into(), config_dir.join("network.toml")])
         .args(["--wait", "2"]);
     if !https {
         command.arg("--disable-https");
@@ -188,6 +182,18 @@ fn test_network(https: bool) {
         .write_all(b"3,6\n")
         .unwrap();
     test_mpc.wait().unwrap_status();
+}
+
+fn test_network(https: bool) {
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
+    let path = dir.path();
+
+    println!("generating configuration in {}", path.display());
+    let sockets = test_setup(path);
+    let _helpers = spawn_helpers(path, &sockets, https);
+
+    test_multiply(&path, https);
 }
 
 fn test_ipa(mode: IpaSecurityModel, https: bool) {
@@ -256,9 +262,55 @@ fn https_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, true);
 }
 
+/// Similar to [`network`] tests, but it uses keygen + confgen CLIs to generate helper client config
+/// and then just runs test multiply to make sure helpers are up and running
+///
+/// [`network`]: crate::test_network
 #[test]
 fn keygen_confgen() {
-    /// Similar to test_network, but it uses keygen + confgen to generate helper client config
-    /// and then just runs test multiply to make sure helpers are up and running
-    ///
+    let dir = TempDir::new(false);
+    let path = dir.path();
+
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
+        .iter()
+        .map(|sock| sock.local_addr().unwrap().port())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+
+    /// generate keys for all 3 helpers
+    for id in HelperIdentity::make_three() {
+        exec_keygen_cmd(id, &path)
+    }
+
+    /// generate config file (network.toml)
+    let mut command = Command::new(HELPER_BIN);
+    command
+        .silent()
+        .arg("confgen")
+        .args(["--output-dir".as_ref(), path.as_os_str()])
+        .args(["--keys-dir".as_ref(), path.as_os_str()])
+        .arg("--ports")
+        .args(ports.map(|p| p.to_string()))
+        .arg("--hosts")
+        .args(["localhost", "localhost", "localhost"]);
+    command.status().unwrap_status();
+
+    let _helpers = spawn_helpers(path, &sockets, true);
+    test_multiply(&path, true);
+}
+
+fn exec_keygen_cmd(helper_identity: HelperIdentity, dest_dir: &Path) {
+    let mut command = Command::new(HELPER_BIN);
+    command
+        .silent()
+        .arg("keygen")
+        .args(["--name", "localhost"])
+        .args(["--tls-cert".as_ref(), dest_dir.helper_tls_cert(helper_identity).as_os_str()])
+        .args(["--tls-key".as_ref(), dest_dir.helper_tls_key(helper_identity).as_os_str()])
+        .args(["--mk-private-key".as_ref(), dest_dir.helper_mk_private_key(helper_identity).as_os_str()])
+        .args(["--mk-public-key".as_ref(), dest_dir.helper_mk_public_key(helper_identity).as_os_str()]);
+
+    command.status().unwrap_status();
 }
