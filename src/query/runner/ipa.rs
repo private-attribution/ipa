@@ -67,16 +67,12 @@ impl Runner {
     }
 }
 
-#[cfg(all(
-    test,
-    not(feature = "shuttle"),
-    feature = "in-memory-infra",
-    feature = "weak-field"
-))]
+/// no dependency on `weak-field` feature because it is enabled in tests by default
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra",))]
 mod tests {
     use super::*;
     use crate::{
-        ff::Field,
+        ff::{Field, Fp31},
         ipa_test_input,
         secret_sharing::IntoShares,
         test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
