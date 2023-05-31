@@ -4,22 +4,22 @@ use crate::{
     helpers::{query::IpaQueryConfig, ByteArrStream},
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
-        context::SemiHonestContext,
-        context::MaliciousContext,
+        context::{MaliciousContext, SemiHonestContext},
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey,
     },
     query::ProtocolResult,
-    secret_sharing::replicated::semi_honest::AdditiveShare,
+    secret_sharing,
+    secret_sharing::replicated::{malicious, semi_honest::AdditiveShare},
 };
 use futures_util::StreamExt;
 use std::future::Future;
 use typenum::Unsigned;
-use crate::protocol::context::validator::Malicious;
 
 pub struct Runner(pub IpaQueryConfig);
 
 impl Runner {
+    //where secret_sharing::semi_honest::additive_share::AdditiveShare<F>: crate::ff::Serializable {
     pub async fn run(
         &self,
         ctx: SemiHonestContext<'_>,
@@ -90,7 +90,12 @@ impl Runner {
     }
 
     // This is intentionally made not async because it does not capture `self`.
-    fn malicious_run_internal<'a, F: PrimeField + crate::secret_sharing::replicated::malicious::ExtendableField, MK: GaloisField, BK: GaloisField>(
+    fn malicious_run_internal<
+        'a,
+        F: PrimeField + crate::secret_sharing::replicated::malicious::ExtendableField,
+        MK: GaloisField,
+        BK: GaloisField,
+    >(
         &self,
         ctx: MaliciousContext<'a>,
         input: ByteArrStream,
@@ -100,9 +105,10 @@ impl Runner {
             Error,
         >,
     > + 'a
-        where
-            IPAInputRow<F, MK, BK>: Serializable,
-            AdditiveShare<F>: Serializable,
+    where
+        IPAInputRow<F, MK, BK>: Serializable,
+        AdditiveShare<F>: Serializable,
+        malicious::AdditiveShare<F>: Serializable,
     {
         let config = self.0;
         async move {
@@ -118,9 +124,9 @@ impl Runner {
 }
 
 #[cfg(all(
-any(test, feature = "weak-field"),
-not(feature = "shuttle"),
-feature = "in-memory-infra",
+    any(test, feature = "weak-field"),
+    not(feature = "shuttle"),
+    feature = "in-memory-infra",
 ))]
 mod tests {
     use super::*;
@@ -227,7 +233,7 @@ mod tests {
             });
 
         let world = TestWorld::default();
-        let contexts = world.malicious_contextsAA();
+        let contexts = world.malicious_contexts();
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
@@ -236,7 +242,7 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
-            Runner(query_config).run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+            Runner(query_config).malicious_run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
         }))
         .await;
 

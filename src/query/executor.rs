@@ -7,8 +7,7 @@ use crate::{
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
-        context::SemiHonestContext,
-        context::MaliciousContext,
+        context::{MaliciousContext, SemiHonestContext},
         step::{self, StepNarrow},
     },
     query::runner::IpaRunner,
@@ -80,18 +79,30 @@ pub fn start_query(
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => {
                 super::runner::TestMultiplyRunner
-                    .run(SemiHonestContext::new(&prss, &gateway), config.field_type, input)
+                    .run(
+                        SemiHonestContext::new(&prss, &gateway),
+                        config.field_type,
+                        input,
+                    )
                     .await
             }
             QueryType::Ipa(ipa_query_config) => {
                 IpaRunner(ipa_query_config)
-                    .run(SemiHonestContext::new(&prss, &gateway), config.field_type, input)
+                    .run(
+                        SemiHonestContext::new(&prss, &gateway),
+                        config.field_type,
+                        input,
+                    )
                     .await
             }
             QueryType::MaliciousIpa(ipa_query_config) => {
                 IpaRunner(ipa_query_config)
                     //.run(SemiHonestContext::new(&prss, &gateway), config.field_type, input)
-                    .malicious_run(MaliciousContext::new(&prss, &gateway), config.field_type, input)
+                    .malicious_run(
+                        MaliciousContext::new(&prss, &gateway),
+                        config.field_type,
+                        input,
+                    )
                     .await
             }
         }
