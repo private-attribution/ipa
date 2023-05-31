@@ -323,7 +323,6 @@ async fn malicious_ipa(
     let actual = match args.input.field {
         FieldType::Fp31 => {
             malicious::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id).await
-
         }
         FieldType::Fp32BitPrime => {
             malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(

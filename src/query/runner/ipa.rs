@@ -143,4 +143,64 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn malicious_ipa() {
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+        let records = records
+            .share()
+            // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
+            .map(|shares| {
+                shares
+                    .into_iter()
+                    .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
+                        let mut buf = [0u8; <IPAInputRow<
+                            Fp31,
+                            MatchKey,
+                            BreakdownKey,
+                        > as Serializable>::Size::USIZE];
+                        share.serialize(GenericArray::from_mut_slice(&mut buf));
+
+                        buf
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+        let world = TestWorld::default();
+        let contexts = world.malicious_contexts();
+        let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
+            let query_config = IpaQueryConfig {
+                num_multi_bits: 3,
+                per_user_credit_cap: 3,
+                attribution_window_seconds: None,
+                max_breakdown_key: 3,
+            };
+            let input = ByteArrStream::from(shares);
+            Runner(query_config).run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+        }))
+        .await;
+
+        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+            results.reconstruct();
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    results[i].breakdown_key.as_u128(),
+                    results[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
 }

@@ -151,11 +151,11 @@ pub mod query {
                         num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
-                                  per_user_credit_cap,
-                                  max_breakdown_key,
-                                  attribution_window_seconds,
-                                  num_multi_bits,
-                              }) = req.extract().await?;
+                        per_user_credit_cap,
+                        max_breakdown_key,
+                        attribution_window_seconds,
+                        num_multi_bits,
+                    }) = req.extract().await?;
 
                     Ok(QueryType::MaliciousIpa(IpaQueryConfig {
                         per_user_credit_cap,

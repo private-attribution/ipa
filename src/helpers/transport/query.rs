@@ -162,7 +162,8 @@ impl QueryCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    Ipa(IpaQueryConfig),  ///TODO: rename SemiHonestIpa
+    Ipa(IpaQueryConfig),
+    ///TODO: rename SemiHonestIpa
     MaliciousIpa(IpaQueryConfig),
 }
 
@@ -179,7 +180,7 @@ impl AsRef<str> for QueryType {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::Ipa(_) => Self::IPA_STR,
-            QueryType::MaliciousIpa(_) =>Self::MALICIOUS_IPA_STR,
+            QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
         }
     }
 }
