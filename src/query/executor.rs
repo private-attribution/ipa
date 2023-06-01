@@ -73,7 +73,6 @@ pub fn start_query(
         // Negotiate PRSS first
         let step = step::Descriptive::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
-        //let ctx = SemiHonestContext::new(&prss, &gateway);
 
         match config.query_type {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
@@ -97,7 +96,6 @@ pub fn start_query(
             }
             QueryType::MaliciousIpa(ipa_query_config) => {
                 IpaRunner(ipa_query_config)
-                    //.run(SemiHonestContext::new(&prss, &gateway), config.field_type, input)
                     .malicious_run(
                         MaliciousContext::new(&prss, &gateway),
                         config.field_type,

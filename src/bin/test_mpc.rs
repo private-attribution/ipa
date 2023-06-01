@@ -4,7 +4,7 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
-        playbook::{ipa::malicious, secure_mul, semi_honest, InputSource},
+        playbook::{playbook_ipa, secure_mul, InputSource},
         CsvSerializer, Verbosity,
     },
     config::{ClientConfig, NetworkConfig, PeerConfig},
@@ -31,6 +31,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::sleep;
+use ipa::test_fixture::ipa::IpaSecurityModel;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -209,10 +210,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match args.action {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
         TestAction::SemiHonestIpa(config) => {
-            semi_honest_ipa(&args, &config, &make_clients().await).await
+            // semi_honest_ipa(&args, &config, &make_clients().await).await
+            ipa(&args, IpaSecurityModel::SemiHonest, &config, &make_clients().await).await
+
         }
         TestAction::MaliciousIpa(config) => {
-            malicious_ipa(&args, &config, &make_clients().await).await
+           // malicious_ipa(&args, &config, &make_clients().await).await
+            ipa(&args, IpaSecurityModel::Malicious, &config, &make_clients().await).await
+
         }
         TestAction::GenIpaInputs {
             count,
@@ -244,13 +249,23 @@ fn gen_inputs(
     Ok(())
 }
 
-async fn semi_honest_ipa(
+async fn ipa(
     args: &Args,
+    security_model: IpaSecurityModel,
     ipa_query_config: &IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
 ) {
     let input = InputSource::from(&args.input);
-    let query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
+    let query_type: QueryType;
+    match security_model {
+        IpaSecurityModel::SemiHonest => {
+            query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
+        }
+        IpaSecurityModel::Malicious => {
+            query_type = QueryType::MaliciousIpa(ipa_query_config.clone())
+        }
+    };
+
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type,
@@ -275,57 +290,11 @@ async fn semi_honest_ipa(
 
     let actual = match args.input.field {
         FieldType::Fp31 => {
-            semi_honest::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id)
+            playbook_ipa::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id)
                 .await
         }
         FieldType::Fp32BitPrime => {
-            semi_honest::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                &input_rows,
-                &helper_clients,
-                query_id,
-            )
-            .await
-        }
-    };
-
-    validate(expected, actual)
-}
-
-async fn malicious_ipa(
-    args: &Args,
-    ipa_query_config: &IpaQueryConfig,
-    helper_clients: &[MpcHelperClient; 3],
-) {
-    let input = InputSource::from(&args.input);
-    let query_type = QueryType::MaliciousIpa(ipa_query_config.clone());
-    let query_config = QueryConfig {
-        field_type: args.input.field,
-        query_type,
-    };
-    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
-    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let expected = {
-        let mut r = ipa_in_the_clear(
-            &input_rows,
-            ipa_query_config.per_user_credit_cap,
-            ipa_query_config.attribution_window_seconds,
-        );
-
-        // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
-        // truncate shouldn't happen unless in_the_clear is badly broken
-        r.resize(
-            usize::try_from(ipa_query_config.max_breakdown_key).unwrap(),
-            0,
-        );
-        r
-    };
-
-    let actual = match args.input.field {
-        FieldType::Fp31 => {
-            malicious::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id).await
-        }
-        FieldType::Fp32BitPrime => {
-            malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+            playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 &input_rows,
                 &helper_clients,
                 query_id,

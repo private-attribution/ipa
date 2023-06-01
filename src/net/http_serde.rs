@@ -77,6 +77,9 @@ pub mod echo {
     pub const AXUM_PATH: &str = "/echo";
 }
 
+
+
+
 pub mod query {
     use crate::{
         ff::FieldType,
@@ -116,6 +119,21 @@ pub mod query {
                 field_type,
                 query_type,
             }) = req.extract().await?;
+
+
+            // let query_type = match QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
+            //     let ipa_str = if (self.query_type == QueryType::SemiHonestIpa(config)) { QueryType::SEMIHONEST_IPA_STR
+            //     } else {QueryType::MALICIOUS_IPA_STR}
+            //     write!(
+            //         f,
+            //         "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+            //         ipa_str,
+            //         config.per_user_credit_cap,
+            //         config.max_breakdown_key,
+            //         config.num_multi_bits,
+            //     )?;
+            //     ...
+            // }
 
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]

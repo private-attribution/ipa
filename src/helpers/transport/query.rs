@@ -249,8 +249,4 @@ impl IpaQueryConfig {
     }
 }
 
-impl From<IpaQueryConfig> for QueryType {
-    fn from(value: IpaQueryConfig) -> Self {
-        QueryType::SemiHonestIpa(value)
-    }
-}
+
