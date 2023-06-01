@@ -9,7 +9,6 @@ use crate::{
         BreakdownKey, MatchKey,
     },
     query::ProtocolResult,
-    secret_sharing,
     secret_sharing::replicated::{malicious, semi_honest::AdditiveShare},
 };
 use futures_util::StreamExt;
@@ -19,7 +18,6 @@ use typenum::Unsigned;
 pub struct Runner(pub IpaQueryConfig);
 
 impl Runner {
-    //where secret_sharing::semi_honest::additive_share::AdditiveShare<F>: crate::ff::Serializable {
     pub async fn run(
         &self,
         ctx: SemiHonestContext<'_>,

@@ -255,3 +255,8 @@ fn https_semi_honest_ipa() {
 fn http_malicious_ipa() {
     test_ipa(IpaSecurityModel::Malicious, false);
 }
+
+#[test]
+fn https_malicious_ipa() {
+    test_ipa(IpaSecurityModel::Malicious, true);
+}
