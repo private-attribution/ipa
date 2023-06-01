@@ -4,7 +4,6 @@ version = "0.1.0"
 rust-version = "1.64.0"
 edition = "2021"
 
-
 [features]
 # by default remove all TRACE, DEBUG spans from release builds
 default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info"]

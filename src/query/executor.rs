@@ -86,7 +86,7 @@ pub fn start_query(
                     )
                     .await
             }
-            QueryType::Ipa(ipa_query_config) => {
+            QueryType::SemiHonestIpa(ipa_query_config) => {
                 IpaRunner(ipa_query_config)
                     .run(
                         SemiHonestContext::new(&prss, &gateway),

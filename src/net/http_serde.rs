@@ -120,7 +120,7 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::IPA_STR => {
+                QueryType::SEMIHONEST_IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
@@ -135,7 +135,7 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::Ipa(IpaQueryConfig {
+                    Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
@@ -179,11 +179,11 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::Ipa(config) => {
+                QueryType::SemiHonestIpa(config) => {
                     write!(
                         f,
                         "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        QueryType::IPA_STR,
+                        QueryType::SEMIHONEST_IPA_STR,
                         config.per_user_credit_cap,
                         config.max_breakdown_key,
                         config.num_multi_bits,

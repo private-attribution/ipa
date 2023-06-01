@@ -250,7 +250,7 @@ async fn semi_honest_ipa(
     helper_clients: &[MpcHelperClient; 3],
 ) {
     let input = InputSource::from(&args.input);
-    let query_type = QueryType::Ipa(ipa_query_config.clone());
+    let query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type,
