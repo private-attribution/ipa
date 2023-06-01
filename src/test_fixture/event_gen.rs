@@ -149,7 +149,7 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn gen_source(&mut self, user_id: UserId) -> TestRawDataRecord {
-        let breakdown_key = self.rng.gen_range(1..self.config.max_breakdown_key.get());
+        let breakdown_key = self.rng.gen_range(0..self.config.max_breakdown_key.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),

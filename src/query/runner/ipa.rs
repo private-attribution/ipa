@@ -121,11 +121,8 @@ impl Runner {
     }
 }
 
-#[cfg(all(
-    any(test, feature = "weak-field"),
-    not(feature = "shuttle"),
-    feature = "in-memory-infra",
-))]
+/// no dependency on `weak-field` feature because it is enabled in tests by default
+#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra",))]
 mod tests {
     use super::*;
     use crate::{

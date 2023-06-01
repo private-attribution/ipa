@@ -12,7 +12,10 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
-use tempfile::tempdir;
+use tempdir::TempDir;
+
+#[cfg(all(test, feature = "cli"))]
+pub mod tempdir;
 
 const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");
 const TEST_MPC_BIN: &str = env!("CARGO_BIN_EXE_test_mpc");
@@ -147,13 +150,20 @@ fn spawn_helpers(
             command.preserved_fds(vec![socket.as_raw_fd()]);
             command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
 
-            command.spawn().unwrap().terminate_on_drop()
+            // something went wrong if command is terminated at this point.
+            let mut child = command.spawn().unwrap();
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("Helper binary terminated early with status = {status}");
+            }
+
+            child.terminate_on_drop()
         })
         .collect::<Vec<_>>()
 }
 
 fn test_network(https: bool) {
-    let dir = tempdir().unwrap();
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
@@ -171,9 +181,6 @@ fn test_network(https: bool) {
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
-    // Uncomment this to preserve the temporary directory after the test runs.
-    // std::mem::forget(dir);
-
     test_mpc
         .stdin
         .as_ref()
@@ -184,7 +191,8 @@ fn test_network(https: bool) {
 }
 
 fn test_ipa(mode: IpaSecurityModel, https: bool) {
-    let dir = tempdir().unwrap();
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
@@ -223,9 +231,6 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
         .arg(protocol)
         .args(["--max-breakdown-key", "20"])
         .stdin(Stdio::piped());
-
-    // Uncomment this to preserve the temporary directory after the test runs.
-    // std::mem::forget(dir);
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();
