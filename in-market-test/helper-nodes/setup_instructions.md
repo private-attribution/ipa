@@ -59,13 +59,13 @@ Here are the instructions for setting up node for running IPA.
 
         You will know what is your Helper party number i.e. 1,2 or 3. Here we show for Helper `1`:
 
-        `docker cp <CONTAINER_ID>:/etc/ipa/pub/1.pem .  `
-        `docker cp <CONTAINER_ID>:/etc/ipa/pub/1-mk.pub .  `
+        `docker cp <CONTAINER_ID>:/etc/ipa/pub/h1.pem .  `
+        `docker cp <CONTAINER_ID>:/etc/ipa/pub/h1-mk.pub .  `
 
         To copy a TLS public key and matchkey encryption public key from Helper `2` from the host onto the docker image run from the directory with the public key `2.pem`:
 
-        `docker cp 2.pem <IMAGE_ID>:/etc/ipa/pub/`
-        `docker cp 2-mk.pub <IMAGE_ID>:/etc/ipa/pub/`
+        `docker cp h2.pem <IMAGE_ID>:/etc/ipa/pub/`
+        `docker cp h2-mk.pub <IMAGE_ID>:/etc/ipa/pub/`
 
 
 
