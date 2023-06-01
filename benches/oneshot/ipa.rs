@@ -95,13 +95,14 @@ impl Args {
 async fn run(args: Args) -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
 
-    let prep_time = Instant::now();
+    let _prep_time = Instant::now();
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(args.active()),
         ..TestWorldConfig::default()
     };
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
+    #[cfg(not(feature = "step-trace"))]
     println!(
         "Using random seed: {seed} for {q} records",
         q = args.query_size
@@ -123,9 +124,10 @@ async fn run(args: Args) -> Result<(), Error> {
         ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
-    println!("Preparation complete in {:?}", prep_time.elapsed());
+    #[cfg(not(feature = "step-trace"))]
+    println!("Preparation complete in {:?}", _prep_time.elapsed());
 
-    let protocol_time = Instant::now();
+    let _protocol_time = Instant::now();
     test_ipa::<BenchField>(
         &world,
         &raw_data,
@@ -134,11 +136,12 @@ async fn run(args: Args) -> Result<(), Error> {
         args.mode,
     )
     .await;
+    #[cfg(not(feature = "step-trace"))]
     println!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,
         q = args.query_size,
-        t = protocol_time.elapsed()
+        t = _protocol_time.elapsed()
     );
     Ok(())
 }

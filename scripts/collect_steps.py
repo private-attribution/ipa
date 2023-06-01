@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+import sys
 
 # This script collects all the steps that are executed in the oneshot_ipa with
 # all possible configurations.
@@ -16,15 +17,22 @@ ARGS = [
     "--features=enable-benches debug-trace step-trace",
     "--",
     "--num-multi-bits",
-    "1",
+    "3",
 ]
 QUERY_SIZE = 10
 PER_USER_CAP = [1, 3]
 ATTRIBUTION_WINDOW = [0, 86400]
-BREAKDOWN_KEYS = [1, 33]
+BREAKDOWN_KEYS = [8, 33]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
-EXPECTED_HEADER_LINES_COUNT = 4
+
+DEPTH_DYNAMIC_STEPS = "ipa::protocol::attribution::InteractionPatternStep"
+BIT_DYNAMIC_STEPS = [
+    "ipa::protocol::attribution::aggregate_credit::Step::compute_equality_checks",
+    "ipa::protocol::attribution::aggregate_credit::Step::check_times_credit",
+]
+MAXIMUM_DEPTH = 32
+MAXIMUM_BIT_LENGTH = 32
 
 
 def set_env():
@@ -45,17 +53,10 @@ def to_int_or(s):
         return s
 
 
-# Split string into list of strings and ints.
-#
-# E.g. "protocol/run-0/mc0/xor1" -> ["protocol/run-", 0, "/mc", 0, "/xor", 1]
-#
-# This is used to sort the steps in the natural order (e.g. 1, 2, 10, 11, 20).
-def natural_sort_key(s):
-    return [to_int_or(v) for v in re.split("(\d+)", s)]
-
-
 def collect_steps(args):
     output = set()
+    interaction_pattern_steps = set()
+    compute_equality_checks_steps = set()
 
     proc = subprocess.Popen(
         args=args,
@@ -66,14 +67,36 @@ def collect_steps(args):
     )
 
     count = 0
-    header = 0
     while True:
         line = proc.stdout.readline()
         if not line or line == "":
             break
 
         if not line.startswith(ROOT_STEP_PREFIX):
-            header += 1
+            print("Unexpected line: " + line)
+            exit(1)
+
+        # There are dynamic steps that are generated based on the number of input rows to IPA.
+        # Since we are only executing IPA with 10 input rows, it only generates log2(10) (maybe
+        # a few more/less because of the optimizations) dynamic steps. We want to replace all
+        # of them with a single step "depthX" where X is the depth of the iteration.
+        # Note that there are more optimizations done at row index level (i.e., skip the
+        # multiplication for the last row), so the number of sub-steps branching off from each
+        # depth may differ. However, `interaction_pattern_steps` ignores that fact. We'll just
+        # generate 32 > log2(1B) sets of these steps. That means the generated `Compact` gate
+        # code will contain state transitions that are not actually executed. This is not
+        # optimal, but not a big deal. It's impossible to generate the exact set of steps that
+        # are executed in the actual protocol without executing the protocol or analyzing the
+        # code statically.
+        if any(s in line for s in DEPTH_DYNAMIC_STEPS):
+            line = re.sub(r"depth\d+", "depthX", line)
+            interaction_pattern_steps.add(remove_root_step_name_from_line(line))
+            # continue without adding to the `output`. we'll generate the dynamic steps later
+            continue
+        # do the same for bit dynamic steps
+        if any(s in line for s in BIT_DYNAMIC_STEPS):
+            line = re.sub(r"bit\d+", "bitX", line)
+            compute_equality_checks_steps.add(remove_root_step_name_from_line(line))
             continue
 
         output.update([remove_root_step_name_from_line(line)])
@@ -84,10 +107,15 @@ def collect_steps(args):
         print("No steps in the output")
         exit(1)
 
-    # oneshot_ipa produces 4 header lines
-    if header != EXPECTED_HEADER_LINES_COUNT:
-        print("Unexpected header lines in the output")
-        exit(1)
+    # generate dynamic steps
+    for i in range(MAXIMUM_DEPTH):
+        for s in interaction_pattern_steps:
+            line = re.sub(r"depthX", "depth" + str(i), s)
+            output.add(line)
+    for i in range(MAXIMUM_BIT_LENGTH):
+        for s in compute_equality_checks_steps:
+            line = re.sub(r"bitX", "bit" + str(i), s)
+            output.add(line)
 
     return output
 
@@ -149,10 +177,11 @@ if __name__ == "__main__":
                         "-m",
                         m,
                     ]
+                    print(" ".join(args), file=sys.stderr)
                     steps.update(collect_steps(args))
 
     full_steps = extract_intermediate_steps(steps)
-    sorted_steps = sorted(full_steps, key=natural_sort_key)
+    sorted_steps = sorted(full_steps)
 
     for step in sorted_steps:
         print(step)
