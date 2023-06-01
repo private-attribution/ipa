@@ -493,7 +493,7 @@ mod tests {
                     records,
                     QueryConfig {
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::Ipa(IpaQueryConfig {
+                        query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                             per_user_credit_cap: 3,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
