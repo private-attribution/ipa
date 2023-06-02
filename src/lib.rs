@@ -20,6 +20,7 @@ pub mod hpke;
 pub mod net;
 pub mod protocol;
 pub mod query;
+pub mod report;
 pub mod secret_sharing;
 pub mod telemetry;
 #[cfg(all(feature = "enable-serde", feature = "web-app"))]

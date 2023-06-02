@@ -1,18 +1,22 @@
-//! Provides decryption primitives for HPKE according to the [`specification`].
+//! Provides HPKE decryption primitives for match key shares according to the [`specification`].
 //!
-//! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
+//! [`specification`]: https://github.com/patcg-individual-drafts/ipa/blob/main/details/encryption.md
 
-use core::fmt::{Display, Formatter};
+use generic_array::ArrayLength;
 use hpke::{
-    aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached, OpModeR,
+    aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached,
+    single_shot_seal_in_place_detached, OpModeR, OpModeS,
 };
-use std::io;
+use rand_core::{CryptoRng, RngCore};
+use std::{fmt::Debug, io, ops::Add};
+use typenum::U16;
 
 mod info;
 mod registry;
 
 use crate::{
-    ff::{Gf40Bit, Serializable},
+    ff::{GaloisField, Gf40Bit, Serializable},
+    report::KeyIdentifier,
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 pub use info::Info;
@@ -23,67 +27,13 @@ type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
-pub type KeyIdentifier = u8;
-
 /// Right now we assume the match keys to be 40 bits long. If it is not the case, the decryption
 /// will fail. This assumption allows to keep the bitstrings on the stack, for dynamically sized
 /// match keys we would have to heap allocate.
 type XorReplicated = AdditiveShare<Gf40Bit>;
 
-/// Event epoch as described [`ipa-spec`]
-/// For the purposes of this module, epochs are used to authenticate match key encryption. As
-/// report collectors may submit queries with events spread across multiple epochs, decryption context
-/// needs to know which epoch to use for each individual event.
-///
-/// [`ipa-spec`]: https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#other-key-terms
-pub type Epoch = u16;
 type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
-
-/// Event type as described [`ipa-issue`]
-/// Initially we will just support trigger vs source event types but could extend to others in
-/// the future.
-///
-/// ['ipa-issue']: https://github.com/patcg-individual-drafts/ipa/issues/38
-#[derive(Copy, Clone)]
-pub enum EventType {
-    Trigger,
-    Source,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseEventTypeError(u8);
-
-impl Display for ParseEventTypeError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Illegal trigger bit value: {v}, only 0 and 1 are accepted",
-            v = self.0
-        )
-    }
-}
-
-impl TryFrom<u8> for EventType {
-    type Error = ParseEventTypeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Source),
-            1 => Ok(Self::Trigger),
-            _ => Err(ParseEventTypeError(value)),
-        }
-    }
-}
-
-impl From<&EventType> for u8 {
-    fn from(value: &EventType) -> Self {
-        match value {
-            EventType::Source => 0,
-            EventType::Trigger => 1,
-        }
-    }
-}
 
 /// match key size, in bytes
 const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
@@ -92,21 +42,44 @@ const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
 pub const MATCHKEY_CT_LEN: usize =
     MATCHKEY_LEN + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
+pub trait MatchKeyCrypt: GaloisField + Serializable {
+    type EncapKeySize: ArrayLength<u8>;
+    type CiphertextSize: ArrayLength<u8>;
+    type SemiHonestShares: Serializable + Clone + Debug + Eq;
+}
+
+// Ideally this could generically add the tag size to the match key size (i.e. remove the
+// `OutputSize = U16` constraint and instead of writing `Add<U16>`, write `Add<<AeadTag<IpaAead> as
+// hpke::Serializable>::OutputSize>`, but could not figure out how to get the compiler to accept
+// that, and it doesn't seem worth a lot of trouble for a value that won't be changing.
+impl<MK> MatchKeyCrypt for MK
+where
+    MK: GaloisField + Serializable + Clone + Debug + Eq,
+    AdditiveShare<MK>: Serializable + Clone + Debug + Eq,
+    AeadTag<IpaAead>: hpke::Serializable<OutputSize = U16>,
+    <AdditiveShare<MK> as Serializable>::Size: Add<U16>,
+    <<AdditiveShare<MK> as Serializable>::Size as Add<U16>>::Output: ArrayLength<u8>,
+{
+    type EncapKeySize = <<IpaKem as hpke::Kem>::EncappedKey as hpke::Serializable>::OutputSize;
+    type CiphertextSize = <<AdditiveShare<MK> as Serializable>::Size as Add<U16>>::Output;
+    type SemiHonestShares = AdditiveShare<MK>;
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum DecryptionError {
+pub enum CryptError {
     #[error("Unknown key {0}")]
     NoSuchKey(KeyIdentifier),
     #[error("Failed to open ciphertext")]
     Other,
 }
 
-impl From<hpke::HpkeError> for DecryptionError {
+impl From<hpke::HpkeError> for CryptError {
     fn from(_value: hpke::HpkeError) -> Self {
         Self::Other
     }
 }
 
-impl From<io::Error> for DecryptionError {
+impl From<io::Error> for CryptError {
     fn from(_value: io::Error) -> Self {
         Self::Other
     }
@@ -130,7 +103,7 @@ pub fn open_in_place<'a>(
     enc: &[u8],
     ciphertext: &'a mut [u8],
     info: Info,
-) -> Result<&'a [u8], DecryptionError> {
+) -> Result<&'a [u8], CryptError> {
     use hpke::{Deserializable, Serializable};
 
     let key_id = info.key_id;
@@ -140,7 +113,7 @@ pub fn open_in_place<'a>(
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
     let sk = key_registry
         .private_key(key_id)
-        .ok_or(DecryptionError::NoSuchKey(key_id))?;
+        .ok_or(CryptError::NoSuchKey(key_id))?;
 
     single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,
@@ -155,6 +128,41 @@ pub fn open_in_place<'a>(
     // at this point ct is no longer a pointer to the ciphertext.
     let pt = ct;
     Ok(pt)
+}
+
+// Avoids a clippy "complex type" warning on the return type from `seal_in_place`.
+// Not intended to be widely used.
+pub(crate) type MatchKeyCiphertext<'a> = (
+    <IpaKem as hpke::Kem>::EncappedKey,
+    &'a [u8],
+    AeadTag<IpaAead>,
+);
+
+/// ## Errors
+/// If the match key cannot be sealed for any reason.
+pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore>(
+    key_registry: &KeyRegistry,
+    plaintext: &'a mut [u8],
+    info: Info,
+    rng: &mut R,
+) -> Result<MatchKeyCiphertext<'a>, CryptError> {
+    let key_id = info.key_id;
+    let info = info.into_bytes();
+    let pk_r = key_registry
+        .public_key(key_id)
+        .ok_or(CryptError::NoSuchKey(key_id))?;
+
+    let (encap_key, tag) = single_shot_seal_in_place_detached::<IpaAead, IpaKdf, IpaKem, _>(
+        &OpModeS::Base,
+        pk_r,
+        &info,
+        plaintext,
+        &[],
+        rng,
+    )?;
+
+    // at this point `plaintext` is no longer a pointer to the plaintext.
+    Ok((encap_key, plaintext, tag))
 }
 
 /// Represents an encrypted share of single match key.
@@ -183,7 +191,11 @@ mod tests {
     use super::*;
     use generic_array::GenericArray;
 
-    use crate::{ff::Serializable, secret_sharing::replicated::ReplicatedSecretSharing};
+    use crate::{
+        ff::Serializable,
+        report::{Epoch, EventType},
+        secret_sharing::replicated::ReplicatedSecretSharing,
+    };
     use hpke::{single_shot_seal_in_place_detached, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
@@ -262,7 +274,7 @@ mod tests {
             key_id: KeyIdentifier,
             event_type: EventType,
             mut enc: MatchKeyEncryption<'_>,
-        ) -> Result<XorReplicated, DecryptionError> {
+        ) -> Result<XorReplicated, CryptError> {
             let info = Info::new(
                 key_id,
                 self.epoch,
@@ -321,7 +333,7 @@ mod tests {
         let enc = suite.seal(0, EventType::Source, &match_key);
         suite.advance_epoch();
 
-        let _: DecryptionError = suite.open(0, EventType::Source, enc).unwrap_err();
+        let _: CryptError = suite.open(0, EventType::Source, enc).unwrap_err();
     }
 
     #[test]
@@ -330,7 +342,7 @@ mod tests {
         let mut suite = EncryptionSuite::new(10, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
         let enc = suite.seal(0, EventType::Source, &match_key);
-        let _: DecryptionError = suite.open(1, EventType::Source, enc).unwrap_err();
+        let _: CryptError = suite.open(1, EventType::Source, enc).unwrap_err();
     }
 
     #[test]
@@ -342,7 +354,7 @@ mod tests {
 
         assert!(matches!(
             suite.open(1, EventType::Source, enc),
-            Err(DecryptionError::NoSuchKey(1))
+            Err(CryptError::NoSuchKey(1))
         ));
     }
 
