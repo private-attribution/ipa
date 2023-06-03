@@ -1,79 +1,76 @@
 use crate::{
     error::Error,
-    ff::{Field, FieldType, Fp32BitPrime, Serializable},
-    helpers::{ByteArrStream, TotalRecords},
+    ff::{PrimeField, Serializable},
+    helpers::{ByteArrStream, Gateway, TotalRecords},
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
+        prss::Endpoint as PrssEndpoint,
         RecordId,
     },
-    query::ProtocolResult,
+    query::runner::QueryResult,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use futures_util::StreamExt;
 use typenum::Unsigned;
 
-pub struct Runner;
+pub async fn execute_test_multiply<'a, F>(
+    prss: &'a PrssEndpoint,
+    gateway: &'a Gateway,
+    input: ByteArrStream,
+) -> QueryResult
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+{
+    let ctx = SemiHonestContext::new(prss, gateway);
+    Ok(Box::new(
+        execute_test_multiply_internal::<F>(ctx, input).await?,
+    ))
+}
 
-impl Runner {
-    pub async fn run(
-        &self,
-        ctx: SemiHonestContext<'_>,
-        field: FieldType,
-        input: ByteArrStream,
-    ) -> Result<Box<dyn ProtocolResult>, Error> {
-        Ok(match field {
-            #[cfg(any(test, feature = "weak-field"))]
-            FieldType::Fp31 => Box::new(self.run_internal::<crate::ff::Fp31>(ctx, input).await?),
-            FieldType::Fp32BitPrime => {
-                Box::new(self.run_internal::<Fp32BitPrime>(ctx, input).await?)
-            }
-        })
-    }
+pub async fn execute_test_multiply_internal<F>(
+    ctx: SemiHonestContext<'_>,
+    input: ByteArrStream,
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+{
+    let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
 
-    async fn run_internal<F: Field>(
-        &self,
-        ctx: SemiHonestContext<'_>,
-        input: ByteArrStream,
-    ) -> std::result::Result<Vec<Replicated<F>>, Error>
-    where
-        Replicated<F>: Serializable,
-    {
-        let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
-
-        let mut input = input.align(<Replicated<F> as Serializable>::Size::USIZE);
-        let mut results = Vec::new();
-        while let Some(v) = input.next().await {
-            // multiply pairs
-            let mut a = None;
-            let mut record_id = 0_u32;
-            for share in Replicated::<F>::from_byte_slice(&v.unwrap()) {
-                match a {
-                    None => a = Some(share),
-                    Some(a_v) => {
-                        let result = a_v
-                            .multiply(&share, ctx.clone(), RecordId::from(record_id))
-                            .await
-                            .unwrap();
-                        results.push(result);
-                        record_id += 1;
-                        a = None;
-                    }
+    let mut input = input.align(<Replicated<F> as Serializable>::Size::USIZE);
+    let mut results = Vec::new();
+    while let Some(v) = input.next().await {
+        // multiply pairs
+        let mut a = None;
+        let mut record_id = 0_u32;
+        for share in Replicated::<F>::from_byte_slice(&v.unwrap()) {
+            match a {
+                None => a = Some(share),
+                Some(a_v) => {
+                    let result = a_v
+                        .multiply(&share, ctx.clone(), RecordId::from(record_id))
+                        .await
+                        .unwrap();
+                    results.push(result);
+                    record_id += 1;
+                    a = None;
                 }
             }
-
-            assert!(a.is_none());
         }
 
-        Ok(results)
+        assert!(a.is_none());
     }
+
+    Ok(results)
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use super::*;
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         secret_sharing::IntoShares,
         test_fixture::{join3v, Reconstruct, TestWorld},
     };
@@ -108,7 +105,7 @@ mod tests {
             helper_shares
                 .into_iter()
                 .zip(contexts)
-                .map(|(shares, context)| Runner.run_internal::<Fp31>(context, shares)),
+                .map(|(shares, context)| execute_test_multiply_internal::<Fp31>(context, shares)),
         )
         .await;
 

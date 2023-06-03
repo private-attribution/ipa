@@ -1,121 +1,89 @@
 use crate::{
     error::Error,
-    ff::{FieldType, Fp32BitPrime, GaloisField, PrimeField, Serializable},
+    ff::{Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, ByteArrStream},
     protocol::{
-        attribution::input::MCAggregateCreditOutputRow,
-        context::{MaliciousContext, SemiHonestContext},
+        attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
+        basics::Reshare,
+        boolean::RandomBits,
+        context::{UpgradableContext, UpgradedContext},
         ipa::{ipa, IPAInputRow},
-        BreakdownKey, MatchKey,
+        sort::generate_permutation::ShuffledPermutationWrapper,
+        BasicProtocols, BreakdownKey, MatchKey, RecordId,
     },
-    query::ProtocolResult,
-    secret_sharing::replicated::{malicious, semi_honest::AdditiveShare},
+    secret_sharing::{
+        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
+        Linear as LinearSecretSharing,
+    },
 };
-use futures_util::StreamExt;
-use std::future::Future;
+use futures::StreamExt;
+use std::marker::PhantomData;
 use typenum::Unsigned;
 
-pub struct Runner(pub IpaQueryConfig);
+pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>)
+where
+    F: PrimeField,
+    AdditiveShare<F>: Serializable,
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + Serializable,
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable;
 
-impl Runner {
-    pub async fn run(
-        &self,
-        ctx: SemiHonestContext<'_>,
-        field: FieldType,
-        input: ByteArrStream,
-    ) -> Result<Box<dyn ProtocolResult>, Error> {
-        Ok(match field {
-            #[cfg(any(test, feature = "weak-field"))]
-            FieldType::Fp31 => Box::new(
-                self.run_internal::<crate::ff::Fp31, MatchKey, BreakdownKey>(ctx, input)
-                    .await?,
-            ),
-            FieldType::Fp32BitPrime => Box::new(
-                self.run_internal::<Fp32BitPrime, MatchKey, BreakdownKey>(ctx, input)
-                    .await?,
-            ),
-        })
+impl<F, C, S> IpaQuery<F, C, S>
+where
+    F: PrimeField,
+    AdditiveShare<F>: Serializable,
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + Serializable,
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+{
+    pub fn new(config: IpaQueryConfig) -> Self {
+        Self(config, PhantomData)
     }
+}
 
-    // This is intentionally made not async because it does not capture `self`.
-    fn run_internal<'a, F: PrimeField, MK: GaloisField, BK: GaloisField>(
-        &self,
-        ctx: SemiHonestContext<'a>,
+impl<F, C, S, SB> IpaQuery<F, C, S>
+where
+    C: UpgradableContext + Send,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
+    S: LinearSecretSharing<F>
+        + BasicProtocols<C::UpgradedContext<F>, F>
+        + Reshare<C::UpgradedContext<F>, RecordId>
+        + Serializable
+        + DowngradeMalicious<Target = AdditiveShare<F>>
+        + 'static,
+    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
+    SB: LinearSecretSharing<Gf2>
+        + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
+        + DowngradeMalicious<Target = AdditiveShare<Gf2>>
+        + 'static,
+    F: PrimeField,
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+    ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    MCCappedCreditsWithAggregationBit<F, S>:
+        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, AdditiveShare<F>>>,
+    MCAggregateCreditOutputRow<F, S, BreakdownKey>:
+        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
+    AdditiveShare<F>: Serializable,
+{
+    pub async fn execute<'a>(
+        self,
+        ctx: C,
         input: ByteArrStream,
-    ) -> impl Future<
-        Output = std::result::Result<
-            Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>,
-            Error,
-        >,
-    > + 'a
-    where
-        IPAInputRow<F, MK, BK>: Serializable,
-        AdditiveShare<F>: Serializable,
-    {
-        let config = self.0;
-        async move {
-            let mut input = input.align(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE);
-            let mut input_vec = Vec::new();
-            while let Some(data) = input.next().await {
-                input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
-            }
+    ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
+        let Self(config, _) = self;
 
-            ipa(ctx, input_vec.as_slice(), config).await
+        let mut input =
+            input.align(<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
+        let mut input_vec = Vec::new();
+        while let Some(data) = input.next().await {
+            input_vec.extend(IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(
+                &data.unwrap(),
+            ));
         }
-    }
 
-    pub async fn malicious_run(
-        &self,
-        ctx: MaliciousContext<'_>,
-        field: FieldType,
-        input: ByteArrStream,
-    ) -> Box<dyn ProtocolResult> {
-        match field {
-            #[cfg(any(test, feature = "weak-field"))]
-            FieldType::Fp31 => Box::new(
-                self.malicious_run_internal::<crate::ff::Fp31, MatchKey, BreakdownKey>(ctx, input)
-                    .await
-                    .expect("IPA query failed"),
-            ),
-            FieldType::Fp32BitPrime => Box::new(
-                self.malicious_run_internal::<Fp32BitPrime, MatchKey, BreakdownKey>(ctx, input)
-                    .await
-                    .expect("IPA query failed"),
-            ),
-        }
-    }
-
-    // This is intentionally made not async because it does not capture `self`.
-    fn malicious_run_internal<
-        'a,
-        F: PrimeField + crate::secret_sharing::replicated::malicious::ExtendableField,
-        MK: GaloisField,
-        BK: GaloisField,
-    >(
-        &self,
-        ctx: MaliciousContext<'a>,
-        input: ByteArrStream,
-    ) -> impl Future<
-        Output = std::result::Result<
-            Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>,
-            Error,
-        >,
-    > + 'a
-    where
-        IPAInputRow<F, MK, BK>: Serializable,
-        AdditiveShare<F>: Serializable,
-        malicious::AdditiveShare<F>: Serializable,
-    {
-        let config = self.0;
-        async move {
-            let mut input = input.align(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE);
-            let mut input_vec = Vec::new();
-            while let Some(data) = input.next().await {
-                input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
-            }
-
-            ipa(ctx, input_vec.as_slice(), config).await
-        }
+        ipa(ctx, input_vec.as_slice(), config).await
     }
 }
 
@@ -176,7 +144,7 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
-            Runner(query_config).run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+            IpaQuery::new(query_config).execute(ctx, input)
         }))
         .await;
 
@@ -237,7 +205,7 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
-            Runner(query_config).malicious_run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+            IpaQuery::new(query_config).execute(ctx, input)
         }))
         .await;
 

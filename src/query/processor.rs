@@ -1,4 +1,5 @@
 use crate::{
+    error::Error as ProtocolError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
@@ -85,6 +86,8 @@ pub enum QueryCompletionError {
         #[from]
         source: StateError,
     },
+    #[error("query execution failed: {0}")]
+    ExecutionError(#[from] ProtocolError),
 }
 
 impl Debug for Processor {
@@ -201,11 +204,7 @@ impl Processor {
                     );
                     queries.insert(
                         input.query_id,
-                        QueryState::Running(executor::start_query(
-                            config,
-                            gateway,
-                            input.input_stream,
-                        )),
+                        QueryState::Running(executor::execute(config, gateway, input.input_stream)),
                     );
                     Ok(())
                 } else {
@@ -242,13 +241,13 @@ impl Processor {
             match queries.remove(&query_id) {
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
-                    Ok(CompletionHandle::new(
+                    CompletionHandle::new(
                         RemoveQuery {
                             query_id,
                             queries: &self.queries,
                         },
                         handle,
-                    ))
+                    )
                 }
                 Some(state) => {
                     let state_error = StateError::InvalidState {
@@ -256,15 +255,15 @@ impl Processor {
                         to: QueryStatus::Running,
                     };
                     queries.insert(query_id, state);
-                    Err(QueryCompletionError::StateError {
+                    return Err(QueryCompletionError::StateError {
                         source: state_error,
-                    })
+                    });
                 }
-                None => Err(QueryCompletionError::NoSuchQuery(query_id)),
+                None => return Err(QueryCompletionError::NoSuchQuery(query_id)),
             }
-        }?;
+        }; // release mutex before await
 
-        Ok(handle.await.unwrap())
+        Ok(handle.await?)
     }
 }
 
