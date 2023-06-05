@@ -76,18 +76,20 @@ def collect_steps(args):
             print("Unexpected line: " + line)
             exit(1)
 
-        # There are dynamic steps that are generated based on the number of input rows to IPA.
-        # Since we are only executing IPA with 10 input rows, it only generates log2(10) (maybe
-        # a few more/less because of the optimizations) dynamic steps. We want to replace all
-        # of them with a single step "depthX" where X is the depth of the iteration.
-        # Note that there are more optimizations done at row index level (i.e., skip the
-        # multiplication for the last row), so the number of sub-steps branching off from each
-        # depth may differ. However, `interaction_pattern_steps` ignores that fact. We'll just
-        # generate 32 > log2(1B) sets of these steps. That means the generated `Compact` gate
-        # code will contain state transitions that are not actually executed. This is not
-        # optimal, but not a big deal. It's impossible to generate the exact set of steps that
-        # are executed in the actual protocol without executing the protocol or analyzing the
-        # code statically.
+        # There are protocols in IPA that that will generate log(N) steps where N is the number
+        # of input rows to IPA. In this script, we execute IPA with 10 input rows, hence it
+        # only generates log2(10) (maybe a few more/less because of the optimizations) dynamic
+        # steps. Our goal is to generate generate 32 sets of these steps. (32 > log2(1B))
+        # We do this by replacing all "depth\d+" in the steps with "depthX", store them in the
+        # set, and later replace X with the depth of the iteration [0..32). We do that because
+        # there are more optimizations done at row index level (i.e., skip the multiplication
+        # for the last row), so the number of sub-steps branching off at each depth may differ.
+        # To workaround this issue, we do the "depthX" replacement and collect all possible
+        # steps and sub-steps (log2(10) steps should be enough to execute all possible
+        # sub-steps). That means the generated `Compact` gate code will contain state
+        # transitions that are not actually executed. This is not optimal, but not a big deal.
+        # It's impossible to generate the exact set of steps that are executed in the actual
+        # protocol without executing the protocol or analyzing the code statically.
         if any(s in line for s in DEPTH_DYNAMIC_STEPS):
             line = re.sub(r"depth\d+", "depthX", line)
             interaction_pattern_steps.add(remove_root_step_name_from_line(line))
