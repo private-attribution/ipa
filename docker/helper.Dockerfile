@@ -28,5 +28,5 @@ RUN set -eux; \
     --name $HOSTNAME \
     --tls-cert $CONF_DIR/pub/h$IDENTITY.pem \
     --tls-key $CONF_DIR/h$IDENTITY.key \
-    --mk-public-key $CONF_DIR/pub/h$IDENTITY-mk.pub \
-    --mk-private-key $CONF_DIR/h$IDENTITY-mk.key
+    --mk-public-key $CONF_DIR/pub/h${IDENTITY}_mk.pub \
+    --mk-private-key $CONF_DIR/h${IDENTITY}_mk.key
