@@ -45,5 +45,7 @@ tar -cvzf - --exclude-from="docker/.dockerignore" ./* \
   | docker build \
     -t "$tag" \
     -f docker/helper.Dockerfile \
+    --platform linux/amd64 \
+    --progress=plain --no-cache \
     --build-arg IDENTITY="$identity" \
     --build-arg HOSTNAME="$hostname" -
