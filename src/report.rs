@@ -1,6 +1,7 @@
 use crate::{
-    ff::{GaloisField, Serializable},
+    ff::{Fp32BitPrime, GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{open_in_place, seal_in_place, CryptError, Info, KeyRegistry, MatchKeyCrypt},
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use bytes::BufMut;
 use generic_array::GenericArray;
@@ -118,52 +119,54 @@ pub enum InvalidReportError {
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
-///
-/// Contains the following fields:
-///  * 0..4: `timestamp`
-///  * 4: `breakdown_key`
-///  * 5..9: `trigger_value`
-///  * 9..a: `encap_key`
-///  * a..b: `mk_ciphertext`
-///  * b: `event_type`
-///  * b+1: `key_id`
-///  * b+2..b+4: `epoch`
-///  * b+4..: `site_domain`
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct EncryptedReport<'a, MK: MatchKeyCrypt, BK: GaloisField> {
+pub struct EncryptedReport<'a, F, MK, BK>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+    MK: MatchKeyCrypt,
+    BK: GaloisField,
+{
     data: &'a [u8],
-    phantom_data: PhantomData<(MK, BK)>,
+    phantom_data: PhantomData<(F, MK, BK)>,
 }
 
 // TODO: If we are parsing reports from CSV files, we may also want an owned version of EncryptedReport.
 
-impl<'a, MK: MatchKeyCrypt, BK: GaloisField> EncryptedReport<'a, MK, BK>
-where
-    MK: MatchKeyCrypt,
-{
+// Report structure:
+//  * 0..4: `timestamp`
+//  * 4: `breakdown_key`
+//  * 5..13: `trigger_value`
+//  * 13..a: `encap_key`
+//  * a..b: `mk_ciphertext`
+//  * b: `event_type`
+//  * b+1: `key_id`
+//  * b+2..b+4: `epoch`
+//  * b+4..: `site_domain`
+impl<'a> EncryptedReport<'a, Fp32BitPrime, Gf40Bit, Gf8Bit> {
     // Constants are defined for:
     //  1. Offsets that are calculated from typenum values
     //  2. Offsets that appear in the code in more places than two successive accessors. (Some
     //     offsets are used by validations in the `from_bytes` constructor.)
-    const CIPHERTEXT_OFFSET: usize = 9 + <MK as MatchKeyCrypt>::EncapKeySize::USIZE;
+    const CIPHERTEXT_OFFSET: usize = 13 + <Gf40Bit as MatchKeyCrypt>::EncapKeySize::USIZE;
     const EVENT_TYPE_OFFSET: usize =
-        Self::CIPHERTEXT_OFFSET + <MK as MatchKeyCrypt>::CiphertextSize::USIZE;
+        Self::CIPHERTEXT_OFFSET + <Gf40Bit as MatchKeyCrypt>::CiphertextSize::USIZE;
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
 
     fn timestamp(&self) -> u32 {
         u32::from_le_bytes(self.data[0..4].try_into().unwrap()) // infallible slice-to-array conversion
     }
 
-    fn breakdown_key(&self) -> BK {
-        BK::deserialize(GenericArray::from_slice(&[self.data[4]]))
+    fn breakdown_key(&self) -> Gf8Bit {
+        Gf8Bit::deserialize(GenericArray::from_slice(&[self.data[4]]))
     }
 
-    fn trigger_value(&self) -> u32 {
-        u32::from_le_bytes(self.data[5..9].try_into().unwrap()) // infallible slice-to-array conversion
+    fn trigger_value(&self) -> Replicated<Fp32BitPrime> {
+        Replicated::<Fp32BitPrime>::deserialize(GenericArray::from_slice(&self.data[5..13]))
     }
 
     fn encap_key(&self) -> &[u8] {
-        &self.data[9..Self::CIPHERTEXT_OFFSET]
+        &self.data[13..Self::CIPHERTEXT_OFFSET]
     }
 
     fn match_key_ciphertext(&self) -> &[u8] {
@@ -204,7 +207,10 @@ where
     }
 
     #[allow(dead_code)] // TODO: temporary
-    fn decrypt(&self, key_registry: &KeyRegistry) -> Result<Report<MK, BK>, InvalidReportError> {
+    fn decrypt(
+        &self,
+        key_registry: &KeyRegistry,
+    ) -> Result<Report<Fp32BitPrime, Gf40Bit, Gf8Bit>, InvalidReportError> {
         let info = Info::new(
             self.key_id(),
             self.epoch(),
@@ -214,13 +220,13 @@ where
         )
         .unwrap(); // validated on construction
 
-        let mut ciphertext: GenericArray<u8, <MK as MatchKeyCrypt>::CiphertextSize> =
+        let mut ciphertext: GenericArray<u8, <Gf40Bit as MatchKeyCrypt>::CiphertextSize> =
             GenericArray::clone_from_slice(self.match_key_ciphertext());
         let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, info)?;
 
         Ok(Report {
             timestamp: self.timestamp(),
-            mk_shares: <MK as MatchKeyCrypt>::SemiHonestShares::deserialize(
+            mk_shares: <Gf40Bit as MatchKeyCrypt>::SemiHonestShares::deserialize(
                 GenericArray::from_slice(plaintext),
             ),
             event_type: self.event_type(),
@@ -233,17 +239,29 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Report<MK: MatchKeyCrypt, BK: GaloisField> {
+pub struct Report<F, MK, BK>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+    MK: MatchKeyCrypt,
+    BK: GaloisField,
+{
     pub timestamp: u32,
     pub mk_shares: <MK as MatchKeyCrypt>::SemiHonestShares,
     pub event_type: EventType,
     pub breakdown_key: BK,
-    pub trigger_value: u32,
+    pub trigger_value: Replicated<F>,
     pub epoch: Epoch,
     pub site_domain: String,
 }
 
-impl<MK: MatchKeyCrypt, BK: GaloisField> Report<MK, BK> {
+impl<F, MK, BK> Report<F, MK, BK>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+    MK: MatchKeyCrypt,
+    BK: GaloisField,
+{
     #[allow(dead_code)] // TODO: temporary
     fn encrypt<R: CryptoRng + RngCore>(
         &self,
@@ -283,7 +301,9 @@ impl<MK: MatchKeyCrypt, BK: GaloisField> Report<MK, BK> {
         self.breakdown_key.serialize(&mut bk);
         out.put_slice(bk.as_slice());
 
-        out.put_slice(&self.trigger_value.to_le_bytes());
+        let mut trigger_value = GenericArray::default();
+        self.trigger_value.serialize(&mut trigger_value);
+        out.put_slice(trigger_value.as_slice());
         out.put_slice(&encap_key.to_bytes());
         out.put_slice(ciphertext);
         out.put_slice(&tag.to_bytes());
@@ -298,7 +318,7 @@ impl<MK: MatchKeyCrypt, BK: GaloisField> Report<MK, BK> {
 
 #[cfg(test)]
 mod test {
-    use crate::ff::{Gf40Bit, Gf8Bit};
+    use crate::ff::{Fp32BitPrime, Gf40Bit, Gf8Bit};
 
     use super::*;
 
@@ -309,12 +329,12 @@ mod test {
     fn enc_dec_roundtrip() {
         let mut rng = StdRng::from_seed([1_u8; 32]);
 
-        let report = Report::<Gf40Bit, Gf8Bit> {
+        let report = Report::<Fp32BitPrime, Gf40Bit, Gf8Bit> {
             timestamp: rng.gen(),
             mk_shares: (rng.gen(), rng.gen()).into(),
             event_type: EventType::Trigger,
             breakdown_key: rng.gen(),
-            trigger_value: rng.gen(),
+            trigger_value: (rng.gen(), rng.gen()).into(),
             epoch: rng.gen(),
             site_domain: (&mut rng)
                 .sample_iter(Alphanumeric)
@@ -337,12 +357,12 @@ mod test {
     fn decrypt() {
         let mut rng = StdRng::from_seed([1_u8; 32]);
 
-        let expected = Report::<Gf40Bit, Gf8Bit> {
+        let expected = Report::<Fp32BitPrime, Gf40Bit, Gf8Bit> {
             timestamp: rng.gen(),
             mk_shares: (rng.gen(), rng.gen()).into(),
             event_type: EventType::Trigger,
             breakdown_key: rng.gen(),
-            trigger_value: rng.gen(),
+            trigger_value: (rng.gen(), rng.gen()).into(),
             epoch: rng.gen(),
             site_domain: (&mut rng)
                 .sample_iter(Alphanumeric)
@@ -355,9 +375,9 @@ mod test {
 
         let enc_report_bytes = hex::decode(
             "\
-            3301e8d7523820f0f88f9b31268b0819b5fafbcd78c27fdbf8841a37a28d\
-            8417218da229cb3d55a5228d5939e2181c9da900dadfba0cdf4aa284b9e7\
-            af4f6ec90dd4f70100984f536e574d74776c64466e\
+            3301e8d7528e08671418d2164dc80a3403e4aadd01be4263b723ba2204638c20\
+            830500710b2bdb931f5f429f234abddf09109ecb2f730b368b7fa4fda0acf3db\
+            52c5d509681e8a0100783b6c64466e5531386d6c44\
         ",
         )
         .unwrap();
@@ -372,14 +392,14 @@ mod test {
     fn invalid_event_type() {
         let bytes = hex::decode(
             "\
-            3301e8d7523820f0f88f9b31268b0819b5fafbcd78c27fdbf8841a37a28d\
-            8417218da229cb3d55a5228d5939e2181c9da900dadfba0cdf4aa284b9e7\
-            af4f6ec90dd4f7bd00984f536e574d74776c64466e\
+            3301e8d7528e08671418d2164dc80a3403e4aadd01be4263b723ba2204638c20\
+            830500710b2bdb931f5f429f234abddf09109ecb2f730b368b7fa4fda0acf3db\
+            52c5d509681e8abd00783b6c64466e5531386d6c44\
         ",
         )
         .unwrap();
 
-        let err = EncryptedReport::<Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
+        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
             .err()
             .unwrap();
         assert!(matches!(err, InvalidReportError::BadEventType(_)));
@@ -389,14 +409,14 @@ mod test {
     fn invalid_site_domain() {
         let bytes = hex::decode(
             "\
-            3301e8d7523820f0f88f9b31268b0819b5fafbcd78c27fdbf8841a37a28d\
-            8417218da229cb3d55a5228d5939e2181c9da900dadfba0cdf4aa284b9e7\
-            af4f6ec90dd4f70100984fff6e574d74776c64466e\
+            3301e8d7528e08671418d2164dc80a3403e4aadd01be4263b723ba2204638c20\
+            830500710b2bdb931f5f429f234abddf09109ecb2f730b368b7fa4fda0acf3db\
+            52c5d509681e8a0100783bff64466e5531386d6c44\
         ",
         )
         .unwrap();
 
-        let err = EncryptedReport::<Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
+        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
             .err()
             .unwrap();
         assert!(matches!(err, InvalidReportError::NonAsciiString(_)));
