@@ -18,7 +18,6 @@ pub struct Info<'a> {
     pub(super) key_id: KeyIdentifier,
     pub(super) epoch: Epoch,
     pub(super) event_type: EventType,
-    pub(super) match_key_provider_origin: &'a str,
     pub(super) helper_origin: &'a str,
     pub(super) site_domain: &'a str,
 }
@@ -49,14 +48,9 @@ impl<'a> Info<'a> {
         key_id: KeyIdentifier,
         epoch: Epoch,
         event_type: EventType,
-        match_key_provider_origin: &'a str,
         helper_origin: &'a str,
         site_domain: &'a str,
     ) -> Result<Self, NonAsciiStringError<'a>> {
-        if !match_key_provider_origin.is_ascii() {
-            return Err(match_key_provider_origin.into());
-        }
-
         if !helper_origin.is_ascii() {
             return Err(helper_origin.into());
         }
@@ -69,7 +63,6 @@ impl<'a> Info<'a> {
             key_id,
             epoch,
             event_type,
-            match_key_provider_origin,
             helper_origin,
             site_domain,
         })
@@ -79,18 +72,15 @@ impl<'a> Info<'a> {
     /// sender or receiver context.
     pub(super) fn into_bytes(self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
-            + self.match_key_provider_origin.len()
             + self.helper_origin.len()
             + self.site_domain.len()
-            + 4 // account for 4 delimiters
+            + 3 // account for 3 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch)
             + std::mem::size_of_val(&self.event_type);
         let mut r = Vec::with_capacity(info_len);
 
         r.extend_from_slice(DOMAIN.as_bytes());
-        r.push(0);
-        r.extend_from_slice(self.match_key_provider_origin.as_bytes());
         r.push(0);
         r.extend_from_slice(self.helper_origin.as_bytes());
         r.push(0);

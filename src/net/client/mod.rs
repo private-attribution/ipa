@@ -1,10 +1,10 @@
 use crate::{
-    config::{NetworkConfig, PeerConfig},
+    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
     },
-    net::{http_serde, Error},
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
     protocol::{step::GateImpl, QueryId},
 };
 use axum::http::uri::{self, Parts, Scheme};
@@ -12,13 +12,33 @@ use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
-    Body, Client, Response, StatusCode, Uri,
+    header::HeaderName,
+    http::HeaderValue,
+    Body, Client, Request, Response, StatusCode, Uri,
 };
 use hyper_tls::{
-    native_tls::{Certificate, TlsConnector},
+    native_tls::{Certificate, Identity, TlsConnector},
     HttpsConnector,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::repeat};
+use tracing::error;
+
+#[derive(Clone, Default)]
+pub enum ClientIdentity {
+    /// Claim the specified helper identity without any additional authentication.
+    ///
+    /// This is only supported for HTTP clients.
+    Helper(HelperIdentity),
+
+    /// Authenticate with an X.509 certificate.
+    ///
+    /// This is only supported for HTTPS clients.
+    Certificate(Identity),
+
+    /// Do not authenticate nor claim a helper identity.
+    #[default]
+    None,
+}
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -30,15 +50,25 @@ pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
+    auth_header: Option<(HeaderName, HeaderValue)>,
 }
 
 impl MpcHelperClient {
+    /// Create a set of clients for the MPC helpers in the supplied helper network configuration.
+    ///
+    /// This function returns a set of three clients, which may be used to talk to each of the
+    /// helpers.
+    ///
+    /// `identity` configures whether and how the client will authenticate to the server. It is for
+    /// the helper making the calls, so the same one is used for all three of the clients.
+    /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig) -> [MpcHelperClient; 3] {
+    pub fn from_conf(conf: &NetworkConfig, identity: ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .map(|conf| Self::new(conf.clone()))
+            .zip(repeat(identity))
+            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -46,36 +76,68 @@ impl MpcHelperClient {
 
     /// Create a new client with the given configuration
     ///
+    /// `identity`, if present, configures whether and how the client will authenticate to the server
+    /// (e.g. an X.509 certificate).
+    ///
     /// # Panics
     /// If some aspect of the configuration is not valid.
     #[must_use]
-    pub fn new(config: PeerConfig) -> Self {
-        let connector = if config.url.scheme() == Some(&Scheme::HTTP) {
+    pub fn new(
+        client_config: &ClientConfig,
+        peer_config: PeerConfig,
+        identity: ClientIdentity,
+    ) -> Self {
+        let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
             // but would make the type of `self.client` variable.
-            HttpsConnector::new()
+            let auth_header = match identity {
+                ClientIdentity::Certificate(_) => {
+                    error!("certificate identity ignored for HTTP client");
+                    None
+                }
+                ClientIdentity::Helper(id) => Some((
+                    HTTP_CLIENT_ID_HEADER.clone(),
+                    id.try_into().expect("integer not ascii?"),
+                )),
+                ClientIdentity::None => None,
+            };
+            (HttpsConnector::new(), auth_header)
         } else {
             let mut builder = TlsConnector::builder();
-            if let Some(certificate) = config.certificate {
+            if let Some(certificate) = peer_config.certificate {
                 builder
                     .disable_built_in_roots(true)
-                    .add_root_certificate(Certificate::from_pem(certificate.as_bytes()).unwrap());
+                    .add_root_certificate(Certificate::from_der(certificate.as_ref()).unwrap());
+                match identity {
+                    ClientIdentity::Certificate(identity) => {
+                        builder.identity(identity);
+                    }
+                    ClientIdentity::Helper(_) => {
+                        error!("header-passed identity ignored for HTTPS client");
+                    }
+                    ClientIdentity::None => (),
+                };
             }
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
             let mut http = HttpConnector::new();
             http.enforce_http(false);
-            HttpsConnector::from((http, builder.build().unwrap().into()))
+            (
+                HttpsConnector::from((http, builder.build().unwrap().into())),
+                None,
+            )
         };
-        Self::new_with_connector(config.url, connector)
+        Self::new_internal(peer_config.url, connector, auth_header, client_config)
     }
 
-    /// addr must have a valid scheme and authority
-    /// # Panics
-    /// if addr does not have scheme and authority
     #[must_use]
-    pub fn new_with_connector(addr: Uri, connector: HttpsConnector<HttpConnector>) -> Self {
-        let client = Client::builder().build(connector);
+    fn new_internal<C: HyperClientConfigurator>(
+        addr: Uri,
+        connector: HttpsConnector<HttpConnector>,
+        auth_header: Option<(HeaderName, HeaderValue)>,
+        conf: &C,
+    ) -> Self {
+        let client = conf.configure(&mut Client::builder()).build(connector);
         let Parts {
             scheme: Some(scheme),
             authority: Some(authority),
@@ -87,14 +149,15 @@ impl MpcHelperClient {
             client,
             scheme,
             authority,
+            auth_header,
         }
     }
 
-    /// same as new, but first parses the addr from a [&str]
-    /// # Errors
-    /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, Error> {
-        Ok(Self::new(PeerConfig::new(addr.parse()?)))
+    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
+        if let Some((k, v)) = self.auth_header.clone() {
+            req.headers_mut().insert(k, v);
+        }
+        self.client.request(req)
     }
 
     /// Responds with whatever input is passed to it
@@ -106,7 +169,7 @@ impl MpcHelperClient {
         let req =
             http_serde::echo::Request::new(HashMap::from([(FOO.into(), s.into())]), HashMap::new());
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         let status = resp.status();
         if status.is_success() {
             let result = hyper::body::to_bytes(resp.into_body()).await?;
@@ -143,7 +206,7 @@ impl MpcHelperClient {
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
         let req = http_serde::query::create::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         if resp.status().is_success() {
             let body_bytes = body::to_bytes(resp.into_body()).await?;
             let http_serde::query::create::ResponseBody { query_id } =
@@ -159,14 +222,10 @@ impl MpcHelperClient {
     /// other helpers, which this prepare query does.
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn prepare_query(
-        &self,
-        origin: HelperIdentity,
-        data: PrepareQuery,
-    ) -> Result<(), Error> {
-        let req = http_serde::query::prepare::Request::new(origin, data);
+    pub async fn prepare_query(&self, data: PrepareQuery) -> Result<(), Error> {
+        let req = http_serde::query::prepare::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -178,7 +237,7 @@ impl MpcHelperClient {
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         let req = http_serde::query::input::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -191,15 +250,14 @@ impl MpcHelperClient {
     /// If messages size > max u32 (unlikely)
     pub fn step<S: Stream<Item = Vec<u8>> + Send + 'static>(
         &self,
-        origin: HelperIdentity,
         query_id: QueryId,
         gate: &GateImpl,
         data: S,
     ) -> Result<ResponseFuture, Error> {
         let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
-        let req = http_serde::query::step::Request::new(origin, query_id, gate.clone(), body);
+        let req = http_serde::query::step::Request::new(query_id, gate.clone(), body);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        Ok(self.client.request(req))
+        Ok(self.request(req))
     }
 
     /// Wait for completion of the query and pull the results of this query. This is a blocking
@@ -214,7 +272,7 @@ impl MpcHelperClient {
         let req = http_serde::query::results::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
 
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         if resp.status().is_success() {
             Ok(body::to_bytes(resp.into_body()).await.unwrap())
         } else {
@@ -242,6 +300,7 @@ pub(crate) mod tests {
     use std::{
         fmt::Debug,
         future::{ready, Future},
+        iter::zip,
         task::Poll,
     };
 
@@ -277,13 +336,15 @@ pub(crate) mod tests {
 
         let TestServer { addr, .. } = TestServer::default().await;
 
-        let client_config = PeerConfig {
+        let peer_config = PeerConfig {
             url: format!("https://localhost:{}", addr.port())
                 .parse()
                 .unwrap(),
             certificate: None,
+            hpke_config: None,
         };
-        let client = MpcHelperClient::new(client_config);
+        let client =
+            MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
@@ -297,9 +358,9 @@ pub(crate) mod tests {
     /// (`serverf`), and executing them simultaneously (via a `join!`). Finally, return the results
     /// of `clientf` for final checks.
     ///
-    /// Also tests that the same functionality works for both `http` and `https`. In order to ensure
-    /// this, the return type of `clientf` must be `Eq + Debug` so that the results of `http` and
-    /// `https` can be compared.
+    /// Also tests that the same functionality works for both `http` and `https` and all supported
+    /// HTTP versions (HTTP 1.1 and HTTP 2 at the moment) . In order to ensure
+    /// this, the return type of `clientf` must be `Eq + Debug` so that the results can be compared.
     async fn test_query_command<ClientOut, ClientFut, ClientF>(
         clientf: ClientF,
         server_cb: TransportCallbacks<Arc<HttpTransport>>,
@@ -309,28 +370,32 @@ pub(crate) mod tests {
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(MpcHelperClient) -> ClientFut,
     {
-        let (http_cb, https_cb) = clone_callbacks(server_cb);
+        let mut cb = server_cb;
+        let mut results = Vec::with_capacity(4);
+        for (use_https, use_http1) in zip([true, false], [true, false]) {
+            let (cur, next) = clone_callbacks(cb);
+            cb = next;
 
-        let TestServer {
-            client: http_client,
-            ..
-        } = TestServer::builder()
-            .disable_https()
-            .with_callbacks(http_cb)
-            .build()
-            .await;
+            let mut test_server_builder = TestServer::builder();
+            if !use_https {
+                test_server_builder = test_server_builder.disable_https();
+            }
 
-        let clientf_res_http = clientf(http_client).await;
+            if use_http1 {
+                test_server_builder = test_server_builder.use_http1();
+            }
 
-        let TestServer {
-            client: https_client,
-            ..
-        } = TestServer::builder().with_callbacks(https_cb).build().await;
+            let TestServer {
+                client: http_client,
+                ..
+            } = test_server_builder.with_callbacks(cur).build().await;
 
-        let clientf_res_https = clientf(https_client).await;
+            results.push(clientf(http_client).await);
+        }
 
-        assert_eq!(clientf_res_http, clientf_res_https);
-        clientf_res_http
+        assert!(results.windows(2).all(|slice| slice[0] == slice[1]));
+
+        results.pop().unwrap()
     }
 
     #[tokio::test]
@@ -378,7 +443,6 @@ pub(crate) mod tests {
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         };
         let expected_data = input.clone();
-        let origin = HelperIdentity::ONE;
         let cb = TransportCallbacks {
             prepare_query: Box::new(move |_transport, prepare_query| {
                 assert_eq!(prepare_query, expected_data);
@@ -389,7 +453,7 @@ pub(crate) mod tests {
         test_query_command(
             |client| {
                 let req = input.clone();
-                async move { client.prepare_query(origin, req).await.unwrap() }
+                async move { client.prepare_query(req).await.unwrap() }
             },
             cb,
         )
@@ -428,14 +492,12 @@ pub(crate) mod tests {
         let TestServer {
             client, transport, ..
         } = TestServer::builder().build().await;
-        let origin = HelperIdentity::ONE;
         let expected_query_id = QueryId;
         let expected_step = GateImpl::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let resp = client
             .step(
-                origin,
                 expected_query_id,
                 &expected_step,
                 once(ready(expected_payload.clone())),

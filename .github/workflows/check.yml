@@ -6,12 +6,14 @@ on:
       - '**/Cargo.lock'
       - 'src/**/*'
       - 'benches/**/*'
+      - 'tests/**/*'
   pull_request:
       paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
       - 'src/**/*'
       - 'benches/**/*'
+      - 'tests/**/*'
 
 jobs:
   basic:

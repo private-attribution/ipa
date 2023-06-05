@@ -55,9 +55,14 @@ impl State {
     }
 
     fn save_waker(v: &mut Option<Waker>, cx: &Context<'_>) {
-        if let Some(w) = v.replace(cx.waker().clone()) {
-            assert!(cx.waker().will_wake(&w));
-        }
+        // here used to be a check that new waker will wake the same task.
+        // however, the contract for `will_wake` states that it is a best-effort and even if
+        // both wakes wake the same task, `will_wake` may still return `false`.
+        // This is exactly what happened once we started using HTTP/2 - somewhere deep inside hyper
+        // h2 implementation, there is a new waker (with the same vtable) that is used to poll
+        // this stream again. This does not happen when we use HTTP/1.1, but it does not matter for
+        // this code.
+        v.replace(cx.waker().clone());
     }
 
     fn wake(v: &mut Option<Waker>) {

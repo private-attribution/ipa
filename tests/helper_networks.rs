@@ -1,12 +1,21 @@
+use command_fds::CommandFdExt;
+use ipa::test_fixture::ipa::IpaSecurityModel;
 use std::{
+    array,
     error::Error,
     io::{self, Write},
     iter::zip,
+    net::TcpListener,
     ops::Deref,
+    os::fd::AsRawFd,
+    path::Path,
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
-use tempfile::tempdir;
+use tempdir::TempDir;
+
+#[cfg(all(test, feature = "cli"))]
+pub mod tempdir;
 
 const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");
 const TEST_MPC_BIN: &str = env!("CARGO_BIN_EXE_test_mpc");
@@ -74,39 +83,92 @@ impl Drop for TerminateOnDrop {
     }
 }
 
-fn test_network(ports: &[u16; 3], https: bool) {
-    let dir = tempdir().unwrap();
-    let path = dir.path();
+trait CommandExt {
+    fn silent(&mut self) -> &mut Self;
+}
 
-    println!("generating configuration in {}", path.display());
+impl CommandExt for Command {
+    fn silent(&mut self) -> &mut Self {
+        if std::env::var("VERBOSE").ok().is_none() {
+            self.arg("--quiet")
+        } else {
+            self.arg("-vv")
+        }
+    }
+}
+
+fn test_setup(config_path: &Path) -> [TcpListener; 3] {
+    let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
+    let ports: [u16; 3] = sockets
+        .iter()
+        .map(|sock| sock.local_addr().unwrap().port())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
 
     let mut command = Command::new(HELPER_BIN);
     command
+        .silent()
         .arg("test-setup")
-        .args(["--output-dir".as_ref(), dir.path().as_os_str()])
+        .args(["--output-dir".as_ref(), config_path.as_os_str()])
         .arg("--ports")
         .args(ports.map(|p| p.to_string()));
-    command.status().unwrap_status();
 
-    let _helpers = zip([1, 2, 3], ports)
-        .map(|(id, port)| {
+    command.status().unwrap_status();
+    sockets
+}
+
+fn spawn_helpers(
+    config_path: &Path,
+    sockets: &[TcpListener; 3],
+    https: bool,
+) -> Vec<TerminateOnDrop> {
+    zip([1, 2, 3], sockets)
+        .map(|(id, socket)| {
             let mut command = Command::new(HELPER_BIN);
             command
                 .args(["-i", &id.to_string()])
-                .args(["--port", &port.to_string()])
-                .args(["--network".into(), dir.path().join("network.toml")]);
+                .args(["--network".into(), config_path.join("network.toml")])
+                .silent();
 
             if https {
                 command
-                    .args(["--tls-cert".into(), dir.path().join(format!("h{id}.pem"))])
-                    .args(["--tls-key".into(), dir.path().join(format!("h{id}.key"))]);
+                    .args(["--tls-cert".into(), config_path.join(format!("h{id}.pem"))])
+                    .args(["--tls-key".into(), config_path.join(format!("h{id}.key"))])
+                    .args([
+                        "--mk-public-key".into(),
+                        config_path.join(format!("h{id}_mk.pub")),
+                    ])
+                    .args([
+                        "--mk-private-key".into(),
+                        config_path.join(format!("h{id}_mk")),
+                    ]);
             } else {
                 command.arg("--disable-https");
             }
 
-            command.spawn().unwrap().terminate_on_drop()
+            command.preserved_fds(vec![socket.as_raw_fd()]);
+            command.args(["--server-socket-fd", &socket.as_raw_fd().to_string()]);
+
+            // something went wrong if command is terminated at this point.
+            let mut child = command.spawn().unwrap();
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("Helper binary terminated early with status = {status}");
+            }
+
+            child.terminate_on_drop()
         })
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
+
+fn test_network(https: bool) {
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
+    let path = dir.path();
+
+    println!("generating configuration in {}", path.display());
+    let sockets = test_setup(path);
+    let _helpers = spawn_helpers(path, &sockets, https);
 
     let mut command = Command::new(TEST_MPC_BIN);
     command
@@ -115,7 +177,7 @@ fn test_network(ports: &[u16; 3], https: bool) {
     if !https {
         command.arg("--disable-https");
     }
-    command.arg("--quiet").arg("multiply").stdin(Stdio::piped());
+    command.silent().arg("multiply").stdin(Stdio::piped());
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
 
@@ -126,17 +188,70 @@ fn test_network(ports: &[u16; 3], https: bool) {
         .write_all(b"3,6\n")
         .unwrap();
     test_mpc.wait().unwrap_status();
+}
 
-    // Uncomment this to preserve the temporary directory after the test runs.
-    //std::mem::forget(dir);
+fn test_ipa(mode: IpaSecurityModel, https: bool) {
+    // set to true to always keep the temp dir after test finishes
+    let dir = TempDir::new(false);
+    let path = dir.path();
+
+    println!("generating configuration in {}", path.display());
+    let sockets = test_setup(path);
+    let _helpers = spawn_helpers(path, &sockets, https);
+
+    // Gen inputs
+    let inputs_file = dir.path().join("ipa_inputs.txt");
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
+        .arg("gen-ipa-inputs")
+        .args(["--count", "10"])
+        .args(["--max-breakdown-key", "20"])
+        .args(["--output-file".as_ref(), inputs_file.as_os_str()])
+        .silent()
+        .stdin(Stdio::piped());
+    command.status().unwrap_status();
+
+    // Run IPA
+    let mut command = Command::new(TEST_MPC_BIN);
+    command
+        .args(["--network".into(), dir.path().join("network.toml")])
+        .args(["--input-file".as_ref(), inputs_file.as_os_str()])
+        .args(["--wait", "2"])
+        .silent();
+
+    if !https {
+        command.arg("--disable-https");
+    }
+
+    let protocol = match mode {
+        IpaSecurityModel::SemiHonest => "semi-honest-ipa",
+        IpaSecurityModel::Malicious => "malicious-ipa",
+    };
+    command
+        .arg(protocol)
+        .args(["--max-breakdown-key", "20"])
+        .stdin(Stdio::piped());
+
+    let test_mpc = command.spawn().unwrap().terminate_on_drop();
+    test_mpc.wait().unwrap_status();
 }
 
 #[test]
 fn http_network() {
-    test_network(&[3000, 3001, 3002], false);
+    test_network(false);
 }
 
 #[test]
 fn https_network() {
-    test_network(&[4430, 4431, 4432], true);
+    test_network(true);
+}
+
+#[test]
+fn http_semi_honest_ipa() {
+    test_ipa(IpaSecurityModel::SemiHonest, false);
+}
+
+#[test]
+fn https_semi_honest_ipa() {
+    test_ipa(IpaSecurityModel::SemiHonest, true);
 }

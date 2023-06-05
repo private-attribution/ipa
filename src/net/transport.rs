@@ -115,7 +115,7 @@ impl Transport for Arc<HttpTransport> {
                     .expect("query_id required when sending records");
                 let step = <Option<GateImpl>>::from(route.gate())
                     .expect("step required when sending records");
-                let resp_future = self.clients[dest].step(self.identity, query_id, &step, data)?;
+                let resp_future = self.clients[dest].step(query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
                         .map_err(Into::into)
@@ -130,7 +130,7 @@ impl Transport for Arc<HttpTransport> {
             }
             RouteId::PrepareQuery => {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[dest].prepare_query(self.identity, req).await
+                self.clients[dest].prepare_query(req).await
             }
             RouteId::ReceiveQuery => {
                 unimplemented!("attempting to send ReceiveQuery to another helper")
@@ -151,15 +151,18 @@ impl Transport for Arc<HttpTransport> {
 }
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
-mod e2e_tests {
+mod tests {
     use super::*;
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
         helpers::{query::QueryType, ByteArrStream},
-        net::test::{body_stream, TestClients, TestServer},
+        net::{
+            client::ClientIdentity,
+            test::{body_stream, get_test_identity, TestConfig, TestConfigBuilder, TestServer},
+        },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-        test_fixture::{config::TestConfigBuilder, Reconstruct},
+        test_fixture::Reconstruct,
         AppSetup, HelperApp,
     };
     use futures::stream::{poll_immediate, StreamExt};
@@ -213,51 +216,51 @@ mod e2e_tests {
         );
     }
 
-    // TODO: write a test for an error while reading the body (after error handling is finalized)
+    // TODO(651): write a test for an error while reading the body (after error handling is finalized)
 
     async fn make_helpers(
-        ids: [HelperIdentity; 3],
         sockets: [TcpListener; 3],
         server_config: [ServerConfig; 3],
         network_config: &NetworkConfig,
+        disable_https: bool,
     ) -> [HelperApp; 3] {
-        join_all(zip(ids, zip(sockets, server_config)).map(
-            |(id, (socket, server_config))| async move {
-                let (setup, callbacks) = AppSetup::new();
-                let client_config = network_config.clone();
-                let clients = TestClients::builder()
-                    .with_network_config(client_config)
-                    .build()
-                    .into();
-                let (transport, server) = HttpTransport::new(
-                    id,
-                    server_config,
-                    network_config.clone(),
-                    clients,
-                    callbacks,
-                );
-                server.start_on(Some(socket), ()).await;
-                let app = setup.connect(transport);
-                app
-            },
-        ))
+        join_all(
+            zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
+                |(id, (socket, server_config))| async move {
+                    let identity = if disable_https {
+                        ClientIdentity::Helper(id)
+                    } else {
+                        get_test_identity(id)
+                    };
+                    let (setup, callbacks) = AppSetup::new();
+                    let clients = MpcHelperClient::from_conf(network_config, identity);
+                    let (transport, server) = HttpTransport::new(
+                        id,
+                        server_config,
+                        network_config.clone(),
+                        clients,
+                        callbacks,
+                    );
+                    server.start_on(Some(socket), ()).await;
+                    let app = setup.connect(transport);
+                    app
+                },
+            ),
+        )
         .await
         .try_into()
         .ok()
         .unwrap()
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn happy_case() {
+    async fn test_three_helpers(mut conf: TestConfig) {
         const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
-        let mut conf = TestConfigBuilder::with_open_ports().build();
-        let ids = HelperIdentity::make_three();
-        let clients = MpcHelperClient::from_conf(&conf.network);
+        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
         let _helpers = make_helpers(
-            ids,
             conf.sockets.take().unwrap(),
             conf.servers,
             &conf.network,
+            conf.disable_https,
         )
         .await;
 
@@ -301,5 +304,19 @@ mod e2e_tests {
         .unwrap();
         let res = result.reconstruct();
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_helpers_http() {
+        let conf = TestConfigBuilder::with_open_ports()
+            .with_disable_https_option(true)
+            .build();
+        test_three_helpers(conf).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_helpers_https() {
+        let conf = TestConfigBuilder::with_open_ports().build();
+        test_three_helpers(conf).await;
     }
 }

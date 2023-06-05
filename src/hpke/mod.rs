@@ -16,7 +16,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 pub use info::Info;
-pub use registry::KeyRegistry;
+pub use registry::{KeyPair, KeyRegistry};
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -195,7 +195,6 @@ mod tests {
     }
 
     impl<R: RngCore + CryptoRng> EncryptionSuite<R> {
-        const MKP_ORIGIN: &'static str = "";
         const HELPER_ORIGIN: &'static str = "foo";
         const SITE_DOMAIN: &'static str = "xn--mozilla.com.xn--example.com";
 
@@ -250,7 +249,6 @@ mod tests {
                 key_id,
                 self.epoch,
                 event_type,
-                Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
             )
@@ -269,7 +267,6 @@ mod tests {
                 key_id,
                 self.epoch,
                 event_type,
-                Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
                 Self::SITE_DOMAIN,
             )
@@ -297,9 +294,9 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, EventType::Trigger, "mkp_origin", "foo", "bar").unwrap();
+        let aad = Info::new(255, 32767, EventType::Trigger, "foo", "bar").unwrap();
         assert_eq!(
-            b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff\x01",
+            b"private-attribution\0foo\0bar\0\xff\x7f\xff\x01",
             aad.into_bytes().as_ref()
         );
     }
@@ -414,8 +411,7 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_info_corruption(corrupted_info_field in 1..6,
-                                         mkp_origin in "[a-z]{10}",
+            fn arbitrary_info_corruption(corrupted_info_field in 1..5,
                                          site_domain in "[a-z]{10}",
                                          helper_origin in "[a-z]{10}",
                                          trigger_bit in 0_u8..=1,
@@ -423,8 +419,8 @@ mod tests {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
                 // keep the originals, in case if we need to damage them
-                let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
-                let info = Info::new(0, 0, EventType::try_from(trigger_bit).unwrap(), &mkp_origin, &site_domain, &helper_origin).unwrap();
+                let (mut site_domain_clone, mut helper_clone) = (site_domain.clone(), helper_origin.clone());
+                let info = Info::new(0, 0, EventType::try_from(trigger_bit).unwrap(), &site_domain, &helper_origin).unwrap();
                 let mut encryption = suite.seal_with_info(info, &new_share(0, 0));
 
                 let info = match corrupted_info_field {
@@ -441,14 +437,6 @@ mod tests {
                         ..encryption.info
                     },
                     4 => {
-                        corrupt_str(&mut mkp_clone, &mut rng);
-
-                        Info {
-                            match_key_provider_origin: &mkp_clone,
-                            ..encryption.info
-                        }
-                    }
-                    5 => {
                         corrupt_str(&mut site_domain_clone, &mut rng);
 
                         Info {
@@ -456,7 +444,7 @@ mod tests {
                             ..encryption.info
                         }
                     },
-                    6 => {
+                    5 => {
                         corrupt_str(&mut helper_clone, &mut rng);
 
                         Info {
@@ -464,7 +452,7 @@ mod tests {
                             ..encryption.info
                         }
                     }
-                    _ => panic!("bad test setup: only 6 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
+                    _ => panic!("bad test setup: only 5 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
                 open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();

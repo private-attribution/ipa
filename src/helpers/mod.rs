@@ -58,11 +58,22 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
+    derive(serde::Deserialize),
+    serde(try_from = "usize")
 )]
 pub struct HelperIdentity {
     id: u8,
+}
+
+// Serialize as `serde(transparent)` would. Don't see how to enable that
+// for only one of (de)serialization.
+impl serde::Serialize for HelperIdentity {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.id.serialize(serializer)
+    }
 }
 
 impl TryFrom<usize> for HelperIdentity {
@@ -99,8 +110,8 @@ impl Debug for HelperIdentity {
 #[cfg(feature = "web-app")]
 impl From<HelperIdentity> for hyper::header::HeaderValue {
     fn from(id: HelperIdentity) -> Self {
-        // does not implement `From<u8>`
-        hyper::header::HeaderValue::from(u16::from(id.id))
+        // panic if serializing an integer fails, or is not ASCII
+        hyper::header::HeaderValue::try_from(serde_json::to_string(&id).unwrap()).unwrap()
     }
 }
 
@@ -134,7 +145,6 @@ impl HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
