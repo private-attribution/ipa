@@ -9,7 +9,7 @@ use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
 use std::{
     fmt::{Display, Formatter},
-    marker::PhantomData,
+    marker::PhantomData, ops::Deref,
 };
 use typenum::Unsigned;
 
@@ -120,14 +120,15 @@ pub enum InvalidReportError {
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct EncryptedReport<'a, F, MK, BK>
+pub struct EncryptedReport<F, MK, BK, B>
 where
+    B: Deref<Target = [u8]>,
     F: PrimeField,
     Replicated<F>: Serializable,
     MK: MatchKeyCrypt,
     BK: GaloisField,
 {
-    data: &'a [u8],
+    data: B,
     phantom_data: PhantomData<(F, MK, BK)>,
 }
 
@@ -143,7 +144,7 @@ where
 //  * b+1: `key_id`
 //  * b+2..b+4: `epoch`
 //  * b+4..: `site_domain`
-impl<'a> EncryptedReport<'a, Fp32BitPrime, Gf40Bit, Gf8Bit> {
+impl<B: Deref<Target = [u8]>> EncryptedReport<Fp32BitPrime, Gf40Bit, Gf8Bit, B> {
     // Constants are defined for:
     //  1. Offsets that are calculated from typenum values
     //  2. Offsets that appear in the code in more places than two successive accessors. (Some
@@ -194,7 +195,7 @@ impl<'a> EncryptedReport<'a, Fp32BitPrime, Gf40Bit, Gf8Bit> {
     }
 
     #[allow(dead_code)] // TODO: temporary
-    fn from_bytes(bytes: &'a [u8]) -> Result<Self, InvalidReportError> {
+    fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
         EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
         let site_domain = &bytes[Self::SITE_DOMAIN_OFFSET..];
         if !site_domain.is_ascii() {
@@ -399,7 +400,7 @@ mod test {
         )
         .unwrap();
 
-        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
+        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit, _>::from_bytes(bytes.as_slice())
             .err()
             .unwrap();
         assert!(matches!(err, InvalidReportError::BadEventType(_)));
@@ -416,7 +417,7 @@ mod test {
         )
         .unwrap();
 
-        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit>::from_bytes(bytes.as_slice())
+        let err = EncryptedReport::<Fp32BitPrime, Gf40Bit, Gf8Bit, _>::from_bytes(bytes.as_slice())
             .err()
             .unwrap();
         assert!(matches!(err, InvalidReportError::NonAsciiString(_)));
