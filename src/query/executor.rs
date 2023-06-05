@@ -3,7 +3,7 @@ use crate::{
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
-        ByteArrStream, Gateway,
+        BodyStream, Gateway,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -74,7 +74,7 @@ where
 pub fn execute(
     config: QueryConfig,
     gateway: Gateway,
-    input: ByteArrStream,
+    input: BodyStream,
 ) -> JoinHandle<QueryResult> {
     match (config.query_type, config.field_type) {
         #[cfg(any(test, feature = "weak-field"))]
@@ -139,14 +139,14 @@ pub fn execute(
 pub fn do_query<F>(
     config: QueryConfig,
     gateway: Gateway,
-    input: ByteArrStream,
+    input_stream: BodyStream,
     query_impl: F,
 ) -> JoinHandle<QueryResult>
 where
     F: for<'a> FnOnce(
             &'a PrssEndpoint,
             &'a Gateway,
-            ByteArrStream,
+            BodyStream,
         ) -> Pin<Box<dyn Future<Output = QueryResult> + Send + 'a>>
         + Send
         + 'static,
@@ -158,7 +158,7 @@ where
         let step = Gate::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
-        query_impl(&prss, &gateway, input).await
+        query_impl(&prss, &gateway, input_stream).await
     })
 }
 

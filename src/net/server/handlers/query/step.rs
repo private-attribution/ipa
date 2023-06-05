@@ -1,5 +1,5 @@
 use crate::{
-    helpers::Transport,
+    helpers::{BodyStream, Transport},
     net::{
         http_serde,
         server::{ClientIdentity, Error},
@@ -7,7 +7,7 @@ use crate::{
     },
     sync::Arc,
 };
-use axum::{extract::BodyStream, routing::post, Extension, Router};
+use axum::{routing::post, Extension, Router};
 
 #[allow(clippy::unused_async)] // axum doesn't like synchronous handler
 async fn handler(
@@ -28,7 +28,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
-    use std::{future::ready, task::Poll};
+    use std::task::Poll;
 
     use super::*;
     use crate::{
@@ -38,7 +38,7 @@ mod tests {
                 test_helpers::{assert_req_fails_with, IntoFailingReq},
                 MaybeExtensionExt,
             },
-            test::{body_stream, TestServer},
+            test::TestServer,
         },
         protocol::{
             step::{Gate, StepNarrow},
@@ -46,10 +46,7 @@ mod tests {
         },
     };
     use axum::http::Request;
-    use futures::{
-        stream::{once, poll_immediate},
-        StreamExt,
-    };
+    use futures::{stream::poll_immediate, StreamExt};
     use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
@@ -60,11 +57,8 @@ mod tests {
 
         let step = Gate::default().narrow("test");
         let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
-        let req = http_serde::query::step::Request::new(
-            QueryId,
-            step.clone(),
-            body_stream(Box::new(once(ready(Ok(payload.clone().into()))))).await,
-        );
+        let req =
+            http_serde::query::step::Request::new(QueryId, step.clone(), payload.clone().into());
 
         handler(
             Extension(Arc::clone(&transport)),

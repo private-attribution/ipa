@@ -1,10 +1,10 @@
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
-    helpers::{query::IpaQueryConfig, ByteArrStream},
+    helpers::{query::IpaQueryConfig, BodyStream, RecordsStream},
     protocol::{
         attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
-        basics::Reshare,
+        basics::{Reshare, ShareKnownValue},
         boolean::RandomBits,
         context::{UpgradableContext, UpgradedContext},
         ipa::{ipa, IPAInputRow},
@@ -16,9 +16,8 @@ use crate::{
         Linear as LinearSecretSharing,
     },
 };
-use futures::StreamExt;
+use futures::{Stream, TryStreamExt};
 use std::marker::PhantomData;
-use typenum::Unsigned;
 
 pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>);
 
@@ -44,6 +43,7 @@ where
         + DowngradeMalicious<Target = AdditiveShare<Gf2>>
         + 'static,
     F: PrimeField,
+    AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     MCCappedCreditsWithAggregationBit<F, S>:
@@ -56,21 +56,27 @@ where
     pub async fn execute<'a>(
         self,
         ctx: C,
-        input: ByteArrStream,
+        input_stream: BodyStream,
     ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
         let Self(config, _) = self;
 
-        let mut input =
-            input.align(<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
-        let mut input_vec = Vec::new();
-        while let Some(data) = input.next().await {
-            input_vec.extend(IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(
-                &data.unwrap(),
-            ));
-        }
-
-        ipa(ctx, input_vec.as_slice(), config).await
+        let input = assert_stream_send(
+            RecordsStream::<IPAInputRow<F, MatchKey, BreakdownKey>, _>::new(input_stream),
+        )
+        .try_concat()
+        .await?;
+        ipa(ctx, input.as_slice(), config).await
     }
+}
+
+/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
+/// streams.
+///
+/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
+pub fn assert_stream_send<'a, T>(
+    st: impl Stream<Item = T> + Send + 'a,
+) -> impl Stream<Item = T> + Send + 'a {
+    st
 }
 
 /// no dependency on `weak-field` feature because it is enabled in tests by default
@@ -129,7 +135,7 @@ mod tests {
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
             };
-            let input = ByteArrStream::from(shares);
+            let input = BodyStream::from(shares);
             IpaQuery::new(query_config).execute(ctx, input)
         }))
         .await;
@@ -190,8 +196,7 @@ mod tests {
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
             };
-            let input = ByteArrStream::from(shares);
-            IpaQuery::new(query_config).execute(ctx, input)
+            IpaQuery::new(query_config).execute(ctx, shares.into())
         }))
         .await;
 

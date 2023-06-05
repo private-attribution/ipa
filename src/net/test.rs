@@ -19,17 +19,10 @@ use crate::{
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
-use axum::{
-    body::{Body, Bytes},
-    extract::{BodyStream, FromRequest, RequestParts},
-    http::Request,
-};
-use futures::Stream;
 use hyper_tls::native_tls::Identity;
 use once_cell::sync::Lazy;
 use std::{
     array,
-    error::Error as StdError,
     net::{SocketAddr, TcpListener},
 };
 use tokio::task::JoinHandle;
@@ -205,19 +198,6 @@ impl TestConfigBuilder {
 }
 
 type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
-
-pub async fn body_stream(
-    stream: Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>,
-) -> BodyStream {
-    BodyStream::from_request(&mut RequestParts::new(
-        Request::builder()
-            .uri("/ignored")
-            .body(Body::from(stream))
-            .unwrap(),
-    ))
-    .await
-    .unwrap()
-}
 
 pub struct TestServer {
     pub addr: SocketAddr,

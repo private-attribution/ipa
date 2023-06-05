@@ -2,7 +2,7 @@
 
 use crate::{
     ff::{Field, GaloisField, Serializable},
-    helpers::{query::QueryInput, ByteArrStream},
+    helpers::{query::QueryInput, BodyStream},
     ipa_test_input,
     net::MpcHelperClient,
     protocol::{attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
@@ -58,7 +58,7 @@ where
         }
     });
 
-    let inputs = buffers.map(ByteArrStream::from);
+    let inputs = buffers.map(BodyStream::from);
 
     try_join_all(
         inputs

@@ -287,7 +287,7 @@ pub(crate) mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, RoleAssignment, Transport, TransportCallbacks,
+            query::QueryType, BytesStream, RoleAssignment, Transport, TransportCallbacks,
             MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{test::TestServer, HttpTransport},
@@ -475,12 +475,12 @@ pub(crate) mod tests {
             ..Default::default()
         };
         test_query_command(
-            |client| {
+            |client| async move {
                 let data = QueryInput {
                     query_id: expected_query_id,
                     input_stream: expected_input.to_vec().into(),
                 };
-                async move { client.query_input(data).await.unwrap() }
+                client.query_input(data).await.unwrap()
             },
             cb,
         )

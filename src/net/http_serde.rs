@@ -332,19 +332,15 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            helpers::{query::QueryInput, ByteArrStream},
+            helpers::query::QueryInput,
             net::{http_serde::query::BASE_AXUM_PATH, Error},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
-        use hyper::{
-            body::{Bytes, HttpBody},
-            header::CONTENT_TYPE,
-            Body,
-        };
+        use hyper::{header::CONTENT_TYPE, Body};
 
         #[derive(Debug)]
         pub struct Request {
@@ -378,28 +374,13 @@ pub mod query {
             }
         }
 
-        struct ByteArrStreamFromReq(ByteArrStream);
-
-        #[async_trait]
-        impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
-            for ByteArrStreamFromReq
-        {
-            type Rejection = Error;
-
-            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let body: BodyStream = req.extract().await?;
-
-                Ok(ByteArrStreamFromReq(body.into()))
-            }
-        }
-
         #[async_trait]
         impl FromRequest<Body> for Request {
             type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
-                let ByteArrStreamFromReq(input_stream) = req.extract().await?;
+                let input_stream = req.extract().await?;
 
                 Ok(Request {
                     query_input: QueryInput {
@@ -415,12 +396,13 @@ pub mod query {
 
     pub mod step {
         use crate::{
+            helpers::BodyStream,
             net::{http_serde::query::BASE_AXUM_PATH, Error},
             protocol::{step::Gate, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
 
@@ -480,7 +462,7 @@ pub mod query {
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let Path((query_id, gate)) = req.extract::<Path<_>>().await?;
-                let body = req.extract::<BodyStream>().await?;
+                let body = req.extract().await?;
                 Ok(Self {
                     query_id,
                     gate,

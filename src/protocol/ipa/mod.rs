@@ -321,6 +321,10 @@ where
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
+    // TODO: We are sorting, which suggests there's limited value in trying to stream the input.
+    // However, we immediately copy the complete input into separate vectors for different pieces
+    // (MK, BK, credit), so streaming could still be beneficial.
+
     let validator = sh_ctx.clone().validator::<F>();
     let m_ctx = validator.context();
 

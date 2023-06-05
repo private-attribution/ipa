@@ -1,7 +1,7 @@
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{ByteArrStream, NoQueryId, NoStep},
+        transport::{BodyStream, NoQueryId, NoStep},
         RoleAssignment, RouteId, RouteParams,
     },
     protocol::{step::Step, QueryId},
@@ -97,7 +97,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
-    pub input_stream: ByteArrStream,
+    pub input_stream: BodyStream,
 }
 
 impl Debug for QueryInput {
