@@ -14,7 +14,7 @@ use ipa::{
     protocol::{BreakdownKey, MatchKey, QueryId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{
-        ipa::{ipa_in_the_clear, TestRawDataRecord},
+        ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
     },
 };
@@ -31,7 +31,6 @@ use std::{
     time::Duration,
 };
 use tokio::time::sleep;
-use ipa::test_fixture::ipa::IpaSecurityModel;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -211,13 +210,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
         TestAction::SemiHonestIpa(config) => {
             // semi_honest_ipa(&args, &config, &make_clients().await).await
-            ipa(&args, IpaSecurityModel::SemiHonest, &config, &make_clients().await).await
-
+            ipa(
+                &args,
+                IpaSecurityModel::SemiHonest,
+                &config,
+                &make_clients().await,
+            )
+            .await
         }
         TestAction::MaliciousIpa(config) => {
-           // malicious_ipa(&args, &config, &make_clients().await).await
-            ipa(&args, IpaSecurityModel::Malicious, &config, &make_clients().await).await
-
+            // malicious_ipa(&args, &config, &make_clients().await).await
+            ipa(
+                &args,
+                IpaSecurityModel::Malicious,
+                &config,
+                &make_clients().await,
+            )
+            .await
         }
         TestAction::GenIpaInputs {
             count,

@@ -248,5 +248,3 @@ impl IpaQueryConfig {
         }
     }
 }
-
-

@@ -77,9 +77,6 @@ pub mod echo {
     pub const AXUM_PATH: &str = "/echo";
 }
 
-
-
-
 pub mod query {
     use crate::{
         ff::FieldType,
@@ -119,7 +116,6 @@ pub mod query {
                 field_type,
                 query_type,
             }) = req.extract().await?;
-
 
             // let query_type = match QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
             //     let ipa_str = if (self.query_type == QueryType::SemiHonestIpa(config)) { QueryType::SEMIHONEST_IPA_STR
