@@ -1,18 +1,20 @@
 use crate::{
-    ff::{Fp32BitPrime, GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
+    ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{open_in_place, seal_in_place, CryptError, Info, KeyRegistry, MatchKeyCrypt},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use bytes::BufMut;
+use bytes::{BufMut, Bytes};
 use generic_array::GenericArray;
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
 use std::{
     fmt::{Display, Formatter},
-    marker::PhantomData, ops::Deref,
+    marker::PhantomData,
+    ops::Deref,
 };
 use typenum::Unsigned;
 
+// TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
 
 pub type KeyIdentifier = u8;
@@ -137,52 +139,61 @@ where
 // Report structure:
 //  * 0..4: `timestamp`
 //  * 4: `breakdown_key`
-//  * 5..13: `trigger_value`
-//  * 13..a: `encap_key`
-//  * a..b: `mk_ciphertext`
-//  * b: `event_type`
-//  * b+1: `key_id`
-//  * b+2..b+4: `epoch`
-//  * b+4..: `site_domain`
-impl<B: Deref<Target = [u8]>> EncryptedReport<Fp32BitPrime, Gf40Bit, Gf8Bit, B> {
+//  * 5..a: `trigger_value`
+//  * a..b: `encap_key`
+//  * b..c: `mk_ciphertext`
+//  * c: `event_type`
+//  * c+1: `key_id`
+//  * c+2..c+4: `epoch`
+//  * c+4..: `site_domain`
+impl<F, B> EncryptedReport<F, Gf40Bit, Gf8Bit, B>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+    B: Deref<Target = [u8]>,
+{
     // Constants are defined for:
     //  1. Offsets that are calculated from typenum values
     //  2. Offsets that appear in the code in more places than two successive accessors. (Some
     //     offsets are used by validations in the `from_bytes` constructor.)
-    const CIPHERTEXT_OFFSET: usize = 13 + <Gf40Bit as MatchKeyCrypt>::EncapKeySize::USIZE;
+    const ENCAP_KEY_OFFSET: usize = 5 + 2 * <F as Serializable>::Size::USIZE;
+    const CIPHERTEXT_OFFSET: usize =
+        Self::ENCAP_KEY_OFFSET + <Gf40Bit as MatchKeyCrypt>::EncapKeySize::USIZE;
     const EVENT_TYPE_OFFSET: usize =
         Self::CIPHERTEXT_OFFSET + <Gf40Bit as MatchKeyCrypt>::CiphertextSize::USIZE;
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
 
-    fn timestamp(&self) -> u32 {
+    pub fn timestamp(&self) -> u32 {
         u32::from_le_bytes(self.data[0..4].try_into().unwrap()) // infallible slice-to-array conversion
     }
 
-    fn breakdown_key(&self) -> Gf8Bit {
+    pub fn breakdown_key(&self) -> Gf8Bit {
         Gf8Bit::deserialize(GenericArray::from_slice(&[self.data[4]]))
     }
 
-    fn trigger_value(&self) -> Replicated<Fp32BitPrime> {
-        Replicated::<Fp32BitPrime>::deserialize(GenericArray::from_slice(&self.data[5..13]))
+    pub fn trigger_value(&self) -> Replicated<F> {
+        Replicated::<F>::deserialize(GenericArray::from_slice(
+            &self.data[5..Self::ENCAP_KEY_OFFSET],
+        ))
     }
 
-    fn encap_key(&self) -> &[u8] {
-        &self.data[13..Self::CIPHERTEXT_OFFSET]
+    pub fn encap_key(&self) -> &[u8] {
+        &self.data[Self::ENCAP_KEY_OFFSET..Self::CIPHERTEXT_OFFSET]
     }
 
-    fn match_key_ciphertext(&self) -> &[u8] {
+    pub fn match_key_ciphertext(&self) -> &[u8] {
         &self.data[Self::CIPHERTEXT_OFFSET..Self::EVENT_TYPE_OFFSET]
     }
 
-    fn event_type(&self) -> EventType {
+    pub fn event_type(&self) -> EventType {
         EventType::try_from(self.data[Self::EVENT_TYPE_OFFSET]).unwrap() // validated on construction
     }
 
-    fn key_id(&self) -> KeyIdentifier {
+    pub fn key_id(&self) -> KeyIdentifier {
         self.data[Self::EVENT_TYPE_OFFSET + 1]
     }
 
-    fn epoch(&self) -> Epoch {
+    pub fn epoch(&self) -> Epoch {
         u16::from_le_bytes(
             self.data[Self::EVENT_TYPE_OFFSET + 2..Self::SITE_DOMAIN_OFFSET]
                 .try_into()
@@ -190,12 +201,12 @@ impl<B: Deref<Target = [u8]>> EncryptedReport<Fp32BitPrime, Gf40Bit, Gf8Bit, B> 
         )
     }
 
-    fn site_domain(&self) -> &str {
+    pub fn site_domain(&self) -> &str {
         std::str::from_utf8(&self.data[Self::SITE_DOMAIN_OFFSET..]).unwrap() // validated on construction
     }
 
     #[allow(dead_code)] // TODO: temporary
-    fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
+    pub fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
         EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
         let site_domain = &bytes[Self::SITE_DOMAIN_OFFSET..];
         if !site_domain.is_ascii() {
@@ -208,10 +219,10 @@ impl<B: Deref<Target = [u8]>> EncryptedReport<Fp32BitPrime, Gf40Bit, Gf8Bit, B> 
     }
 
     #[allow(dead_code)] // TODO: temporary
-    fn decrypt(
+    pub fn decrypt(
         &self,
         key_registry: &KeyRegistry,
-    ) -> Result<Report<Fp32BitPrime, Gf40Bit, Gf8Bit>, InvalidReportError> {
+    ) -> Result<Report<F, Gf40Bit, Gf8Bit>, InvalidReportError> {
         let info = Info::new(
             self.key_id(),
             self.epoch(),
@@ -236,6 +247,18 @@ impl<B: Deref<Target = [u8]>> EncryptedReport<Fp32BitPrime, Gf40Bit, Gf8Bit, B> 
             epoch: self.epoch(),
             site_domain: self.site_domain().to_owned(),
         })
+    }
+}
+
+impl<F> TryFrom<Bytes> for EncryptedReport<F, Gf40Bit, Gf8Bit, Bytes>
+where
+    F: PrimeField,
+    Replicated<F>: Serializable,
+{
+    type Error = InvalidReportError;
+
+    fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
+        EncryptedReport::from_bytes(bytes)
     }
 }
 
