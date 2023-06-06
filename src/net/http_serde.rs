@@ -171,30 +171,14 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::SemiHonestIpa(config) => {
+                qt @ (QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config)) => {
                     write!(
                         f,
-                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        QueryType::SEMIHONEST_IPA_STR,
+                        "query_type={qt}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
                         config.per_user_credit_cap,
                         config.max_breakdown_key,
                         config.num_multi_bits,
-                    )?;
-
-                    if let Some(window) = config.attribution_window_seconds {
-                        write!(f, "&attribution_window_seconds={}", window.get())?;
-                    }
-
-                    Ok(())
-                }
-                QueryType::MaliciousIpa(config) => {
-                    write!(
-                        f,
-                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        QueryType::MALICIOUS_IPA_STR,
-                        config.per_user_credit_cap,
-                        config.max_breakdown_key,
-                        config.num_multi_bits,
+                        qt=qt.as_ref(),
                     )?;
 
                     if let Some(window) = config.attribution_window_seconds {
