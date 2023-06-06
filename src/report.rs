@@ -163,6 +163,8 @@ where
         Self::CIPHERTEXT_OFFSET + <Gf40Bit as MatchKeyCrypt>::CiphertextSize::USIZE;
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
 
+    /// ## Panics
+    /// Never.
     pub fn timestamp(&self) -> u32 {
         u32::from_le_bytes(self.data[0..4].try_into().unwrap()) // infallible slice-to-array conversion
     }
@@ -185,6 +187,8 @@ where
         &self.data[Self::CIPHERTEXT_OFFSET..Self::EVENT_TYPE_OFFSET]
     }
 
+    /// ## Panics
+    /// Only if a `Report` constructor failed to validate the contents properly, which would be a bug.
     pub fn event_type(&self) -> EventType {
         EventType::try_from(self.data[Self::EVENT_TYPE_OFFSET]).unwrap() // validated on construction
     }
@@ -193,6 +197,8 @@ where
         self.data[Self::EVENT_TYPE_OFFSET + 1]
     }
 
+    /// ## Panics
+    /// Never.
     pub fn epoch(&self) -> Epoch {
         u16::from_le_bytes(
             self.data[Self::EVENT_TYPE_OFFSET + 2..Self::SITE_DOMAIN_OFFSET]
@@ -201,10 +207,14 @@ where
         )
     }
 
+    /// ## Panics
+    /// Only if a `Report` constructor failed to validate the contents properly, which would be a bug.
     pub fn site_domain(&self) -> &str {
         std::str::from_utf8(&self.data[Self::SITE_DOMAIN_OFFSET..]).unwrap() // validated on construction
     }
 
+    /// ## Errors
+    /// If the report contents are invalid.
     #[allow(dead_code)] // TODO: temporary
     pub fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
         EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
@@ -218,6 +228,12 @@ where
         })
     }
 
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
     #[allow(dead_code)] // TODO: temporary
     pub fn decrypt(
         &self,
@@ -234,7 +250,7 @@ where
 
         let mut ciphertext: GenericArray<u8, <Gf40Bit as MatchKeyCrypt>::CiphertextSize> =
             GenericArray::clone_from_slice(self.match_key_ciphertext());
-        let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, info)?;
+        let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, &info)?;
 
         Ok(Report {
             timestamp: self.timestamp(),
@@ -317,7 +333,7 @@ where
         self.mk_shares.serialize(&mut plaintext);
 
         let (encap_key, ciphertext, tag) =
-            seal_in_place(key_registry, plaintext.as_mut(), info, rng)?;
+            seal_in_place(key_registry, plaintext.as_mut(), &info, rng)?;
 
         out.put_slice(&self.timestamp.to_le_bytes());
 
