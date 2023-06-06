@@ -26,7 +26,9 @@ BREAKDOWN_KEYS = [8, 33]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
 
-DEPTH_DYNAMIC_STEPS = "ipa::protocol::attribution::InteractionPatternStep"
+DEPTH_DYNAMIC_STEPS = [
+    "ipa::protocol::attribution::InteractionPatternStep",
+]
 BIT_DYNAMIC_STEPS = [
     "ipa::protocol::attribution::aggregate_credit::Step::compute_equality_checks",
     "ipa::protocol::attribution::aggregate_credit::Step::check_times_credit",
@@ -69,6 +71,7 @@ def collect_steps(args):
     count = 0
     while True:
         line = proc.stdout.readline()
+
         if not line or line == "":
             break
 
@@ -76,6 +79,7 @@ def collect_steps(args):
             print("Unexpected line: " + line)
             exit(1)
 
+        count += 1
         # There are protocols in IPA that that will generate log(N) steps where N is the number
         # of input rows to IPA. In this script, we execute IPA with 10 input rows, hence it
         # only generates log2(10) (maybe a few more/less because of the optimizations) dynamic
@@ -102,7 +106,6 @@ def collect_steps(args):
             continue
 
         output.update([remove_root_step_name_from_line(line)])
-        count += 1
 
     # safeguard against empty output
     if count == 0:
