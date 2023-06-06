@@ -26,9 +26,25 @@ BREAKDOWN_KEYS = [8, 33]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
 
+# There are protocols in IPA that that will generate log(N) steps where N is the number
+# of input rows to IPA. In this script, we execute IPA with 10 input rows, hence it
+# only generates log2(10) (maybe a few more/less because of the optimizations) dynamic
+# steps. Our goal is to generate 32 sets of these steps. (32 > log2(1B))
+# We do this by replacing all "depth\d+" in the steps with "depthX", store them in the
+# set, and later replace X with the depth of the iteration [0..32). We do that because
+# there are more optimizations done at row index level (i.e., skip the multiplication
+# for the last row), so the number of sub-steps branching off at each depth may differ.
+# To workaround this issue, we do the "depthX" replacement and collect all possible
+# steps and sub-steps (log2(10) steps should be enough to generate all possible
+# combinations). That means the generated `Compact` gate code will contain state
+# transitions that are not actually executed. This is not optimal, but not a big deal.
+# It's impossible to generate the exact set of steps that are executed in the actual
+# protocol without executing the protocol or analyzing the code statically.
 DEPTH_DYNAMIC_STEPS = [
     "ipa::protocol::attribution::InteractionPatternStep",
 ]
+# Same here. There are steps that are executed depending on the number of bits in the
+# used field.
 BIT_DYNAMIC_STEPS = [
     "ipa::protocol::attribution::aggregate_credit::Step::compute_equality_checks",
     "ipa::protocol::attribution::aggregate_credit::Step::check_times_credit",
@@ -76,30 +92,16 @@ def collect_steps(args):
             break
 
         if not line.startswith(ROOT_STEP_PREFIX):
-            print("Unexpected line: " + line)
+            print("Unexpected line: " + line, flush=True)
             exit(1)
 
         count += 1
-        # There are protocols in IPA that that will generate log(N) steps where N is the number
-        # of input rows to IPA. In this script, we execute IPA with 10 input rows, hence it
-        # only generates log2(10) (maybe a few more/less because of the optimizations) dynamic
-        # steps. Our goal is to generate 32 sets of these steps. (32 > log2(1B))
-        # We do this by replacing all "depth\d+" in the steps with "depthX", store them in the
-        # set, and later replace X with the depth of the iteration [0..32). We do that because
-        # there are more optimizations done at row index level (i.e., skip the multiplication
-        # for the last row), so the number of sub-steps branching off at each depth may differ.
-        # To workaround this issue, we do the "depthX" replacement and collect all possible
-        # steps and sub-steps (log2(10) steps should be enough to generate all possible
-        # combinations). That means the generated `Compact` gate code will contain state
-        # transitions that are not actually executed. This is not optimal, but not a big deal.
-        # It's impossible to generate the exact set of steps that are executed in the actual
-        # protocol without executing the protocol or analyzing the code statically.
+
         if any(s in line for s in DEPTH_DYNAMIC_STEPS):
             line = re.sub(r"depth\d+", "depthX", line)
             interaction_pattern_steps.add(remove_root_step_name_from_line(line))
             # continue without adding to the `output`. we'll generate the dynamic steps later
             continue
-        # do the same for bit dynamic steps
         if any(s in line for s in BIT_DYNAMIC_STEPS):
             line = re.sub(r"bit\d+", "bitX", line)
             compute_equality_checks_steps.add(remove_root_step_name_from_line(line))
@@ -109,7 +111,7 @@ def collect_steps(args):
 
     # safeguard against empty output
     if count == 0:
-        print("No steps in the output")
+        print("No steps in the output", flush=True)
         exit(1)
 
     # generate dynamic steps
