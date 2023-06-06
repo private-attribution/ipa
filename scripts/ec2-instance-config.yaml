@@ -8,6 +8,7 @@ packages:
   - openssl-perl
   - perf
   - tmux
+  - docker
 
 runcmd:
   - yum -y groupinstall "Development Tools"

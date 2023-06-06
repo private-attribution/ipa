@@ -1,3 +1,24 @@
+//! This takes a replicated secret sharing of a sequence of bits (in a packed format)
+//! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
+//!
+//! This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
+//! "Efficient generation of a pair of random shares for small number of parties"
+//!
+//! This protocol takes as input such a 3-way random binary replicated secret-sharing,
+//! and produces a 3-party replicated secret-sharing of the same value in a target field
+//! of the caller's choosing.
+//! Example:
+//! For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
+//! sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
+//! This transformation is simple:
+//! The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
+//! Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
+//! So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
+//! as (0, 1, 0).
+//! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
+//! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
+//! is equivalent to fn xor(a, b) { a + b - 2*a*b }
+
 use crate::{
     error::Error,
     ff::{Field, GaloisField},
@@ -17,26 +38,6 @@ use crate::{
 };
 use std::iter::{repeat, zip};
 
-///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
-///! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
-///!
-///! This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
-///! "Efficient generation of a pair of random shares for small number of parties"
-///!
-///! This protocol takes as input such a 3-way random binary replicated secret-sharing,
-///! and produces a 3-party replicated secret-sharing of the same value in a target field
-///! of the caller's choosing.
-///! Example:
-///! For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
-///! sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
-///! This transformation is simple:
-///! The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
-///! Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
-///! So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
-///! as (0, 1, 0).
-///! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
-///! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
-///! is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     Xor1,

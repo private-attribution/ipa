@@ -14,6 +14,8 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing},
     task::JoinHandle,
 };
+
+use crate::query::runner::QueryResult;
 use generic_array::GenericArray;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
@@ -66,7 +68,7 @@ pub fn start_query(
     config: QueryConfig,
     gateway: Gateway,
     input: ByteArrStream,
-) -> JoinHandle<Box<dyn Result>> {
+) -> JoinHandle<QueryResult> {
     tokio::spawn(async move {
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
@@ -95,13 +97,13 @@ pub fn start_query(
                     .await
             }
             QueryType::MaliciousIpa(ipa_query_config) => {
-                IpaRunner(ipa_query_config)
+                Ok(IpaRunner(ipa_query_config)
                     .malicious_run(
                         MaliciousContext::new(&prss, &gateway),
                         config.field_type,
                         input,
                     )
-                    .await
+                    .await)
             }
         }
     })

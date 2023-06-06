@@ -1,7 +1,4 @@
-use crate::hpke::EventType;
-use std::fmt::{Display, Formatter};
-
-use super::{Epoch, KeyIdentifier};
+use crate::report::{Epoch, EventType, KeyIdentifier, NonAsciiStringError};
 
 const DOMAIN: &str = "private-attribution";
 
@@ -22,23 +19,6 @@ pub struct Info<'a> {
     pub(super) site_domain: &'a str,
 }
 
-#[derive(Debug)]
-pub struct NonAsciiStringError<'a> {
-    input: &'a str,
-}
-
-impl Display for NonAsciiStringError<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "string contains non-ascii symbols: {}", self.input)
-    }
-}
-
-impl<'a> From<&'a str> for NonAsciiStringError<'a> {
-    fn from(input: &'a str) -> Self {
-        Self { input }
-    }
-}
-
 impl<'a> Info<'a> {
     /// Creates a new instance.
     ///
@@ -50,7 +30,9 @@ impl<'a> Info<'a> {
         event_type: EventType,
         helper_origin: &'a str,
         site_domain: &'a str,
-    ) -> Result<Self, NonAsciiStringError<'a>> {
+    ) -> Result<Self, NonAsciiStringError> {
+        // If the types of errors returned from this function change, then the validation in
+        // `EncryptedReport::from_bytes` may need to change as well.
         if !helper_origin.is_ascii() {
             return Err(helper_origin.into());
         }
@@ -70,7 +52,7 @@ impl<'a> Info<'a> {
 
     /// Converts this instance into an owned byte slice that can further be used to create HPKE
     /// sender or receiver context.
-    pub(super) fn into_bytes(self) -> Box<[u8]> {
+    pub(super) fn to_bytes(&self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
             + self.helper_origin.len()
             + self.site_domain.len()

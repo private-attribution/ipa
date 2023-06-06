@@ -2,7 +2,9 @@ use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
 use hyper_tls::native_tls::Identity;
 use ipa::{
-    cli::{keygen, test_setup, KeygenArgs, TestSetupArgs, Verbosity},
+    cli::{
+        client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, TestSetupArgs, Verbosity,
+    },
     config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
@@ -139,6 +141,7 @@ struct ServerArgs {
 
 #[derive(Debug, Subcommand)]
 enum HelperCommand {
+    Confgen(ConfGenArgs),
     Keygen(KeygenArgs),
     TestSetup(TestSetupArgs),
 }
@@ -242,6 +245,7 @@ pub async fn main() {
         None => server(args.server).await,
         Some(HelperCommand::Keygen(args)) => keygen(&args),
         Some(HelperCommand::TestSetup(args)) => test_setup(args),
+        Some(HelperCommand::Confgen(args)) => client_config_setup(args),
     };
 
     if let Err(e) = res {
