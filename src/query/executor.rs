@@ -96,15 +96,13 @@ pub fn start_query(
                     )
                     .await
             }
-            QueryType::MaliciousIpa(ipa_query_config) => {
-                Ok(IpaRunner(ipa_query_config)
-                    .malicious_run(
-                        MaliciousContext::new(&prss, &gateway),
-                        config.field_type,
-                        input,
-                    )
-                    .await)
-            }
+            QueryType::MaliciousIpa(ipa_query_config) => Ok(IpaRunner(ipa_query_config)
+                .malicious_run(
+                    MaliciousContext::new(&prss, &gateway),
+                    config.field_type,
+                    input,
+                )
+                .await),
         }
     })
 }

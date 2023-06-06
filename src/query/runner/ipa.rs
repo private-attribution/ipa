@@ -228,6 +228,7 @@ mod tests {
 
         let world = TestWorld::default();
         let contexts = world.malicious_contexts();
+        #[allow(clippy::large_futures)]
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
