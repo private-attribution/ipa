@@ -117,24 +117,10 @@ pub mod query {
                 query_type,
             }) = req.extract().await?;
 
-            // let query_type = match QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
-            //     let ipa_str = if (self.query_type == QueryType::SemiHonestIpa(config)) { QueryType::SEMIHONEST_IPA_STR
-            //     } else {QueryType::MALICIOUS_IPA_STR}
-            //     write!(
-            //         f,
-            //         "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-            //         ipa_str,
-            //         config.per_user_credit_cap,
-            //         config.max_breakdown_key,
-            //         config.num_multi_bits,
-            //     )?;
-            //     ...
-            // }
-
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::SEMIHONEST_IPA_STR => {
+                QueryType::SEMIHONEST_IPA_STR | QueryType::MALICIOUS_IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
@@ -149,35 +135,27 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }))
-                }
-                QueryType::MALICIOUS_IPA_STR => {
-                    #[derive(serde::Deserialize)]
-                    struct IPAQueryConfigParam {
-                        per_user_credit_cap: u32,
-                        max_breakdown_key: u32,
-                        attribution_window_seconds: Option<NonZeroU32>,
-                        num_multi_bits: u32,
+                    match query_type.as_str() {
+                        QueryType::SEMIHONEST_IPA_STR => {
+                            Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                            }))
+                        }
+                        QueryType::MALICIOUS_IPA_STR => {
+                            Ok(QueryType::MaliciousIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                            }))
+                        }
+                        &_ => unreachable!(),
                     }
-                    let Query(IPAQueryConfigParam {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }) = req.extract().await?;
-
-                    Ok(QueryType::MaliciousIpa(IpaQueryConfig {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }))
                 }
+
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
