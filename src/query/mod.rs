@@ -1,3 +1,4 @@
+mod completion;
 mod executor;
 mod processor;
 mod runner;
@@ -9,3 +10,5 @@ pub use processor::{
     NewQueryError, PrepareQueryError, Processor as QueryProcessor, QueryCompletionError,
     QueryInputError,
 };
+
+use completion::Handle as CompletionHandle;

@@ -7,12 +7,13 @@ use crate::{
     query::{
         executor,
         state::{QueryState, QueryStatus, RunningQueries, StateError},
-        ProtocolResult,
+        CompletionHandle, ProtocolResult,
     },
 };
 
 use futures_util::{future::try_join, stream};
 
+use crate::query::state::RemoveQuery;
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
@@ -241,7 +242,13 @@ impl Processor {
             match queries.remove(&query_id) {
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
-                    Ok(handle)
+                    Ok(CompletionHandle::new(
+                        RemoveQuery {
+                            query_id,
+                            queries: &self.queries,
+                        },
+                        handle,
+                    ))
                 }
                 Some(state) => {
                     let state_error = StateError::InvalidState {
@@ -478,6 +485,17 @@ mod tests {
         #[tokio::test]
         async fn complete_query_ipa() -> Result<(), BoxError> {
             let app = TestApp::default();
+            ipa_query(&app).await
+        }
+
+        #[tokio::test]
+        async fn complete_query_twice() -> Result<(), BoxError> {
+            let app = TestApp::default();
+            ipa_query(&app).await?;
+            ipa_query(&app).await
+        }
+
+        async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
                 [
                     { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },

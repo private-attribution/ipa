@@ -21,18 +21,14 @@ impl Runner {
         ctx: SemiHonestContext<'_>,
         field: FieldType,
         input: ByteArrStream,
-    ) -> Box<dyn ProtocolResult> {
-        match field {
+    ) -> Result<Box<dyn ProtocolResult>, Error> {
+        Ok(match field {
             #[cfg(any(test, feature = "weak-field"))]
-            FieldType::Fp31 => Box::new(
-                self.run_internal::<crate::ff::Fp31>(ctx, input)
-                    .await
-                    .unwrap(),
-            ),
+            FieldType::Fp31 => Box::new(self.run_internal::<crate::ff::Fp31>(ctx, input).await?),
             FieldType::Fp32BitPrime => {
-                Box::new(self.run_internal::<Fp32BitPrime>(ctx, input).await.unwrap())
+                Box::new(self.run_internal::<Fp32BitPrime>(ctx, input).await?)
             }
-        }
+        })
     }
 
     async fn run_internal<F: Field>(

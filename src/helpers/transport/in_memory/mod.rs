@@ -79,4 +79,11 @@ impl InMemoryNetwork {
             .unwrap();
         transports
     }
+
+    /// Reset all transports to the clear state.
+    pub fn reset(&self) {
+        for t in &self.transports {
+            t.reset();
+        }
+    }
 }
