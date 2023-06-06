@@ -1,5 +1,9 @@
-use crate::helpers::HelperIdentity;
+use crate::{
+    helpers::HelperIdentity,
+    hpke::{Deserializable as _, IpaPublicKey, Serializable as _},
+};
 
+use derivative::Derivative;
 use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -8,7 +12,7 @@ use tokio_rustls::rustls::Certificate;
 use std::{
     array,
     borrow::Borrow,
-    fmt::{Debug, Formatter},
+    fmt::{self, Debug, Formatter},
     iter::Zip,
     path::PathBuf,
     slice,
@@ -129,14 +133,17 @@ impl PeerConfig {
 
 /// Match key encryption client configuration. To encrypt match keys towards a helper node, clients
 /// need to know helper's public key.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Derivative, Deserialize)]
+#[derivative(Debug)]
 pub struct HpkeClientConfig {
-    pub public_key: String,
+    #[serde(deserialize_with = "pk_from_str")]
+    #[derivative(Debug(format_with = "fmt_pk"))]
+    pub public_key: IpaPublicKey,
 }
 
 impl HpkeClientConfig {
     #[must_use]
-    pub fn new(public_key: String) -> Self {
+    pub fn new(public_key: IpaPublicKey) -> Self {
         Self { public_key }
     }
 }
@@ -155,6 +162,26 @@ where
             &"a certificate",
         )),
     }
+}
+
+fn pk_from_str<'de, D>(deserializer: D) -> Result<IpaPublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    let mut buf = vec![0_u8; 32];
+    hex::decode_to_slice(s, &mut buf).map_err(<D::Error as serde::de::Error>::custom)?;
+
+    IpaPublicKey::from_bytes(&buf).map_err(<D::Error as serde::de::Error>::custom)
+}
+
+fn pk_to_str(pk: &IpaPublicKey) -> String {
+    hex::encode(pk.to_bytes().as_slice())
+}
+
+fn fmt_pk(pk: &IpaPublicKey, fmt: &mut Formatter) -> Result<(), fmt::Error> {
+    fmt.write_str(&pk_to_str(pk))?;
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -322,15 +349,6 @@ mod tests {
     const URI_1: &str = "http://localhost:3000";
     const URI_2: &str = "http://localhost:3001";
     const URI_3: &str = "http://localhost:3002";
-
-    #[allow(dead_code)] // TODO(tls) need to add back report public key configuration
-    fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
-        let pk_bytes: [u8; 32] = hex::decode(hex_str)
-            .expect("valid hex string")
-            .try_into()
-            .expect("hex should be exactly 32 bytes");
-        pk_bytes.into()
-    }
 
     #[test]
     fn parse_config() {

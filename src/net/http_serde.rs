@@ -127,12 +127,15 @@ pub mod query {
                         max_breakdown_key: u32,
                         attribution_window_seconds: Option<NonZeroU32>,
                         num_multi_bits: u32,
+                        #[serde(default)]
+                        plaintext_match_keys: bool,
                     }
                     let Query(IPAQueryConfigParam {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
                         num_multi_bits,
+                        plaintext_match_keys,
                     }) = req.extract().await?;
 
                     match query_type.as_str() {
@@ -142,6 +145,7 @@ pub mod query {
                                 max_breakdown_key,
                                 attribution_window_seconds,
                                 num_multi_bits,
+                                plaintext_match_keys,
                             }))
                         }
                         QueryType::MALICIOUS_IPA_STR => {
@@ -150,6 +154,7 @@ pub mod query {
                                 max_breakdown_key,
                                 attribution_window_seconds,
                                 num_multi_bits,
+                                plaintext_match_keys,
                             }))
                         }
                         &_ => unreachable!(),
@@ -180,6 +185,10 @@ pub mod query {
                         config.num_multi_bits,
                         qt=qt.as_ref(),
                     )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
+                    }
 
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;

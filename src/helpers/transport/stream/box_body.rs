@@ -1,6 +1,5 @@
 use crate::helpers::BytesStream;
 
-use bytes::Bytes;
 use futures::Stream;
 use pin_project::pin_project;
 use std::{
@@ -31,7 +30,7 @@ impl Stream for WrappedBoxBodyStream {
 }
 
 #[cfg(any(test, feature = "test-fixture"))]
-impl<Buf: Into<Bytes>> From<Buf> for WrappedBoxBodyStream {
+impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedBoxBodyStream {
     fn from(buf: Buf) -> Self {
         Self(Box::pin(futures::stream::once(futures::future::ready(Ok(
             buf.into(),
@@ -41,7 +40,7 @@ impl<Buf: Into<Bytes>> From<Buf> for WrappedBoxBodyStream {
 
 #[cfg(all(feature = "in-memory-infra", feature = "web-app"))]
 #[async_trait::async_trait]
-impl<B: hyper::body::HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static>
+impl<B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static>
     axum::extract::FromRequest<B> for WrappedBoxBodyStream
 {
     type Rejection = <axum::extract::BodyStream as axum::extract::FromRequest<B>>::Rejection;

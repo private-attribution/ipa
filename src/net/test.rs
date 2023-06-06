@@ -15,6 +15,7 @@ use crate::{
         TlsConfig,
     },
     helpers::{HelperIdentity, TransportCallbacks},
+    hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
@@ -169,7 +170,12 @@ impl TestConfigBuilder {
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
-                    Some(HpkeClientConfig::new(TEST_HPKE_PUBLIC_KEY.to_owned()))
+                    Some(HpkeClientConfig::new(
+                        IpaPublicKey::from_bytes(
+                            &hex::decode(TEST_HPKE_PUBLIC_KEY.trim()).unwrap(),
+                        )
+                        .unwrap(),
+                    ))
                 },
             })
             .collect::<Vec<_>>()
@@ -425,6 +431,8 @@ KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
 ",
 ];
 
+// Yes, these strings have trailing newlines. Things that consume them
+// should strip whitespace.
 const TEST_HPKE_PUBLIC_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";

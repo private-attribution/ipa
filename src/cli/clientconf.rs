@@ -4,6 +4,7 @@ use crate::{
 };
 use clap::Args;
 use config::Map;
+use hpke::Serializable as _;
 use std::{error::Error, fs, fs::File, io::Write, iter::zip, path::PathBuf};
 use toml::{Table, Value};
 
@@ -208,6 +209,6 @@ fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
             .get("public_key")
             .and_then(toml::Value::as_str)
             .map(ToOwned::to_owned),
-        actual.map(|v| v.public_key.clone())
+        actual.map(|v| hex::encode(v.public_key.to_bytes()))
     );
 }

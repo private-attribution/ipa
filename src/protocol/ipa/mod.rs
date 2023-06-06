@@ -286,8 +286,9 @@ where
     }
 }
 
-/// Malicious IPA
-/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
+/// IPA Protocol
+///
+/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort.
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -919,6 +920,7 @@ pub mod tests {
                     max_breakdown_key: MAX_BREAKDOWN_KEY,
                     attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
                     num_multi_bits: NUM_MULTI_BITS,
+                    plaintext_match_keys: true,
                 },
                 IpaSecurityModel::SemiHonest,
             )

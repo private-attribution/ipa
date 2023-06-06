@@ -15,12 +15,12 @@ mod info;
 mod registry;
 
 use crate::{
-    ff::{GaloisField, Gf40Bit, Serializable},
+    ff::{GaloisField, Gf40Bit, Serializable as IpaSerializable},
     report::KeyIdentifier,
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 pub use info::Info;
-pub use registry::{KeyPair, KeyRegistry};
+pub use registry::{KeyPair, KeyRegistry, PublicKeyOnly, PublicKeyRegistry};
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -32,20 +32,22 @@ type IpaKdf = hpke::kdf::HkdfSha256;
 /// match keys we would have to heap allocate.
 type XorReplicated = AdditiveShare<Gf40Bit>;
 
-type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
-type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
+pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
+pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
+
+pub use hpke::{Deserializable, Serializable};
 
 /// match key size, in bytes
-const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
+const MATCHKEY_LEN: usize = <XorReplicated as IpaSerializable>::Size::USIZE;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
 pub const MATCHKEY_CT_LEN: usize =
-    MATCHKEY_LEN + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
+    MATCHKEY_LEN + <AeadTag<IpaAead> as Serializable>::OutputSize::USIZE;
 
-pub trait MatchKeyCrypt: GaloisField + Serializable {
+pub trait MatchKeyCrypt: GaloisField + IpaSerializable {
     type EncapKeySize: ArrayLength<u8>;
     type CiphertextSize: ArrayLength<u8>;
-    type SemiHonestShares: Serializable + Clone + Debug + Eq;
+    type SemiHonestShares: IpaSerializable + Clone + Debug + Eq;
 }
 
 // Ideally this could generically add the tag size to the match key size (i.e. remove the
@@ -54,14 +56,14 @@ pub trait MatchKeyCrypt: GaloisField + Serializable {
 // that, and it doesn't seem worth a lot of trouble for a value that won't be changing.
 impl<MK> MatchKeyCrypt for MK
 where
-    MK: GaloisField + Serializable + Clone + Debug + Eq,
-    AdditiveShare<MK>: Serializable + Clone + Debug + Eq,
-    AeadTag<IpaAead>: hpke::Serializable<OutputSize = U16>,
-    <AdditiveShare<MK> as Serializable>::Size: Add<U16>,
-    <<AdditiveShare<MK> as Serializable>::Size as Add<U16>>::Output: ArrayLength<u8>,
+    MK: GaloisField + IpaSerializable + Clone + Debug + Eq,
+    AdditiveShare<MK>: IpaSerializable + Clone + Debug + Eq,
+    AeadTag<IpaAead>: Serializable<OutputSize = U16>,
+    <AdditiveShare<MK> as IpaSerializable>::Size: Add<U16>,
+    <<AdditiveShare<MK> as IpaSerializable>::Size as Add<U16>>::Output: ArrayLength<u8>,
 {
-    type EncapKeySize = <<IpaKem as hpke::Kem>::EncappedKey as hpke::Serializable>::OutputSize;
-    type CiphertextSize = <<AdditiveShare<MK> as Serializable>::Size as Add<U16>>::Output;
+    type EncapKeySize = <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
+    type CiphertextSize = <<AdditiveShare<MK> as IpaSerializable>::Size as Add<U16>>::Output;
     type SemiHonestShares = AdditiveShare<MK>;
 }
 
@@ -99,13 +101,11 @@ impl From<io::Error> for CryptError {
 ///
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
 pub fn open_in_place<'a>(
-    key_registry: &KeyRegistry,
+    key_registry: &KeyRegistry<KeyPair>,
     enc: &[u8],
     ciphertext: &'a mut [u8],
     info: &Info,
 ) -> Result<&'a [u8], CryptError> {
-    use hpke::{Deserializable, Serializable};
-
     let key_id = info.key_id;
     let info = info.to_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
@@ -140,8 +140,8 @@ pub(crate) type MatchKeyCiphertext<'a> = (
 
 /// ## Errors
 /// If the match key cannot be sealed for any reason.
-pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore>(
-    key_registry: &KeyRegistry,
+pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
+    key_registry: &K,
     plaintext: &'a mut [u8],
     info: &'a Info,
     rng: &mut R,
@@ -192,7 +192,7 @@ mod tests {
     use generic_array::GenericArray;
 
     use crate::{
-        ff::Serializable,
+        ff::Serializable as IpaSerializable,
         report::{Epoch, EventType},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
@@ -200,7 +200,7 @@ mod tests {
     use rand_core::{CryptoRng, RngCore, SeedableRng};
 
     struct EncryptionSuite<R: RngCore + CryptoRng> {
-        registry: KeyRegistry,
+        registry: KeyRegistry<KeyPair>,
         rng: R,
         epoch: Epoch,
     }
@@ -235,10 +235,10 @@ mod tests {
 
             let mut ct_and_tag = [0u8; MATCHKEY_CT_LEN];
             ct_and_tag[..ciphertext.len()].copy_from_slice(ciphertext);
-            ct_and_tag[ciphertext.len()..].copy_from_slice(&hpke::Serializable::to_bytes(&tag));
+            ct_and_tag[ciphertext.len()..].copy_from_slice(&Serializable::to_bytes(&tag));
 
             MatchKeyEncryption {
-                enc: <[u8; 32]>::from(hpke::Serializable::to_bytes(&encap_key)),
+                enc: <[u8; 32]>::from(Serializable::to_bytes(&encap_key)),
                 ct: ct_and_tag,
                 info,
             }

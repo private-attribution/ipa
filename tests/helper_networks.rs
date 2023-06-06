@@ -141,7 +141,7 @@ fn spawn_helpers(
                     ])
                     .args([
                         "--mk-private-key".into(),
-                        config_path.join(format!("h{id}_mk")),
+                        config_path.join(format!("h{id}_mk.key")),
                     ]);
             } else {
                 command.arg("--disable-https");
@@ -235,6 +235,11 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
         .arg(protocol)
         .args(["--max-breakdown-key", "20"])
         .stdin(Stdio::piped());
+    if !https {
+        // No reason that match key encryption needs to be coupled with helper-to-helper TLS, but
+        // currently it is.
+        command.arg("--plaintext-match-keys");
+    }
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();

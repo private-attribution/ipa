@@ -5,6 +5,7 @@ mod test_multiply;
 use crate::{error::Error, query::ProtocolResult};
 
 pub(super) use self::ipa::IpaQuery;
+pub use self::ipa::KEY_REGISTRY;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 pub(super) use test_multiply::execute_test_multiply;
 

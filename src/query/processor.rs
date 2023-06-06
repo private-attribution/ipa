@@ -515,6 +515,7 @@ mod tests {
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
+                            plaintext_match_keys: true,
                         }),
                     },
                 )
