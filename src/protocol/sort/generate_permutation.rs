@@ -7,6 +7,7 @@ use crate::{
             Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
             UpgradedSemiHonestContext, Validator,
         },
+        modulus_conversion::ToBitConversionTriples,
         sort::{
             generate_permutation_opt::generate_permutation_opt,
             shuffle::{get_two_of_three_random_permutations, shuffle_shares},
@@ -27,6 +28,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use futures::stream::Stream;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -98,19 +100,28 @@ where
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
-pub async fn generate_permutation_and_reveal_shuffled<C, S, F>(
+pub async fn generate_permutation_and_reveal_shuffled<F, C, S, I>(
     sh_ctx: C,
-    sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
+    sort_keys: I,
+    num_multi_bits: u32,
+    max_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error>
 where
+    F: PrimeField + ExtendableField,
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    I: Stream,
+    I::Item: ToBitConversionTriples + Clone + Send + Sync,
 {
-    let (validator, sort_permutation) =
-        generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
+    let (validator, sort_permutation) = generate_permutation_opt(
+        sh_ctx.narrow(&SortKeys),
+        sort_keys,
+        num_multi_bits,
+        max_bits,
+    )
+    .await?;
 
     let m_ctx = validator.context();
     shuffle_and_reveal_permutation::<C, _, _>(
@@ -156,7 +167,7 @@ mod tests {
         ff::{Field, Fp31, GaloisField},
         protocol::{
             context::{Context, SemiHonestContext, UpgradableContext, Validator},
-            modulus_conversion::{convert_all_bits, LocalBitConverter},
+            modulus_conversion::{convert_some_bits, LocalBitConverter},
             sort::{
                 generate_permutation::shuffle_and_reveal_permutation,
                 generate_permutation_opt::generate_permutation_opt,
@@ -191,7 +202,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .await;
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
+                    convert_some_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
                 let (_validator, result) =

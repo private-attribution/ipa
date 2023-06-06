@@ -23,16 +23,16 @@ use std::{
 ///
 /// # Errors
 /// Fails if sub-protocols fails.
-pub async fn apply_attribution_window<C, S, F>(
+pub async fn apply_attribution_window<F, C, S>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, S>],
     stop_bits: &[S],
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
 where
-    C: UpgradedContext<F>,
-    S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
     F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -137,16 +137,16 @@ where
 ///
 /// # Errors
 /// Fails if the bit-decomposition, bitwise comparison, or multiplication fails.
-async fn zero_out_expired_trigger_values<F, C, T>(
+async fn zero_out_expired_trigger_values<F, C, S>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
-    time_delta: &mut [T],
+    input: &[MCApplyAttributionWindowInputRow<F, S>],
+    time_delta: &mut [S],
     cap: u32,
-) -> Result<Vec<(T, T)>, Error>
+) -> Result<Vec<(S, S)>, Error>
 where
     F: PrimeField,
-    C: UpgradedContext<F>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =
@@ -159,7 +159,7 @@ where
     // cap value, and zero-out trigger event values that exceed the cap.
     ctx.try_join(
         zip(input, time_delta)
-            .zip(repeat(T::share_known_value(&ctx, F::ONE)))
+            .zip(repeat(S::share_known_value(&ctx, F::ONE)))
             .enumerate()
             .map(|(i, ((row, delta), one))| {
                 let c1 = cmp_ctx.clone();
@@ -216,7 +216,7 @@ mod tests {
                 },
             },
             context::{Context, UpgradableContext, Validator},
-            modulus_conversion::convert_all_bits,
+            modulus_conversion::convert_some_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
@@ -274,8 +274,8 @@ mod tests {
                     let bk_shares = input
                         .iter()
                         .map(|x| x.breakdown_key.clone());
-                    let converted_bk_shares = convert_all_bits(
-                        ctx.clone(), stream_iter(bk_shares)
+                    let converted_bk_shares = convert_some_bits(
+                        ctx.clone(), stream_iter(bk_shares), 0..BreakdownKey::BITS
                     ).try_collect::<Vec<_>>()
                         .await
                         .unwrap();

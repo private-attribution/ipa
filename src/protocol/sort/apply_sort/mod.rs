@@ -48,7 +48,7 @@ mod tests {
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
-            modulus_conversion::{convert_all_bits, LocalBitConverter},
+            modulus_conversion::convert_some_bits,
             sort::{
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
@@ -60,7 +60,7 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt};
+    use futures::stream::{iter as stream_iter, TryStreamExt};
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -100,22 +100,26 @@ mod tests {
                     Vec<AdditiveShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
-                    let converted_shares =
-                        convert_all_bits(&ctx.narrow("convert_all_bits"), stream_iter(mk_shares))
-                            .await
-                            .unwrap(); // TODO split into multi-bit
+                    let ctx = ctx.narrow("apply_sort");
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        converted_shares.iter(),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
                     )
                     .await
                     .unwrap();
 
                     let bk_shares = secret.iter().map(|x| x.breakdown_key.clone());
 
-                    let converted_bk_shares = convert_all_bits(ctx.clone(), stream_iter(bk_shares))
-                        .await
-                        .unwrap();
+                    let converted_bk_shares = convert_some_bits(
+                        ctx.clone(),
+                        stream_iter(bk_shares),
+                        0..BreakdownKey::BITS,
+                    )
+                    .try_collect()
+                    .await
+                    .unwrap();
 
                     let converted_secret = secret
                         .into_iter()

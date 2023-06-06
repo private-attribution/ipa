@@ -12,7 +12,6 @@ use crate::{
             upgrade::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
             UpgradedContext, Validator,
         },
-        modulus_conversion::convert_all_bits,
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
@@ -60,7 +59,7 @@ impl AsRef<str> for Step {
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
-            Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::AfterConvertAllBits => "after_convert_some_bits",
             Self::BinaryValidator => "binary_validator",
         }
     }
@@ -331,21 +330,11 @@ where
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
 
-    // Match key modulus conversion, and then sort
-    let converted_mk_shares = convert_all_bits(
-        m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        stream_iter(mk_shares),
-    )
-    .try_collect::<Vec<_>>()
-    .await
-    .unwrap(); // TODO multi-bits
-
-    //Validate before calling sort with downgraded context
-    let converted_mk_shares = validator.validate(converted_mk_shares).await?;
-
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        converted_mk_shares.iter(),
+        stream_iter(mk_shares),
+        config.num_multi_bits,
+        MK::BITS,
     )
     .await
     .unwrap();
@@ -360,14 +349,15 @@ where
 
     let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
 
-    // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
-        m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        stream_iter(bk_shares),
-    )
-    .try_collect()
-    .await
-    .unwrap();
+    // // Breakdown key modulus conversion
+    // let converted_bk_shares = convert_some_bits(
+    //     m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+    //     stream_iter(bk_shares),
+    //     0..BK::BITS,
+    // )
+    // .try_collect::<Vec<_>>()
+    // .await
+    // .unwrap();
 
     let intermediate = input_rows
         .iter()

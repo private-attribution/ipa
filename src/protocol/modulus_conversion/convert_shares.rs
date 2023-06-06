@@ -21,30 +21,32 @@ use pin_project::pin_project;
 use std::{
     iter::zip,
     marker::PhantomData,
+    ops::Range,
     pin::Pin,
     task::{Context as TaskContext, Poll},
 };
+use typenum::Bit;
 
-///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
-///! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
-///!
-///! This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
-///! "Efficient generation of a pair of random shares for small number of parties"
-///!
-///! This protocol takes as input such a 3-way random binary replicated secret-sharing,
-///! and produces a 3-party replicated secret-sharing of the same value in a target field
-///! of the caller's choosing.
-///! Example:
-///! For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
-///! sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
-///! This transformation is simple:
-///! The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
-///! Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
-///! So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
-///! as (0, 1, 0).
-///! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
-///! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
-///! is equivalent to fn xor(a, b) { a + b - 2*a*b }
+/// This takes a replicated secret sharing of a sequence of bits (in a packed format)
+/// and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
+///
+/// This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
+/// "Efficient generation of a pair of random shares for small number of parties"
+///
+/// This protocol takes as input such a 3-way random binary replicated secret-sharing,
+/// and produces a 3-party replicated secret-sharing of the same value in a target field
+/// of the caller's choosing.
+/// Example:
+/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
+/// sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
+/// This transformation is simple:
+/// The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
+/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
+/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
+/// as (0, 1, 0).
+/// Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
+/// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
+/// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     Xor1,
@@ -99,14 +101,31 @@ impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
 }
 
 pub trait ToBitConversionTriples {
-    fn to_triples<F: PrimeField>(&self, role: Role) -> Vec<BitConversionTriple<Replicated<F>>>;
+    /// Get the maximum number of bits that can be produced for this type.
+    fn bits(&self) -> u32;
+
+    /// Produce a `BitConversionTriple` for the given role and bit index.
+    fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>>;
+
+    fn triple_range<F, I>(&self, role: Role, indices: I) -> Vec<BitConversionTriple<Replicated<F>>>
+    where
+        F: PrimeField,
+        I: IntoIterator<Item = u32>,
+    {
+        indices
+            .into_iter()
+            .map(|i| self.triple(role, i))
+            .collect::<Vec<_>>()
+    }
 }
 
 impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
-    fn to_triples<F: PrimeField>(&self, role: Role) -> Vec<BitConversionTriple<Replicated<F>>> {
-        (0..B::BITS)
-            .map(|i| BitConversionTriple::new(role, self.left()[i], self.right()[i]))
-            .collect::<Vec<_>>()
+    fn bits(&self) -> u32 {
+        B::BITS
+    }
+
+    fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
+        BitConversionTriple::new(role, self.left()[i], self.right()[i])
     }
 }
 
@@ -120,6 +139,7 @@ where
     role: Role,
     #[pin]
     input: S,
+    bits: Range<u32>,
     _f: PhantomData<F>,
 }
 
@@ -129,10 +149,11 @@ where
     V: ToBitConversionTriples,
     S: Stream<Item = V> + Send,
 {
-    pub fn new(role: Role, input: S) -> Self {
+    pub fn new(role: Role, input: S, bits: Range<u32>) -> Self {
         Self {
             role,
             input,
+            bits,
             _f: PhantomData,
         }
     }
@@ -149,7 +170,7 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         match this.input.as_mut().poll_next(cx) {
-            Poll::Ready(Some(input)) => Poll::Ready(Some(input.into_triples())),
+            Poll::Ready(Some(input)) => Poll::Ready(Some(input.triple_range(self.role, self.bits))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -209,22 +230,22 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
-pub fn convert_all_bits<F, V, C, S, VS>(
+pub fn convert_some_bits<F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
+    bit_range: Range<u32>,
 ) -> impl Stream<Item = Result<Vec<S>, Error>>
 where
     F: PrimeField,
     V: ToBitConversionTriples,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    VS: Stream<Item = V> + ExactSizeStream + Unpin + Send,
+    VS: Stream<Item = V> + Unpin + Send,
     for<'u> UpgradeContext<'u, C, F>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
     let active = ctx.active_work();
-    let ctx = ctx.set_total_records(binary_shares.len()); // TODO move the len() call to outer.
-    let locally_converted = LocalBitConverter::new(ctx.role(), binary_shares);
+    let locally_converted = LocalBitConverter::new(ctx.role(), binary_shares, bit_range);
 
     let stream = unfold(
         (ctx, locally_converted, RecordId::FIRST),
@@ -254,7 +275,7 @@ mod tests {
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            modulus_conversion::{convert_all_bits, BitConversionTriple, LocalBitConverter},
+            modulus_conversion::{convert_some_bits, BitConversionTriple, LocalBitConverter},
             MatchKey, RecordId,
         },
         rand::{thread_rng, Rng},
@@ -276,7 +297,7 @@ mod tests {
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let v = ctx.validator();
-                let bits = convert_all_bits(v.context(), once(ready(mk_share)))
+                let bits = convert_some_bits(v.context(), once(ready(mk_share)), 0..1)
                     .try_collect::<Vec<_>>()
                     .await
                     .unwrap();
@@ -297,7 +318,7 @@ mod tests {
         let result: [Replicated<Fp31>; 3] = world
             .malicious(match_key, |ctx, mk_share| async move {
                 let v = ctx.validator();
-                let m_bit = convert_all_bits(v.context(), once(ready(mk_share)))
+                let m_bit = convert_some_bits(v.context(), once(ready(mk_share)), 0..1)
                     .try_collect::<Vec<_>>()
                     .await
                     .unwrap();
@@ -352,15 +373,14 @@ mod tests {
             let match_key = rng.gen::<MatchKey>();
             world
                 .malicious(match_key, |ctx, mk_share| async move {
-                    let triple = LocalBitConverter::<Fp32BitPrime, MatchKey, _>::new(
+                    let triples = LocalBitConverter::<Fp32BitPrime, Replicated<MatchKey>, _>::new(
                         ctx.role(),
                         once(ready(mk_share)),
+                        0..1,
                     )
-                    .next()
-                    .await
-                    .unwrap()
-                    .remove(0);
-                    let tweaked = tweak.flip_bit(ctx.role(), triple);
+                    .collect::<Vec<_>>()
+                    .await;
+                    let tweaked = tweak.flip_bit(ctx.role(), triples.remove(0).remove(0));
 
                     let v = ctx.validator();
                     let m_ctx = v.context().set_total_records(1);

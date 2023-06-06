@@ -5,7 +5,7 @@ use ipa::{
     helpers::GatewayConfig,
     protocol::{
         context::{Context, Validator},
-        modulus_conversion::{convert_all_bits, LocalBitConverter},
+        modulus_conversion::{convert_some_bits, LocalBitConverter},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
     },
@@ -37,13 +37,12 @@ async fn main() -> Result<(), Error> {
 
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits::<BenchField, _, _>(
+            convert_some_bits::<BenchField, _, _>(
                 &ctx,
                 &LocalBitConverter::new(ctx.role(), iter(match_key))
                     .collect::<Vec<_>>()
                     .await,
                 Gf40Bit::BITS,
-                NUM_MULTI_BITS,
             )
             .await
             .unwrap()

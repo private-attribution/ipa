@@ -1,21 +1,21 @@
+use std::{iter::from_fn, marker::PhantomData};
+
 use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        context::{Context, UpgradedContext},
-        modulus_conversion::{convert_all_bits, BitConversionTriple, ToBitConversionTriples},
-        prss::{IndexedSharedRandomness, SharedRandomness},
+        basics::SecureMul,
+        context::{prss::InstrumentedIndexedSharedRandomness, Context, UpgradedContext},
+        modulus_conversion::{convert_some_bits, BitConversionTriple, ToBitConversionTriples},
+        prss::SharedRandomness,
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
         SharedValue,
     },
 };
-use futures::{
-    future::ready,
-    stream::{once, unfold, Stream},
-};
+use futures::stream::{iter as stream_iter, Stream, StreamExt};
 
 struct RawRandomBits {
     // TODO: use a const generic instead of a field, when generic_const_expr hits stable.
@@ -25,52 +25,80 @@ struct RawRandomBits {
 }
 
 impl RawRandomBits {
-    fn generate<C: UpgradedContext<F>, F: PrimeField>(
-        prss: &IndexedSharedRandomness,
+    fn generate<F: PrimeField>(
+        prss: &InstrumentedIndexedSharedRandomness,
         record_id: RecordId,
     ) -> Self {
         assert!(<F as SharedValue>::BITS <= u64::BITS);
         let (left, right) = prss.generate_values(record_id);
         Self {
             count: <F as SharedValue>::BITS,
-            left,
-            right,
+            left: left as u64,
+            right: right as u64,
         }
     }
 }
 
 impl ToBitConversionTriples for RawRandomBits {
-    fn to_triples<F: PrimeField>(
+    // TODO const for this in place of the function
+    fn bits(&self) -> u32 {
+        self.count
+    }
+
+    fn triple<F: PrimeField>(
         &self,
         role: crate::helpers::Role,
-    ) -> Vec<BitConversionTriple<Replicated<F>>> {
+        i: u32,
+    ) -> BitConversionTriple<Replicated<F>> {
         debug_assert!(F::BITS >= self.count);
-        (0..self.count)
-            .map(|i| BitConversionTriple::new(role, (self.left >> i) == 1, (self.right >> i) == 1))
-            .collect::<Vec<_>>()
+        BitConversionTriple::new(role, (self.left >> i) == 1, (self.right >> i) == 1)
+    }
+}
+
+struct RawRandomBitIter<F, C> {
+    ctx: C,
+    record_id: RecordId,
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField, C: Context> Iterator for RawRandomBitIter<F, C> {
+    type Item = RawRandomBits;
+    fn next(&mut self) -> Option<Self::Item> {
+        let v = RawRandomBits::generate::<F>(&self.ctx.prss(), self.record_id);
+        self.record_id += 1;
+        Some(v)
     }
 }
 
 /// Produce a stream of random bits using the provided context.
-pub fn random_bits<C: UpgradedContext<F>, F: PrimeField>(
-    ctx: C,
-) -> impl Stream<Item = Result<Vec<C::Share>, Error>> {
-    let randomness = unfold((ctx.clone().prss(), 0), |(prss, i)| {
-        Some((RawRandomBits::generate(&prss, i), (prss, i + 1)))
-    })
-    .take(
-        ctx.total_records()
-            .count()
-            .expect("random_bits needs a fixed number of records"),
-    );
-    convert_all_bits(ctx, randomness)
+pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<Vec<C::Share>, Error>>
+where
+    F: PrimeField,
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F> + SecureMul<C>,
+{
+    let iter = RawRandomBitIter::<F, C> {
+        ctx: ctx.clone(),
+        record_id: RecordId(0),
+        _f: PhantomData,
+    };
+    convert_some_bits(ctx, stream_iter(iter), 0..F::BITS)
 }
 
-// TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner
-pub async fn one_random_bit<C: UpgradedContext<F>, F: PrimeField>(
-    ctx: C,
-    record_id: RecordId,
-) -> Result<Vec<C::Share>, Error> {
-    let randomness = once(ready(RawRandomBits::generate(&ctx.prss(), record_id)));
-    convert_all_bits(ctx, randomness).next().await
+// TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner)
+pub async fn one_random_bit<F, C>(ctx: C, record_id: RecordId) -> Result<Vec<C::Share>, Error>
+where
+    F: PrimeField,
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F> + SecureMul<C>,
+{
+    let iter = RawRandomBitIter::<F, C> {
+        ctx: ctx.clone(),
+        record_id,
+        _f: PhantomData,
+    };
+    Box::pin(convert_some_bits(ctx, stream_iter(iter), 0..F::BITS))
+        .next()
+        .await
+        .unwrap()
 }

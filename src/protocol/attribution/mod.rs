@@ -42,7 +42,7 @@ use futures::{
 };
 use std::iter::{empty, once, zip};
 
-use super::modulus_conversion::convert_all_bits;
+use super::modulus_conversion::convert_some_bits;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -77,10 +77,11 @@ where
 
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
     let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
-    let helper_bits = convert_all_bits(m_ctx.clone(), stream_iter(validated_helper_bits_gf2))
-        .map_ok(|b| b.into_iter().next().unwrap())
-        .try_collect::<Vec<_>>()
-        .await?;
+    let helper_bits =
+        convert_some_bits(m_ctx.clone(), stream_iter(validated_helper_bits_gf2), 0..1)
+            .map_ok(|b| b.into_iter().next().unwrap())
+            .try_collect::<Vec<_>>()
+            .await?;
 
     let is_trigger_bits = sorted_rows
         .iter()

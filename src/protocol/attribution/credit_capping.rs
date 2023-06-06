@@ -33,7 +33,7 @@ pub async fn credit_capping<F, C, S>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, S>>, Error>
 where
     F: PrimeField,
-    C: UpgradedContext<F>,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
@@ -245,17 +245,17 @@ where
     .await
 }
 
-async fn report_level_capping<F, C, T>(
+async fn report_level_capping<F, C, S>(
     ctx: C,
-    original_credits: &[T],
+    original_credits: &[S],
     cap: u32,
-) -> Result<Vec<T>, Error>
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
-    C: UpgradedContext<F>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let share_of_cap = T::share_known_value(&ctx, F::truncate_from(cap));
+    let share_of_cap = S::share_known_value(&ctx, F::truncate_from(cap));
     let cap_ref = &share_of_cap;
     let exceeds_cap_bits =
         is_credit_larger_than_cap(ctx.narrow(&Step::ReportLevelCapping), original_credits, cap)
@@ -299,15 +299,15 @@ where
     Ok(credits)
 }
 
-async fn is_credit_larger_than_cap<F, C, T>(
+async fn is_credit_larger_than_cap<F, C, S>(
     ctx: C,
-    prefix_summed_credits: &[T],
+    prefix_summed_credits: &[S],
     cap: u32,
-) -> Result<Vec<T>, Error>
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
-    C: UpgradedContext<F>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(prefix_summed_credits.len());
@@ -498,7 +498,7 @@ mod tests {
                 input::{CreditCappingInputRow, MCCreditCappingInputRow, MCCreditCappingOutputRow},
             },
             context::{UpgradableContext, Validator},
-            modulus_conversion::convert_all_bits,
+            modulus_conversion::convert_some_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
@@ -522,10 +522,11 @@ mod tests {
                     // Investigate taking `AsRef<Replicated<F>>` to avoid this clone.
                     let bk_shares = stream_iter(input.iter().map(|x| x.breakdown_key.clone()));
 
-                    let converted_bk_shares = convert_all_bits(ctx.clone(), bk_shares)
-                        .try_collect::<Vec<_>>()
-                        .await
-                        .unwrap();
+                    let converted_bk_shares =
+                        convert_some_bits(ctx.clone(), bk_shares, 0..BreakdownKey::BITS)
+                            .try_collect::<Vec<_>>()
+                            .await
+                            .unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

@@ -29,16 +29,16 @@ impl BitDecomposition {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<F, S, C>(
+    pub async fn execute<F, C, S>(
         ctx: C,
         record_id: RecordId,
-        rbg: &RandomBitsGenerator<F, S, C>,
+        rbg: &RandomBitsGenerator<F, C, S>,
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
         F: PrimeField,
+        C: UpgradedContext<F, Share = S>,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-        C: UpgradedContext<F>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
@@ -104,7 +104,9 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
-            boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
+            boolean::random_bits_generator::RandomBitsGenerator,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
         },
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
@@ -128,7 +130,8 @@ mod tests {
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                let ctx = ctx.set_total_records(1);
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(1);
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
                 BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
                     .await

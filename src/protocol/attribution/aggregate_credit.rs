@@ -32,6 +32,7 @@ use crate::{
         Linear as LinearSecretSharing,
     },
 };
+use futures::stream::iter as stream_iter;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
@@ -286,7 +287,7 @@ where
     unique_breakdown_keys
 }
 
-async fn sort_by_breakdown_key<C, S, F>(
+async fn sort_by_breakdown_key<F, C, S>(
     ctx: C,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u32,
@@ -299,10 +300,10 @@ async fn sort_by_breakdown_key<C, S, F>(
     Error,
 >
 where
+    F: PrimeField + ExtendableField,
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
-    F: PrimeField + ExtendableField,
     for<'a> UpgradeContext<'a, C::UpgradedContext<F>, F>: UpgradeToMalicious<
         'a,
         Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
@@ -310,21 +311,17 @@ where
     >,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
-    let breakdown_keys = input
-        .iter()
-        .map(|x| x.breakdown_key.clone())
-        .collect::<Vec<_>>();
+    let breakdown_keys = stream_iter(input.iter().map(|x| x.breakdown_key.clone()));
 
     // We only need to run a radix sort on the bits used by all possible
     // breakdown key values.
     let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
-    let breakdown_keys =
-        split_into_multi_bit_slices(&breakdown_keys, valid_bits_count, num_multi_bits);
-
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        breakdown_keys.iter(),
+        breakdown_keys,
+        num_multi_bits,
+        valid_bits_count,
     )
     .await?;
 
@@ -359,16 +356,11 @@ where
     F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
-    // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
-    // field and wrap it in another vector.
-    let aggregation_bits = [input
-        .iter()
-        .map(|x| vec![x.aggregation_bit.clone()])
-        .collect::<Vec<_>>()];
-
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits.iter(),
+        stream_iter(input.iter().map(|x| x.aggregation_bit.clone())),
+        1,
+        1,
     )
     .await?;
 
@@ -426,7 +418,7 @@ mod tests {
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
             context::{Context, UpgradableContext, Validator},
-            modulus_conversion::convert_all_bits,
+            modulus_conversion::convert_some_bits,
             BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
@@ -484,11 +476,14 @@ mod tests {
                     let validator = ctx.validator::<Fp32BitPrime>();
                     let u_ctx = validator.context();
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
-                    let converted_bk_shares =
-                        convert_all_bits(u_ctx.clone(), stream_iter(bk_shares))
-                            .try_collect::<Vec<_>>()
-                            .await
-                            .unwrap();
+                    let converted_bk_shares = convert_some_bits(
+                        u_ctx.clone(),
+                        stream_iter(bk_shares),
+                        0..BreakdownKey::BITS,
+                    )
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

@@ -24,6 +24,7 @@ use std::fmt::Debug;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
+    ModulusConversion,
     BitPermutationStep,
     ApplyInv,
     ComposeStep,
@@ -38,6 +39,7 @@ impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
         const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
         match self {
+            Self::ModulusConversion => "convert",
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",

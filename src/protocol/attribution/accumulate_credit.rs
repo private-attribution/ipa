@@ -174,7 +174,7 @@ mod tests {
             },
             basics::Reshare,
             context::{Context, UpgradableContext, Validator},
-            modulus_conversion::convert_all_bits,
+            modulus_conversion::convert_some_bits,
             BreakdownKey, MatchKey, RecordId,
         },
         rand::thread_rng,
@@ -197,13 +197,17 @@ mod tests {
                 input,
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
-                    let _validator = &ctx.validator();
-                    let ctx = _validator.context(); // Ignore the validator for this test.
+                    let validator = &ctx.validator();
+                    let ctx = validator.context(); // Ignore the validator for this test.
 
-                    let converted_bk_shares = convert_all_bits(ctx.clone(), stream_iter(bk_shares))
-                        .try_collect::<Vec<_>>()
-                        .await
-                        .unwrap();
+                    let converted_bk_shares = convert_some_bits(
+                        ctx.clone(),
+                        stream_iter(bk_shares),
+                        0..BreakdownKey::BITS,
+                    )
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
@@ -429,10 +433,11 @@ mod tests {
                         let v = ctx.validator();
                         let u_ctx = v.context();
                         let bk_shares = iter::once(share.breakdown_key);
-                        let converted_bk_shares = convert_all_bits(u_ctx, stream_iter(bk_shares))
-                            .try_collect::<Vec<_>>()
-                            .await
-                            .unwrap();
+                        let converted_bk_shares =
+                            convert_some_bits(u_ctx, stream_iter(bk_shares), 0..BreakdownKey::BITS)
+                                .try_collect::<Vec<_>>()
+                                .await
+                                .unwrap();
                         let modulus_converted_share = MCAccumulateCreditInputRow::new(
                             share.is_trigger_report,
                             share.helper_bit,

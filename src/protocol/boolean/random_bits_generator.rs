@@ -22,7 +22,7 @@ use std::{
 /// This object is safe to share with multiple threads.  It uses an atomic counter
 /// to manage concurrent accesses.
 #[derive(Debug)]
-pub struct RandomBitsGenerator<F, S, C> {
+pub struct RandomBitsGenerator<F, C, S> {
     ctx: C,
     fallback_ctx: C,
     fallback_count: AtomicU32,
@@ -42,11 +42,11 @@ impl AsRef<str> for FallbackStep {
 
 impl Step for FallbackStep {}
 
-impl<F, S, C> RandomBitsGenerator<F, S, C>
+impl<F, C, S> RandomBitsGenerator<F, C, S>
 where
     F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: UpgradedContext<F>,
 {
     #[must_use]
     pub fn new(ctx: C) -> Self {
@@ -115,7 +115,9 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::default();
-        let [c0, c1, c2] = world.contexts().map(|ctx| ctx.set_total_records(1));
+        let contexts = world.contexts().map(|ctx| ctx.set_total_records(1));
+        let validators = contexts.map(|ctx| ctx.validator());
+        let [c0, c1, c2] = validators.map(|v| v.context());
         let record_id = RecordId::from(0);
 
         let rbg0 = RandomBitsGenerator::new(c0);
@@ -145,7 +147,10 @@ mod tests {
         for _ in 0..OUTER {
             let v = world
                 .semi_honest((), |ctx, _| async move {
-                    let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
+                    let validator = ctx.validator();
+                    let ctx = validator
+                        .context()
+                        .set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
                         // This can't use `seq_try_join_all` because this isn't sequential.

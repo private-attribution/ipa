@@ -77,14 +77,14 @@ where
 // number that has the same number of bits as the prime.
 // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
 // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
-pub async fn solved_bits<F, S, C>(
+pub async fn solved_bits<F, C, S>(
     ctx: C,
     record_id: RecordId,
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: UpgradedContext<F>,
 {
     //
     // step 1 & 2
@@ -152,7 +152,11 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
-        protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
+        protocol::{
+            boolean::solved_bits::solved_bits,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
+        },
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
@@ -171,8 +175,10 @@ mod tests {
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(COUNT);
                 ctx.try_join(
-                    repeat(ctx.set_total_records(COUNT))
+                    repeat(ctx.clone())
                         .take(COUNT)
                         .enumerate()
                         .map(|(i, ctx)| solved_bits(ctx, RecordId::from(i))),
