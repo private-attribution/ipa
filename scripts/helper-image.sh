@@ -3,10 +3,13 @@
 set -eou pipefail
 
 help() {
-  echo "Usage: $0 --hostname [hostname] --identity [1|2|3]"
+  echo "Usage: $0 --hostname [hostname] --identity [1|2|3] --platform [platform]"
   echo "- hostname: public hostname that will appear on TLS certificate"
   echo "- identity: helper identity to be fixed inside the IPA build"
+  echo "- platform: the platform for the helper image, defaults to linux/amd64"
 }
+
+platform="linux/amd64"
 
 parse_args() {
   while [ "${1:-}" != "" ]; do
@@ -18,6 +21,10 @@ parse_args() {
       --hostname)
         shift
         hostname="$1"
+        ;;
+      --platform)
+        shift
+        platform="$1"
         ;;
       *)
       # unknown option
@@ -45,7 +52,7 @@ tar -cvzf - --exclude-from="docker/.dockerignore" ./* \
   | docker build \
     -t "$tag" \
     -f docker/helper.Dockerfile \
-    --platform linux/amd64 \
+    --platform "$platform" \
     --progress=plain --no-cache \
     --build-arg IDENTITY="$identity" \
     --build-arg HOSTNAME="$hostname" -
