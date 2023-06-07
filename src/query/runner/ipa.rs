@@ -20,24 +20,9 @@ use futures::StreamExt;
 use std::marker::PhantomData;
 use typenum::Unsigned;
 
-pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>)
-where
-    F: PrimeField,
-    AdditiveShare<F>: Serializable,
-    C: UpgradableContext,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable,
-    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable;
+pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>);
 
-impl<F, C, S> IpaQuery<F, C, S>
-where
-    F: PrimeField,
-    AdditiveShare<F>: Serializable,
-    C: UpgradableContext,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable,
-    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
-{
+impl<F, C, S> IpaQuery<F, C, S> {
     pub fn new(config: IpaQueryConfig) -> Self {
         Self(config, PhantomData)
     }
