@@ -235,6 +235,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
+    #[tracing::instrument(name = "validate", skip_all, fields(step = %self.validate_ctx.step()))]
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;

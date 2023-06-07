@@ -44,6 +44,9 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[tracing::instrument(name = "aggregate_credit", skip_all)]
+// instrumenting this function makes the return type look bad to Clippy
+#[allow(clippy::type_complexity)]
 pub async fn aggregate_credit<C, V, F, BK, I, S>(
     validator: V,
     sh_ctx: C,

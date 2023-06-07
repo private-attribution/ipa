@@ -139,6 +139,8 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = %num_bits, parallel = %num_multi_bits, step = %ctx.step()))]
+// #[tracing::instrument("IpaQuery::execute", skip_all, fields(query_id = %self.0))]
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],

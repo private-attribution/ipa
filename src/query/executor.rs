@@ -77,7 +77,7 @@ pub fn execute(
     input: ByteArrStream,
 ) -> JoinHandle<QueryResult> {
     match (config.query_type, config.field_type) {
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+        #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestMultiply, FieldType::Fp31) => {
             do_query(config, gateway, input, |prss, gateway, input| {
                 Box::pin(execute_test_multiply::<crate::ff::Fp31>(
