@@ -98,7 +98,7 @@ fi
 
 for i in "${!hostnames[@]}"; do
   echo "Generating image #$((i + 1)): host: ${hostnames[$i]}, port: ${ports[$i]}"
-  ./helper-image.sh --hostname "${hostnames[$((i-1))]}" --identity "$((i + 1))"
+  ./helper-image.sh --hostname "${hostnames[$i]}" --identity "$((i + 1))"
 done
 
 
@@ -113,7 +113,7 @@ for ((i=1; i<=3; i++)); do
   docker run -i --name $copy_container_name  "$(image_tag "$i")" /usr/local/bin/ipa-helper confgen \
    --keys-dir /etc/ipa/pub \
    --hosts ${hostnames[*]} \
-   --ports 443 443 443 \
+   --ports ${ports[*]} \
     && docker commit $copy_container_name "$(image_tag "$i")" > /dev/null \
     && docker rm $copy_container_name > /dev/null || exit 1
 done;
