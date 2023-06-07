@@ -35,11 +35,12 @@ impl CsvExporter for Metrics {
         // then dump them to the provided Write interface
         // TODO: include role dimension. That requires rethinking `Metrics` implementation
         // because it does not allow such breakdown atm.
-        #[cfg(not(feature = "step-trace"))]
-        writeln!(
-            w,
-            "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS"
-        )?;
+        if self.print_header {
+            writeln!(
+                w,
+                "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS"
+            )?;
+        }
         for (step, stats) in steps_stats.all_steps() {
             writeln!(
                 w,
