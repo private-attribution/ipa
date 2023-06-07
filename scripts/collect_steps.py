@@ -24,7 +24,7 @@ QUERY_SIZE = 10
 PER_USER_CAP = [1, 3]
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
 ATTRIBUTION_WINDOW = [0, 86400]
-# breakdown_key_bits = [1, 32] runs an optimized protocol, and the steps generated
+# breakdown_key_bits = [1..32] runs an optimized protocol, and the steps generated
 # depend on the number of bits in the breakdown key. So we run the protocol with "8",
 # which is enough to generate all possible steps and sub-steps for the optimized case,
 # and "33" to cover the general case. See the comment below for more details.
