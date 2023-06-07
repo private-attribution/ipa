@@ -102,6 +102,8 @@ hex = "0.4"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"
+# std to use open/seal in unit tests
+hpke = { version = "0.10.0", default-features = false, features = ["x25519-dalek", "std"] }
 
 [profile.release]
 incremental = true
