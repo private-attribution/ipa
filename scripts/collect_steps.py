@@ -70,13 +70,6 @@ def remove_root_step_name_from_line(l):
     return l.split(",")[0][len(ROOT_STEP_PREFIX) + 1 :]
 
 
-def to_int_or(s):
-    try:
-        return int(s)
-    except ValueError:
-        return s
-
-
 def collect_steps(args):
     output = set()
     interaction_pattern_steps = set()
