@@ -97,7 +97,7 @@ fi
 
 for i in "${!hostnames[@]}"; do
   echo "Generating image #$((i + 1)): host: ${hostnames[$i]}, port: ${ports[$i]}"
-  ./helper-image.sh --hostname "${hostnames[$((i-1))]}" --identity "$i"
+  ./helper-image.sh --hostname "${hostnames[$((i-1))]}" --identity "$((i + 1))"
 done
 
 
