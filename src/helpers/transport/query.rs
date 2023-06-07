@@ -38,7 +38,7 @@ impl Default for QueryConfig {
             #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
             query_type: QueryType::TestMultiply,
             #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
-            query_type: QueryType::Ipa(IpaQueryConfig::default()),
+            query_type: QueryType::SemiHonestIpa(IpaQueryConfig::default()),
         }
     }
 }
@@ -160,12 +160,14 @@ impl QueryCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    Ipa(IpaQueryConfig),
+    SemiHonestIpa(IpaQueryConfig),
+    MaliciousIpa(IpaQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
-    pub const IPA_STR: &'static str = "ipa";
+    pub const SEMIHONEST_IPA_STR: &'static str = "semihonest-ipa";
+    pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -174,7 +176,8 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::Ipa(_) => Self::IPA_STR,
+            QueryType::SemiHonestIpa(_) => Self::SEMIHONEST_IPA_STR,
+            QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
         }
     }
 }
@@ -243,11 +246,5 @@ impl IpaQueryConfig {
             attribution_window_seconds: None,
             num_multi_bits,
         }
-    }
-}
-
-impl From<IpaQueryConfig> for QueryType {
-    fn from(value: IpaQueryConfig) -> Self {
-        QueryType::Ipa(value)
     }
 }

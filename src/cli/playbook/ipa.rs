@@ -18,7 +18,7 @@ use typenum::Unsigned;
 /// Semi-honest IPA protocol.
 /// Returns aggregated values per breakdown key represented as index in the returned vector
 #[allow(clippy::missing_panics_doc)]
-pub async fn semi_honest<F, MK, BK>(
+pub async fn playbook_ipa<F, MK, BK>(
     records: &[TestRawDataRecord],
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
