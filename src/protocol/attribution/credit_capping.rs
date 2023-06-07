@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, Gf2},
     protocol::{
         basics::{if_else, SecureMul},
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
@@ -27,15 +27,16 @@ use std::iter::{repeat, zip};
 /// Fails if the multiplication protocol fails, or if the `cap` is larger than
 /// 1/2 of the prime number.
 #[tracing::instrument(name = "user_capping", skip_all)]
-pub async fn credit_capping<F, C, S>(
+pub async fn credit_capping<F, C, S, U>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, S>],
+    input: &[MCCreditCappingInputRow<F, S, U>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F, S>>, Error>
+) -> Result<Vec<MCCreditCappingOutputRow<F, S, U>>, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -150,14 +151,15 @@ where
 /// is from the same `match-key`, and the prefix-OR indicates that there is *at least one* attributed conversion
 /// in the following rows, then the contribution is "capped", which in this context means set to zero.
 /// In this way, only the final attributed conversion will not be "capped".
-async fn credit_capping_max_one<F, C, T>(
+async fn credit_capping_max_one<F, C, T, U>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + '_, Error>
+    input: &[MCCreditCappingInputRow<F, T, U>],
+) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T, U>> + '_, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     let input_len = input.len();
 
@@ -220,14 +222,15 @@ where
     Ok(output)
 }
 
-async fn mask_source_credits<F, C, T>(
-    input: &[MCCreditCappingInputRow<F, T>],
+async fn mask_source_credits<F, C, T, U>(
+    input: &[MCCreditCappingInputRow<F, T, U>],
     ctx: C,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     ctx.try_join(
         input
@@ -276,15 +279,16 @@ where
     .await
 }
 
-async fn credit_prefix_sum<'a, F, C, T, I>(
+async fn credit_prefix_sum<'a, F, C, T, U, I>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, U>],
     original_credits: I,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + SecureMul<C> + 'a,
+    U: LinearSecretSharing<Gf2>,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -335,15 +339,16 @@ where
         .await
 }
 
-async fn propagate_overflow_detection<F, C, T>(
+async fn propagate_overflow_detection<F, C, T, U>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, U>],
     exceeds_cap_bits: Vec<T>,
 ) -> Result<Vec<T>, Error>
 where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     let helper_bits = input
         .iter()
@@ -359,9 +364,9 @@ where
     .await
 }
 
-async fn compute_final_credits<F, C, T>(
+async fn compute_final_credits<F, C, T, U>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[MCCreditCappingInputRow<F, T, U>],
     prefix_summed_credits: &[T],
     exceeds_cap_bits: &[T],
     original_credits: &[T],
@@ -371,6 +376,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     let num_rows = input.len();
     let cap_share = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());
@@ -492,7 +498,7 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         credit_capping_test_input,
-        ff::{Field, Fp32BitPrime, PrimeField},
+        ff::{Field, Fp32BitPrime, PrimeField, Gf2},
         protocol::{
             attribution::{
                 credit_capping::credit_capping,
@@ -509,7 +515,7 @@ mod tests {
     async fn run_credit_capping_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
         cap: u32,
-    ) -> [Vec<MCCreditCappingOutputRow<Fp32BitPrime, AdditiveShare<Fp32BitPrime>>>; 3] {
+    ) -> [Vec<MCCreditCappingOutputRow<Fp32BitPrime, AdditiveShare<Fp32BitPrime>, AdditiveShare<Gf2>>>; 3] {
         let world = TestWorld::default();
         world
             .semi_honest(

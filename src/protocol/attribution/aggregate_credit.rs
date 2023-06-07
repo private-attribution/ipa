@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable, Gf2},
     protocol::{
         attribution::{
             do_the_binary_tree_thing,
@@ -47,7 +47,7 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 #[tracing::instrument(name = "aggregate_credit", skip_all)]
 // instrumenting this function makes the return type look bad to Clippy
 #[allow(clippy::type_complexity)]
-pub async fn aggregate_credit<C, V, F, BK, I, S>(
+pub async fn aggregate_credit<C, V, F, U, BK, I, S>(
     validator: V,
     sh_ctx: C,
     capped_credits: I,
@@ -59,11 +59,12 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     V: Validator<C, F>,
     F: PrimeField + ExtendableField,
+    U: LinearSecretSharing<Gf2>,
     BK: GaloisField,
-    I: Iterator<Item = MCAggregateCreditInputRow<F, S>>,
+    I: Iterator<Item = MCAggregateCreditInputRow<F, S, U>>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
-    MCCappedCreditsWithAggregationBit<F, S>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    MCCappedCreditsWithAggregationBit<F, S, U>:
+        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     let m_ctx = validator.context();
@@ -73,7 +74,7 @@ where
         return Ok((validator, res));
     }
 
-    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
+    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK, U>(
         &m_ctx,
         capped_credits,
         max_breakdown_key,
@@ -149,14 +150,15 @@ where
     Ok((malicious_validator, result))
 }
 
-async fn simple_aggregate_credit<F, C, I, T, BK>(
+async fn simple_aggregate_credit<F, C, I, T, BK, U>(
     ctx: C,
     capped_credits: I,
     max_breakdown_key: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, T, BK>>, Error>
 where
     F: Field,
-    I: Iterator<Item = MCAggregateCreditInputRow<F, T>>,
+    U: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+    I: Iterator<Item = MCAggregateCreditInputRow<F, T, U>>,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable,
     BK: GaloisField,
@@ -197,6 +199,10 @@ where
                                 let step = BitOpStep::from(check_idx);
                                 let c = c2.narrow(&step);
                                 let record_id = RecordId::from(i);
+                                /// 
+                                /// TODO: modulus convert "check" to an element in the large prime field here!
+                                ///
+                                /// 
                                 async move { check.multiply(credit, c, record_id).await }
                             },
                         ))
@@ -235,19 +241,20 @@ where
         .collect())
 }
 
-fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
+fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK, U>(
     ctx: &C,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T, U>>,
     max_breakdown_key: u32,
-) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
+) -> Vec<MCCappedCreditsWithAggregationBit<F, T, U>>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
     BK: GaloisField,
 {
-    let zero = T::ZERO;
-    let one = T::share_known_value(ctx, F::ONE);
+    let zero = U::ZERO;
+    let one = U::share_known_value(ctx, U::ONE);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
     // Since we cannot see the actual breakdown key values, we'll need to
@@ -289,15 +296,15 @@ where
     unique_breakdown_keys
 }
 
-async fn sort_by_breakdown_key<C, S, F>(
+async fn sort_by_breakdown_key<C, S, F, U>(
     ctx: C,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
     max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<
     (
         C::Validator<F>,
-        Vec<MCCappedCreditsWithAggregationBit<F, S>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, S, U>>,
     ),
     Error,
 >
@@ -305,11 +312,12 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
+    U: LinearSecretSharing<Gf2>,
     F: PrimeField + ExtendableField,
     for<'a> UpgradeContext<'a, C::UpgradedContext<F>, F>: UpgradeToMalicious<
         'a,
-        Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-        Vec<MCCappedCreditsWithAggregationBit<F, S>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, S, U>>,
     >,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
@@ -345,13 +353,13 @@ where
     ))
 }
 
-async fn sort_by_aggregation_bit<C, S, F>(
+async fn sort_by_aggregation_bit<C, S, F, U>(
     ctx: C,
-    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
 ) -> Result<
     (
         C::Validator<F>,
-        Vec<MCCappedCreditsWithAggregationBit<F, S>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, S, U>>,
     ),
     Error,
 >

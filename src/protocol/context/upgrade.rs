@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     protocol::{
         attribution::input::MCCappedCreditsWithAggregationBit,
         basics::ZeroPositions,
@@ -369,63 +369,63 @@ impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
     }
 }
 
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-        MCCappedCreditsWithAggregationBit<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-    ) -> Result<MCCappedCreditsWithAggregationBit<F, C::Share>, Error> {
-        let ctx_ref = &self.ctx;
-        let breakdown_key = ctx_ref
-            .parallel_join(input.breakdown_key.into_iter().enumerate().map(
-                |(idx, bit)| async move {
-                    ctx_ref
-                        .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                        .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                        .await
-                },
-            ))
-            .await?;
+// #[async_trait]
+// impl<'a, C, F>
+//     UpgradeToMalicious<
+//         'a,
+//         MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>,
+//         MCCappedCreditsWithAggregationBit<F, C::Share>,
+//     > for UpgradeContext<'a, C, F, RecordId>
+// where
+//     C: UpgradedContext<F>,
+//     C::Share: LinearSecretSharing<F>,
+//     F: ExtendableField,
+// {
+//     async fn upgrade(
+//         self,
+//         input: MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>,
+//     ) -> Result<MCCappedCreditsWithAggregationBit<F, C::Share>, Error> {
+//         let ctx_ref = &self.ctx;
+//         let breakdown_key = ctx_ref
+//             .parallel_join(input.breakdown_key.into_iter().enumerate().map(
+//                 |(idx, bit)| async move {
+//                     ctx_ref
+//                         .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
+//                         .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
+//                         .await
+//                 },
+//             ))
+//             .await?;
 
-        let helper_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
-            .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
-            .await?;
+//         let helper_bit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
+//             .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
+//             .await?;
 
-        let aggregation_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
-            .upgrade_one(
-                self.record_binding,
-                input.aggregation_bit,
-                ZeroPositions::Pvvv,
-            )
-            .await?;
+//         let aggregation_bit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
+//             .upgrade_one(
+//                 self.record_binding,
+//                 input.aggregation_bit,
+//                 ZeroPositions::Pvvv,
+//             )
+//             .await?;
 
-        let credit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
-            .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
-            .await?;
-        Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
-        ))
-    }
-}
+//         let credit = self
+//             .ctx
+//             .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
+//             .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
+//             .await?;
+//         Ok(MCCappedCreditsWithAggregationBit::new(
+//             helper_bit,
+//             aggregation_bit,
+//             breakdown_key,
+//             credit,
+//         ))
+//     }
+// }
 
 // Impl for upgrading things that can be upgraded using a single record ID using a non-record-bound
 // context. This is only used for tests where the protocol takes a single `Replicated<F>` input.

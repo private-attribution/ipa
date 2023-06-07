@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, Gf2},
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -23,16 +23,17 @@ use std::num::NonZeroU32;
 ///
 /// This method implements "last touch" attribution, so only the last `source report` before a `trigger report`
 /// will receive any credit.
-async fn accumulate_credit_cap_one<'a, F, C, T>(
+async fn accumulate_credit_cap_one<'a, F, C, T, U>(
     ctx: C,
-    input: &'a [MCAccumulateCreditInputRow<F, T>],
+    input: &'a [MCAccumulateCreditInputRow<F, T, U>],
     stop_bits: &'a [T],
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + 'a, Error>
+) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T, U>> + 'a, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     // if `attribution_window_seconds` is not set, we use `stop_bits` directly. Otherwise, we need to invalidate
     // reports that are outside the attribution window by multiplying them by `active_bit`. active_bit is
@@ -85,17 +86,18 @@ where
 ///
 /// Fails if the multiplication fails.
 #[tracing::instrument(name = "accumulate_credit", skip_all)]
-pub async fn accumulate_credit<F, C, T>(
+pub async fn accumulate_credit<F, C, T, U>(
     ctx: C,
-    input: &[MCAccumulateCreditInputRow<F, T>],
+    input: &[MCAccumulateCreditInputRow<F, T, U>],
     stop_bits: &[T],
     per_user_credit_cap: u32,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+) -> Result<Vec<MCAccumulateCreditOutputRow<F, T, U>>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     if per_user_credit_cap == 1 {
         return Ok(
@@ -164,7 +166,7 @@ mod tests {
 
     use crate::{
         accumulation_test_input,
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, Gf2},
         helpers::Role,
         protocol::{
             attribution::{
@@ -190,7 +192,7 @@ mod tests {
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
         cap: u32,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] {
+    ) -> [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>, Replicated<Gf2>>>; 3] {
         let world = TestWorld::default();
 
         world

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, Gf2},
     protocol::{
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
@@ -24,15 +24,16 @@ use std::{
 /// # Errors
 /// Fails if sub-protocols fails.
 #[tracing::instrument(name = "apply_window", skip_all)]
-pub async fn apply_attribution_window<C, S, F>(
+pub async fn apply_attribution_window<C, S, F, U>(
     ctx: C,
-    input: &[MCApplyAttributionWindowInputRow<F, S>],
+    input: &[MCApplyAttributionWindowInputRow<F, S, U>],
     stop_bits: &[S],
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
+) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S, U>>, Error>
 where
     C: Context + RandomBits<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
+    U: LinearSecretSharing<Gf2>,
     F: PrimeField,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
@@ -80,15 +81,16 @@ where
 ///
 /// # Errors
 /// Fails if the multiplication fails.
-async fn prefix_sum_time_deltas<F, C, T>(
+async fn prefix_sum_time_deltas<F, C, T, U>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[MCApplyAttributionWindowInputRow<F, T, U>],
     stop_bits: &[T],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     let num_rows = input.len();
 
@@ -138,9 +140,9 @@ where
 ///
 /// # Errors
 /// Fails if the bit-decomposition, bitwise comparison, or multiplication fails.
-async fn zero_out_expired_trigger_values<F, C, T>(
+async fn zero_out_expired_trigger_values<F, C, T, U>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[MCApplyAttributionWindowInputRow<F, T, U>],
     time_delta: &mut [T],
     cap: u32,
 ) -> Result<Vec<(T, T)>, Error>
@@ -148,6 +150,7 @@ where
     F: PrimeField,
     C: Context + RandomBits<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    U: LinearSecretSharing<Gf2>,
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =
