@@ -70,6 +70,7 @@ copy_file() {
   done;
 }
 
+current_dir=$(pwd)
 cd "$(dirname "$0")" || exit 1
 
 cleanup
@@ -119,7 +120,7 @@ done;
 
 # make 3 tar files to upload them to the destinations
 for ((i=1; i<=3; i++)); do
-  docker save -o ipa-"$i".tar "$(image_tag "$i")"
+  docker save -o "$current_dir"/ipa-"$i".tar "$(image_tag "$i")"
 done;
 
 
