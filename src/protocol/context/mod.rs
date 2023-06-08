@@ -23,7 +23,7 @@ pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHone
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
 
-use super::step::{GateImpl, StepNarrow};
+use super::step::{Gate, StepNarrow};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -33,7 +33,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    fn gate(&self) -> &GateImpl;
+    fn gate(&self) -> &Gate;
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
@@ -171,7 +171,7 @@ pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<Inner<'a>>,
-    gate: GateImpl,
+    gate: Gate,
     total_records: TotalRecords,
 }
 
@@ -180,7 +180,7 @@ impl<'a> Base<'a> {
         Self::new_complete(
             participant,
             gateway,
-            GateImpl::default(),
+            Gate::default(),
             TotalRecords::Unspecified,
         )
     }
@@ -188,7 +188,7 @@ impl<'a> Base<'a> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        gate: GateImpl,
+        gate: Gate,
         total_records: TotalRecords,
     ) -> Self {
         Self {
@@ -204,7 +204,7 @@ impl<'a> Context for Base<'a> {
         self.inner.gateway.role()
     }
 
-    fn gate(&self) -> &GateImpl {
+    fn gate(&self) -> &Gate {
         &self.gate
     }
 
@@ -399,7 +399,7 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = GateImpl::default()
+        let metrics_step = Gate::default()
             .narrow(&TestWorld::execution_step(0))
             .narrow("metrics");
 
@@ -456,7 +456,7 @@ mod tests {
             })
             .await;
 
-        let metrics_step = GateImpl::default()
+        let metrics_step = Gate::default()
             .narrow(&TestWorld::execution_step(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)

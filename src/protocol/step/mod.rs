@@ -3,7 +3,7 @@ mod descriptive;
 pub use descriptive::Descriptive;
 use std::fmt::Debug;
 
-pub type GateImpl = Descriptive;
+pub type Gate = Descriptive;
 
 pub trait StepNarrow<S: Step + ?Sized> {
     #[must_use]

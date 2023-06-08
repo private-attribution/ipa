@@ -5,7 +5,7 @@ use crate::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    protocol::{step::GateImpl, QueryId},
+    protocol::{step::Gate, QueryId},
 };
 use ::tokio::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -107,9 +107,9 @@ impl InMemoryTransport {
                             }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
-                                let step = addr.gate.unwrap();
+                                let gate = addr.gate.unwrap();
                                 let from = addr.origin.unwrap();
-                                streams.add_stream((query_id, from, step), stream);
+                                streams.add_stream((query_id, from, gate), stream);
                                 Ok(())
                             }
                             RouteId::PrepareQuery => {
@@ -166,7 +166,7 @@ impl Transport for Weak<InMemoryTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<GateImpl>: From<S>,
+        Option<Gate>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
@@ -189,7 +189,7 @@ impl Transport for Weak<InMemoryTransport> {
             .and_then(convert::identity)
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, GateImpl>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
         from: HelperIdentity,
         route: R,
@@ -259,7 +259,7 @@ struct Addr {
     route: RouteId,
     origin: Option<HelperIdentity>,
     query_id: Option<QueryId>,
-    gate: Option<GateImpl>,
+    gate: Option<Gate>,
     params: String,
 }
 
@@ -271,7 +271,7 @@ impl Addr {
     ) -> Self
     where
         Option<QueryId>: From<Q>,
-        Option<GateImpl>: From<S>,
+        Option<Gate>: From<S>,
     {
         Self {
             route: route.resource_identifier(),
@@ -287,7 +287,7 @@ impl Addr {
     }
 
     #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
-    fn records(from: HelperIdentity, query_id: QueryId, gate: GateImpl) -> Self {
+    fn records(from: HelperIdentity, query_id: QueryId, gate: Gate) -> Self {
         Self {
             route: RouteId::Records,
             origin: Some(from),
@@ -431,7 +431,7 @@ mod tests {
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, GateImpl::from(STEP)));
+        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -440,7 +440,7 @@ mod tests {
         ));
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, GateImpl::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
@@ -456,13 +456,13 @@ mod tests {
 
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, GateImpl::from(STEP)),
+            Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         )
         .await;
 
-        let stream = Arc::downgrade(&transport)
-            .receive(HelperIdentity::TWO, (QueryId, GateImpl::from(STEP)));
+        let stream =
+            Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -479,16 +479,16 @@ mod tests {
 
             let from_transport = transports.get(&from).unwrap();
             let to_transport = transports.get(&to).unwrap();
-            let step = GateImpl::from(STEP);
+            let gate = Gate::from(STEP);
 
-            let mut recv = to_transport.receive(from, (QueryId, step.clone()));
+            let mut recv = to_transport.receive(from, (QueryId, gate.clone()));
             assert!(matches!(
                 poll_immediate(&mut recv).next().await,
                 Some(Poll::Pending)
             ));
 
             from_transport
-                .send(to, (RouteId::Records, QueryId, step.clone()), stream)
+                .send(to, (RouteId::Records, QueryId, gate.clone()), stream)
                 .await
                 .unwrap();
             stream_tx.send(vec![1, 2, 3]).await.unwrap();
@@ -529,15 +529,15 @@ mod tests {
     async fn panic_if_stream_received_twice() {
         let (tx, owned_transport) =
             Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
-        let step = GateImpl::from(STEP);
+        let gate = Gate::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
 
-        let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
+        let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, gate.clone()));
         send_and_ack(
             &tx,
-            Addr::records(HelperIdentity::TWO, QueryId, step.clone()),
+            Addr::records(HelperIdentity::TWO, QueryId, gate.clone()),
             stream,
         )
         .await;
@@ -546,7 +546,7 @@ mod tests {
         assert_eq!(vec![4, 5, 6], recv_stream.next().await.unwrap());
 
         // the same stream cannot be received again
-        let mut err_recv = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
+        let mut err_recv = transport.receive(HelperIdentity::TWO, (QueryId, gate.clone()));
         let err = AssertUnwindSafe(err_recv.next()).catch_unwind().await;
         assert_eq!(
             Some(true),
@@ -557,7 +557,7 @@ mod tests {
 
         // even after the input stream is closed
         drop(stream_tx);
-        let mut err_recv = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
+        let mut err_recv = transport.receive(HelperIdentity::TWO, (QueryId, gate.clone()));
         let err = AssertUnwindSafe(err_recv.next()).catch_unwind().await;
         assert_eq!(
             Some(true),
@@ -578,16 +578,16 @@ mod tests {
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);
 
-        let step = GateImpl::from(STEP);
+        let gate = Gate::from(STEP);
         transport1
             .send(
                 HelperIdentity::TWO,
-                (RouteId::Records, QueryId, step.clone()),
+                (RouteId::Records, QueryId, gate.clone()),
                 rx,
             )
             .await
             .unwrap();
-        let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, step));
+        let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, gate));
 
         tx.send(0, Fp31::try_from(0_u128).unwrap()).await;
         // can't receive the value at index 0 because of buffering inside the sender

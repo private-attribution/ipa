@@ -13,7 +13,7 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{GateImpl, Step, StepNarrow},
+        step::{Gate, Step, StepNarrow},
         RecordId,
     },
     secret_sharing::replicated::{
@@ -68,7 +68,7 @@ impl<'a> super::Context for Context<'a> {
         self.inner.role()
     }
 
-    fn gate(&self) -> &GateImpl {
+    fn gate(&self) -> &Gate {
         self.inner.gate()
     }
 
@@ -138,7 +138,7 @@ pub struct Upgraded<'a, F: ExtendableField> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<UpgradedInner<'a, F>>,
-    gate: GateImpl,
+    gate: Gate,
     total_records: TotalRecords,
 }
 
@@ -242,7 +242,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         self.inner.gateway.role()
     }
 
-    fn gate(&self) -> &GateImpl {
+    fn gate(&self) -> &Gate {
         &self.gate
     }
 

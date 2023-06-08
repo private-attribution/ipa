@@ -41,7 +41,7 @@ mod tests {
             test::{body_stream, TestServer},
         },
         protocol::{
-            step::{GateImpl, StepNarrow},
+            step::{Gate, StepNarrow},
             QueryId,
         },
     };
@@ -58,7 +58,7 @@ mod tests {
     async fn step() {
         let TestServer { transport, .. } = TestServer::builder().build().await;
 
-        let step = GateImpl::default().narrow("test");
+        let step = Gate::default().narrow("test");
         let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
         let req = http_serde::query::step::Request::new(
             QueryId,
@@ -85,7 +85,7 @@ mod tests {
     struct OverrideReq {
         client_id: Option<ClientIdentity>,
         query_id: String,
-        gate: GateImpl,
+        gate: Gate,
         payload: Vec<u8>,
     }
 
@@ -110,7 +110,7 @@ mod tests {
             Self {
                 client_id: Some(ClientIdentity(HelperIdentity::ONE)),
                 query_id: QueryId.as_ref().to_string(),
-                gate: GateImpl::default().narrow("test"),
+                gate: Gate::default().narrow("test"),
                 payload: vec![1; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
             }
         }

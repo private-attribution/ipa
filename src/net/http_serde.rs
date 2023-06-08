@@ -402,7 +402,7 @@ pub mod query {
     pub mod step {
         use crate::{
             net::{http_serde::query::BASE_AXUM_PATH, Error},
-            protocol::{step::GateImpl, QueryId},
+            protocol::{step::Gate, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
@@ -415,12 +415,12 @@ pub mod query {
         #[derive(Debug)]
         pub struct Request<B> {
             pub query_id: QueryId,
-            pub gate: GateImpl,
+            pub gate: Gate,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(query_id: QueryId, gate: GateImpl, body: B) -> Self {
+            pub fn new(query_id: QueryId, gate: Gate, body: B) -> Self {
                 Self {
                     query_id,
                     gate,
