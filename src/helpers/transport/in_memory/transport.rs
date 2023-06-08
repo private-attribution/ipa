@@ -142,6 +142,11 @@ impl InMemoryTransport {
             })
             .clone()
     }
+
+    /// Resets this transport, making it forget its state and be ready for processing another query.
+    pub fn reset(&self) {
+        self.record_streams.clear();
+    }
 }
 
 #[async_trait]

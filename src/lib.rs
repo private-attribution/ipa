@@ -20,6 +20,7 @@ pub mod hpke;
 pub mod net;
 pub mod protocol;
 pub mod query;
+pub mod report;
 pub mod secret_sharing;
 pub mod telemetry;
 #[cfg(all(feature = "enable-serde", feature = "web-app"))]
@@ -71,12 +72,12 @@ pub(crate) mod rand {
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod task {
-    pub use shuttle::future::JoinHandle;
+    pub use shuttle::future::{JoinError, JoinHandle};
 }
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
-    pub use tokio::task::JoinHandle;
+    pub use tokio::task::{JoinError, JoinHandle};
 }
 
 #[cfg(all(feature = "in-memory-infra", feature = "real-world-infra"))]

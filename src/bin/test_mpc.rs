@@ -4,7 +4,7 @@ use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
-        playbook::{secure_mul, semi_honest, InputSource},
+        playbook::{playbook_ipa, secure_mul, InputSource},
         CsvSerializer, Verbosity,
     },
     config::{ClientConfig, NetworkConfig, PeerConfig},
@@ -14,7 +14,7 @@ use ipa::{
     protocol::{BreakdownKey, MatchKey, QueryId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{
-        ipa::{ipa_in_the_clear, TestRawDataRecord},
+        ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
     },
 };
@@ -87,8 +87,10 @@ impl From<&CommandInput> for InputSource {
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
-    /// Execute IPA in semi-honest majority setting
+    /// Execute IPA in semi-honest honest majority setting
     SemiHonestIpa(IpaQueryConfig),
+    /// Execute IPA in malicious honest majority setting
+    MaliciousIpa(IpaQueryConfig),
     /// Generate inputs for IPA
     GenIpaInputs {
         /// Number of records to generate
@@ -207,7 +209,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match args.action {
         TestAction::Multiply => multiply(&args, &make_clients().await).await,
         TestAction::SemiHonestIpa(config) => {
-            semi_honest_ipa(&args, &config, &make_clients().await).await
+            // semi_honest_ipa(&args, &config, &make_clients().await).await
+            ipa(
+                &args,
+                IpaSecurityModel::SemiHonest,
+                &config,
+                &make_clients().await,
+            )
+            .await
+        }
+        TestAction::MaliciousIpa(config) => {
+            // malicious_ipa(&args, &config, &make_clients().await).await
+            ipa(
+                &args,
+                IpaSecurityModel::Malicious,
+                &config,
+                &make_clients().await,
+            )
+            .await
         }
         TestAction::GenIpaInputs {
             count,
@@ -239,13 +258,23 @@ fn gen_inputs(
     Ok(())
 }
 
-async fn semi_honest_ipa(
+async fn ipa(
     args: &Args,
+    security_model: IpaSecurityModel,
     ipa_query_config: &IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
 ) {
     let input = InputSource::from(&args.input);
-    let query_type = QueryType::Ipa(ipa_query_config.clone());
+    let query_type: QueryType;
+    match security_model {
+        IpaSecurityModel::SemiHonest => {
+            query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
+        }
+        IpaSecurityModel::Malicious => {
+            query_type = QueryType::MaliciousIpa(ipa_query_config.clone())
+        }
+    };
+
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type,
@@ -270,11 +299,11 @@ async fn semi_honest_ipa(
 
     let actual = match args.input.field {
         FieldType::Fp31 => {
-            semi_honest::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id)
+            playbook_ipa::<Fp31, MatchKey, BreakdownKey>(&input_rows, &helper_clients, query_id)
                 .await
         }
         FieldType::Fp32BitPrime => {
-            semi_honest::<Fp32BitPrime, MatchKey, BreakdownKey>(
+            playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 &input_rows,
                 &helper_clients,
                 query_id,

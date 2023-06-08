@@ -92,6 +92,12 @@ impl TryFrom<usize> for HelperIdentity {
     }
 }
 
+impl From<HelperIdentity> for u8 {
+    fn from(value: HelperIdentity) -> Self {
+        value.id
+    }
+}
+
 impl Debug for HelperIdentity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(

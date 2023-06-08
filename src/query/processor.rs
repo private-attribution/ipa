@@ -1,4 +1,5 @@
 use crate::{
+    error::Error as ProtocolError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
@@ -7,12 +8,13 @@ use crate::{
     query::{
         executor,
         state::{QueryState, QueryStatus, RunningQueries, StateError},
-        ProtocolResult,
+        CompletionHandle, ProtocolResult,
     },
 };
 
 use futures_util::{future::try_join, stream};
 
+use crate::query::state::RemoveQuery;
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
@@ -84,6 +86,8 @@ pub enum QueryCompletionError {
         #[from]
         source: StateError,
     },
+    #[error("query execution failed: {0}")]
+    ExecutionError(#[from] ProtocolError),
 }
 
 impl Debug for Processor {
@@ -200,11 +204,7 @@ impl Processor {
                     );
                     queries.insert(
                         input.query_id,
-                        QueryState::Running(executor::start_query(
-                            config,
-                            gateway,
-                            input.input_stream,
-                        )),
+                        QueryState::Running(executor::execute(config, gateway, input.input_stream)),
                     );
                     Ok(())
                 } else {
@@ -241,7 +241,13 @@ impl Processor {
             match queries.remove(&query_id) {
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
-                    Ok(handle)
+                    CompletionHandle::new(
+                        RemoveQuery {
+                            query_id,
+                            queries: &self.queries,
+                        },
+                        handle,
+                    )
                 }
                 Some(state) => {
                     let state_error = StateError::InvalidState {
@@ -249,15 +255,15 @@ impl Processor {
                         to: QueryStatus::Running,
                     };
                     queries.insert(query_id, state);
-                    Err(QueryCompletionError::StateError {
+                    return Err(QueryCompletionError::StateError {
                         source: state_error,
-                    })
+                    });
                 }
-                None => Err(QueryCompletionError::NoSuchQuery(query_id)),
+                None => return Err(QueryCompletionError::NoSuchQuery(query_id)),
             }
-        }?;
+        }; // release mutex before await
 
-        Ok(handle.await.unwrap())
+        Ok(handle.await?)
     }
 }
 
@@ -478,6 +484,17 @@ mod tests {
         #[tokio::test]
         async fn complete_query_ipa() -> Result<(), BoxError> {
             let app = TestApp::default();
+            ipa_query(&app).await
+        }
+
+        #[tokio::test]
+        async fn complete_query_twice() -> Result<(), BoxError> {
+            let app = TestApp::default();
+            ipa_query(&app).await?;
+            ipa_query(&app).await
+        }
+
+        async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
                 [
                     { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
@@ -493,7 +510,7 @@ mod tests {
                     records,
                     QueryConfig {
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::Ipa(IpaQueryConfig {
+                        query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                             per_user_credit_cap: 3,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,

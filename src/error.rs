@@ -1,6 +1,6 @@
+use crate::task::JoinError;
 use std::fmt::Debug;
 use thiserror::Error;
-use tokio::task::JoinError;
 
 /// An error raised by the IPA protocol.
 ///
@@ -36,8 +36,13 @@ pub enum Error {
     MaliciousRevealFailed,
     #[error("problem during IO: {0}")]
     Io(#[from] std::io::Error),
+    // TODO remove if this https://github.com/awslabs/shuttle/pull/109 gets approved
+    #[cfg(not(feature = "shuttle"))]
     #[error("runtime error")]
     RuntimeError(#[from] JoinError),
+    #[cfg(feature = "shuttle")]
+    #[error("runtime error")]
+    RuntimeError(JoinError),
     #[error("failed to parse json: {0}")]
     #[cfg(feature = "enable-serde")]
     Serde(#[from] serde_json::Error),

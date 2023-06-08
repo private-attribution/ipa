@@ -120,7 +120,7 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::IPA_STR => {
+                QueryType::SEMIHONEST_IPA_STR | QueryType::MALICIOUS_IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
@@ -135,13 +135,27 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::Ipa(IpaQueryConfig {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }))
+                    match query_type.as_str() {
+                        QueryType::SEMIHONEST_IPA_STR => {
+                            Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                            }))
+                        }
+                        QueryType::MALICIOUS_IPA_STR => {
+                            Ok(QueryType::MaliciousIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                            }))
+                        }
+                        &_ => unreachable!(),
+                    }
                 }
+
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
@@ -157,14 +171,14 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::Ipa(config) => {
+                qt @ (QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config)) => {
                     write!(
                         f,
-                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        QueryType::IPA_STR,
+                        "query_type={qt}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
                         config.per_user_credit_cap,
                         config.max_breakdown_key,
                         config.num_multi_bits,
+                        qt=qt.as_ref(),
                     )?;
 
                     if let Some(window) = config.attribution_window_seconds {

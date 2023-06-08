@@ -91,7 +91,7 @@ mod tests {
     async fn create_test_ipa_no_attr_window() {
         create_test(QueryConfig {
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::Ipa(IpaQueryConfig {
+            query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 attribution_window_seconds: None,
@@ -105,7 +105,7 @@ mod tests {
     async fn create_test_ipa_with_attr_window() {
         create_test(QueryConfig {
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::Ipa(IpaQueryConfig {
+            query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
@@ -207,7 +207,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::IPA_STR.to_string(),
+                query_type: QueryType::SEMIHONEST_IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: "0".into(),

@@ -104,6 +104,15 @@ impl<S: Stream> StreamCollection<S> {
             }
         }
     }
+
+    /// Clears up this collection, leaving no streams inside it.
+    ///
+    /// ## Panics
+    /// if mutex is poisoned.
+    pub fn clear(&self) {
+        let mut streams = self.inner.lock().unwrap();
+        streams.clear();
+    }
 }
 
 /// Describes the lifecycle of records stream inside [`StreamCollection`]
