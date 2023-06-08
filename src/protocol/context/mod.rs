@@ -23,7 +23,7 @@ pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHone
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
 
-use super::step::StepNarrow;
+use super::step::{Gate, StepNarrow};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -33,7 +33,7 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    fn step(&self) -> &step::Descriptive;
+    fn gate(&self) -> &Gate;
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
@@ -171,7 +171,7 @@ pub struct Base<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     inner: Arc<Inner<'a>>,
-    step: step::Descriptive,
+    gate: Gate,
     total_records: TotalRecords,
 }
 
@@ -180,7 +180,7 @@ impl<'a> Base<'a> {
         Self::new_complete(
             participant,
             gateway,
-            step::Descriptive::default(),
+            Gate::default(),
             TotalRecords::Unspecified,
         )
     }
@@ -188,12 +188,12 @@ impl<'a> Base<'a> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        step: step::Descriptive,
+        gate: Gate,
         total_records: TotalRecords,
     ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
-            step,
+            gate,
             total_records,
         }
     }
@@ -204,14 +204,14 @@ impl<'a> Context for Base<'a> {
         self.inner.gateway.role()
     }
 
-    fn step(&self) -> &step::Descriptive {
-        &self.step
+    fn gate(&self) -> &Gate {
+        &self.gate
     }
 
     fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
-            step: self.step.narrow(step),
+            gate: self.gate.narrow(step),
             total_records: self.total_records,
         }
     }
@@ -219,7 +219,7 @@ impl<'a> Context for Base<'a> {
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
-            step: self.step.clone(),
+            gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
         }
     }
@@ -229,9 +229,9 @@ impl<'a> Context for Base<'a> {
     }
 
     fn prss(&self) -> InstrumentedIndexedSharedRandomness {
-        let prss = self.inner.prss.indexed(self.step());
+        let prss = self.inner.prss.indexed(self.gate());
 
-        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
+        InstrumentedIndexedSharedRandomness::new(prss, &self.gate, self.role())
     }
 
     fn prss_rng(
@@ -240,23 +240,23 @@ impl<'a> Context for Base<'a> {
         InstrumentedSequentialSharedRandomness<'_>,
         InstrumentedSequentialSharedRandomness<'_>,
     ) {
-        let (left, right) = self.inner.prss.sequential(self.step());
+        let (left, right) = self.inner.prss.sequential(self.gate());
         (
-            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
-            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(left, self.gate(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.gate(), self.role()),
         )
     }
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
         self.inner
             .gateway
-            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+            .get_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
         self.inner
             .gateway
-            .get_receiver(&ChannelId::new(role, self.step.clone()))
+            .get_receiver(&ChannelId::new(role, self.gate.clone()))
     }
 }
 
@@ -399,7 +399,7 @@ mod tests {
 
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
-        let metrics_step = step::Descriptive::default()
+        let metrics_step = Gate::default()
             .narrow(&TestWorld::execution_step(0))
             .narrow("metrics");
 
@@ -456,7 +456,7 @@ mod tests {
             })
             .await;
 
-        let metrics_step = step::Descriptive::default()
+        let metrics_step = Gate::default()
             .narrow(&TestWorld::execution_step(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)

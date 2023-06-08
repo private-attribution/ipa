@@ -100,11 +100,11 @@ impl<M: Message> SendingEnd<M> {
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
-            STEP => self.channel_id.step.as_ref().to_string(),
+            STEP => self.channel_id.gate.as_ref().to_string(),
             ROLE => self.sender_role.as_static_str()
         );
         metrics::counter!(BYTES_SENT, M::Size::U64,
-            STEP => self.channel_id.step.as_ref().to_string(),
+            STEP => self.channel_id.gate.as_ref().to_string(),
             ROLE => self.sender_role.as_static_str()
         );
 

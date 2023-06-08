@@ -7,7 +7,7 @@ use crate::{
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{step, QueryId},
+    protocol::{step::Gate, QueryId},
     sync::Arc,
 };
 use async_trait::async_trait;
@@ -105,12 +105,12 @@ impl HttpTransport {
     pub fn receive_stream(
         self: Arc<Self>,
         query_id: QueryId,
-        step: step::Descriptive,
+        gate: Gate,
         from: HelperIdentity,
         stream: BodyStream,
     ) {
         self.record_streams
-            .add_stream((query_id, from, step), LogErrors::new(stream));
+            .add_stream((query_id, from, gate), LogErrors::new(stream));
     }
 }
 
@@ -136,7 +136,7 @@ impl Transport for Arc<HttpTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<step::Descriptive>: From<S>,
+        Option<Gate>: From<S>,
     {
         let route_id = route.resource_identifier();
         match route_id {
@@ -144,8 +144,8 @@ impl Transport for Arc<HttpTransport> {
                 // TODO(600): These fallible extractions aren't really necessary.
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id required when sending records");
-                let step = <Option<step::Descriptive>>::from(route.step())
-                    .expect("step required when sending records");
+                let step =
+                    <Option<Gate>>::from(route.gate()).expect("step required when sending records");
                 let resp_future = self.clients[dest].step(query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
@@ -169,13 +169,13 @@ impl Transport for Arc<HttpTransport> {
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
         ReceiveRecords::new(
-            (route.query_id(), from, route.step()),
+            (route.query_id(), from, route.gate()),
             self.record_streams.clone(),
         )
     }
@@ -192,7 +192,6 @@ mod tests {
             client::ClientIdentity,
             test::{body_stream, get_test_identity, TestConfig, TestConfigBuilder, TestServer},
         },
-        protocol::step,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::Reconstruct,
         AppSetup, HelperApp,
@@ -206,7 +205,7 @@ mod tests {
     use tokio_stream::wrappers::ReceiverStream;
     use typenum::Unsigned;
 
-    static STEP: Lazy<step::Descriptive> = Lazy::new(|| step::Descriptive::from("http-transport"));
+    static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
 
     #[tokio::test]
     async fn receive_stream() {

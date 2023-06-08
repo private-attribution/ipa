@@ -9,7 +9,7 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow,
         context::{MaliciousContext, SemiHonestContext},
         prss::Endpoint as PrssEndpoint,
-        step::{self, StepNarrow},
+        step::{Gate, StepNarrow},
     },
     query::runner::IpaQuery,
     secret_sharing::{replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing},
@@ -155,7 +155,7 @@ where
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
         // Negotiate PRSS first
-        let step = step::Descriptive::default().narrow(&config.query_type);
+        let step = Gate::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         query_impl(&prss, &gateway, input).await

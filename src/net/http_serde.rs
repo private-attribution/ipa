@@ -416,7 +416,7 @@ pub mod query {
     pub mod step {
         use crate::{
             net::{http_serde::query::BASE_AXUM_PATH, Error},
-            protocol::{step, QueryId},
+            protocol::{step::Gate, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
@@ -429,15 +429,15 @@ pub mod query {
         #[derive(Debug)]
         pub struct Request<B> {
             pub query_id: QueryId,
-            pub step: step::Descriptive,
+            pub gate: Gate,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(query_id: QueryId, step: step::Descriptive, body: B) -> Self {
+            pub fn new(query_id: QueryId, gate: Gate, body: B) -> Self {
                 Self {
                     query_id,
-                    step,
+                    gate,
                     body,
                 }
             }
@@ -457,7 +457,7 @@ pub mod query {
                         "{}/{}/step/{}",
                         BASE_AXUM_PATH,
                         self.query_id.as_ref(),
-                        self.step.as_ref()
+                        self.gate.as_ref()
                     ))
                     .build()?;
                 Ok(hyper::Request::post(uri).body(self.body)?)
@@ -479,11 +479,11 @@ pub mod query {
             // the form of trait bounds on the impl) to see that PathRejection can be converted to
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let Path((query_id, step)) = req.extract::<Path<_>>().await?;
+                let Path((query_id, gate)) = req.extract::<Path<_>>().await?;
                 let body = req.extract::<BodyStream>().await?;
                 Ok(Self {
                     query_id,
-                    step,
+                    gate,
                     body,
                 })
             }
