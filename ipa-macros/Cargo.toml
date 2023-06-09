@@ -1,0 +1,23 @@
+[package]
+name = "ipa-macros"
+version = "0.1.0"
+rust-version = "1.64.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[features]
+trybuild = []
+
+[[test]]
+name = "tests"
+path = "tests/mod.rs"
+required-features = ["trybuild"]
+
+[dependencies]
+syn = { version = "2.0.15", features = ["extra-traits"] }
+quote = "1.0.27"
+
+[dev-dependencies]
+trybuild = { version = "1.0.80", features = ["diff"] }
