@@ -129,7 +129,7 @@ impl<R: Rng> EventGenerator<R> {
             // The next event would have timestamp upto 60 seconds after the previous
             // event generated. On an average, we should be able to start seeing spacing
             // of 7 days in query size of 100k or greater.
-            self.current_ts += self.rng.gen_range(0..60);
+            self.current_ts += self.rng.gen_range(1..=60);
         }
 
         if self.rng.gen() {
