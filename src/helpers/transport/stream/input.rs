@@ -1,10 +1,9 @@
 use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
 use bytes::Bytes;
 use futures::{
-    stream::{iter, once, FusedStream, Iter, Map, Once},
+    stream::{iter, once, Fuse, FusedStream, Iter, Map, Once},
     Stream, StreamExt,
 };
-use futures_util::stream::Fuse;
 use pin_project::pin_project;
 use std::{
     cmp::max,
@@ -111,36 +110,41 @@ impl BufDeque {
     }
 
     /// Update the buffer with the result of polling a stream.
-    ///
-    /// Returns one of the following:
-    ///  * `None`, if data from the stream was appended to the buffer.
-    ///  * `Some(None)`, if the stream finished cleanly.
-    ///  * `Some(error)`, if the stream errored.
-    #[allow(clippy::option_option)] // TODO: create an enum for the return type
-    fn extend(&mut self, bytes: Option<Result<Bytes, BoxError>>) -> Option<Option<io::Error>> {
+    fn extend(&mut self, bytes: Option<Result<Bytes, BoxError>>) -> ExtendResult {
         match bytes {
             // if body is expended, but we have some bytes leftover, error due to misaligned
             // output
-            None if self.buffered_size > 0 => Some(Some(io::Error::new(
+            None if self.buffered_size > 0 => ExtendResult::Error(io::Error::new(
                 io::ErrorKind::WriteZero,
                 format!("stream terminated with {} extra bytes", self.buffered_size),
-            ))),
+            )),
 
             // if body is finished with no more bytes remaining, this stream is finished.
             // equivalent of `None if self.buffered_size == 0 =>`
-            None => Some(None),
+            None => ExtendResult::Finished,
 
             // if body produces error, forward the error
-            Some(Err(err)) => Some(Some(io::Error::new(io::ErrorKind::UnexpectedEof, err))),
+            Some(Err(err)) => {
+                ExtendResult::Error(io::Error::new(io::ErrorKind::UnexpectedEof, err))
+            }
 
             // if body has more bytes, push it into the buffer
             Some(Ok(bytes)) => {
                 self.buffered_size += bytes.len();
                 self.buffered.push_back(bytes);
-                None
+                ExtendResult::Ok
             }
         }
     }
+}
+
+enum ExtendResult {
+    /// Data from the stream was appended to the buffer.
+    Ok,
+    /// The stream finished cleanly.
+    Finished,
+    /// The stream errored.
+    Error(io::Error),
 }
 
 /// Parse a [`Stream`] of [`Bytes`] into a stream of records of some
@@ -196,8 +200,10 @@ where
                 return Poll::Pending;
             };
 
-            if let Some(item) = this.buffer.extend(polled_item) {
-                return Poll::Ready(item.map(Err));
+            match this.buffer.extend(polled_item) {
+                ExtendResult::Finished => return Poll::Ready(None),
+                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err))),
+                ExtendResult::Ok => (),
             }
         }
     }
@@ -312,20 +318,33 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        let mut items =
-            Vec::with_capacity(this.buffer.contiguous_len() / ESTIMATED_AVERAGE_REPORT_SIZE);
+        let mut available_len = 0;
+        let mut consumed_len = 0;
+        let mut items = Vec::new();
         loop {
             if this.pending_len.is_none() {
                 if let Some(len) = this.buffer.read::<Length>().map(Into::into) {
                     *this.pending_len = Some(len);
+                    consumed_len += <Length as Serializable>::Size::USIZE;
                 }
             }
 
             if let Some(len) = *this.pending_len {
-                if let Some(bytes) = this.buffer.read_bytes(len) {
+                let bytes = if len == 0 {
+                    Some(Bytes::from(&[] as &[u8]))
+                } else {
+                    this.buffer.read_bytes(len)
+                };
+                if let Some(bytes) = bytes {
                     *this.pending_len = None;
+                    consumed_len += len;
                     match T::try_from(bytes) {
-                        Ok(item) => items.push(item),
+                        Ok(item) => {
+                            items.push(item);
+                            if available_len != 0 && consumed_len < available_len {
+                                continue;
+                            }
+                        }
                         // TODO: Since we need to recover from individual invalid reports, we
                         // probably need `type Item = Result<Vec<Result<T, ?>>, io::Error>`, and we
                         // need to flush (rather than discard) pending `items` from before the
@@ -350,8 +369,23 @@ where
                 return Poll::Pending;
             };
 
-            if let Some(item) = this.buffer.extend(polled_item) {
-                return Poll::Ready(item.map(Err));
+            match this.buffer.extend(polled_item) {
+                ExtendResult::Finished if this.pending_len.is_some() => {
+                    return Poll::Ready(Some(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        format!(
+                            "stream terminated with {} extra bytes",
+                            <Length as Serializable>::Size::USIZE
+                        ),
+                    ))));
+                }
+                ExtendResult::Finished => return Poll::Ready(None),
+                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err))),
+                ExtendResult::Ok if available_len == 0 => {
+                    available_len = this.buffer.contiguous_len();
+                    items.reserve(1 + available_len / ESTIMATED_AVERAGE_REPORT_SIZE);
+                }
+                ExtendResult::Ok => (),
             }
         }
     }
@@ -408,6 +442,9 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
+    use rand::Rng;
+    use rand_core::RngCore;
+
     use super::*;
 
     mod unit_test {
@@ -416,7 +453,7 @@ mod test {
             ff::{Fp31, Fp32BitPrime, Serializable},
             secret_sharing::replicated::semi_honest::AdditiveShare,
         };
-        use futures_util::{StreamExt, TryStreamExt};
+        use futures::{StreamExt, TryStreamExt};
         use generic_array::GenericArray;
 
         #[tokio::test]
@@ -540,6 +577,97 @@ mod test {
         }
     }
 
+    mod delimited {
+        use super::*;
+        use futures::TryStreamExt;
+
+        #[tokio::test]
+        async fn basic() {
+            let input = vec![
+                Ok(Bytes::from(vec![2, 0, 0x11, 0x22, 3, 0, 0x33, 0x44, 0x55])),
+                Ok(Bytes::from(vec![
+                    1, 0, 0x66, 0, 0, 4, 0, 0x77, 0x88, 0x99, 0xaa,
+                ])),
+            ];
+            let stream = LengthDelimitedStream::<Bytes, _>::new(iter(input));
+            let output = stream.try_collect::<Vec<Vec<Bytes>>>().await.unwrap();
+
+            assert_eq!(output.len(), 2);
+            assert_eq!(output[0].len(), 2);
+            assert_eq!(output[1].len(), 3);
+            assert_eq!(output[0][0], vec![0x11, 0x22]);
+            assert_eq!(output[0][1], vec![0x33, 0x44, 0x55]);
+            assert_eq!(output[1][0], vec![0x66]);
+            assert_eq!(output[1][1], vec![]);
+            assert_eq!(output[1][2], vec![0x77, 0x88, 0x99, 0xaa]);
+        }
+
+        #[tokio::test]
+        async fn fragmented() {
+            let input = vec![
+                2, 0, 0x11, 0x22, 3, 0, 0x33, 0x44, 0x55, 1, 0, 0x66, 4, 0, 0x77, 0x88, 0x99, 0xaa,
+            ]
+            .into_iter()
+            .map(|byte| Ok(Bytes::from(vec![byte])));
+            let stream = LengthDelimitedStream::<Bytes, _>::new(iter(input));
+            let output = stream.try_collect::<Vec<Vec<Bytes>>>().await.unwrap();
+
+            assert_eq!(output.len(), 4);
+            assert_eq!(output[0][0], vec![0x11, 0x22]);
+            assert_eq!(output[1][0], vec![0x33, 0x44, 0x55]);
+            assert_eq!(output[2][0], vec![0x66]);
+            assert_eq!(output[3][0], vec![0x77, 0x88, 0x99, 0xaa]);
+        }
+
+        #[tokio::test]
+        async fn incomplete_length() {
+            let input = vec![Ok(Bytes::from(vec![2, 0, 0x11, 0x22, 3]))];
+            let stream = LengthDelimitedStream::<Bytes, _>::new(iter(input));
+            let err = stream.try_collect::<Vec<Vec<Bytes>>>().await.unwrap_err();
+
+            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+        }
+
+        #[tokio::test]
+        async fn complete_length_no_data() {
+            let input = vec![Ok(Bytes::from(vec![2, 0, 0x11, 0x22, 3, 0]))];
+            let stream = LengthDelimitedStream::<Bytes, _>::new(iter(input));
+            let err = stream.try_collect::<Vec<Vec<Bytes>>>().await.unwrap_err();
+
+            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+        }
+
+        #[tokio::test]
+        async fn incomplete_data() {
+            let input = vec![Ok(Bytes::from(vec![2, 0, 0x11, 0x22, 3, 0, 0x33]))];
+            let stream = LengthDelimitedStream::<Bytes, _>::new(iter(input));
+            let err = stream.try_collect::<Vec<Vec<Bytes>>>().await.unwrap_err();
+
+            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+        }
+    }
+
+    // Helper for prop tests
+    fn random_chunks<R: RngCore>(mut slice: &[u8], rng: &mut R) -> Vec<Vec<u8>> {
+        let mut output = Vec::new();
+        loop {
+            let len = slice.len();
+            let idx = rng.gen_range(1..len);
+            match idx {
+                split_idx if split_idx == len - 1 => {
+                    output.push(slice.to_vec());
+                    break;
+                }
+                split_idx => {
+                    let (next_chunk, remaining) = slice.split_at(split_idx);
+                    output.push(next_chunk.to_vec());
+                    slice = remaining;
+                }
+            }
+        }
+        output
+    }
+
     mod prop_test {
         use crate::ff::Fp32BitPrime;
 
@@ -564,26 +692,6 @@ mod test {
             -> Vec<u8> {
                 vec
             }
-        }
-
-        fn random_chunks<R: RngCore>(mut slice: &[u8], rng: &mut R) -> Vec<Vec<u8>> {
-            let mut output = Vec::new();
-            loop {
-                let len = slice.len();
-                let idx = rng.gen_range(1..len);
-                match idx {
-                    split_idx if split_idx == len - 1 => {
-                        output.push(slice.to_vec());
-                        break;
-                    }
-                    split_idx => {
-                        let (next_chunk, remaining) = slice.split_at(split_idx);
-                        output.push(next_chunk.to_vec());
-                        slice = remaining;
-                    }
-                }
-            }
-            output
         }
 
         prop_compose! {
@@ -611,6 +719,114 @@ mod test {
                         .unwrap();
 
                     assert_eq!(collected_bytes, expected_bytes);
+                });
+            }
+        }
+    }
+
+    mod delimited_prop_test {
+        use std::{mem::size_of, ops::Range};
+
+        use super::*;
+        use bytes::BufMut;
+        use futures::TryStreamExt;
+        use proptest::prelude::*;
+        use rand::{rngs::StdRng, SeedableRng};
+
+        #[derive(Copy, Clone, Debug)]
+        enum ItemSize {
+            Small,
+            Normal,
+            Large,
+            Huge,
+            SmallRandom,
+            FullRandom,
+        }
+
+        fn item_size_strategy(with_large: bool) -> BoxedStrategy<ItemSize> {
+            if with_large {
+                prop_oneof![
+                    10 => Just(ItemSize::Small),
+                    70 => Just(ItemSize::Normal),
+                    10 => Just(ItemSize::Large),
+                    5 => Just(ItemSize::Huge),
+                    5 => Just(ItemSize::FullRandom),
+                ]
+                .boxed()
+            } else {
+                prop_oneof![
+                    10 => Just(ItemSize::Small),
+                    70 => Just(ItemSize::Normal),
+                    20 => Just(ItemSize::SmallRandom),
+                ]
+                .boxed()
+            }
+        }
+
+        fn item_size(size: ItemSize) -> Range<usize> {
+            match size {
+                ItemSize::Small => 0..32,
+                ItemSize::Normal => 60..120,
+                ItemSize::Large => 500..2000,
+                ItemSize::Huge => 40000..u16::MAX as usize,
+                ItemSize::FullRandom => 0..u16::MAX as usize,
+                ItemSize::SmallRandom => 0..1000,
+            }
+        }
+
+        prop_compose! {
+            fn random_item(with_large: bool)
+                          (size in item_size_strategy(with_large))
+                          (vec in prop::collection::vec(any::<u8>(), item_size(size)))
+            -> Vec<u8> {
+                vec
+            }
+        }
+
+        prop_compose! {
+            fn random_items(max_len: usize, with_large: bool)
+                           (len in 1..=max_len)
+                           (items in prop::collection::vec(random_item(with_large), len))
+            -> Vec<Vec<u8>> {
+                items
+            }
+        }
+
+        fn flatten_delimited(items: &[Vec<u8>]) -> Vec<u8> {
+            let total_len =
+                items.len() * size_of::<u16>() + items.iter().fold(0, |acc, item| acc + item.len());
+            let mut output = Vec::with_capacity(total_len);
+            for item in items {
+                output.put_u16_le(item.len().try_into().unwrap());
+                output.put_slice(item.as_slice());
+            }
+            output
+        }
+
+        prop_compose! {
+            fn arb_expected_and_chunked_body(max_len: usize)
+                                            (with_large in prop::bool::weighted(0.05))
+                                            (items in random_items(max_len, with_large), seed in any::<u64>())
+            -> (Vec<Vec<u8>>, Vec<Vec<u8>>, u64) {
+                let flattened = flatten_delimited(items.as_slice());
+                (items, random_chunks(&flattened, &mut StdRng::seed_from_u64(seed)), seed)
+            }
+        }
+
+        proptest::proptest! {
+            #[test]
+            fn test_delimited_stream_works_with_any_chunks(
+                (expected_items, chunked_bytes, _seed) in arb_expected_and_chunked_body(100)
+            ) {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    let input = iter(chunked_bytes.into_iter().map(|vec| Ok(Bytes::from(vec))));
+                    // flatten the chunks to compare with expected
+                    let collected_items = LengthDelimitedStream::<Bytes, _>::new(input)
+                        .try_concat()
+                        .await
+                        .unwrap();
+
+                    assert_eq!(collected_items, expected_items);
                 });
             }
         }
