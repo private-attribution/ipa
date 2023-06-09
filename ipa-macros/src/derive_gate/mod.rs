@@ -71,7 +71,7 @@ use syn::{parse_macro_input, punctuated::Punctuated, DeriveInput, PathArguments,
 //   - In IPA dev, the root step is always `protocol/run-0`. How do we handle this in real-world case with
 //     the Compact gate?
 
-// Procedural macro to derive the `Step` trait for a struct.
+// Procedural macro to derive the Step and StepNarrow traits and generate a memory-efficient gate.
 //
 // The goal is to generate a state transition graph and the corresponding `StepNarrow` implementations
 // for the IPA protocol. This macro assumes that a complete IPA steps file exists in the repo at the
@@ -262,9 +262,7 @@ fn read_steps_file(file_path: &str) -> Vec<String> {
     contents.lines().map(|s| s.to_owned()).collect::<Vec<_>>()
 }
 
-/// Constructs a tree structure with nodes that contain the steps from the input tuples. Each tuple
-/// contains an ID and a vector of strings representing a path.
-///
+/// Constructs a tree structure with nodes that contain the `Step` instances.
 /// Tree structure helps us to easily find the parent of the current step.
 fn construct_tree(steps: Vec<Step>) -> Node<Step> {
     let root = Node::new(Step::new(
@@ -335,7 +333,7 @@ fn module_string_to_ast(module: &str) -> syn::Path {
 }
 
 /// Traverse the tree and group the nodes by their module paths. This is required because sub-steps
-/// that are defined in the same module may not share the same parent.
+/// that are defined in the same enum could be narrowed from different parents.
 ///
 /// # Example
 /// RootStep/StepA::A1
@@ -349,6 +347,8 @@ fn module_string_to_ast(module: &str) -> syn::Path {
 /// impl StepNarrow<StepD> for Compact { ... }
 /// impl StepNarrow<StepA> for Compact { ... }  // error: conflicting implementation of `StepNarrow<StepA>`
 /// ```
+///
+/// Since rust does not allow multiple occurrences of the same impl block, we need to group the nodes.
 fn group_by_modules(root: &Node<Step>) -> HashMap<String, Vec<Node<Step>>> {
     let mut result: HashMap<String, Vec<Node<Step>>> = HashMap::new();
     let mut queue = VecDeque::new();
