@@ -232,11 +232,7 @@ where
         async move {
             server
                 // TODO: configuration
-                .http_config(
-                    HttpConfig::default()
-                        .http2_max_concurrent_streams(Some(256))
-                        .build(),
-                )
+                .http_config(HttpConfig::default())
                 .handle(handle)
                 .serve(svc)
                 .await
