@@ -77,7 +77,7 @@ check() {
 }
 
 check "Benchmark compilation" \
-    cargo build --benches --no-default-features --features "enable-benches"
+    cargo build --benches --no-default-features --features "enable-benches compact-gate"
 
 check "Clippy checks" \
     cargo clippy --tests -- -D warnings

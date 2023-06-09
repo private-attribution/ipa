@@ -173,7 +173,7 @@ impl BitwiseLessThanPrime {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,
     LeadingOnesOrRest,

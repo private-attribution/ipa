@@ -107,7 +107,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub enum Step {
     XORAllTheBits,
 }
 

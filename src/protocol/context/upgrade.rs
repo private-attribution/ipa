@@ -6,7 +6,7 @@ use crate::{
         basics::ZeroPositions,
         context::UpgradedContext,
         modulus_conversion::BitConversionTriple,
-        step::{BitOpStep, Step},
+        step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
@@ -80,7 +80,10 @@ where
         }
     }
 
-    fn narrow<SS: Step>(&self, step: &SS) -> Self {
+    fn narrow<SS: Step>(&self, step: &SS) -> Self
+    where
+        Gate: StepNarrow<SS>,
+    {
         Self::new(self.ctx.narrow(step), self.record_binding)
     }
 }
@@ -93,7 +96,7 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
-enum UpgradeTripleStep {
+pub(crate) enum UpgradeTripleStep {
     V0,
     V1,
     V2,
@@ -179,7 +182,7 @@ where
     }
 }
 
-enum Upgrade2DVectors {
+pub(crate) enum Upgrade2DVectors {
     V(usize),
 }
 impl Step for Upgrade2DVectors {}
@@ -287,7 +290,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-enum UpgradeModConvStep {
+pub(crate) enum UpgradeModConvStep {
     V1,
     V2,
     V3,
@@ -347,7 +350,7 @@ where
         ))
     }
 }
-enum UpgradeMCCappedCreditsWithAggregationBit {
+pub(crate) enum UpgradeMCCappedCreditsWithAggregationBit {
     V0(usize),
     V1,
     V2,

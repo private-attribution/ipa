@@ -265,6 +265,15 @@ fn https_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, true);
 }
 
+#[test]
+fn test_compact_gate() {
+    let test_script = env!(CARGO_MANIFEST_DIR).to_string() + "/scripts/test_compact_gate.py";
+    let mut command = Command::new(test_script);
+    command
+        .status()
+        .expect("Failed to run test_compact_gate.py");
+}
+
 /// Similar to [`network`] tests, but it uses keygen + confgen CLIs to generate helper client config
 /// and then just runs test multiply to make sure helpers are up and running
 ///

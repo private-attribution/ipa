@@ -1,13 +1,18 @@
 pub mod malicious;
 pub mod prss;
-mod semi_honest;
+pub mod semi_honest;
 pub mod upgrade;
 pub mod validator;
 
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{basics::ZeroPositions, prss::Endpoint as PrssEndpoint, step, NoRecord, RecordId},
+    protocol::{
+        basics::ZeroPositions,
+        prss::Endpoint as PrssEndpoint,
+        step::{Gate, Step, StepNarrow},
+        RecordId,
+    },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -23,8 +28,6 @@ pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHone
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
 
-use super::step::{Gate, StepNarrow};
-
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context: Clone + Send + Sync + SeqJoin {
@@ -38,7 +41,9 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self;
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self
+    where
+        Gate: StepNarrow<S>;
 
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
@@ -83,18 +88,6 @@ pub trait UpgradableContext: Context {
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
 }
 
-/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct UpgradeStep;
-
-impl step::Step for UpgradeStep {}
-
-impl AsRef<str> for UpgradeStep {
-    fn as_ref(&self) -> &str {
-        "upgrade"
-    }
-}
-
 #[async_trait]
 pub trait UpgradedContext<F: ExtendableField>: Context {
     // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
@@ -116,12 +109,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
-            .upgrade(input)
-            .await
-    }
+        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>;
 
     /// Upgrade an input for a specific bit index and record using this context.
     /// # Errors
@@ -130,12 +118,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
-            .upgrade(input)
-            .await
-    }
+        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>;
 
     /// Upgrade a sparse input using this context.
     /// # Errors
@@ -208,7 +191,10 @@ impl<'a> Context for Base<'a> {
         &self.gate
     }
 
-    fn narrow<S: step::Step + ?Sized>(&self, step: &S) -> Self {
+    fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self
+    where
+        Gate: StepNarrow<S>,
+    {
         Self {
             inner: Arc::clone(&self.inner),
             gate: self.gate.narrow(step),
