@@ -84,6 +84,7 @@ where
 /// # Errors
 ///
 /// Fails if the multiplication fails.
+#[tracing::instrument(name = "accumulate_credit", skip_all)]
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
