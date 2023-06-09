@@ -20,6 +20,7 @@ use axum_server::{
     tls_rustls::{RustlsAcceptor, RustlsConfig},
     Handle, HttpConfig, Server,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::{
     future::{ready, BoxFuture, Either, Ready},
     Future, FutureExt,
@@ -308,7 +309,7 @@ async fn rustls_config(
 
     let mut config = RustlsServerConfig::builder()
         .with_safe_defaults()
-        .with_client_cert_verifier(verifier)
+        .with_client_cert_verifier(verifier.boxed())
         .with_single_cert(cert, key)?;
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
@@ -367,7 +368,7 @@ impl ClientCertRecognizingAcceptor {
         // It might be nice to log something here. We could log the certificate base64?
         error!(
             "A client certificate was presented that does not match a known helper. Certificate: {}",
-            base64::encode(cert),
+            BASE64.encode(cert),
         );
         None
     }

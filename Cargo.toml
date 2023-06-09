@@ -42,7 +42,7 @@ aes = "0.8"
 async-trait = "0.1.57"
 axum = { version = "0.5.16", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
-base64 = { version = "0.13", optional = true }
+base64 = { version = "0.21.2", optional = true }
 bitvec = "1.0.1"
 # TODO: the only place where we use bytes is in ByteArrStream. ordering_mpsc is a replacement for it
 # so we can remove this dependency after migrating to it. It is added only to avoid having `web-app` feature enabled
