@@ -39,7 +39,7 @@ use crate::{
 use std::iter::{repeat, zip};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     Xor1,
     Xor2,
 }

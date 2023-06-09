@@ -422,7 +422,7 @@ async fn mod_conv_helper_bits<C: Context, F: Field>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
-enum Step {
+pub(in crate::protocol) enum Step {
     CurrentStopBitTimesSuccessorCredit,
     CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
@@ -448,7 +448,7 @@ impl AsRef<str> for Step {
     }
 }
 
-struct InteractionPatternStep(usize);
+pub(crate) struct InteractionPatternStep(usize);
 
 impl crate::protocol::step::Step for InteractionPatternStep {}
 

@@ -6,7 +6,7 @@ edition = "2021"
 
 [features]
 # by default remove all TRACE, DEBUG spans from release builds
-default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info"]
+default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info", "descriptive-gate"]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 protocol-perf-testing = ["no-prss"]
@@ -35,9 +35,14 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = []
+step-trace = ["descriptive-gate"]
+# The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
+# of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
+descriptive-gate = []
+compact-gate = []
 
 [dependencies]
+ipa-macros = { version = "*", path = "./ipa-macros" }
 aes = "0.8"
 async-trait = "0.1.68"
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
@@ -170,4 +175,4 @@ required-features = ["enable-benches"]
 
 [[test]]
 name = "helper_networks"
-required-features = ["cli", "web-app", "real-world-infra", "test-fixture"]
+required-features = ["cli", "web-app", "real-world-infra", "test-fixture", "descriptive-gate"]

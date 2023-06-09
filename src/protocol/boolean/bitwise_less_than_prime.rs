@@ -24,6 +24,10 @@ use std::cmp::Ordering;
 pub struct BitwiseLessThanPrime {}
 
 impl BitwiseLessThanPrime {
+    /// Checks if `x` is less than `F::PRIME`.
+    ///
+    /// # Errors
+    /// Fails if the multiplication protocol fails.
     pub async fn less_than_prime<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
     where
         F: PrimeField,
@@ -35,6 +39,13 @@ impl BitwiseLessThanPrime {
         Ok(one - &gtoe)
     }
 
+    /// Checks if `x` is greater than or equal to `F::PRIME`.
+    ///
+    /// # Errors
+    /// Fails if the multiplication protocol fails.
+    ///
+    /// # Panics
+    /// it won't
     pub async fn greater_than_or_equal_to_prime<F, C, S>(
         ctx: C,
         record_id: RecordId,
@@ -142,6 +153,9 @@ impl BitwiseLessThanPrime {
     /// 1.) Four of them look like [X X 1] (values of X are irrelevant)
     /// 2.) The final one is exactly [1 1 0]
     /// We can check if either of these conditions is true with just 3 multiplications
+    ///
+    /// # Errors
+    /// Fails if the multiplication protocol fails.
     pub async fn check_least_significant_bits<F, C, S>(
         ctx: C,
         record_id: RecordId,
@@ -173,7 +187,7 @@ impl BitwiseLessThanPrime {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,
     LeadingOnesOrRest,

@@ -39,6 +39,9 @@ use crate::{
 ///
 /// As such, there are a total of l-2 multiplications (one less than the bit-length of the input).
 /// Sometimes, a multiplication can be skipped, because we know, a prioi that the result must be zero.
+///
+/// # Errors
+/// Fails if the multiplication protocol fails.
 pub async fn add_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -120,6 +123,12 @@ where
 // `maybe` must be a secret sharing of either `1` or `0`. It should be thought of as a secret-shared boolean.
 //
 // The output is the bitwise `a + (b*maybe)`, modulo `2^el`.
+///
+/// # Errors
+/// Fails if the multiplication protocol fails.
+///
+/// # Panics
+/// it won't
 pub async fn maybe_add_constant_mod2l<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -186,7 +195,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub enum Step {
     CarryXorBitTimesMaybe,
 }
 

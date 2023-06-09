@@ -85,7 +85,7 @@ impl AsRef<str> for Step {
     }
 }
 
-enum ValidateStep {
+pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUW,
     /// Reveal the value of `r`, necessary for validation.

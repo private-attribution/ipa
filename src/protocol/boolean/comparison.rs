@@ -142,7 +142,7 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum GreaterThanConstantStep {
+pub(crate) enum GreaterThanConstantStep {
     Reveal,
     CompareLo,
     CompareHi,
@@ -300,7 +300,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     PrefixOr,
     DotProduct,
 }
