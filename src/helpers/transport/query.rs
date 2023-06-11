@@ -13,6 +13,7 @@ use std::{
     num::NonZeroU32,
 };
 use tokio::sync::oneshot;
+use crate::helpers::GatewayConfig;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -55,6 +56,13 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
     #[cfg(not(feature = "enable-serde"))]
     fn extra(&self) -> Self::Params {
         unimplemented!()
+    }
+}
+
+impl From<&QueryConfig> for GatewayConfig {
+    fn from(_value: &QueryConfig) -> Self {
+        // TODO: pick the correct value for active and test it
+        Self::default()
     }
 }
 

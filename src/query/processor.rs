@@ -198,7 +198,7 @@ impl Processor {
                     );
                     let gateway = Gateway::new(
                         query_id,
-                        GatewayConfig::default(),
+                        GatewayConfig::from(&config),
                         role_assignment,
                         transport,
                     );
