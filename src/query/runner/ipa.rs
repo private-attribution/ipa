@@ -18,7 +18,9 @@ use crate::{
 };
 use futures::StreamExt;
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 use typenum::Unsigned;
+use crate::helpers::query::QueryConfig;
 
 pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>);
 
@@ -56,9 +58,11 @@ where
     pub async fn execute<'a>(
         self,
         ctx: C,
+        record_count: NonZeroU32,
         input: ByteArrStream,
     ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
         let Self(config, _) = self;
+        let max_sz = usize::try_from(record_count.get()).unwrap();
 
         let mut input =
             input.align(<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
@@ -67,6 +71,10 @@ where
             input_vec.extend(IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(
                 &data.unwrap(),
             ));
+            if input_vec.len() >= max_sz {
+                input_vec.truncate(max_sz);
+                break;
+            }
         }
 
         ipa(ctx, input_vec.as_slice(), config).await
@@ -97,9 +105,16 @@ mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                // everything below this line will be ignored in IPA
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 1, breakdown_key: 1, trigger_value: 20 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
+        let record_count = u32::try_from(records.len() - 2)
+            .and_then(NonZeroU32::try_from)
+            .unwrap();
+
         let records = records
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
@@ -130,7 +145,10 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
-            IpaQuery::new(query_config).execute(ctx, input)
+            // Note that we ignore the last 2 records to test that runner follows the rule
+            // to take up to `record_count` reports. Everything else outside that will
+            // be ignored
+            IpaQuery::new(query_config).execute(ctx, record_count, input)
         }))
         .await;
 
@@ -191,7 +209,7 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares);
-            IpaQuery::new(query_config).execute(ctx, input)
+            IpaQuery::new(query_config).execute(ctx, 5.try_into().unwrap(), input)
         }))
         .await;
 

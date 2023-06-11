@@ -79,7 +79,7 @@ pub fn execute(
     match (config.query_type, config.field_type) {
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestMultiply, FieldType::Fp31) => {
-            do_query(config, gateway, input, |prss, gateway, input| {
+            do_query(config, gateway, input, |prss, gateway, config, input| {
                 Box::pin(execute_test_multiply::<crate::ff::Fp31>(
                     prss, gateway, input,
                 ))
@@ -87,48 +87,48 @@ pub fn execute(
         }
         #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
         (QueryType::TestMultiply, FieldType::Fp32BitPrime) => {
-            do_query(config, gateway, input, |prss, gateway, input| {
+            do_query(config, gateway, input, |prss, gateway, config, input| {
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::SemiHonestIpa(ipa_config), FieldType::Fp31) => {
-            do_query(config, gateway, input, move |prss, gateway, input| {
+            do_query(config, gateway, input, move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
-                        .execute(ctx, input)
+                        .execute(ctx, config.record_count, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             })
         }
         (QueryType::SemiHonestIpa(ipa_config), FieldType::Fp32BitPrime) => {
-            do_query(config, gateway, input, move |prss, gateway, input| {
+            do_query(config, gateway, input, move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
-                        .execute(ctx, input)
+                        .execute(ctx, config.record_count, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             })
         }
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::MaliciousIpa(ipa_config), FieldType::Fp31) => {
-            do_query(config, gateway, input, move |prss, gateway, input| {
+            do_query(config, gateway, input, move |prss, gateway, config, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
-                        .execute(ctx, input)
+                        .execute(ctx, config.record_count, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             })
         }
         (QueryType::MaliciousIpa(ipa_config), FieldType::Fp32BitPrime) => {
-            do_query(config, gateway, input, move |prss, gateway, input| {
+            do_query(config, gateway, input, move |prss, gateway, config, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
-                        .execute(ctx, input)
+                        .execute(ctx, config.record_count, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             })
@@ -146,6 +146,7 @@ where
     F: for<'a> FnOnce(
             &'a PrssEndpoint,
             &'a Gateway,
+            &'a QueryConfig,
             ByteArrStream,
         ) -> Pin<Box<dyn Future<Output = QueryResult> + Send + 'a>>
         + Send
@@ -158,7 +159,7 @@ where
         let step = Gate::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
-        query_impl(&prss, &gateway, input).await
+        query_impl(&prss, &gateway, &config, input).await
     })
 }
 
