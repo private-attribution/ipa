@@ -415,6 +415,7 @@ mod tests {
                 ..Default::default()
             });
         let expected = QueryConfig {
+            record_count: 1.try_into().unwrap(),
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };

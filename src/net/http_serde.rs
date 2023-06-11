@@ -109,10 +109,14 @@ pub mod query {
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             #[derive(serde::Deserialize)]
             struct QueryTypeParam {
+                // TODO: serde custom error?
+                #[serde(rename = "records")]
+                record_count: NonZeroU32,
                 field_type: FieldType,
                 query_type: String,
             }
             let Query(QueryTypeParam {
+                record_count,
                 field_type,
                 query_type,
             }) = req.extract().await?;
@@ -159,6 +163,7 @@ pub mod query {
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
+                record_count,
                 field_type,
                 query_type,
             }))
@@ -167,18 +172,21 @@ pub mod query {
 
     impl Display for QueryConfigQueryParams {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(f, "field_type={:?}&", self.field_type)?;
+            write!(
+                f,
+                "query_type={qt}&field_type={f:?}&records={count}",
+                qt = self.query_type.as_ref(),
+                f = self.field_type,
+                count = self.record_count
+            )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-                QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                qt @ (QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config)) => {
+                QueryType::TestMultiply => Ok(()),
+                QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
                     write!(
                         f,
-                        "query_type={qt}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        config.per_user_credit_cap,
-                        config.max_breakdown_key,
-                        config.num_multi_bits,
-                        qt=qt.as_ref(),
+                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,
                     )?;
 
                     if let Some(window) = config.attribution_window_seconds {

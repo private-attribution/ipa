@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
+    pub record_count: NonZeroU32,
     pub field_type: FieldType,
     pub query_type: QueryType,
 }
@@ -29,18 +30,6 @@ pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
-}
-
-impl Default for QueryConfig {
-    fn default() -> Self {
-        Self {
-            field_type: FieldType::Fp32BitPrime,
-            #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-            query_type: QueryType::TestMultiply,
-            #[cfg(not(any(test, feature = "test-fixture", feature = "cli")))]
-            query_type: QueryType::SemiHonestIpa(IpaQueryConfig::default()),
-        }
-    }
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {

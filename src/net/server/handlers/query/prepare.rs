@@ -60,6 +60,7 @@ mod tests {
         let req = http_serde::query::prepare::Request::new(PrepareQuery {
             query_id: QueryId,
             config: QueryConfig {
+                record_count: 1.try_into().unwrap(),
                 field_type: FieldType::Fp31,
                 query_type: QueryType::TestMultiply,
             },
@@ -95,7 +96,7 @@ mod tests {
     impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://localhost:{}{}/{}?field_type={}&query_type=test-multiply",
+                "http://localhost:{}{}/{}?records=1&field_type={}&query_type=test-multiply",
                 port,
                 http_serde::query::BASE_AXUM_PATH,
                 self.query_id,
