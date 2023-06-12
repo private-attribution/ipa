@@ -17,8 +17,8 @@ impl Step for StepA {}
 impl AsRef<str> for StepA {
     fn as_ref(&self) -> &str {
         match self {
-            StepA::Foo => "foo",
-            StepA::ThisStateDoesNotExistInTheMap => "this-state-does-not-exist-in-the-map",
+            Self::Foo => "foo",
+            Self::ThisStateDoesNotExistInTheMap => "this-state-does-not-exist-in-the-map",
         }
     }
 }
@@ -26,8 +26,8 @@ impl Step for StepB {}
 impl AsRef<str> for StepB {
     fn as_ref(&self) -> &str {
         match self {
-            StepB::Bar => "bar",
-            StepB::Baz => "baz",
+            Self::Bar => "bar",
+            Self::Baz => "baz",
         }
     }
 }
