@@ -17,10 +17,8 @@ use crate::{
     },
 };
 use futures::StreamExt;
-use std::marker::PhantomData;
-use std::num::NonZeroU32;
+use std::{marker::PhantomData, num::NonZeroU32};
 use typenum::Unsigned;
-use crate::helpers::query::QueryConfig;
 
 pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>);
 

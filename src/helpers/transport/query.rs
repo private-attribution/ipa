@@ -2,7 +2,7 @@ use crate::{
     ff::FieldType,
     helpers::{
         transport::{ByteArrStream, NoQueryId, NoStep},
-        RoleAssignment, RouteId, RouteParams,
+        GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
     protocol::{step::Step, QueryId},
     query::ProtocolResult,
@@ -13,7 +13,6 @@ use std::{
     num::NonZeroU32,
 };
 use tokio::sync::oneshot;
-use crate::helpers::GatewayConfig;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

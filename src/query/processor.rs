@@ -454,7 +454,6 @@ mod tests {
     }
 
     mod e2e {
-        use std::num::NonZeroU32;
         use super::*;
         use crate::{
             error::BoxError,
@@ -465,6 +464,7 @@ mod tests {
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
+        use std::num::NonZeroU32;
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {

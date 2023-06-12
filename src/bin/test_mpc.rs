@@ -11,7 +11,7 @@ use ipa::{
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     net::{ClientIdentity, MpcHelperClient},
-    protocol::{BreakdownKey, MatchKey, QueryId},
+    protocol::{BreakdownKey, MatchKey},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{
         ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
@@ -26,6 +26,7 @@ use std::{
     fs::OpenOptions,
     io,
     io::{stdout, Write},
+    num::NonZeroU32,
     ops::Add,
     path::PathBuf,
     time::Duration,
@@ -275,12 +276,19 @@ async fn ipa(
         }
     };
 
+    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
+    if input_rows.is_empty() {
+        panic!("Empty input")
+    }
+
     let query_config = QueryConfig {
         field_type: args.input.field,
         query_type,
+        record_count: u32::try_from(input_rows.len())
+            .and_then(NonZeroU32::try_from)
+            .unwrap(),
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
-    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
     let expected = {
         let mut r = ipa_in_the_clear(
             &input_rows,
@@ -315,17 +323,26 @@ async fn ipa(
     validate(expected, actual)
 }
 
-async fn multiply_in_field<F: Field>(
-    args: &Args,
-    helper_clients: &[MpcHelperClient; 3],
-    query_id: QueryId,
-) where
+async fn multiply_in_field<F: Field>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+where
     F: Field + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     let input = InputSource::from(&args.input);
-    let input_rows: Vec<_> = input.iter::<(F, F)>().collect();
+    let input_rows = input.iter::<(F, F)>().collect::<Vec<_>>();
+    if input_rows.is_empty() {
+        panic!("Empty input")
+    }
+    let query_config = QueryConfig {
+        record_count: u32::try_from(input_rows.len())
+            .and_then(NonZeroU32::try_from)
+            .unwrap(),
+        field_type: args.input.field,
+        query_type: QueryType::TestMultiply,
+    };
+
+    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
     let actual = secure_mul(input_rows, &helper_clients, query_id).await;
 
@@ -333,16 +350,8 @@ async fn multiply_in_field<F: Field>(
 }
 
 async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
-    let query_config = QueryConfig {
-        field_type: args.input.field,
-        query_type: QueryType::TestMultiply,
-    };
-
-    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     match args.input.field {
-        FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients, query_id).await,
-        FieldType::Fp32BitPrime => {
-            multiply_in_field::<Fp32BitPrime>(args, helper_clients, query_id).await
-        }
+        FieldType::Fp31 => multiply_in_field::<Fp31>(&args, helper_clients).await,
+        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(&args, helper_clients).await,
     };
 }
