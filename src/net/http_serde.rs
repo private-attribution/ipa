@@ -110,13 +110,12 @@ pub mod query {
             #[derive(serde::Deserialize)]
             struct QueryTypeParam {
                 // TODO: serde custom error?
-                #[serde(rename = "records")]
-                record_count: NonZeroU32,
+                size: NonZeroU32,
                 field_type: FieldType,
                 query_type: String,
             }
             let Query(QueryTypeParam {
-                record_count,
+                size,
                 field_type,
                 query_type,
             }) = req.extract().await?;
@@ -163,7 +162,7 @@ pub mod query {
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
-                record_count,
+                size,
                 field_type,
                 query_type,
             }))
@@ -174,10 +173,10 @@ pub mod query {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             write!(
                 f,
-                "query_type={qt}&field_type={f:?}&records={count}",
+                "query_type={qt}&field_type={f:?}&size={size}",
                 qt = self.query_type.as_ref(),
                 f = self.field_type,
-                count = self.record_count
+                size = self.size
             )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]

@@ -100,7 +100,7 @@ pub fn execute(
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
-                        .execute(ctx, config.record_count, input)
+                        .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
@@ -113,7 +113,7 @@ pub fn execute(
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
-                        .execute(ctx, config.record_count, input)
+                        .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
@@ -127,7 +127,7 @@ pub fn execute(
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
-                        .execute(ctx, config.record_count, input)
+                        .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
@@ -140,7 +140,7 @@ pub fn execute(
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
-                        .execute(ctx, config.record_count, input)
+                        .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },

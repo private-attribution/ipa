@@ -9,7 +9,7 @@ use ipa::{
     },
     config::{ClientConfig, NetworkConfig, PeerConfig},
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
-    helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
+    helpers::query::{IpaQueryConfig, QueryConfig, QueryType, QueryType::TestMultiply},
     net::{ClientIdentity, MpcHelperClient},
     protocol::{BreakdownKey, MatchKey},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -26,7 +26,6 @@ use std::{
     fs::OpenOptions,
     io,
     io::{stdout, Write},
-    num::NonZeroU32,
     ops::Add,
     path::PathBuf,
     time::Duration,
@@ -277,17 +276,8 @@ async fn ipa(
     };
 
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    if input_rows.is_empty() {
-        panic!("Empty input")
-    }
+    let query_config = QueryConfig::new(query_type, args.input.field, input_rows.len()).unwrap();
 
-    let query_config = QueryConfig {
-        field_type: args.input.field,
-        query_type,
-        record_count: u32::try_from(input_rows.len())
-            .and_then(NonZeroU32::try_from)
-            .unwrap(),
-    };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = {
         let mut r = ipa_in_the_clear(
@@ -331,16 +321,7 @@ where
 {
     let input = InputSource::from(&args.input);
     let input_rows = input.iter::<(F, F)>().collect::<Vec<_>>();
-    if input_rows.is_empty() {
-        panic!("Empty input")
-    }
-    let query_config = QueryConfig {
-        record_count: u32::try_from(input_rows.len())
-            .and_then(NonZeroU32::try_from)
-            .unwrap(),
-        field_type: args.input.field,
-        query_type: QueryType::TestMultiply,
-    };
+    let query_config = QueryConfig::new(TestMultiply, args.input.field, input_rows.len()).unwrap();
 
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();

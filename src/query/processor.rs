@@ -273,8 +273,8 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::QueryType, HelperIdentity, InMemoryNetwork, PrepareQueryCallback,
-            TransportCallbacks,
+            query::{QueryType, QueryType::TestMultiply},
+            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
         },
     };
     use futures::pin_mut;
@@ -290,12 +290,8 @@ mod tests {
         Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
     }
 
-    fn query_config() -> QueryConfig {
-        QueryConfig {
-            record_count: 1.try_into().unwrap(),
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        }
+    fn test_multiply_config() -> QueryConfig {
+        QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap()
     }
 
     #[tokio::test]
@@ -326,7 +322,7 @@ mod tests {
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = query_config();
+        let request = test_multiply_config();
 
         let qc_future = p0.new_query(t0, request);
         pin_mut!(qc_future);
@@ -361,7 +357,7 @@ mod tests {
         let network = InMemoryNetwork::new(cb);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = query_config();
+        let request = test_multiply_config();
 
         let _qc = p0
             .new_query(Transport::clone_ref(&t0), request)
@@ -388,7 +384,7 @@ mod tests {
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = query_config();
+        let request = test_multiply_config();
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
@@ -402,11 +398,7 @@ mod tests {
         fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
                 query_id: QueryId,
-                config: QueryConfig {
-                    record_count: 1.try_into().unwrap(),
-                    field_type: FieldType::Fp31,
-                    query_type: QueryType::TestMultiply,
-                },
+                config: test_multiply_config(),
                 roles: RoleAssignment::new(identities),
             }
         }
@@ -472,14 +464,7 @@ mod tests {
             let a = Fp31::truncate_from(4u128);
             let b = Fp31::truncate_from(5u128);
             let results = app
-                .execute_query(
-                    vec![a, b],
-                    QueryConfig {
-                        record_count: 1.try_into().unwrap(),
-                        field_type: FieldType::Fp31,
-                        query_type: QueryType::TestMultiply,
-                    },
-                )
+                .execute_query(vec![a, b], test_multiply_config())
                 .await?;
 
             let results = results.map(|bytes| {
@@ -524,7 +509,7 @@ mod tests {
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
                     records,
                     QueryConfig {
-                        record_count,
+                        size: record_count,
                         field_type: FieldType::Fp31,
                         query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                             per_user_credit_cap: 3,

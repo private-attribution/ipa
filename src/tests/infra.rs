@@ -3,7 +3,7 @@
 use crate::{
     ff::{Field, FieldType, Fp31, Fp32BitPrime},
     helpers::{
-        query::{QueryConfig, QueryType},
+        query::{QueryConfig, QueryType::TestMultiply},
         Direction, GatewayConfig,
     },
     protocol::{context::Context, RecordId},
@@ -144,7 +144,8 @@ fn execute_query() {
                     .take(20)
                     .map(Fp31::truncate_from)
                     .collect::<Vec<_>>();
-                assert_eq!(0, inputs.len() % 2);
+                let sz = inputs.len();
+                assert_eq!(0, sz % 2);
 
                 let expected = inputs
                     .as_slice()
@@ -155,10 +156,7 @@ fn execute_query() {
                 let results = app
                     .execute_query(
                         inputs,
-                        QueryConfig {
-                            field_type: FieldType::Fp31,
-                            query_type: QueryType::TestMultiply,
-                        },
+                        QueryConfig::new(TestMultiply, FieldType::Fp31, sz).unwrap(),
                     )
                     .await
                     .unwrap();

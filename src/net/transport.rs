@@ -187,7 +187,7 @@ mod tests {
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
-        helpers::{query::QueryType, ByteArrStream},
+        helpers::{query::QueryType::TestMultiply, ByteArrStream},
         net::{
             client::ClientIdentity,
             test::{body_stream, get_test_identity, TestConfig, TestConfigBuilder, TestServer},
@@ -318,10 +318,7 @@ mod tests {
 
         // send a create query command
         let leader_client = &clients[0];
-        let create_data = QueryConfig {
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        };
+        let create_data = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
 
         // create query
         let query_id = leader_client.create_query(create_data).await.unwrap();

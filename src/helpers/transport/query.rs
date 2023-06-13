@@ -4,7 +4,7 @@ use crate::{
         transport::{ByteArrStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{step::Step, QueryId},
+    protocol::{step::Step, QueryId, MAX_QUERY_SIZE},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,15 @@ use tokio::sync::oneshot;
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
-    pub record_count: NonZeroU32,
+    pub size: NonZeroU32,
     pub field_type: FieldType,
     pub query_type: QueryType,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum QueryConfigError {
+    #[error("Query size is 0 or too large. Must be within [1, {max_size}], got: {actual_size}")]
+    BadQuerySize { actual_size: usize, max_size: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +68,39 @@ impl From<&QueryConfig> for GatewayConfig {
     fn from(_value: &QueryConfig) -> Self {
         // TODO: pick the correct value for active and test it
         Self::default()
+    }
+}
+
+impl QueryConfig {
+    /// Initialize new query configuration.
+    ///
+    /// ## Errors
+    /// If query size is too large or 0.
+    ///
+    /// ## Panics
+    /// if query size does not fit into a pointer-sized type.
+    pub fn new<S>(
+        query_type: QueryType,
+        field_type: FieldType,
+        size: S,
+    ) -> Result<Self, QueryConfigError>
+    where
+        <S as TryInto<usize>>::Error: Debug,
+        S: TryInto<usize> + TryInto<u32>,
+    {
+        let sz: usize = size.try_into().expect("query size fits into machine word");
+        let sz = u32::try_from(sz)
+            .and_then(NonZeroU32::try_from)
+            .map_err(|_| QueryConfigError::BadQuerySize {
+                actual_size: sz,
+                max_size: MAX_QUERY_SIZE,
+            })?;
+
+        Ok(Self {
+            size: sz,
+            field_type,
+            query_type,
+        })
     }
 }
 
