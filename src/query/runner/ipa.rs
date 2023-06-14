@@ -22,17 +22,23 @@ use futures::{
     stream::{iter, repeat},
     Stream, StreamExt, TryStreamExt,
 };
-use std::{marker::PhantomData, sync::OnceLock};
+use std::{marker::PhantomData, sync::Arc};
 
-pub struct IpaQuery<F, C, S>(IpaQueryConfig, PhantomData<(F, C, S)>);
-
-impl<F, C, S> IpaQuery<F, C, S> {
-    pub fn new(config: IpaQueryConfig) -> Self {
-        Self(config, PhantomData)
-    }
+pub struct IpaQuery<F, C, S> {
+    config: IpaQueryConfig,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
+    phantom_data: PhantomData<(F, C, S)>,
 }
 
-pub static KEY_REGISTRY: OnceLock<KeyRegistry<KeyPair>> = OnceLock::new();
+impl<F, C, S> IpaQuery<F, C, S> {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
+        Self {
+            config,
+            key_registry,
+            phantom_data: PhantomData,
+        }
+    }
+}
 
 impl<F, C, S, SB> IpaQuery<F, C, S>
 where
@@ -65,7 +71,11 @@ where
         ctx: C,
         input_stream: BodyStream,
     ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
-        let Self(config, _) = self;
+        let Self {
+            config,
+            key_registry,
+            phantom_data: _,
+        } = self;
 
         let input = if config.plaintext_match_keys {
             assert_stream_send(
@@ -82,11 +92,7 @@ where
             .map_ok(|enc_reports| {
                 iter(enc_reports.into_iter().map(|enc_report| {
                     enc_report
-                        .decrypt(
-                            KEY_REGISTRY
-                                .get()
-                                .expect("key registry has not been initialized"),
-                        )
+                        .decrypt(key_registry.as_ref())
                         .map_err(Into::<Error>::into)
                 }))
             })
@@ -201,7 +207,7 @@ mod tests {
                 plaintext_match_keys: true,
             };
             let input = BodyStream::from(shares);
-            IpaQuery::new(query_config).execute(ctx, input)
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(ctx, input)
         }))
         .await;
 
@@ -262,7 +268,7 @@ mod tests {
                 max_breakdown_key: 3,
                 plaintext_match_keys: true,
             };
-            IpaQuery::new(query_config).execute(ctx, shares.into())
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(ctx, shares.into())
         }))
         .await;
 
@@ -296,10 +302,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
-        KEY_REGISTRY
-            .set(KeyRegistry::random(1, &mut rng))
-            .ok()
-            .expect("attempt to reinitialize key registry");
+        let key_registry = Arc::new(KeyRegistry::random(1, &mut rng));
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
@@ -307,7 +310,7 @@ mod tests {
         for (buf, shares) in zip(&mut buffers, shares) {
             for share in shares {
                 share
-                    .delimited_encrypt_to(key_id, KEY_REGISTRY.get().unwrap(), &mut rng, buf)
+                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, buf)
                     .unwrap();
             }
         }
@@ -324,7 +327,7 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            IpaQuery::new(query_config).execute(ctx, input)
+            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, input)
         }))
         .await;
 

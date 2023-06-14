@@ -1,17 +1,21 @@
 use crate::{
+    error::BoxError,
     helpers::HelperIdentity,
-    hpke::{Deserializable as _, IpaPublicKey, Serializable as _},
+    hpke::{
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
+    },
 };
 
 use derivative::Derivative;
 use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
 use serde::{Deserialize, Deserializer, Serialize};
+use tokio::fs;
 use tokio_rustls::rustls::Certificate;
 
 use std::{
     array,
-    borrow::Borrow,
+    borrow::{Borrow, Cow},
     fmt::{self, Debug, Formatter},
     iter::Zip,
     path::PathBuf,
@@ -218,6 +222,38 @@ pub enum HpkeServerConfig {
         // Private key in hex format
         private_key: String,
     },
+}
+
+/// # Errors
+/// If there is a problem with the HPKE configuration.
+pub async fn hpke_registry(
+    config: Option<&HpkeServerConfig>,
+) -> Result<KeyRegistry<KeyPair>, BoxError> {
+    let (pk_str, sk_str) = match config {
+        None => return Ok(KeyRegistry::empty()),
+        Some(HpkeServerConfig::Inline {
+            public_key,
+            private_key,
+        }) => (
+            Cow::Borrowed(public_key.trim().as_bytes()),
+            Cow::Borrowed(private_key.trim().as_bytes()),
+        ),
+        Some(HpkeServerConfig::File {
+            public_key_file,
+            private_key_file,
+        }) => (
+            Cow::Owned(fs::read_to_string(public_key_file).await?.trim().into()),
+            Cow::Owned(fs::read_to_string(private_key_file).await?.trim().into()),
+        ),
+    };
+
+    let pk = hex::decode(pk_str)?;
+    let sk = hex::decode(sk_str)?;
+
+    Ok(KeyRegistry::from_keys([KeyPair::from((
+        IpaPrivateKey::from_bytes(&sk)?,
+        IpaPublicKey::from_bytes(&pk)?,
+    ))]))
 }
 
 /// Configuration information for launching an instance of the helper party web service.

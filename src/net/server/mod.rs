@@ -1,12 +1,10 @@
 mod handlers;
 
 use crate::{
-    config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
+    config::{NetworkConfig, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    hpke::{Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry},
     net::{Error, HttpTransport},
-    query::KEY_REGISTRY,
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -135,16 +133,6 @@ impl MpcHelperServer {
         #[cfg(not(test))]
         const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 
-        // TODO: Improve KEY_REGISTRY handling to not use a static.
-        KEY_REGISTRY
-            .set(
-                hpke_registry(&self.config)
-                    .await
-                    .expect("invalid mk encryption configuration"),
-            )
-            .ok()
-            .expect("attempt to reinitialize key registry");
-
         let svc = self.router().layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |_request: &hyper::Request<hyper::Body>| tracing.make_span())
@@ -254,34 +242,6 @@ where
                 .expect("Failed to serve");
         }
     })
-}
-
-async fn hpke_registry(config: &ServerConfig) -> Result<KeyRegistry<KeyPair>, BoxError> {
-    let (pk_str, sk_str) = match &config.hpke_config {
-        None => return Ok(KeyRegistry::empty()),
-        Some(HpkeServerConfig::Inline {
-            public_key,
-            private_key,
-        }) => (
-            Cow::Borrowed(public_key.trim().as_bytes()),
-            Cow::Borrowed(private_key.trim().as_bytes()),
-        ),
-        Some(HpkeServerConfig::File {
-            public_key_file,
-            private_key_file,
-        }) => (
-            Cow::Owned(fs::read_to_string(public_key_file).await?.trim().into()),
-            Cow::Owned(fs::read_to_string(private_key_file).await?.trim().into()),
-        ),
-    };
-
-    let pk = hex::decode(pk_str)?;
-    let sk = hex::decode(sk_str)?;
-
-    Ok(KeyRegistry::from_keys([KeyPair::from((
-        IpaPrivateKey::from_bytes(&sk)?,
-        IpaPublicKey::from_bytes(&pk)?,
-    ))]))
 }
 
 async fn certificate_and_key(

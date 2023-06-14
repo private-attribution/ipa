@@ -11,6 +11,4 @@ pub use processor::{
     QueryInputError,
 };
 
-pub use runner::KEY_REGISTRY;
-
 use completion::Handle as CompletionHandle;

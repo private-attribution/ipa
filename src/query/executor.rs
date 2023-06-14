@@ -5,6 +5,7 @@ use crate::{
         query::{QueryConfig, QueryType},
         BodyStream, Gateway,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
         context::{MaliciousContext, SemiHonestContext},
@@ -29,6 +30,7 @@ use std::{
     fmt::Debug,
     future::{ready, Future},
     pin::Pin,
+    sync::Arc,
 };
 use typenum::Unsigned;
 
@@ -73,6 +75,7 @@ where
 
 pub fn execute(
     config: QueryConfig,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
     gateway: Gateway,
     input: BodyStream,
 ) -> JoinHandle<QueryResult> {
@@ -96,7 +99,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
+                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -106,7 +109,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
+                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -117,7 +120,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
+                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -127,7 +130,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
+                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
