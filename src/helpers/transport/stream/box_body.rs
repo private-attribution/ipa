@@ -1,7 +1,6 @@
 use crate::helpers::BytesStream;
 
 use futures::Stream;
-use pin_project::pin_project;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -9,8 +8,7 @@ use std::{
 
 type BoxInner = Pin<Box<dyn BytesStream>>;
 
-#[pin_project]
-pub struct WrappedBoxBodyStream(#[pin] BoxInner);
+pub struct WrappedBoxBodyStream(BoxInner);
 
 impl WrappedBoxBodyStream {
     /// Wrap an axum body stream, returning an instance of `crate::helpers::BodyStream`.
@@ -24,8 +22,9 @@ impl WrappedBoxBodyStream {
 impl Stream for WrappedBoxBodyStream {
     type Item = <BoxInner as Stream>::Item;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().0.poll_next(cx)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let p = self.0.as_mut();
+        p.poll_next(cx)
     }
 }
 
