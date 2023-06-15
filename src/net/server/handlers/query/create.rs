@@ -96,6 +96,7 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: None,
                 num_multi_bits: 3,
+                plaintext_match_keys: true,
             }),
         })
         .await;
@@ -110,6 +111,7 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
+                plaintext_match_keys: true,
             }),
         })
         .await;

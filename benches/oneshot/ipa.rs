@@ -88,6 +88,7 @@ impl Args {
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
+            plaintext_match_keys: true,
         }
     }
 }

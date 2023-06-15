@@ -4,6 +4,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
     query::{
         executor,
@@ -18,6 +19,7 @@ use crate::query::state::RemoveQuery;
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
+    sync::Arc,
 };
 use tokio::sync::oneshot;
 
@@ -38,9 +40,18 @@ use tokio::sync::oneshot;
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
-#[derive(Default)]
 pub struct Processor {
     queries: RunningQueries,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Self {
+            queries: RunningQueries::default(),
+            key_registry: Arc::new(KeyRegistry::<KeyPair>::empty()),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -97,6 +108,14 @@ impl Debug for Processor {
 }
 
 impl Processor {
+    #[must_use]
+    pub fn new(key_registry: KeyRegistry<KeyPair>) -> Self {
+        Self {
+            queries: RunningQueries::default(),
+            key_registry: Arc::new(key_registry),
+        }
+    }
+
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
@@ -204,7 +223,12 @@ impl Processor {
                     );
                     queries.insert(
                         input.query_id,
-                        QueryState::Running(executor::execute(config, gateway, input.input_stream)),
+                        QueryState::Running(executor::execute(
+                            config,
+                            Arc::clone(&self.key_registry),
+                            gateway,
+                            input.input_stream,
+                        )),
                     );
                     Ok(())
                 } else {
@@ -515,6 +539,7 @@ mod tests {
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
+                            plaintext_match_keys: true,
                         }),
                     },
                 )

@@ -2,7 +2,7 @@
 
 use crate::{
     ff::{Field, Serializable},
-    helpers::{query::QueryInput, ByteArrStream},
+    helpers::{query::QueryInput, BodyStream},
     net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
@@ -44,7 +44,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        ByteArrStream::from(r)
+        BodyStream::from(r)
     });
 
     // send inputs

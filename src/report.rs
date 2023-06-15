@@ -1,6 +1,9 @@
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
-    hpke::{open_in_place, seal_in_place, CryptError, Info, KeyRegistry, MatchKeyCrypt},
+    hpke::{
+        open_in_place, seal_in_place, CryptError, Info, KeyPair, KeyRegistry, MatchKeyCrypt,
+        PublicKeyRegistry,
+    },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use bytes::{BufMut, Bytes};
@@ -18,6 +21,8 @@ use typenum::Unsigned;
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
 
 pub type KeyIdentifier = u8;
+pub const DEFAULT_KEY_ID: KeyIdentifier = 0;
+
 pub type Timestamp = u32;
 
 /// Event epoch as described [`ipa-spec`]
@@ -116,6 +121,8 @@ pub enum InvalidReportError {
     BadEventType(#[from] ParseEventTypeError),
     #[error("bad site_domain: {0}")]
     NonAsciiString(#[from] NonAsciiStringError),
+    #[error("timestamp {0} out of range")]
+    Timestamp(Timestamp),
     #[error("en/decryption failure: {0}")]
     Crypt(#[from] CryptError),
 }
@@ -215,7 +222,6 @@ where
 
     /// ## Errors
     /// If the report contents are invalid.
-    #[allow(dead_code)] // TODO: temporary
     pub fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
         EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
         let site_domain = &bytes[Self::SITE_DOMAIN_OFFSET..];
@@ -234,10 +240,9 @@ where
     /// ## Panics
     /// Should not panic. Only panics if a `Report` constructor failed to validate the
     /// contents properly, which would be a bug.
-    #[allow(dead_code)] // TODO: temporary
     pub fn decrypt(
         &self,
-        key_registry: &KeyRegistry,
+        key_registry: &KeyRegistry<KeyPair>,
     ) -> Result<Report<F, Gf40Bit, Gf8Bit>, InvalidReportError> {
         let info = Info::new(
             self.key_id(),
@@ -295,29 +300,52 @@ where
     pub site_domain: String,
 }
 
-impl<F, MK, BK> Report<F, MK, BK>
+impl<F> Report<F, Gf40Bit, Gf8Bit>
 where
     F: PrimeField,
     Replicated<F>: Serializable,
-    MK: MatchKeyCrypt,
-    BK: GaloisField,
 {
-    #[allow(dead_code)] // TODO: temporary
-    fn encrypt<R: CryptoRng + RngCore>(
+    /// # Panics
+    /// If report length does not fit in u16.
+    pub fn encrypted_len(&self) -> u16 {
+        let len = EncryptedReport::<F, Gf40Bit, Gf8Bit, &[u8]>::SITE_DOMAIN_OFFSET
+            + self.site_domain.as_bytes().len();
+        len.try_into().unwrap()
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
         &self,
         key_id: KeyIdentifier,
-        key_registry: &KeyRegistry,
+        key_registry: &impl PublicKeyRegistry,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidReportError> {
+        out.put_u16_le(self.encrypted_len());
+        self.encrypt_to(key_id, key_registry, rng, out)
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt<R: CryptoRng + RngCore>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidReportError> {
         let mut out = Vec::new();
         self.encrypt_to(key_id, key_registry, rng, &mut out)?;
+        debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
         Ok(out)
     }
 
-    fn encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
         &self,
         key_id: KeyIdentifier,
-        key_registry: &KeyRegistry,
+        key_registry: &impl PublicKeyRegistry,
         rng: &mut R,
         out: &mut B,
     ) -> Result<(), InvalidReportError> {

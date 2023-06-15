@@ -3,8 +3,9 @@ use crate::{
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
-        ByteArrStream, Gateway,
+        BodyStream, Gateway,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
         context::{MaliciousContext, SemiHonestContext},
@@ -29,6 +30,7 @@ use std::{
     fmt::Debug,
     future::{ready, Future},
     pin::Pin,
+    sync::Arc,
 };
 use typenum::Unsigned;
 
@@ -73,8 +75,9 @@ where
 
 pub fn execute(
     config: QueryConfig,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
     gateway: Gateway,
-    input: ByteArrStream,
+    input: BodyStream,
 ) -> JoinHandle<QueryResult> {
     match (config.query_type, config.field_type) {
         #[cfg(any(test, feature = "weak-field"))]
@@ -96,7 +99,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
+                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -106,7 +109,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
+                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -117,7 +120,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config)
+                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -127,7 +130,7 @@ pub fn execute(
             do_query(config, gateway, input, move |prss, gateway, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config)
+                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
                         .execute(ctx, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -139,14 +142,14 @@ pub fn execute(
 pub fn do_query<F>(
     config: QueryConfig,
     gateway: Gateway,
-    input: ByteArrStream,
+    input_stream: BodyStream,
     query_impl: F,
 ) -> JoinHandle<QueryResult>
 where
     F: for<'a> FnOnce(
             &'a PrssEndpoint,
             &'a Gateway,
-            ByteArrStream,
+            BodyStream,
         ) -> Pin<Box<dyn Future<Output = QueryResult> + Send + 'a>>
         + Send
         + 'static,
@@ -158,7 +161,7 @@ where
         let step = Gate::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
-        query_impl(&prss, &gateway, input).await
+        query_impl(&prss, &gateway, input_stream).await
     })
 }
 

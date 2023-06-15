@@ -3,6 +3,7 @@ use crate::{
         query::{QueryConfig, QueryInput},
         Transport, TransportCallbacks, TransportImpl,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
     query::{NewQueryError, QueryCompletionError, QueryInputError, QueryProcessor},
     sync::Arc,
@@ -22,7 +23,14 @@ pub struct HelperApp {
 impl Setup {
     #[must_use]
     pub fn new() -> (Self, TransportCallbacks<TransportImpl>) {
-        let query_processor = Arc::new(QueryProcessor::default());
+        Self::with_key_registry(KeyRegistry::empty())
+    }
+
+    #[must_use]
+    pub fn with_key_registry(
+        key_registry: KeyRegistry<KeyPair>,
+    ) -> (Self, TransportCallbacks<TransportImpl>) {
+        let query_processor = Arc::new(QueryProcessor::new(key_registry));
         let this = Self {
             query_processor: Arc::clone(&query_processor),
         };

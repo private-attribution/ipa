@@ -15,21 +15,15 @@ use crate::{
         TlsConfig,
     },
     helpers::{HelperIdentity, TransportCallbacks},
+    hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
-use axum::{
-    body::{Body, Bytes},
-    extract::{BodyStream, FromRequest, RequestParts},
-    http::Request,
-};
-use futures::Stream;
 use hyper_tls::native_tls::Identity;
 use once_cell::sync::Lazy;
 use std::{
     array,
-    error::Error as StdError,
     net::{SocketAddr, TcpListener},
 };
 use tokio::task::JoinHandle;
@@ -176,7 +170,12 @@ impl TestConfigBuilder {
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
-                    Some(HpkeClientConfig::new(TEST_HPKE_PUBLIC_KEY.to_owned()))
+                    Some(HpkeClientConfig::new(
+                        IpaPublicKey::from_bytes(
+                            &hex::decode(TEST_HPKE_PUBLIC_KEY.trim()).unwrap(),
+                        )
+                        .unwrap(),
+                    ))
                 },
             })
             .collect::<Vec<_>>()
@@ -205,19 +204,6 @@ impl TestConfigBuilder {
 }
 
 type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
-
-pub async fn body_stream(
-    stream: Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>,
-) -> BodyStream {
-    BodyStream::from_request(&mut RequestParts::new(
-        Request::builder()
-            .uri("/ignored")
-            .body(Body::from(stream))
-            .unwrap(),
-    ))
-    .await
-    .unwrap()
-}
 
 pub struct TestServer {
     pub addr: SocketAddr,
@@ -445,6 +431,8 @@ KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
 ",
 ];
 
+// Yes, these strings have trailing newlines. Things that consume them
+// should strip whitespace.
 const TEST_HPKE_PUBLIC_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";

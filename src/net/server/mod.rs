@@ -117,7 +117,9 @@ impl MpcHelperServer {
     /// Returns the `SocketAddr` of the server socket and the `JoinHandle` of the server task.
     ///
     /// # Panics
-    /// If the server TLS configuration is not valid.
+    /// If the server TLS configuration is not valid, or if the match key encryption key
+    /// configuration is invalid. (No match key encryption is okay for now, but if there is a key
+    /// configured, it must be valid.)
     pub async fn start_on<T: TracingSpanMaker>(
         &self,
         listener: Option<TcpListener>,
