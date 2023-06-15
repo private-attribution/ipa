@@ -8,69 +8,6 @@ use std::{
 };
 use syn::{parse_macro_input, punctuated::Punctuated, DeriveInput, PathArguments, PathSegment};
 
-// TODOs:
-// 1. Proc macro to annotate each step enum/struct to generate `impl StepNarrow<StepX> for Compact` in
-//   the same file, rather than giant implementations in the `Compact` file.
-//   - This will require a way to get the name of the file (module path) that the macro is being called from.
-//   - We could use https://doc.rust-lang.org/proc_macro/struct.Span.html#method.source_file, but it's in nightly.
-//   - This will also allow us to generate state transition match statements from int to int rather than str to int.
-//
-// 2. Enable compile-time detection of steps that are `narrow`ed but never trigger `send` in the protocol.
-//   - `Descriptive` gate allows unnecessary `narrow` even if the step doesn't trigger `send`.
-//   - There are a couple of reasons this could happen:
-//     (a) A step is narrowed, but doesn't trigger `send` before the next narrow.
-//     (b) A step is narrowed, but the `send` is conditionally executed. (i.e., `do_the_binary_tree_thing`)
-//     (c) any more cases?
-//   - We want to detect these cases at compile time and fail the build but need to be able to support (b).
-//   - For (b), we could use another proc macro, which is described in the next point #3.
-//
-// 3. (Done) Allow `narrow`ing of steps that are conditionally executed.
-//   - `Compact` gate code is generated from the steps file, which doesn't contain any information about
-//     steps that are not executed. However, some protocols narrow the context in advance for convenience.
-//     Such narrowing to unknown state will cause the `Compact` gate to panic.
-//   - There are two ways to solve this:
-//     (a) Allow `narrow`ing from any state to that state. We could do this either by 1) hard coding or by
-//         2) annotating the steps that are conditionally executed. We need to take into consideration about
-//         a case where there are child steps branching off from the conditional step.
-//     (b) Forcibly execute conditional steps when `step-trace` feature is on to generate the steps file.
-//         Not sure what is the best way to do this, or whether this will work though.
-//  - Currently, we are doing (a-1). It could let unexpected state transitions happen without panicking, but
-//    there isn't a better way to solve this.
-//
-//   Examples:
-//   - crate::protocol::boolean::random_bits_generator::FallbackStep
-//     This step is only executed when generated random secret shared bits are of a share larger than
-//     `2^32 - 5`. However, the context is narrowed to this step when a RBG instance is created. This one
-//     is easy to solve by allowing to narrow to a hard-coded state as there are no branching child steps.
-//   - crate::protocol::attribution::Step::CurrentCreditOrCreditUpdate
-//     This and other similar steps in the "binary tree prefixed sum" protocols are highly optimized such
-//     that they are executed (or not executed) depending on the iteration/depth of the loop. To solve this,
-//     we could apply the same conditions used to call `multiply` using these contexts to where we `narrow`
-//     the context. The code becomes a bit messy, but it's doable.
-//   - crate::protocol::context::UpgradeStep
-//     This steps is executed in both malicious and semi-honest contexts, but the `narrow` call in semi-honest
-//     context is a dummy; it doesn't trigger `send`. This is a bit tricky to solve because 1) there are many
-//     child steps, and 2) malicious context
-//
-// 4. (Done) Generate state transitions of dynamic steps. (i.e., BitOpStep)
-//   - There are steps that are dynamically generated based on the number of bits, rows, etc. Fortunately,
-//     these steps have finite number of states, so we can generate the state transitions either in steps
-//     file generation or in compile time. Again, we need to take into consideration about the case where
-//     there are child steps branching off from the dynamic step.
-//   - Currently we do this in `collect_steps.py`. In the future, we want to do this in compile time with
-//     a proc macro, but that requires a feature currently in nightly (mentioned in #1).
-//
-// 5. num-multi-bits
-//   - `num-multi-bits` also changes the state transition map. We could generate the steps file for all
-//     possible values of `num-multi-bits, but that will make the file huge. We can probably just stick to
-//     the current empirical best value of 3. We could also try to read the value from the source or the
-//     config file, and generate the steps file accordingly. However, the value could change after the steps
-//     file is generated, so we need to make sure that the steps file is always up to date somehow.
-//
-// 6. Root step
-//   - In IPA dev, the root step is always `protocol/run-0`. How do we handle this in real-world case with
-//     the Compact gate?
-
 // Procedural macro to derive the Step and StepNarrow traits and generate a memory-efficient gate.
 //
 // The goal is to generate a state transition graph and the corresponding `StepNarrow` implementations
@@ -133,13 +70,13 @@ struct StepMetaData {
 }
 
 impl StepMetaData {
-    pub fn new(id: u16, depth: u8, module: &str, name: &str, path: &str) -> Self {
+    pub fn new(id: u16, depth: u8, module: String, name: String, path: String) -> Self {
         Self {
             id,
             depth,
-            module: module.to_owned(),
-            name: name.to_owned(),
-            path: path.to_owned(),
+            module,
+            name,
+            path,
         }
     }
 }
@@ -241,7 +178,7 @@ fn ipa_state_transition_map() -> Node<StepMetaData> {
                 .map(|(_, name)| name.to_owned())
                 .collect::<Vec<_>>()
                 .join("/");
-            StepMetaData::new(id, depth, module, name, &path)
+            StepMetaData::new(id, depth, module.to_owned(), name.to_owned(), path)
         })
         .collect::<Vec<_>>();
 
@@ -265,7 +202,13 @@ fn read_steps_file(file_path: &str) -> Vec<String> {
 /// Constructs a tree structure with nodes that contain the `Step` instances.
 /// Tree structure helps us to easily find the parent of the current step.
 fn construct_tree(steps: Vec<StepMetaData>) -> Node<StepMetaData> {
-    let root = Node::new(StepMetaData::new(0, 0, TARGET_CRATE, "root", "root"));
+    let root = Node::new(StepMetaData::new(
+        0,
+        0,
+        TARGET_CRATE.to_string(),
+        "root".to_string(),
+        "root".to_string(),
+    ));
     let mut last_node = root.clone();
 
     // This logic is based on the assumption that the steps file is sorted by alphabetical order,

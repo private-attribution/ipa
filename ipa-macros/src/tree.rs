@@ -25,7 +25,7 @@ pub struct InnerNode<T> {
 }
 
 impl<T> Node<T> {
-    pub fn new(value: T) -> Node<T> {
+    pub fn new(value: T) -> Self {
         let new_node = InnerNode {
             value,
             parent: RefCell::new(Weak::new()),
