@@ -6,7 +6,6 @@ use crate::{
     },
 };
 
-use derivative::Derivative;
 use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -16,7 +15,7 @@ use tokio_rustls::rustls::Certificate;
 use std::{
     array,
     borrow::{Borrow, Cow},
-    fmt::{self, Debug, Formatter},
+    fmt::{Debug, Formatter},
     iter::Zip,
     path::PathBuf,
     slice,
@@ -137,12 +136,18 @@ impl PeerConfig {
 
 /// Match key encryption client configuration. To encrypt match keys towards a helper node, clients
 /// need to know helper's public key.
-#[derive(Clone, Derivative, Deserialize)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize)]
 pub struct HpkeClientConfig {
     #[serde(deserialize_with = "pk_from_str")]
-    #[derivative(Debug(format_with = "fmt_pk"))]
     pub public_key: IpaPublicKey,
+}
+
+impl Debug for HpkeClientConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HpkeClientConfig")
+            .field("public_key", &pk_to_str(&self.public_key))
+            .finish()
+    }
 }
 
 impl HpkeClientConfig {
@@ -181,11 +186,6 @@ where
 
 fn pk_to_str(pk: &IpaPublicKey) -> String {
     hex::encode(pk.to_bytes().as_slice())
-}
-
-fn fmt_pk(pk: &IpaPublicKey, fmt: &mut Formatter) -> Result<(), fmt::Error> {
-    fmt.write_str(&pk_to_str(pk))?;
-    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -379,8 +379,11 @@ impl Debug for Http2Configurator {
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
-    use crate::{helpers::HelperIdentity, net::test::TestConfigBuilder};
+    use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
+    use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
+    use rand::rngs::StdRng;
+    use rand_core::SeedableRng;
 
     const URI_1: &str = "http://localhost:3000";
     const URI_2: &str = "http://localhost:3001";
@@ -404,5 +407,13 @@ mod tests {
         let id3 = HelperIdentity::try_from(3usize).unwrap();
         let value3 = &conf.network.peers()[id3];
         assert_eq!(value3.url, uri3);
+    }
+
+    #[test]
+    fn debug_hpke_client_config() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let (_, public_key) = X25519HkdfSha256::gen_keypair(&mut rng);
+        let config = HpkeClientConfig { public_key };
+        assert_eq!(format!("{config:?}"), "HpkeClientConfig { public_key: \"2bd9da78f01d8bc6948bbcbe44ec1e7163d05083e267d110cdb2e75d847e3b6f\" }");
     }
 }

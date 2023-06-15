@@ -1,7 +1,6 @@
 use crate::error::BoxError;
 
 use axum::extract::{BodyStream, FromRequest, RequestParts};
-use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
 use hyper::Body;
 use pin_project::pin_project;
@@ -37,9 +36,9 @@ impl Stream for WrappedAxumBodyStream {
     }
 }
 
-// TODO: I would prefer that this be cfg(test), but it's needed in the CLI tools.
 // Note that it is possible (although unlikely) that `from_body` panics.
-impl<Buf: Into<Bytes>> From<Buf> for WrappedAxumBodyStream {
+#[cfg(any(test, feature = "test-fixture"))]
+impl<Buf: Into<bytes::Bytes>> From<Buf> for WrappedAxumBodyStream {
     fn from(buf: Buf) -> Self {
         Self::from_body(buf.into())
     }
@@ -68,8 +67,8 @@ impl WrappedAxumBodyStream {
 
 #[cfg(feature = "real-world-infra")]
 #[async_trait::async_trait]
-impl<B: hyper::body::HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
-    for WrappedAxumBodyStream
+impl<B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static>
+    FromRequest<B> for WrappedAxumBodyStream
 {
     type Rejection = <BodyStream as FromRequest<B>>::Rejection;
 

@@ -13,7 +13,6 @@ use crate::{
     },
 };
 
-use derivative::Derivative;
 use futures_util::{future::try_join, stream};
 
 use crate::query::state::RemoveQuery;
@@ -41,12 +40,18 @@ use tokio::sync::oneshot;
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
-#[derive(Derivative)]
-#[derivative(Default)]
 pub struct Processor {
     queries: RunningQueries,
-    #[derivative(Default(value = "Arc::new(KeyRegistry::<KeyPair>::empty())"))]
     key_registry: Arc<KeyRegistry<KeyPair>>,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Self {
+            queries: RunningQueries::default(),
+            key_registry: Arc::new(KeyRegistry::<KeyPair>::empty()),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

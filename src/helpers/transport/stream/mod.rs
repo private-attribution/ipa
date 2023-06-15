@@ -13,6 +13,7 @@ pub use input::{LengthDelimitedStream, RecordsStream};
 use crate::error::BoxError;
 use bytes::Bytes;
 use futures::Stream;
+use std::pin::Pin;
 
 pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests
@@ -30,6 +31,8 @@ pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
 }
 
 impl<S: Stream<Item = Result<Bytes, BoxError>> + Send> BytesStream for S {}
+
+pub type BoxBytesStream = Pin<Box<dyn BytesStream>>;
 
 // This type alias serves a few purposes:
 //  * Providing a type for input record streams when building without the `web-app` feature.
