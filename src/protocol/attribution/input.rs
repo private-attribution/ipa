@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3, try_join4};
+use futures::future::{try_join, try_join4};
 use generic_array::GenericArray;
 use std::marker::PhantomData;
 use typenum::Unsigned;
@@ -159,36 +159,6 @@ impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
     }
 }
 
-// #[async_trait]
-// impl<F: ExtendableField> DowngradeMalicious
-//     for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>
-// {
-//     type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
-//     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
-//     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-//         // Note that this clones the values rather than moving them.
-//         UnauthorizedDowngradeWrapper::new(Self::Target::new(
-//             self.helper_bit.x().access_without_downgrade().clone(),
-//             self.aggregation_bit.x().access_without_downgrade().clone(),
-//             self.breakdown_key
-//                 .into_iter()
-//                 .map(|bk| bk.x().access_without_downgrade().clone())
-//                 .collect::<Vec<_>>(),
-//             self.credit.x().access_without_downgrade().clone(),
-//         ))
-//     }
-// }
-
-#[async_trait]
-impl<F: ExtendableField> DowngradeMalicious
-    for MCCappedCreditsWithAggregationBit<F, Replicated<F>>
-{
-    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper::new(self)
-    }
-}
-
 #[async_trait]
 impl<F: ExtendableField, BK: GaloisField> DowngradeMalicious
     for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
@@ -228,32 +198,6 @@ pub struct AggregateCreditInputRow<F: Field, BK: GaloisField> {
 }
 
 pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
-
-#[derive(Debug)]
-pub struct MCCappedCreditsWithAggregationBit<F, T> {
-    pub helper_bit: T,
-    pub aggregation_bit: T,
-    pub breakdown_key: Vec<Replicated<Gf2>>,
-    pub credit: T,
-    marker: PhantomData<F>,
-}
-
-impl<F: Field, T: LinearSecretSharing<F>> MCCappedCreditsWithAggregationBit<F, T> {
-    pub fn new(
-        helper_bit: T,
-        aggregation_bit: T,
-        breakdown_key: Vec<Replicated<Gf2>>,
-        credit: T,
-    ) -> Self {
-        Self {
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
-            marker: PhantomData,
-        }
-    }
-}
 
 #[derive(Debug)]
 // TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
@@ -383,58 +327,6 @@ where
             active_bit,
             breakdown_key,
             trigger_value,
-        ))
-    }
-}
-
-#[async_trait]
-impl<F, T, C> Reshare<C, RecordId> for MCCappedCreditsWithAggregationBit<F, T>
-where
-    F: Field,
-    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
-    C: Context,
-{
-    async fn reshare<'fut>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
-    where
-        C: 'fut,
-    {
-        let f_helper_bit = self.helper_bit.reshare(
-            ctx.narrow(&AttributionResharableStep::HelperBit),
-            record_id,
-            to_helper,
-        );
-        let f_aggregation_bit = self.aggregation_bit.reshare(
-            ctx.narrow(&AttributionResharableStep::AggregationBit),
-            record_id,
-            to_helper,
-        );
-        let f_breakdown_key = self.breakdown_key.reshare(
-            ctx.narrow(&AttributionResharableStep::BreakdownKey),
-            record_id,
-            to_helper,
-        );
-        let f_value = self.credit.reshare(
-            ctx.narrow(&AttributionResharableStep::TriggerValue),
-            record_id,
-            to_helper,
-        );
-
-        let (breakdown_key, (helper_bit, aggregation_bit, credit)) = try_join(
-            f_breakdown_key,
-            try_join3(f_helper_bit, f_aggregation_bit, f_value),
-        )
-        .await?;
-
-        Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
         ))
     }
 }

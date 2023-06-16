@@ -213,7 +213,6 @@ mod tests {
     #[tokio::test]
     pub async fn aggregate() {
         const MAX_BREAKDOWN_KEY: u32 = 8;
-        const NUM_MULTI_BITS: u32 = 3;
 
         const EXPECTED: &[[u128; 2]] = &[
             // breakdown_key, credit

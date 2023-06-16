@@ -4,7 +4,7 @@ use crate::{
     helpers::{query::IpaQueryConfig, BodyStream, LengthDelimitedStream, RecordsStream},
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
+        attribution::input::MCAggregateCreditOutputRow,
         basics::{Reshare, ShareKnownValue},
         boolean::RandomBits,
         context::{UpgradableContext, UpgradedContext},
@@ -59,8 +59,6 @@ where
     AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, AdditiveShare<F>>>,
     MCAggregateCreditOutputRow<F, S, BreakdownKey>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
     AdditiveShare<F>: Serializable,

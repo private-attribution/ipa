@@ -280,6 +280,7 @@ pub struct BinarySharedIPAInputs<T: LinearSecretSharing<Gf2>> {
 }
 
 impl<T: LinearSecretSharing<Gf2>> BinarySharedIPAInputs<T> {
+    #[must_use]
     pub fn new(match_key: Vec<T>, breakdown_key: Vec<T>) -> Self {
         Self {
             match_key,
