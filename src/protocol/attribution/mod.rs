@@ -9,10 +9,7 @@ use self::{
     aggregate_credit::aggregate_credit,
     apply_attribution_window::apply_attribution_window,
     credit_capping::credit_capping,
-    input::{
-        MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow,
-        MCCappedCreditsWithAggregationBit,
-    },
+    input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
 };
 use crate::{
     error::Error,
@@ -64,9 +61,6 @@ where
     F: PrimeField + ExtendableField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S, SB>: DowngradeMalicious<
-        Target = MCCappedCreditsWithAggregationBit<F, SemiHonestAdditiveShare<F>, SemiHonestAdditiveShare<Gf2>>,
-    >,
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>,
 {
@@ -74,7 +68,13 @@ where
     let m_binary_ctx = binary_validator.context();
 
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &binary_shared_values).await?;
-    let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
+    let breakdown_key_bits_gf2: Vec<_> = binary_shared_values
+        .iter()
+        .map(|x| x.breakdown_key.clone())
+        .collect();
+    let (validated_helper_bits_gf2, validated_breakdown_key_bits_gf2) = binary_validator
+        .validate((helper_bits_gf2, breakdown_key_bits_gf2))
+        .await?;
     let semi_honest_fp_helper_bits =
         mod_conv_helper_bits(ctx.clone(), &validated_helper_bits_gf2).await?;
     let helper_bits = once(S::ZERO)
@@ -90,13 +90,13 @@ where
         .collect::<Vec<_>>();
 
     let attribution_input_rows = zip(arithmetically_shared_values, helper_bits)
-        .zip(binary_shared_values)
-        .map(|((arithmetic, hb), binary)| {
+        .zip(validated_breakdown_key_bits_gf2)
+        .map(|((arithmetic, hb), breakdown_key_bits)| {
             MCApplyAttributionWindowInputRow::new(
                 arithmetic.timestamp,
                 arithmetic.is_trigger_bit,
                 hb,
-                binary.breakdown_key,
+                breakdown_key_bits,
                 arithmetic.trigger_value,
             )
         })
@@ -128,10 +128,8 @@ where
 
     let (validator, output) = aggregate_credit(
         validator,
-        ctx,
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
-        config.num_multi_bits,
     )
     .await?;
 
@@ -390,11 +388,18 @@ where
         .narrow(&Step::ComputeHelperBits)
         .set_total_records(binary_shared_values.len() - 1);
 
-    ctx.try_join(binary_shared_values.windows(2).enumerate().map(|(i, rows)| {
-        let c = narrowed_ctx.clone();
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal_gf2(c, record_id, &rows[0].match_key, &rows[1].match_key).await }
-    }))
+    ctx.try_join(
+        binary_shared_values
+            .windows(2)
+            .enumerate()
+            .map(|(i, rows)| {
+                let c = narrowed_ctx.clone();
+                let record_id = RecordId::from(i);
+                async move {
+                    bitwise_equal_gf2(c, record_id, &rows[0].match_key, &rows[1].match_key).await
+                }
+            }),
+    )
     .await
 }
 

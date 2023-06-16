@@ -3,16 +3,10 @@ use crate::{
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
-        attribution::{
-            input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
-            secure_attribution,
-        },
+        attribution::{input::MCAggregateCreditOutputRow, secure_attribution},
         basics::Reshare,
         boolean::RandomBits,
-        context::{
-            upgrade::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
-            UpgradedContext, Validator,
-        },
+        context::{Context, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
@@ -38,6 +32,8 @@ use generic_array::{ArrayLength, GenericArray};
 use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
 
+use super::context::{UpgradableContext, UpgradedContext};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
     ModulusConversionForMatchKeys,
@@ -46,6 +42,8 @@ pub enum Step {
     ApplySortPermutation,
     ApplySortPermutationToMatchKeys,
     AfterConvertAllBits,
+    UpgradeMatchKeyBits,
+    UpgradeBreakdownKeyBits,
     BinaryValidator,
 }
 
@@ -60,6 +58,8 @@ impl AsRef<str> for Step {
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::UpgradeMatchKeyBits => "upgrade_match_key_bits",
+            Self::UpgradeBreakdownKeyBits => "upgrade_breakdown_key_bits",
             Self::BinaryValidator => "binary_validator",
         }
     }
@@ -263,7 +263,7 @@ where
             to_helper,
         );
 
-        let (breakdown_key, timestamp, is_trigger_bit, trigger_value) =
+        let (timestamp, is_trigger_bit, trigger_value) =
             try_join3(f_timestamp, f_is_trigger_bit, f_trigger_value).await?;
 
         Ok(ArithmeticallySharedIPAInputs::new(
@@ -426,8 +426,6 @@ where
     MK: GaloisField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S, SB>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>>,
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
@@ -471,8 +469,12 @@ where
     let binary_m_ctx = binary_validator.context();
 
     let (upgraded_gf2_match_key_bits, upgraded_gf2_breakdown_key_bits) = try_join(
-        binary_m_ctx.upgrade(gf2_match_key_bits),
-        binary_m_ctx.upgrade(gf2_breakdown_key_bits),
+        binary_m_ctx
+            .narrow(&Step::UpgradeMatchKeyBits)
+            .upgrade(gf2_match_key_bits),
+        binary_m_ctx
+            .narrow(&Step::UpgradeBreakdownKeyBits)
+            .upgrade(gf2_breakdown_key_bits),
     )
     .await?;
 
@@ -487,6 +489,8 @@ where
         })
         .collect::<Vec<_>>();
 
+    let arithmetically_shared_values = m_ctx.upgrade(arithmetically_shared_values).await?;
+
     let binary_shared_values = upgraded_gf2_match_key_bits
         .iter()
         .zip(upgraded_gf2_breakdown_key_bits.iter())
@@ -494,6 +498,8 @@ where
             BinarySharedIPAInputs::new(match_key.clone(), breakdown_key.clone())
         })
         .collect::<Vec<_>>();
+
+    //let binary_shared_values = binary_m_ctx.upgrade(binary_shared_values).await?;
 
     let arithmetically_shared_values = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
@@ -573,11 +579,11 @@ where
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Gf2, Serializable},
         helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
-        protocol::{BreakdownKey, MatchKey},
-        secret_sharing::IntoShares,
+        protocol::{context::MaliciousContext, BreakdownKey, MatchKey},
+        secret_sharing::{replicated::malicious::AdditiveShare as MaliciousReplicated, IntoShares},
         telemetry::{
             metrics::{
                 BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
@@ -785,7 +791,14 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .malicious(records, |ctx, input_rows| async move {
-                ipa::<_, _, _, _, MatchKey, BreakdownKey>(
+                ipa::<
+                    MaliciousContext,
+                    MaliciousReplicated<Fp31>,
+                    MaliciousReplicated<Gf2>,
+                    Fp31,
+                    MatchKey,
+                    BreakdownKey,
+                >(
                     ctx,
                     &input_rows,
                     IpaQueryConfig::new(
@@ -992,7 +1005,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        const MAX_BREAKDOWN_KEY: u32 = 64;
+        const MAX_BREAKDOWN_KEY: u32 = 32;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: u64 = 8;
         const MAX_RECORDS_PER_USER: u32 = 8;
@@ -1267,9 +1280,9 @@ pub mod tests {
                 cap_one(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 14_589,
-                    bytes_sent: 49_068,
-                    indexed_prss: 19_473,
+                    records_sent: 14_421,
+                    bytes_sent: 47_100,
+                    indexed_prss: 19_137,
                     seq_prss: 1124,
                 },
             )
@@ -1282,9 +1295,9 @@ pub mod tests {
                 cap_three(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 21_936,
-                    bytes_sent: 78_456,
-                    indexed_prss: 28_494,
+                    records_sent: 21_774,
+                    bytes_sent: 76_512,
+                    indexed_prss: 28_170,
                     seq_prss: 1124,
                 },
             )
@@ -1297,9 +1310,9 @@ pub mod tests {
                 cap_one(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 36_714,
-                    bytes_sent: 137_568,
-                    indexed_prss: 76_014,
+                    records_sent: 36_090,
+                    bytes_sent: 133_776,
+                    indexed_prss: 74_046,
                     seq_prss: 1098,
                 },
             )
@@ -1312,9 +1325,9 @@ pub mod tests {
                 cap_three(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 55_440,
-                    bytes_sent: 212_472,
-                    indexed_prss: 113_337,
+                    records_sent: 54_828,
+                    bytes_sent: 208_728,
+                    indexed_prss: 111_393,
                     seq_prss: 1098,
                 },
             )

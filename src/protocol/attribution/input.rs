@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable, Gf2},
+    ff::{Field, GaloisField, Gf2, Serializable},
     helpers::Role,
     protocol::{basics::Reshare, context::Context, step::Step, RecordId},
     secret_sharing::{
@@ -33,21 +33,21 @@ pub struct ApplyAttributionWindowInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCApplyAttributionWindowInputRow<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> {
+pub struct MCApplyAttributionWindowInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub timestamp: T,
     pub is_trigger_report: T,
     pub helper_bit: T,
-    pub breakdown_key: Vec<U>,
+    pub breakdown_key: Vec<Replicated<Gf2>>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCApplyAttributionWindowInputRow<F, T, U> {
+impl<F: Field, T: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, T> {
     pub fn new(
         timestamp: T,
         is_trigger_report: T,
         helper_bit: T,
-        breakdown_key: Vec<T>,
+        breakdown_key: Vec<Replicated<Gf2>>,
         trigger_value: T,
     ) -> Self {
         Self {
@@ -61,7 +61,7 @@ impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCApplyAt
     }
 }
 
-pub type MCApplyAttributionWindowOutputRow<F, T, U> = MCAccumulateCreditInputRow<F, T, U>;
+pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 //
 // `accumulate_credit` protocol
@@ -76,21 +76,21 @@ pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCAccumulateCreditInputRow<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> {
+pub struct MCAccumulateCreditInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
     pub active_bit: T,
-    pub breakdown_key: Vec<U>,
+    pub breakdown_key: Vec<Replicated<Gf2>>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCAccumulateCreditInputRow<F, T, U> {
+impl<F: Field, T: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
         active_bit: T,
-        breakdown_key: Vec<U>,
+        breakdown_key: Vec<Replicated<Gf2>>,
         trigger_value: T,
     ) -> Self {
         Self {
@@ -105,7 +105,7 @@ impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCAccumul
 }
 
 pub type AccumulateCreditOutputRow<F, BK> = CreditCappingInputRow<F, BK>;
-pub type MCAccumulateCreditOutputRow<F, T, U> = MCCreditCappingInputRow<F, T, U>;
+pub type MCAccumulateCreditOutputRow<F, T> = MCCreditCappingInputRow<F, T>;
 
 //
 // `credit_capping` protocol
@@ -118,19 +118,19 @@ pub struct CreditCappingInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCCreditCappingInputRow<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> {
+pub struct MCCreditCappingInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
-    pub breakdown_key: Vec<U>,
+    pub breakdown_key: Vec<Replicated<Gf2>>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCCreditCappingInputRow<F, T, U> {
+impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
-        breakdown_key: Vec<U>,
+        breakdown_key: Vec<Replicated<Gf2>>,
         trigger_value: T,
     ) -> Self {
         Self {
@@ -144,13 +144,13 @@ impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCCreditC
 }
 
 #[derive(Debug)]
-pub struct MCCreditCappingOutputRow<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> {
-    pub breakdown_key: Vec<U>,
+pub struct MCCreditCappingOutputRow<F: Field, T: LinearSecretSharing<F>> {
+    pub breakdown_key: Vec<Replicated<Gf2>>,
     pub credit: T,
     _marker: PhantomData<F>,
 }
-impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCCreditCappingOutputRow<F, T, U> {
-    pub fn new(breakdown_key: Vec<U>, credit: T) -> Self {
+impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
+    pub fn new(breakdown_key: Vec<Replicated<Gf2>>, credit: T) -> Self {
         Self {
             breakdown_key,
             credit,
@@ -159,31 +159,31 @@ impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCCreditC
     }
 }
 
-#[async_trait]
-impl<F: ExtendableField> DowngradeMalicious
-    for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>, MaliciousReplicated<Gf2>>
-{
-    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>;
-    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        // Note that this clones the values rather than moving them.
-        UnauthorizedDowngradeWrapper::new(Self::Target::new(
-            self.helper_bit.x().access_without_downgrade().clone(),
-            self.aggregation_bit.x().access_without_downgrade().clone(),
-            self.breakdown_key
-                .into_iter()
-                .map(|bk| bk.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            self.credit.x().access_without_downgrade().clone(),
-        ))
-    }
-}
+// #[async_trait]
+// impl<F: ExtendableField> DowngradeMalicious
+//     for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>
+// {
+//     type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
+//     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
+//     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+//         // Note that this clones the values rather than moving them.
+//         UnauthorizedDowngradeWrapper::new(Self::Target::new(
+//             self.helper_bit.x().access_without_downgrade().clone(),
+//             self.aggregation_bit.x().access_without_downgrade().clone(),
+//             self.breakdown_key
+//                 .into_iter()
+//                 .map(|bk| bk.x().access_without_downgrade().clone())
+//                 .collect::<Vec<_>>(),
+//             self.credit.x().access_without_downgrade().clone(),
+//         ))
+//     }
+// }
 
 #[async_trait]
 impl<F: ExtendableField> DowngradeMalicious
-    for MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>
+    for MCCappedCreditsWithAggregationBit<F, Replicated<F>>
 {
-    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>, Replicated<Gf2>>;
+    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper::new(self)
     }
@@ -227,19 +227,24 @@ pub struct AggregateCreditInputRow<F: Field, BK: GaloisField> {
     pub credit: AdditiveShare<F>,
 }
 
-pub type MCAggregateCreditInputRow<F, T, U> = MCCreditCappingOutputRow<F, T, U>;
+pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCappedCreditsWithAggregationBit<F, T, U> {
+pub struct MCCappedCreditsWithAggregationBit<F, T> {
     pub helper_bit: T,
     pub aggregation_bit: T,
-    pub breakdown_key: Vec<U>,
+    pub breakdown_key: Vec<Replicated<Gf2>>,
     pub credit: T,
     marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>, U: LinearSecretSharing<Gf2>> MCCappedCreditsWithAggregationBit<F, T, U> {
-    pub fn new(helper_bit: T, aggregation_bit: T, breakdown_key: Vec<U>, credit: T) -> Self {
+impl<F: Field, T: LinearSecretSharing<F>> MCCappedCreditsWithAggregationBit<F, T> {
+    pub fn new(
+        helper_bit: T,
+        aggregation_bit: T,
+        breakdown_key: Vec<Replicated<Gf2>>,
+        credit: T,
+    ) -> Self {
         Self {
             helper_bit,
             aggregation_bit,
@@ -325,11 +330,10 @@ where
 }
 
 #[async_trait]
-impl<F, T, U, C> Reshare<C, RecordId> for MCAccumulateCreditInputRow<F, T, U>
+impl<F, T, C> Reshare<C, RecordId> for MCAccumulateCreditInputRow<F, T>
 where
     F: Field,
     T: LinearSecretSharing<F> + Reshare<C, RecordId>,
-    U: LinearSecretSharing<Gf2>,
     C: Context,
 {
     async fn reshare<'fut>(
@@ -384,7 +388,7 @@ where
 }
 
 #[async_trait]
-impl<F, T, U, C> Reshare<C, RecordId> for MCCappedCreditsWithAggregationBit<F, T, U>
+impl<F, T, C> Reshare<C, RecordId> for MCCappedCreditsWithAggregationBit<F, T>
 where
     F: Field,
     T: LinearSecretSharing<F> + Reshare<C, RecordId>,
