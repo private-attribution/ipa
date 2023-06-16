@@ -94,9 +94,7 @@ where
             let c4 = upgrade_context.clone();
             let helper_role = c1.role();
             let bd_key = &row.breakdown_key[..valid_bits_count];
-            let local_bit_lists: Vec<
-                crate::protocol::modulus_conversion::BitConversionTriple<Replicated<F>>,
-            > = bd_key
+            let local_bit_lists = bd_key
                 .iter()
                 .map(|bit| convert_bit_local::<F, Gf2>(helper_role, 0, bit))
                 .collect::<Vec<_>>();
