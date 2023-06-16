@@ -101,7 +101,10 @@ impl MpcHelperClient {
                 )),
                 ClientIdentity::None => None,
             };
-            (HttpsConnector::new(), auth_header)
+            (
+                HttpsConnector::new_with_connector(make_http_connector()),
+                auth_header,
+            )
         } else {
             let mut builder = TlsConnector::builder();
             if let Some(certificate) = peer_config.certificate {
@@ -120,7 +123,7 @@ impl MpcHelperClient {
             }
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
-            let mut http = HttpConnector::new();
+            let mut http = make_http_connector();
             http.enforce_http(false);
             (
                 HttpsConnector::from((http, builder.build().unwrap().into())),
@@ -281,13 +284,22 @@ impl MpcHelperClient {
     }
 }
 
+fn make_http_connector() -> HttpConnector {
+    let mut connector = HttpConnector::new();
+    // IPA uses HTTP2 and it is sensitive to those delays especially in high-latency network
+    // configurations.
+    connector.set_nodelay(true);
+
+    connector
+}
+
 #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
 pub(crate) mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, RoleAssignment, Transport, TransportCallbacks,
+            query::QueryType, BytesStream, RoleAssignment, Transport, TransportCallbacks,
             MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{test::TestServer, HttpTransport},
@@ -475,12 +487,12 @@ pub(crate) mod tests {
             ..Default::default()
         };
         test_query_command(
-            |client| {
+            |client| async move {
                 let data = QueryInput {
                     query_id: expected_query_id,
                     input_stream: expected_input.to_vec().into(),
                 };
-                async move { client.query_input(data).await.unwrap() }
+                client.query_input(data).await.unwrap()
             },
             cb,
         )

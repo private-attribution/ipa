@@ -286,8 +286,9 @@ where
     }
 }
 
-/// Malicious IPA
-/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
+/// IPA Protocol
+///
+/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort.
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -321,6 +322,10 @@ where
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
+    // TODO: We are sorting, which suggests there's limited value in trying to stream the input.
+    // However, we immediately copy the complete input into separate vectors for different pieces
+    // (MK, BK, credit), so streaming could still be beneficial.
+
     let validator = sh_ctx.clone().validator::<F>();
     let m_ctx = validator.context();
 
@@ -915,6 +920,7 @@ pub mod tests {
                     max_breakdown_key: MAX_BREAKDOWN_KEY,
                     attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
                     num_multi_bits: NUM_MULTI_BITS,
+                    plaintext_match_keys: true,
                 },
                 IpaSecurityModel::SemiHonest,
             )

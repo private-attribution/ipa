@@ -27,7 +27,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use super::*;
     use crate::{
-        helpers::{query::QueryInput, TransportCallbacks},
+        helpers::{query::QueryInput, BytesStream, TransportCallbacks},
         net::{
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::TestServer,

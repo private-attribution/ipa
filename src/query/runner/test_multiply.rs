@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::{PrimeField, Serializable},
-    helpers::{ByteArrStream, Gateway, TotalRecords},
+    helpers::{BodyStream, Gateway, RecordsStream, TotalRecords},
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
@@ -11,13 +11,12 @@ use crate::{
     query::runner::QueryResult,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use futures_util::StreamExt;
-use typenum::Unsigned;
+use futures::StreamExt;
 
 pub async fn execute_test_multiply<'a, F>(
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
-    input: ByteArrStream,
+    input: BodyStream,
 ) -> QueryResult
 where
     F: PrimeField,
@@ -31,7 +30,7 @@ where
 
 pub async fn execute_test_multiply_internal<F>(
     ctx: SemiHonestContext<'_>,
-    input: ByteArrStream,
+    input_stream: BodyStream,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: PrimeField,
@@ -39,13 +38,13 @@ where
 {
     let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
 
-    let mut input = input.align(<Replicated<F> as Serializable>::Size::USIZE);
+    let mut input = Box::pin(RecordsStream::<Replicated<F>, _>::new(input_stream));
     let mut results = Vec::new();
     while let Some(v) = input.next().await {
         // multiply pairs
         let mut a = None;
         let mut record_id = 0_u32;
-        for share in Replicated::<F>::from_byte_slice(&v.unwrap()) {
+        for share in v.unwrap() {
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
@@ -86,8 +85,7 @@ mod tests {
 
         let helper_shares = (a, b).share().map(|(a, b)| {
             const SIZE: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
-            let r = a
-                .into_iter()
+            a.into_iter()
                 .zip(b)
                 .flat_map(|(a, b)| {
                     let mut slice = [0_u8; 2 * SIZE];
@@ -96,9 +94,8 @@ mod tests {
 
                     slice
                 })
-                .collect::<Vec<_>>();
-
-            ByteArrStream::from(r)
+                .collect::<Vec<_>>()
+                .into()
         });
 
         let results = join3v(

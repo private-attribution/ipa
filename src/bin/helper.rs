@@ -5,13 +5,13 @@ use ipa::{
     cli::{
         client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, TestSetupArgs, Verbosity,
     },
-    config::{HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
+    config::{hpke_registry, HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
+    error::BoxError,
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
 };
 use std::{
-    error::Error,
     fs,
     net::TcpListener,
     os::fd::{FromRawFd, RawFd},
@@ -146,7 +146,7 @@ enum HelperCommand {
     TestSetup(TestSetupArgs),
 }
 
-async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
+async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
     let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
@@ -178,14 +178,15 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
             private_key_file: sk_path,
         });
 
+    let key_registry = hpke_registry(mk_encryption.as_ref()).await?;
+    let (setup, callbacks) = AppSetup::with_key_registry(key_registry);
+
     let server_config = ServerConfig {
         port: args.port,
         disable_https: args.disable_https,
         tls: server_tls,
         hpke_config: mk_encryption,
     };
-
-    let (setup, callbacks) = AppSetup::new();
 
     let scheme = if args.disable_https {
         Scheme::HTTP
@@ -218,7 +219,7 @@ async fn server(args: ServerArgs) -> Result<(), Box<dyn Error>> {
                 info!("adopting fd {fd} as listening socket");
                 Ok(listener)
             } else {
-                Err(Box::<dyn Error>::from(format!("the server was asked to listen on fd {fd}, but it does not appear to be a valid socket")))
+                Err(BoxError::from(format!("the server was asked to listen on fd {fd}, but it does not appear to be a valid socket")))
             }
         })
         .transpose()?;

@@ -1,18 +1,21 @@
 use super::{GenericReportShare, GenericReportTestInput};
 use crate::{
-    ff::{Field, GaloisField},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, AggregateCreditInputRow, ApplyAttributionWindowInputRow,
             CreditCappingInputRow, MCAccumulateCreditInputRow, MCAggregateCreditOutputRow,
         },
         ipa::IPAInputRow,
+        BreakdownKey, MatchKey,
     },
     rand::Rng,
+    report::{EventType, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-    test_fixture::Reconstruct,
+    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
 use rand::{distributions::Standard, prelude::Distribution};
+use std::iter::zip;
 
 impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
@@ -246,6 +249,85 @@ where
                 trigger_value: s2.trigger_value,
             },
         ]
+    }
+}
+
+const DOMAINS: &[&str] = &[
+    "mozilla.com",
+    "facebook.com",
+    "example.com",
+    "subdomain.long-domain.example.com",
+];
+
+// TODO: this mostly duplicates the impl for GenericReportTestInput, can we avoid that?
+impl<F> IntoShares<Report<F, MatchKey, BreakdownKey>> for TestRawDataRecord
+where
+    F: PrimeField + IntoShares<Replicated<F>>,
+    Replicated<F>: Serializable,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Report<F, MatchKey, BreakdownKey>; 3] {
+        let mk_shares = MatchKey::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
+        let event_type = if self.is_trigger_report {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        };
+        let breakdown_key = BreakdownKey::try_from(u128::from(self.breakdown_key)).unwrap();
+        let trigger_value = F::try_from(u128::from(self.trigger_value))
+            .unwrap()
+            .share_with(rng);
+        let epoch = 1;
+        let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
+
+        zip(mk_shares.into_iter(), trigger_value.into_iter())
+            .map(|(mk_shares, trigger_value)| Report {
+                timestamp: self.timestamp.try_into().unwrap(),
+                mk_shares,
+                event_type,
+                breakdown_key,
+                trigger_value,
+                epoch,
+                site_domain: site_domain.clone(),
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+}
+
+impl<F> IntoShares<Report<F, MatchKey, BreakdownKey>>
+    for GenericReportTestInput<F, MatchKey, BreakdownKey>
+where
+    F: PrimeField + IntoShares<Replicated<F>>,
+    Replicated<F>: Serializable,
+{
+    #[allow(clippy::if_not_else)] // clippy doesn't like `is_trigger_report != ZERO`, but I stand by it
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Report<F, MatchKey, BreakdownKey>; 3] {
+        let mk_shares = self.match_key.unwrap().share_with(rng);
+        let event_type = if self.is_trigger_report.unwrap() != F::ZERO {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        };
+        let trigger_value = self.trigger_value.share_with(rng);
+        let epoch = 1;
+        let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
+
+        zip(mk_shares.into_iter(), trigger_value.into_iter())
+            .map(|(mk_shares, trigger_value)| Report {
+                timestamp: self.timestamp.unwrap().as_u128().try_into().unwrap(),
+                mk_shares,
+                event_type,
+                breakdown_key: self.breakdown_key,
+                trigger_value,
+                epoch,
+                site_domain: site_domain.clone(),
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }
 

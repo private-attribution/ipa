@@ -98,8 +98,9 @@ where
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
+#[tracing::instrument(name = "sort_permutation", skip_all)]
 pub async fn generate_permutation_and_reveal_shuffled<C, S, F>(
-    sh_ctx: C,
+    ctx: C,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error>
 where
@@ -110,7 +111,7 @@ where
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     let (validator, sort_permutation) =
-        generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
+        generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
 
     let m_ctx = validator.context();
     shuffle_and_reveal_permutation::<C, _, _>(

@@ -44,8 +44,9 @@ use std::iter::{empty, once, zip};
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[tracing::instrument(name = "attribute", skip_all)]
 pub async fn secure_attribution<C, S, SB, F, BK>(
-    sh_ctx: C,
+    ctx: C,
     validator: C::Validator<F>,
     binary_validator: C::Validator<Gf2>,
     sorted_match_keys: Vec<Vec<SB>>,
@@ -74,7 +75,7 @@ where
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
     let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
     let semi_honest_fp_helper_bits =
-        mod_conv_helper_bits(sh_ctx.clone(), &validated_helper_bits_gf2).await?;
+        mod_conv_helper_bits(ctx.clone(), &validated_helper_bits_gf2).await?;
     let helper_bits = once(S::ZERO)
         .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
         .collect::<Vec<_>>();
@@ -125,7 +126,7 @@ where
 
     let (validator, output) = aggregate_credit(
         validator,
-        sh_ctx,
+        ctx,
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
         config.num_multi_bits,

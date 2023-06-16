@@ -1,7 +1,9 @@
-use crate::cli::{keygen, KeygenArgs};
+use crate::{
+    cli::{keygen, KeygenArgs},
+    error::BoxError,
+};
 use clap::Args;
 use std::{
-    error::Error,
     fs::{DirBuilder, File},
     iter::zip,
     path::PathBuf,
@@ -41,7 +43,7 @@ pub struct TestSetupArgs {
 ///
 /// # Panics
 /// If something that shouldn't happen goes wrong.
-pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
+pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
     if args.output_dir.exists() {
         if !args.output_dir.is_dir() || args.output_dir.read_dir()?.next().is_some() {
             return Err("output directory already exists and is not empty".into());
@@ -71,7 +73,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), Box<dyn Error>> {
                 mk_public_key_file: keygen_args.mk_public_key,
             })
         })
-        .collect::<Result<Vec<_>, Box<dyn Error>>>()?
+        .collect::<Result<Vec<_>, BoxError>>()?
         .try_into()
         .unwrap();
 

@@ -17,6 +17,7 @@ use crate::{
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
+#[tracing::instrument(name = "apply_sort", skip_all, fields(gate = %ctx.gate()))]
 pub async fn apply_sort_permutation<C, I>(
     ctx: C,
     input: Vec<I>,
