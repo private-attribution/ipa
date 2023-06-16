@@ -62,14 +62,7 @@ impl<T> Node<T> {
     }
 
     pub fn get_parent(&self) -> Option<Node<T>> {
-        let my_parent_weak = self.parent.borrow();
-        if let Some(my_parent_ref) = my_parent_weak.upgrade() {
-            Some(Node {
-                data: my_parent_ref,
-            })
-        } else {
-            None
-        }
+        self.parent.borrow().upgrade().map(|x| Node { data: x })
     }
 }
 
