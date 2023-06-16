@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+ARG REGISTRY=ghcr.io
+ARG VERSION=latest
+FROM ${REGISTRY}/richajaindce/ipa:${VERSION}
+
+ARG SOURCES_DIR=/usr/src/ipa
+FROM rust:latest as builder
+ARG SOURCES_DIR
+LABEL maintainer="akoshelev"
+
+# Prepare helper binaries
+WORKDIR "$SOURCES_DIR"
+COPY . .
+RUN set -eux; \
+    cargo build --bin helper --release --no-default-features --features "web-app real-world-infra"
+
+# Copy them to the final image
+FROM debian:bullseye-slim
+ENV HELPER_BIN_PATH=/usr/local/bin/ipa-helper
+ENV CONF_DIR=/etc/ipa
+ARG IDENTITY
+ARG HOSTNAME
+ARG SOURCES_DIR
+
+RUN apt-get update && rm -rf /var/lib/apt/lists/*
+COPY --from=builder ${SOURCES_DIR}/target/release/helper $HELPER_BIN_PATH
