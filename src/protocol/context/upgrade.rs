@@ -1,10 +1,10 @@
 use crate::{
     error::Error,
-    ff::{Field, Gf2},
+    ff::Field,
     protocol::{
         basics::ZeroPositions,
         context::UpgradedContext,
-        ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs},
+        ipa::ArithmeticallySharedIPAInputs,
         modulus_conversion::BitConversionTriple,
         step::{BitOpStep, Step},
         NoRecord, RecordBinding, RecordId,
@@ -306,49 +306,6 @@ impl AsRef<str> for UpgradeModConvStep {
 }
 
 #[async_trait]
-impl<'a, C>
-    UpgradeToMalicious<'a, BinarySharedIPAInputs<Replicated<Gf2>>, BinarySharedIPAInputs<C::Share>>
-    for UpgradeContext<'a, C, Gf2, RecordId>
-where
-    C: UpgradedContext<Gf2>,
-    C::Share: LinearSecretSharing<Gf2>,
-{
-    async fn upgrade(
-        self,
-        input: BinarySharedIPAInputs<Replicated<Gf2>>,
-    ) -> Result<BinarySharedIPAInputs<C::Share>, Error> {
-        let (match_key, breakdown_key) =
-            try_join(
-                self.ctx
-                    .parallel_join(input.match_key.into_iter().enumerate().map(|(idx, bit)| {
-                        let ctx_ref = self.ctx.clone();
-                        async move {
-                            ctx_ref
-                                .narrow(&UpgradeIPABinaryInputs::V0(idx))
-                                .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                                .await
-                        }
-                    })),
-                self.ctx
-                    .parallel_join(input.breakdown_key.into_iter().enumerate().map(
-                        |(idx, bit)| {
-                            let ctx_ref = self.ctx.clone();
-                            async move {
-                                ctx_ref
-                                    .narrow(&UpgradeIPABinaryInputs::V1(idx))
-                                    .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                                    .await
-                            }
-                        },
-                    )),
-            )
-            .await?;
-
-        Ok(BinarySharedIPAInputs::new(match_key, breakdown_key))
-    }
-}
-
-#[async_trait]
 impl<'a, C, F>
     UpgradeToMalicious<
         'a,
@@ -431,24 +388,6 @@ where
             is_trigger_bit,
             trigger_value,
         ))
-    }
-}
-enum UpgradeIPABinaryInputs {
-    V0(usize),
-    V1(usize),
-}
-
-impl Step for UpgradeIPABinaryInputs {}
-
-impl AsRef<str> for UpgradeIPABinaryInputs {
-    fn as_ref(&self) -> &str {
-        const UPGRADE_MATCH_KEY: [&str; 64] = repeat64str!["upgrade_match_key"];
-        const UPGRADE_BREAKDOWN_KEY: [&str; 64] = repeat64str!["upgrade_breakdown_key"];
-
-        match self {
-            Self::V0(i) => UPGRADE_MATCH_KEY[*i],
-            Self::V1(i) => UPGRADE_BREAKDOWN_KEY[*i],
-        }
     }
 }
 

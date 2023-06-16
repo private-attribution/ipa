@@ -500,8 +500,6 @@ where
         })
         .collect::<Vec<_>>();
 
-    //let binary_shared_values = binary_m_ctx.upgrade(binary_shared_values).await?;
-
     let arithmetically_shared_values = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
         arithmetically_shared_values,
@@ -580,11 +578,11 @@ where
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Gf2, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
         helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
-        protocol::{context::MaliciousContext, BreakdownKey, MatchKey},
-        secret_sharing::{replicated::malicious::AdditiveShare as MaliciousReplicated, IntoShares},
+        protocol::{BreakdownKey, MatchKey},
+        secret_sharing::IntoShares,
         telemetry::{
             metrics::{
                 BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
@@ -792,14 +790,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .malicious(records, |ctx, input_rows| async move {
-                ipa::<
-                    MaliciousContext,
-                    MaliciousReplicated<Fp31>,
-                    MaliciousReplicated<Gf2>,
-                    Fp31,
-                    MatchKey,
-                    BreakdownKey,
-                >(
+                ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     IpaQueryConfig::new(
