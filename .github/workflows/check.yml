@@ -94,7 +94,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --no-default-features --features enable-benches descriptive-gate
+        run: cargo build --benches --no-default-features --features "enable-benches descriptive-gate"
 
       - name: Build concurrency tests
         run: cargo build --release --features shuttle
@@ -106,7 +106,7 @@ jobs:
         run: cargo test --release --features shuttle
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches descriptive-gate
+        run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate"
 
       - name: Run compact gate tests
-        run: cargo test --no-default-features --features enable-benches compact-gate
+        run: cargo test --no-default-features --features "enable-benches compact-gate"
