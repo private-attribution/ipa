@@ -74,3 +74,4 @@ if __name__ == "__main__":
         print("Failed args:")
         for a in ng_args:
             print(a)
+        exit(1)

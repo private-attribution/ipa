@@ -1,19 +1,19 @@
 name: CI
 on:
   push:
-      paths:
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - 'src/**/*'
-      - 'benches/**/*'
-      - 'tests/**/*'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "src/**/*"
+      - "benches/**/*"
+      - "tests/**/*"
   pull_request:
-      paths:
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - 'src/**/*'
-      - 'benches/**/*'
-      - 'tests/**/*'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "src/**/*"
+      - "benches/**/*"
+      - "tests/**/*"
 
 jobs:
   basic:
@@ -62,7 +62,7 @@ jobs:
         run: cargo test
 
       - name: Run Web Tests
-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
 
   extra:
     name: Additional Builds and Concurrency Tests
@@ -94,7 +94,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --no-default-features --features enable-benches
+        run: cargo build --benches --no-default-features --features enable-benches descriptive-gate
 
       - name: Build concurrency tests
         run: cargo build --release --features shuttle
@@ -106,4 +106,7 @@ jobs:
         run: cargo test --release --features shuttle
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches
+        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches descriptive-gate
+
+      - name: Run compact gate tests
+        run: cargo test --no-default-features --features enable-benches compact-gate
