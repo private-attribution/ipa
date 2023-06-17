@@ -100,7 +100,7 @@ impl MpcHelperServer {
         handlers::router(Arc::clone(&self.transport))
     }
 
-    #[cfg(all(test, feature = "in-memory-infra", not(feature = "shuttle")))]
+    #[cfg(all(test, unit_test))]
     async fn handle_req(&self, req: hyper::Request<hyper::Body>) -> axum::response::Response {
         let mut router = self.router();
         let router = tower::ServiceExt::ready(&mut router).await.unwrap();
@@ -480,7 +480,7 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod e2e_tests {
     use super::*;
     use crate::{

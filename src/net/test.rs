@@ -245,7 +245,7 @@ impl TestServerBuilder {
         self
     }
 
-    #[cfg(all(test, feature = "in-memory-infra"))] // only used in unit tests
+    #[cfg(all(test, unit_test))]
     #[must_use]
     pub fn with_metrics(mut self, metrics: MetricsHandle) -> Self {
         self.metrics = Some(metrics);
@@ -266,7 +266,7 @@ impl TestServerBuilder {
         self
     }
 
-    #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+    #[cfg(all(test, web_test))]
     pub fn use_http1(mut self) -> Self {
         self.use_http1 = true;
         self

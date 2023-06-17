@@ -105,7 +105,7 @@ where
     Ok(one_off_permutation)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::multi_bit_permutation;
     use crate::{

@@ -145,7 +145,7 @@ pub fn assert_stream_send<'a, T>(
 }
 
 /// no dependency on `weak-field` feature because it is enabled in tests by default
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra",))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::zip;
 

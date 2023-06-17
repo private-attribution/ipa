@@ -293,7 +293,7 @@ fn make_http_connector() -> HttpConnector {
     connector
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+#[cfg(all(test, web_test))]
 pub(crate) mod tests {
     use super::*;
     use crate::{

@@ -168,7 +168,7 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 /// Represents an encrypted share of single match key.
 #[derive(Clone)]
 // temporarily to appease clippy while we don't have actual consumers of this struct
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 struct MatchKeyEncryption<'a> {
     /// Encapsulated key as defined in [`url`] specification.
     /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
@@ -186,7 +186,7 @@ struct MatchKeyEncryption<'a> {
     info: Info<'a>,
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use generic_array::GenericArray;
