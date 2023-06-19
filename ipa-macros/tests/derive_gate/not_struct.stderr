@@ -1,0 +1,7 @@
+error: proc-macro derive panicked
+ --> tests/derive_gate/not_struct.rs:4:10
+  |
+4 | #[derive(Gate)]
+  |          ^^^^
+  |
+  = help: message: derive Gate expects a struct
