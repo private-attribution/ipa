@@ -492,7 +492,7 @@ pub(crate) mod tests {
                     query_id: expected_query_id,
                     input_stream: expected_input.to_vec().into(),
                 };
-                client.query_input(data).await.unwrap()
+                client.query_input(data).await.unwrap();
             },
             cb,
         )

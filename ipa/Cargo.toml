@@ -1,0 +1,141 @@
+[package]
+name = "ipa"
+version = "0.1.0"
+rust-version = "1.64.0"
+edition = "2021"
+
+[features]
+# by default remove all TRACE, DEBUG spans from release builds
+default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
+cli = ["comfy-table", "clap"]
+enable-serde = ["serde", "serde_json"]
+protocol-perf-testing = ["no-prss"]
+no-prss = []
+disable-metrics = []
+# TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
+# TODO Consider moving out benches as well
+web-app = [
+    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-tls",
+    "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http",
+]
+# The test-http and test-fixture features are mutually incompatible, and the
+# code doesn't support building tests without test-fixture. So if you want to
+# run the tests enabled by test-http, you unfortunately need to do something
+# like `s/cfg(any(test,/cfg(any(never, test/`.
+test-http = []
+test-fixture = ["enable-serde", "weak-field"]
+shuttle = ["shuttle-crate", "test-fixture"]
+debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
+# TODO: we may want to use in-memory-bench and real-world-bench some time after
+enable-benches = ["cli", "in-memory-infra", "test-fixture", "criterion", "iai"]
+# The following two features are mutually exclusive. In-memory should be enabled by default as the vast majority
+# of unit tests use it. Real world infra uses HTTP implementation and is suitable for integration/e2e tests
+in-memory-infra = []
+real-world-infra = []
+dhat-heap = ["cli", "test-fixture"]
+# Enable this feature to enable our colossally weak Fp31.
+weak-field = []
+step-trace = []
+
+[dependencies]
+aes = "0.8"
+async-trait = "0.1.68"
+axum = { version = "0.5.17", optional = true, features = ["http2"] }
+axum-server = { version = "0.5.1", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
+base64 = { version = "0.21.2", optional = true }
+bitvec = "1.0"
+bytes = "1.4"
+clap = { version = "4.0", optional = true, features = ["derive"] }
+comfy-table = { version = "7.0", optional = true }
+config = "0.13.2"
+criterion = { version = "0.5.1", optional = true, default-features = false, features = ["async_tokio", "plotters", "html_reports"] }
+dashmap = "5.4"
+dhat = "0.3.2"
+embed-doc-image = "0.1.4"
+futures = "0.3.28"
+futures-util = "0.3.28"
+generic-array = "0.14.7"
+hex = { version = "0.4", features = ["serde"] }
+hkdf = "0.12.3"
+hpke = { version = "0.10.0", default-features = false, features = ["std", "x25519-dalek"] }
+hyper = { version = "0.14.26", optional = true, features = ["client", "h2", "stream"] }
+hyper-tls = { version = "0.5.0", optional = true }
+iai = { version = "0.1.1", optional = true }
+metrics = "0.21.0"
+metrics-tracing-context = "0.14.0"
+metrics-util = { version = "0.15.0" }
+once_cell = "1.18"
+pin-project = "1.0"
+rand = "0.8"
+rand_core = "0.6"
+rcgen = { version = "0.10", optional = true }
+rustls-pemfile = { version = "1", optional = true }
+# TODO consider using zerocopy or serde_bytes or in-house serialization
+serde = { version = "1.0", optional = true, features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
+sha2 = "0.10.6"
+shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
+thiserror = "1.0"
+time = { version = "0.3", optional = true }
+tokio = { version = "1.28", features = ["rt", "rt-multi-thread", "macros"] }
+tokio-rustls = { version = "0.24.0", optional = true }
+tokio-stream = "0.1.14"
+toml = { version = "0.7", optional = true }
+tower = { version = "0.4.13", optional = true }
+tower-http = { version = "0.4.0", optional = true, features = ["trace"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+typenum = "1.16"
+# hpke is pinned to it
+x25519-dalek = "2.0.0-pre.0"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5.0"
+
+[dev-dependencies]
+command-fds = "0.2.2"
+hex = "0.4"
+permutation = "0.4.1"
+proptest = "1.0.0"
+tempfile = "3"
+
+[lib]
+name = "ipa"
+path = "src/lib.rs"
+bench = false
+
+[[bin]]
+name = "ipa_bench"
+path = "src/bin/ipa_bench/ipa_bench.rs"
+required-features = ["cli", "enable-serde"]
+bench = false
+
+[[bench]]
+name = "criterion_arithmetic"
+path = "benches/ct/arithmetic_circuit.rs"
+harness = false
+required-features = ["enable-benches"]
+
+[[bench]]
+name = "iai_arithmetic"
+path = "benches/iai/arithmetic_circuit.rs"
+harness = false
+required-features = ["enable-benches"]
+
+[[bench]]
+name = "oneshot_arithmetic"
+path = "benches/oneshot/arithmetic_circuit.rs"
+harness = false
+required-features = ["enable-benches"]
+
+[[bench]]
+name = "oneshot_sort"
+path = "benches/oneshot/sort.rs"
+harness = false
+required-features = ["enable-benches"]
+
+[[bench]]
+name = "oneshot_ipa"
+path = "benches/oneshot/ipa.rs"
+harness = false
+required-features = ["enable-benches"]

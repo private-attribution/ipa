@@ -77,13 +77,13 @@ check() {
 }
 
 check "Benchmark compilation" \
-    cargo build --benches --no-default-features --features "enable-benches"
+    cargo build -p ipa --benches --no-default-features --features "enable-benches"
 
 check "Clippy checks" \
     cargo clippy --tests -- -D warnings
 
 check "Clippy concurrency checks" \
-    cargo clippy --tests --features shuttle -- -D warnings
+    cargo clippy -p ipa --tests --features="shuttle in-memory-infra" -- -D warnings
 
 check "Tests" \
     cargo test
@@ -92,10 +92,10 @@ check "Web tests" \
     cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
 
 check "Concurrency tests" \
-    cargo test --release --features shuttle
+    cargo test -p ipa --release --features="shuttle in-memory-infra"
 
 check "IPA benchmark" \
-    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 62
+    cargo bench -p ipa --bench oneshot_ipa --no-default-features --features="enable-benches" -- -n 62
 
 check "Sort benchmark" \
-    cargo bench --bench oneshot_sort --no-default-features --features="enable-benches"
+    cargo bench -p ipa --bench oneshot_sort --no-default-features --features="enable-benches"

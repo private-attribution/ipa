@@ -267,6 +267,7 @@ impl TestServerBuilder {
     }
 
     #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+    #[must_use]
     pub fn use_http1(mut self) -> Self {
         self.use_http1 = true;
         self

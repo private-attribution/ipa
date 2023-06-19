@@ -1,19 +1,19 @@
 name: CI
 on:
   push:
-      paths:
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - 'src/**/*'
-      - 'benches/**/*'
-      - 'tests/**/*'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "src/**/*"
+      - "benches/**/*"
+      - "tests/**/*"
   pull_request:
-      paths:
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - 'src/**/*'
-      - 'benches/**/*'
-      - 'tests/**/*'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "src/**/*"
+      - "benches/**/*"
+      - "tests/**/*"
 
 jobs:
   basic:
@@ -52,7 +52,7 @@ jobs:
 
       - name: Clippy concurrency tests
         if: ${{ success() || failure() }}
-        run: cargo clippy --tests --features shuttle
+        run: cargo clippy -p ipa --tests --features "shuttle in-memory-infra"
 
       - name: Build
         if: ${{ success() || failure() }}
@@ -94,16 +94,16 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --no-default-features --features enable-benches
+        run: cargo build -p ipa --benches --no-default-features --features enable-benches
 
       - name: Build concurrency tests
-        run: cargo build --release --features shuttle
+        run: cargo build -p ipa --release --features "shuttle in-memory-infra"
 
       - name: Build concurrency tests (debug mode)
-        run: cargo build --features shuttle
+        run: cargo build -p ipa --features "shuttle in-memory-infra"
 
       - name: Run concurrency tests
-        run: cargo test --release --features shuttle
+        run: cargo test -p ipa --release --features "shuttle in-memory-infra"
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features enable-benches
+        run: cargo bench -p ipa --bench oneshot_ipa --no-default-features --features enable-benches

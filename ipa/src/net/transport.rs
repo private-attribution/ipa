@@ -276,8 +276,7 @@ mod tests {
                         callbacks,
                     );
                     server.start_on(Some(socket), ()).await;
-                    let app = setup.connect(transport);
-                    app
+                    setup.connect(transport)
                 },
             ),
         )

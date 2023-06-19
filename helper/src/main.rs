@@ -41,7 +41,7 @@ mod pkcs8 {
     // https://github.com/sfackler/rust-native-tls/issues/225#issuecomment-1544741380
     // TODO(640): to be removed when we standardize on rustls
     pub fn munge_private_key(key: &[u8]) -> Vec<u8> {
-        let doc = SecretDocument::from_pem(&str::from_utf8(key).unwrap())
+        let doc = SecretDocument::from_pem(str::from_utf8(key).unwrap())
             .unwrap()
             .1;
         let private_key_info = PrivateKeyInfo::try_from(doc.as_bytes()).unwrap();
