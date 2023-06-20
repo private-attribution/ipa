@@ -100,6 +100,7 @@ hex = "0.4"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"
+tokio-rustls = { version = "0.24.0", features = ["dangerous_configuration"] }
 
 [profile.release]
 incremental = true
