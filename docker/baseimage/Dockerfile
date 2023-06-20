@@ -1,8 +1,4 @@
 # syntax=docker/dockerfile:1
-ARG REGISTRY=ghcr.io
-ARG VERSION=latest
-FROM ${REGISTRY}/richajaindce/ipa:${VERSION}
-
 ARG SOURCES_DIR=/usr/src/ipa
 FROM rust:latest as builder
 ARG SOURCES_DIR
