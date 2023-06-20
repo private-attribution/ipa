@@ -117,8 +117,7 @@ where
         })
         .reconstruct();
     tracing::info!(
-        "Query size {:?} took {t:?}",
-        query_size,
+        "Running IPA for {query_size:?} records took {t:?}",
         t = mpc_time.elapsed()
     );
     let mut breakdowns = Vec::new();
