@@ -88,6 +88,9 @@ check "Clippy concurrency checks" \
 check "Tests" \
     cargo test
 
+check "IPA Tests" \
+    cargo test -p ipa --features in-memory-infra
+
 check "Web tests" \
     cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
 

@@ -4,16 +4,16 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - "src/**/*"
-      - "benches/**/*"
-      - "tests/**/*"
+      - "*/src/**/*"
+      - "*/benches/**/*"
+      - "*/tests/**/*"
   pull_request:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - "src/**/*"
-      - "benches/**/*"
-      - "tests/**/*"
+      - "*/src/**/*"
+      - "*/benches/**/*"
+      - "*/tests/**/*"
 
 jobs:
   basic:
@@ -60,6 +60,9 @@ jobs:
 
       - name: Run Tests
         run: cargo test
+
+      - name: Run IPA Tests
+        run: cargo test -p ipa --features in-memory-infra
 
       - name: Run Web Tests
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
