@@ -31,5 +31,5 @@ jobs:
       with:
         file: docker/baseimage/Dockerfile
         push: true
-        tags: ghcr.io/richajaindce/ipa:latest
+        tags: ghcr.io/${{ github.actor }}/ipa-helper-base:latest
         platforms: linux/amd64
