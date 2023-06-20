@@ -36,10 +36,10 @@ pub enum ClientIdentity {
     /// This is only supported for HTTP clients.
     Helper(HelperIdentity),
 
-    /// Authenticate with an X.509 certificate.
+    /// Authenticate with an X.509 certificate or a certificate chain.
     ///
     /// This is only supported for HTTPS clients.
-    Certificate((Certificate, PrivateKey)),
+    Certificate((Vec<Certificate>, PrivateKey)),
 
     /// Do not authenticate nor claim a helper identity.
     #[default]
@@ -58,16 +58,18 @@ impl ClientIdentity {
     /// ## Panics
     /// If either cert or private key byte slice is empty.
     pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
-        let cert = rustls_pemfile::certs(&mut BufReader::new(Cursor::new(cert_bytes)))?
-            .pop()
-            .expect("Non-empty byte slice is provided to parse a certificate");
-        let pk = rustls_pemfile::pkcs8_private_keys(&mut BufReader::new(Cursor::new(
-            private_key_bytes,
-        )))?
-        .pop()
-        .expect("Non-empty byte slice is provided to parse a private key");
+        let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
+        let mut pk_reader = BufReader::new(Cursor::new(private_key_bytes));
 
-        Ok(Self::Certificate((Certificate(cert), PrivateKey(pk))))
+        let cert_chain = rustls_pemfile::certs(&mut certs_reader)?
+            .into_iter()
+            .map(Certificate)
+            .collect();
+        let pk = rustls_pemfile::pkcs8_private_keys(&mut pk_reader)?
+            .pop()
+            .expect("Non-empty byte slice is provided to parse a private key");
+
+        Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
     }
 }
 
@@ -151,8 +153,8 @@ impl MpcHelperClient {
 
                 let builder = builder.with_root_certificates(cert_store);
                 match identity {
-                    ClientIdentity::Certificate((cert, pk)) => builder
-                        .with_single_cert(vec![cert], pk)
+                    ClientIdentity::Certificate((cert_chain, pk)) => builder
+                        .with_single_cert(cert_chain, pk)
                         .expect("Can setup client authentication with certificate"),
                     ClientIdentity::Helper(_) => {
                         error!("header-passed identity ignored for HTTPS client");

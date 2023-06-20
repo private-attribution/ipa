@@ -14,7 +14,7 @@ use std::{
     fs,
     net::TcpListener,
     os::fd::{FromRawFd, RawFd},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process,
 };
 use tracing::{error, info};
@@ -96,15 +96,21 @@ enum HelperCommand {
     TestSetup(TestSetupArgs),
 }
 
+fn read_utf8_bytes(path: &Path) -> Result<Vec<u8>, BoxError> {
+    Ok(fs::read_to_string(path)
+        .map_err(|e| "failed to open file {path}: {e:?}")?
+        .into_bytes())
+}
+
 async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
     let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
         (Some(cert), Some(key_file)) => {
-            let key = fs::read_to_string(&key_file).unwrap().into_bytes();
+            let key = read_utf8_bytes(&key_file)?;
+            let certs = read_utf8_bytes(&cert)?;
             (
-                ClientIdentity::from_pks8(fs::read_to_string(&cert).unwrap().as_bytes(), &key)
-                    .unwrap(),
+                ClientIdentity::from_pks8(&certs, &key)?,
                 Some(TlsConfig::File {
                     certificate_file: cert,
                     private_key_file: key_file,
