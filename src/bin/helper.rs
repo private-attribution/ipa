@@ -98,7 +98,7 @@ enum HelperCommand {
 
 fn read_utf8_bytes(path: &Path) -> Result<Vec<u8>, BoxError> {
     Ok(fs::read_to_string(path)
-        .map_err(|e| "failed to open file {path}: {e:?}")?
+        .map_err(|e| format!("failed to open file {}: {e:?}", path.display()))?
         .into_bytes())
 }
 
