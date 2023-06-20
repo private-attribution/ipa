@@ -165,7 +165,6 @@ impl TestWorld {
     }
 
     #[must_use]
-    // pub fn execution_step(execution: usize) -> impl Step {
     pub fn execution_step(execution: usize) -> String {
         format!("run-{execution}")
     }

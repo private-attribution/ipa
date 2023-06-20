@@ -46,7 +46,7 @@ const UPGRADE_SEMI_HONEST_STEP: &str = "upgrade_semi-honest";
 fn static_state_map(state: u16, step: &str) -> u16 {
     if state == ROOT_STATE && step.starts_with("run-") {
         // ignore all `run-*` steps
-        // we use `starts_with to avoid regex dependency. should be good enough
+        // we use `starts_with` to avoid regex dependency. should be good enough
         return ROOT_STATE;
     } else if step == FALLBACK_STEP {
         // RBG fallback narrow
@@ -89,6 +89,38 @@ impl StepNarrow<crate::protocol::boolean::random_bits_generator::FallbackStep> f
     }
 }
 
+// steps that do not or conditionally trigger communications
+
+impl StepNarrow<crate::helpers::prss_protocol::PrssExchangeStep> for Compact {
+    fn narrow(&self, _: &crate::helpers::prss_protocol::PrssExchangeStep) -> Self {
+        panic!("Cannot narrow a helpers::prss_protocol::PrssExchangeStep")
+    }
+}
+
+impl StepNarrow<crate::protocol::boolean::add_constant::Step> for Compact {
+    fn narrow(&self, _: &crate::protocol::boolean::add_constant::Step) -> Self {
+        panic!("Cannot narrow a boolean::add_constant::Step")
+    }
+}
+
+impl StepNarrow<crate::protocol::boolean::bit_decomposition::Step> for Compact {
+    fn narrow(&self, _: &crate::protocol::boolean::bit_decomposition::Step) -> Self {
+        panic!("Cannot narrow a boolean::bit_decomposition::Step")
+    }
+}
+
+impl StepNarrow<crate::protocol::boolean::bitwise_equal::Step> for Compact {
+    fn narrow(&self, _: &crate::protocol::boolean::bitwise_equal::Step) -> Self {
+        panic!("Cannot narrow a boolean::bitwise_equal::Step")
+    }
+}
+
+impl StepNarrow<crate::helpers::query::QueryType> for Compact {
+    fn narrow(&self, _: &crate::helpers::query::QueryType) -> Self {
+        panic!("Cannot narrow a helpers::query::QueryType")
+    }
+}
+
 //
 // steps used in tests
 //
@@ -104,40 +136,5 @@ impl StepNarrow<str> for Compact {
 impl StepNarrow<String> for Compact {
     fn narrow(&self, step: &String) -> Self {
         Self(static_state_map(self.0, step.as_str()))
-    }
-}
-
-#[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<crate::helpers::prss_protocol::PrssExchangeStep> for Compact {
-    fn narrow(&self, _: &crate::helpers::prss_protocol::PrssExchangeStep) -> Self {
-        panic!("Cannot narrow a helpers::prss_protocol::PrssExchangeStep")
-    }
-}
-
-#[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<crate::protocol::boolean::add_constant::Step> for Compact {
-    fn narrow(&self, _: &crate::protocol::boolean::add_constant::Step) -> Self {
-        panic!("Cannot narrow a boolean::add_constant::Step")
-    }
-}
-
-#[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<crate::protocol::boolean::bit_decomposition::Step> for Compact {
-    fn narrow(&self, _: &crate::protocol::boolean::bit_decomposition::Step) -> Self {
-        panic!("Cannot narrow a boolean::bit_decomposition::Step")
-    }
-}
-
-#[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<crate::protocol::boolean::bitwise_equal::Step> for Compact {
-    fn narrow(&self, _: &crate::protocol::boolean::bitwise_equal::Step) -> Self {
-        panic!("Cannot narrow a boolean::bitwise_equal::Step")
-    }
-}
-
-#[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<crate::helpers::query::QueryType> for Compact {
-    fn narrow(&self, _: &crate::helpers::query::QueryType) -> Self {
-        panic!("Cannot narrow a helpers::query::QueryType")
     }
 }

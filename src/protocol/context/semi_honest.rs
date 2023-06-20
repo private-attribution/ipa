@@ -215,10 +215,10 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     }
 
     // Moved from "context/mod.rs" because we want to use the local `UpgradeContext`.
-    // `upgrade` for semi-honest used to be narrowed but never executed. That causes
-    // `Compact` gate to panic because it doesn't know anything about state transitions
-    // that are not executed. To workaround this, we use a dummy step to narrow the
-    // context to let `Compact` gate know that it could be ignored.
+    // `upgrade` for semi-honest is narrowed but never executed. That causes `Compact`
+    // gate to panic because it doesn't know anything about state transitions that are
+    // not executed. To workaround this, we use a dummy step to narrow the context to
+    // let `Compact` gate know that it could be ignored.
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
