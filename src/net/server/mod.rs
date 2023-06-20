@@ -488,9 +488,16 @@ mod e2e_tests {
         test_fixture::metrics::MetricsHandle,
     };
     use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
-    use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
+    use hyper_rustls::HttpsConnector;
     use metrics_util::debugging::Snapshotter;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::SystemTime};
+    use tokio_rustls::{
+        rustls,
+        rustls::{
+            client::{ServerCertVerified, ServerCertVerifier},
+            ServerName,
+        },
+    };
     use tracing::Level;
 
     fn expected_req(host: String) -> http_serde::echo::Request {
@@ -533,6 +540,22 @@ mod e2e_tests {
         assert_eq!(expected, resp_body);
     }
 
+    struct NoVerify;
+
+    impl ServerCertVerifier for NoVerify {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &Certificate,
+            _intermediates: &[Certificate],
+            _server_name: &ServerName,
+            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _ocsp_response: &[u8],
+            _now: SystemTime,
+        ) -> Result<ServerCertVerified, rustls::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+    }
+
     #[tokio::test]
     async fn can_do_https() {
         let TestServer { addr, .. } = TestServer::builder().build().await;
@@ -541,14 +564,14 @@ mod e2e_tests {
         let authority = format!("localhost:{}", addr.port());
 
         // https client
-        let conn = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
+        let config = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_custom_certificate_verifier(Arc::new(NoVerify))
+            .with_no_client_auth();
         let mut http = HttpConnector::new();
         http.enforce_http(false);
 
-        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
+        let https = HttpsConnector::<HttpConnector>::from((http, Arc::new(config)));
         let client = hyper::Client::builder().build(https);
 
         // request
@@ -636,6 +659,32 @@ mod e2e_tests {
         assert_eq!(
             None,
             handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
+        );
+    }
+
+    #[tokio::test]
+    async fn http2_is_default() {
+        let handle = MetricsHandle::new(Level::INFO);
+
+        // server
+        let TestServer { addr, client, .. } = TestServer::builder()
+            // HTTP2 is disabled by default for HTTP traffic, so this verifies
+            // our client is configured to enable it.
+            // See https://github.com/private-attribution/ipa/issues/650 for motivation why
+            // HTTP2 is required
+            .disable_https()
+            .with_metrics(handle.clone())
+            .build()
+            .await;
+
+        let expected = expected_req(addr.to_string());
+        let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
+        let response = client.request(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_eq!(
+            Some(1),
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
         );
     }
 }
