@@ -1,16 +1,15 @@
 use clap::{Parser, Subcommand};
-use comfy_table::{Cell, Color, Table};
 use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
-        playbook::{playbook_ipa, InputSource},
-        CsvSerializer, Verbosity,
+        playbook::{make_clients, playbook_ipa, validate, InputSource},
+        Verbosity,
     },
-    config::{ClientConfig, NetworkConfig, PeerConfig},
-    ff::{FieldType, Fp31, Fp32BitPrime},
+    config::NetworkConfig,
+    ff::{FieldType, Fp32BitPrime},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
-    net::{ClientIdentity, MpcHelperClient},
+    net::MpcHelperClient,
     protocol::{BreakdownKey, MatchKey},
     report::{KeyIdentifier, DEFAULT_KEY_ID},
     test_fixture::{
@@ -18,24 +17,21 @@ use ipa::{
         EventGenerator, EventGeneratorConfig,
     },
 };
+
+use ipa::cli::CsvSerializer;
 use rand::thread_rng;
 use std::{
     error::Error,
     fmt::Debug,
-    fs,
     fs::OpenOptions,
     io,
     io::{stdout, Write},
     path::PathBuf,
-    time::{Duration, Instant},
+    time::Instant,
 };
-use tokio::time::sleep;
 
 #[derive(Debug, Parser)]
-#[clap(
-    name = "mpc-client",
-    about = "CLI to execute test scenarios on IPA MPC helpers"
-)]
+#[clap(name = "rc", about = "Report Collector CLI")]
 #[command(about)]
 struct Args {
     #[clap(flatten)]
@@ -57,7 +53,7 @@ struct Args {
     input: CommandInput,
 
     #[command(subcommand)]
-    action: TestAction,
+    action: ReportCollectorCommand,
 }
 
 #[derive(Debug, Parser)]
@@ -67,9 +63,6 @@ pub struct CommandInput {
         help = "Read the input from the provided file, instead of standard input"
     )]
     input_file: Option<PathBuf>,
-
-    #[arg(value_enum, long, default_value_t = FieldType::Fp32BitPrime, help = "Convert the input into the given field before sending to helpers")]
-    field: FieldType,
 }
 
 impl From<&CommandInput> for InputSource {
@@ -83,7 +76,7 @@ impl From<&CommandInput> for InputSource {
 }
 
 #[derive(Debug, Subcommand)]
-enum TestAction {
+enum ReportCollectorCommand {
     /// Execute IPA in semi-honest honest majority setting
     SemiHonestIpa(IpaQueryConfig),
     /// Execute IPA in malicious honest majority setting
@@ -112,59 +105,6 @@ struct GenInputArgs {
     breakdowns: u32,
 }
 
-async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
-    clients[0].echo("").await.is_ok()
-        && clients[1].echo("").await.is_ok()
-        && clients[2].echo("").await.is_ok()
-}
-
-fn validate<I, S>(expected: I, actual: I)
-where
-    I: IntoIterator<Item = S>,
-    I::IntoIter: ExactSizeIterator,
-    S: PartialEq + Debug,
-{
-    let mut expected = expected.into_iter().fuse();
-    let mut actual = actual.into_iter().fuse();
-    let mut mismatch = Vec::new();
-
-    let mut table = Table::new();
-    table.set_header(vec!["Row", "Expected", "Actual", "Diff?"]);
-
-    let mut i = 0;
-    loop {
-        let next_expected = expected.next();
-        let next_actual = actual.next();
-
-        if next_expected.is_none() && next_actual.is_none() {
-            break;
-        }
-
-        let same = next_expected == next_actual;
-        let color = if same { Color::Green } else { Color::Red };
-        table.add_row(vec![
-            Cell::new(format!("{}", i)).fg(color),
-            Cell::new(format!("{:?}", next_expected)).fg(color),
-            Cell::new(format!("{:?}", next_actual)).fg(color),
-            Cell::new(if same { "" } else { "X" }),
-        ]);
-
-        if !same {
-            mismatch.push((i, next_expected, next_actual))
-        }
-
-        i += 1;
-    }
-
-    tracing::info!("\n{table}\n");
-
-    assert!(
-        mismatch.is_empty(),
-        "Expected and actual results don't match: {:?}",
-        mismatch
-    );
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -176,59 +116,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Scheme::HTTPS
     };
 
-    let network_path = args.network.as_deref();
-    let network = if let Some(path) = network_path {
-        NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
-    } else {
-        NetworkConfig {
-            peers: [
-                PeerConfig::new("localhost:3000".parse().unwrap(), None),
-                PeerConfig::new("localhost:3001".parse().unwrap(), None),
-                PeerConfig::new("localhost:3002".parse().unwrap(), None),
-            ],
-            client: ClientConfig::default(),
-        }
-    };
-    let network = network.override_scheme(&scheme);
-
-    let make_clients = || async {
-        // Note: This closure is only called when the selected action uses clients.
-        let mut wait = args.wait;
-
-        let clients = MpcHelperClient::from_conf(&network, ClientIdentity::None);
-        while wait > 0 && !clients_ready(&clients).await {
-            tracing::debug!("waiting for servers to come up");
-            sleep(Duration::from_secs(1)).await;
-            wait -= 1;
-        }
-
-        clients
-    };
-
+    let (clients, network) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
-        TestAction::SemiHonestIpa(config) => {
+        ReportCollectorCommand::SemiHonestIpa(config) => {
             // semi_honest_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
                 &config,
-                &make_clients().await,
+                &clients,
             )
             .await
         }
-        TestAction::MaliciousIpa(config) => {
+        ReportCollectorCommand::MaliciousIpa(config) => {
             // malicious_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::Malicious,
                 &config,
-                &make_clients().await,
+                &clients,
             )
             .await
         }
-        TestAction::GenIpaInputs {
+        ReportCollectorCommand::GenIpaInputs {
             count,
             output_file,
             gen_args,
@@ -314,7 +226,7 @@ async fn ipa(
     };
 
     let query_config = QueryConfig {
-        field_type: args.input.field,
+        field_type: FieldType::Fp32BitPrime,
         query_type,
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
@@ -352,26 +264,14 @@ async fn ipa(
     };
 
     let mpc_time = Instant::now();
-    let actual = match args.input.field {
-        FieldType::Fp31 => {
-            playbook_ipa::<Fp31, MatchKey, BreakdownKey, _>(
-                &input_rows,
-                &helper_clients,
-                query_id,
-                match_key_encryption,
-            )
-            .await
-        }
-        FieldType::Fp32BitPrime => {
-            playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
-                &input_rows,
-                &helper_clients,
-                query_id,
-                match_key_encryption,
-            )
-            .await
-        }
-    };
+    let actual = playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
+        &input_rows,
+        &helper_clients,
+        query_id,
+        match_key_encryption,
+    )
+    .await;
+
     tracing::info!(
         "{m:?} IPA for {q} records took {t:?}",
         m = ipa_query_config,

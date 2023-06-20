@@ -135,7 +135,7 @@ bench = false
 
 [[bin]]
 name = "report_collector"
-required-features = ["cli", "test-fixture", "web-app", "weak-field"]
+required-features = ["cli", "test-fixture", "web-app"]
 bench = false
 
 [[bin]]

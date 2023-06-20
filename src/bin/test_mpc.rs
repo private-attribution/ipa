@@ -1,21 +1,18 @@
 use clap::{Parser, Subcommand};
-use comfy_table::{Cell, Color, Table};
 use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
-        playbook::{secure_mul, InputSource},
+        playbook::{make_clients, secure_mul, validate, InputSource},
         Verbosity,
     },
-    config::{ClientConfig, NetworkConfig, PeerConfig},
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
     helpers::query::{QueryConfig, QueryType},
-    net::{ClientIdentity, MpcHelperClient},
+    net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
-use std::{error::Error, fmt::Debug, fs, ops::Add, path::PathBuf, time::Duration};
-use tokio::time::sleep;
+use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -83,59 +80,6 @@ struct GenInputArgs {
     breakdowns: u32,
 }
 
-async fn clients_ready(clients: &[MpcHelperClient; 3]) -> bool {
-    clients[0].echo("").await.is_ok()
-        && clients[1].echo("").await.is_ok()
-        && clients[2].echo("").await.is_ok()
-}
-
-fn validate<I, S>(expected: I, actual: I)
-where
-    I: IntoIterator<Item = S>,
-    I::IntoIter: ExactSizeIterator,
-    S: PartialEq + Debug,
-{
-    let mut expected = expected.into_iter().fuse();
-    let mut actual = actual.into_iter().fuse();
-    let mut mismatch = Vec::new();
-
-    let mut table = Table::new();
-    table.set_header(vec!["Row", "Expected", "Actual", "Diff?"]);
-
-    let mut i = 0;
-    loop {
-        let next_expected = expected.next();
-        let next_actual = actual.next();
-
-        if next_expected.is_none() && next_actual.is_none() {
-            break;
-        }
-
-        let same = next_expected == next_actual;
-        let color = if same { Color::Green } else { Color::Red };
-        table.add_row(vec![
-            Cell::new(format!("{}", i)).fg(color),
-            Cell::new(format!("{:?}", next_expected)).fg(color),
-            Cell::new(format!("{:?}", next_actual)).fg(color),
-            Cell::new(if same { "" } else { "X" }),
-        ]);
-
-        if !same {
-            mismatch.push((i, next_expected, next_actual))
-        }
-
-        i += 1;
-    }
-
-    tracing::info!("\n{table}\n");
-
-    assert!(
-        mismatch.is_empty(),
-        "Expected and actual results don't match: {:?}",
-        mismatch
-    );
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -147,37 +91,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Scheme::HTTPS
     };
 
-    let network_path = args.network.as_deref();
-    let network = if let Some(path) = network_path {
-        NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
-    } else {
-        NetworkConfig {
-            peers: [
-                PeerConfig::new("localhost:3000".parse().unwrap(), None),
-                PeerConfig::new("localhost:3001".parse().unwrap(), None),
-                PeerConfig::new("localhost:3002".parse().unwrap(), None),
-            ],
-            client: ClientConfig::default(),
-        }
-    };
-    let network = network.override_scheme(&scheme);
-
-    let make_clients = || async {
-        // Note: This closure is only called when the selected action uses clients.
-        let mut wait = args.wait;
-
-        let clients = MpcHelperClient::from_conf(&network, ClientIdentity::None);
-        while wait > 0 && !clients_ready(&clients).await {
-            tracing::debug!("waiting for servers to come up");
-            sleep(Duration::from_secs(1)).await;
-            wait -= 1;
-        }
-
-        clients
-    };
-
+    let (clients, _) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
-        TestAction::Multiply => multiply(&args, &make_clients().await).await,
+        TestAction::Multiply => multiply(&args, &clients).await,
     };
 
     Ok(())
