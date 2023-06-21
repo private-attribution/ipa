@@ -20,13 +20,14 @@ use crate::{
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
-use hyper_tls::native_tls::Identity;
 use once_cell::sync::Lazy;
 use std::{
     array,
     net::{SocketAddr, TcpListener},
 };
+
 use tokio::task::JoinHandle;
+
 use tokio_rustls::rustls::Certificate;
 
 pub const DEFAULT_TEST_PORTS: [u16; 3] = [3000, 3001, 3002];
@@ -317,18 +318,13 @@ impl TestServerBuilder {
 }
 
 fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static [u8]) {
-    // TODO(640): to be removed when we standardize on rustls
-    #[cfg(not(target_os = "macos"))]
-    let key = TEST_KEYS[id];
-    #[cfg(target_os = "macos")]
-    let key = TEST_KEYS_MUNGED[id];
-    (TEST_CERTS[id], key)
+    (TEST_CERTS[id], TEST_KEYS[id])
 }
 
 #[must_use]
 pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
     let (certificate, private_key) = get_test_certificate_and_key(id);
-    ClientIdentity::Certificate(Identity::from_pkcs8(certificate, private_key).unwrap())
+    ClientIdentity::from_pks8(certificate, private_key).unwrap()
 }
 
 pub const TEST_CERTS: [&[u8]; 3] = [
@@ -400,33 +396,6 @@ KbSMVpfYjvuxPuyewHVRdrjP4M9y2lMSxoJqjzF/a+Gun9mD52thraTr
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgn46qbscTVwdDs5sO
 IyJbB/BrsRFSMBvLsUkh30dLdFyhRANCAATBOYXVQSeJ+ZDbja5BbNmChkPRIcP5
 yV8EGPwurXSVtO3V2WHGFicoOuS5mEWAQJdgBHxlR+nn/EFOMN2JI7HV
------END PRIVATE KEY-----
-",
-];
-
-// These keys are re-coded by the munge_private_key function in `src/bin/helper.rs`.
-// TODO(640): to be removed when we standardize on rustls
-#[cfg(target_os = "macos")]
-pub const TEST_KEYS_MUNGED: [&[u8]; 3] = [
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIEoI/mJ3hAM68vk3OnT3mD9nIWORrWlwJdL6ea8cfHHKoAoGCCqGSM49
-AwEHoUQDQgAEm1kSoFLr+NqpxsD9um7SHeMkOwN9nucVc+2kp38rBJdQXMn7Y24r
-SmGfle0cqFZGMr9yX7yiaPlI9he3bHGxUQ==
------END PRIVATE KEY-----
-",
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIAdZyYoFLL6nzr/Wa0zXM1Aej3sVa31KppqiwtrhOSmcoAoGCCqGSM49
-AwEHoUQDQgAE4+qYlzJ97HnR0l75c1SbfcEh264VxSm0jFaX2I77sT7snsB1UXa4
-z+DPctpTEsaCao8xf2vhrp/Zg+drYa2k6w==
------END PRIVATE KEY-----
-",
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIJ+Oqm7HE1cHQ7ObDiMiWwfwa7ERUjAby7FJId9HS3RcoAoGCCqGSM49
-AwEHoUQDQgAEwTmF1UEnifmQ242uQWzZgoZD0SHD+clfBBj8Lq10lbTt1dlhxhYn
-KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
 -----END PRIVATE KEY-----
 ",
 ];

@@ -18,7 +18,7 @@ use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::SeedableRng;
-use std::iter::zip;
+use std::{iter::zip, time::Instant};
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
@@ -39,11 +39,12 @@ where
     KR: PublicKeyRegistry,
 {
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+    let query_size = records.len();
 
     if let Some((key_id, key_registries)) = encryption {
         const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
         for buffer in &mut buffers {
-            buffer.reserve(records.len() * ESTIMATED_AVERAGE_REPORT_SIZE);
+            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
         }
 
         let mut rng = StdRng::from_entropy();
@@ -60,7 +61,7 @@ where
     } else {
         let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
-            buffer.resize(records.len() * sz, 0u8);
+            buffer.resize(query_size * sz, 0u8);
         }
 
         let inputs = records
@@ -87,7 +88,7 @@ where
     }
 
     let inputs = buffers.map(BodyStream::from);
-
+    let mpc_time = Instant::now();
     try_join_all(
         inputs
             .into_iter()
@@ -115,7 +116,10 @@ where
                 .collect::<Vec<_>>()
         })
         .reconstruct();
-
+    tracing::info!(
+        "Running IPA for {query_size:?} records took {t:?}",
+        t = mpc_time.elapsed()
+    );
     let mut breakdowns = Vec::new();
     for row in results {
         let breakdown_key = usize::try_from(row.breakdown_key.as_u128()).unwrap();

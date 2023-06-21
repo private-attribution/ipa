@@ -27,7 +27,6 @@ use std::{
     io,
     io::{stdout, Write},
     path::PathBuf,
-    time::Instant,
 };
 
 #[derive(Debug, Parser)]
@@ -231,7 +230,6 @@ async fn ipa(
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let query_size = input_rows.len();
 
     let expected = {
         let mut r = ipa_in_the_clear(
@@ -263,7 +261,6 @@ async fn ipa(
         }
     };
 
-    let mpc_time = Instant::now();
     let actual = playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
         &input_rows,
         &helper_clients,
@@ -272,12 +269,7 @@ async fn ipa(
     )
     .await;
 
-    tracing::info!(
-        "{m:?} IPA for {q} records took {t:?}",
-        m = ipa_query_config,
-        q = query_size,
-        t = mpc_time.elapsed()
-    );
+    tracing::info!("{m:?}", m = ipa_query_config);
 
     validate(expected, actual)
 }
