@@ -16,11 +16,17 @@ use hyper::{
     http::HeaderValue,
     Body, Client, Request, Response, StatusCode, Uri,
 };
-use hyper_tls::{
-    native_tls::{Certificate, Identity, TlsConnector},
-    HttpsConnector,
+use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
+use std::{
+    collections::HashMap,
+    io,
+    io::{BufReader, Cursor},
+    iter::repeat,
 };
-use std::{collections::HashMap, iter::repeat};
+use tokio_rustls::{
+    rustls,
+    rustls::{Certificate, PrivateKey, RootCertStore},
+};
 use tracing::error;
 
 #[derive(Clone, Default)]
@@ -30,14 +36,41 @@ pub enum ClientIdentity {
     /// This is only supported for HTTP clients.
     Helper(HelperIdentity),
 
-    /// Authenticate with an X.509 certificate.
+    /// Authenticate with an X.509 certificate or a certificate chain.
     ///
     /// This is only supported for HTTPS clients.
-    Certificate(Identity),
+    Certificate((Vec<Certificate>, PrivateKey)),
 
     /// Do not authenticate nor claim a helper identity.
     #[default]
     None,
+}
+
+impl ClientIdentity {
+    /// Authenticates clients with an X.509 certificate using the provided certificate and private
+    /// key. Certificate must be in DER format, private key encoding must be [`PKCS8`].
+    ///
+    /// [`PKCS8`]: https://datatracker.ietf.org/doc/html/rfc5958
+    ///
+    /// ## Errors
+    /// If either cert or private key is not the required format.
+    ///
+    /// ## Panics
+    /// If either cert or private key byte slice is empty.
+    pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
+        let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
+        let mut pk_reader = BufReader::new(Cursor::new(private_key_bytes));
+
+        let cert_chain = rustls_pemfile::certs(&mut certs_reader)?
+            .into_iter()
+            .map(Certificate)
+            .collect();
+        let pk = rustls_pemfile::pkcs8_private_keys(&mut pk_reader)?
+            .pop()
+            .expect("Non-empty byte slice is provided to parse a private key");
+
+        Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
+    }
 }
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
@@ -102,31 +135,46 @@ impl MpcHelperClient {
                 ClientIdentity::None => None,
             };
             (
-                HttpsConnector::new_with_connector(make_http_connector()),
+                HttpsConnectorBuilder::new()
+                    .with_native_roots()
+                    .https_or_http()
+                    .enable_http2()
+                    .wrap_connector(make_http_connector()),
                 auth_header,
             )
         } else {
-            let mut builder = TlsConnector::builder();
-            if let Some(certificate) = peer_config.certificate {
-                builder
-                    .disable_built_in_roots(true)
-                    .add_root_certificate(Certificate::from_der(certificate.as_ref()).unwrap());
+            let builder = rustls::ClientConfig::builder().with_safe_defaults();
+            let client_config = if let Some(certificate) = peer_config.certificate {
+                let cert_store = {
+                    let mut store = RootCertStore::empty();
+                    store.add(&certificate).unwrap();
+                    store
+                };
+
+                let builder = builder.with_root_certificates(cert_store);
                 match identity {
-                    ClientIdentity::Certificate(identity) => {
-                        builder.identity(identity);
-                    }
+                    ClientIdentity::Certificate((cert_chain, pk)) => builder
+                        .with_single_cert(cert_chain, pk)
+                        .expect("Can setup client authentication with certificate"),
                     ClientIdentity::Helper(_) => {
                         error!("header-passed identity ignored for HTTPS client");
+                        builder.with_no_client_auth()
                     }
-                    ClientIdentity::None => (),
-                };
-            }
+                    ClientIdentity::None => builder.with_no_client_auth(),
+                }
+            } else {
+                builder.with_native_roots().with_no_client_auth()
+            };
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
             let mut http = make_http_connector();
             http.enforce_http(false);
             (
-                HttpsConnector::from((http, builder.build().unwrap().into())),
+                HttpsConnectorBuilder::new()
+                    .with_tls_config(client_config)
+                    .https_only()
+                    .enable_http2()
+                    .wrap_connector(http),
                 None,
             )
         };

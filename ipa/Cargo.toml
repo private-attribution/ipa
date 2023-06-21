@@ -15,7 +15,7 @@ disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
 web-app = [
-    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-tls",
+    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls",
     "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http",
 ]
 # The test-http and test-fixture features are mutually incompatible, and the
@@ -59,7 +59,7 @@ hex = { version = "0.4", features = ["serde"] }
 hkdf = "0.12.3"
 hpke = { version = "0.10.0", default-features = false, features = ["std", "x25519-dalek"] }
 hyper = { version = "0.14.26", optional = true, features = ["client", "h2", "stream"] }
-hyper-tls = { version = "0.5.0", optional = true }
+hyper-rustls = { version = "0.24.0", optional = true, features = ["http2"] }
 iai = { version = "0.1.1", optional = true }
 metrics = "0.21.0"
 metrics-tracing-context = "0.14.0"
@@ -77,9 +77,11 @@ sha2 = "0.10.6"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
+tinyvec = "1.6"
 tokio = { version = "1.28", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-rustls = { version = "0.24.0", optional = true }
 tokio-stream = "0.1.14"
+tokio-util = "0.7.8"
 toml = { version = "0.7", optional = true }
 tower = { version = "0.4.13", optional = true }
 tower-http = { version = "0.4.0", optional = true, features = ["trace"] }
@@ -98,6 +100,7 @@ hex = "0.4"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"
+tokio-rustls = { version = "0.24.0", features = ["dangerous_configuration"] }
 
 [lib]
 name = "ipa"
