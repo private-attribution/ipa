@@ -30,7 +30,7 @@ use std::{
     io::{stdout, Write},
     ops::Add,
     path::PathBuf,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::time::sleep;
 
@@ -325,7 +325,6 @@ async fn ipa(
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
-    let query_size = input_rows.len();
 
     let expected = {
         let mut r = ipa_in_the_clear(
@@ -357,7 +356,8 @@ async fn ipa(
         }
     };
 
-    let mpc_time = Instant::now();
+    tracing::info!("{m:?}", m = ipa_query_config);
+
     let actual = match args.input.field {
         FieldType::Fp31 => {
             playbook_ipa::<Fp31, MatchKey, BreakdownKey, _>(
@@ -378,12 +378,6 @@ async fn ipa(
             .await
         }
     };
-    tracing::info!(
-        "{m:?} IPA for {q} records took {t:?}",
-        m = ipa_query_config,
-        q = query_size,
-        t = mpc_time.elapsed()
-    );
 
     validate(expected, actual)
 }
