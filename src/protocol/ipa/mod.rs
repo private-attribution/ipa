@@ -455,7 +455,7 @@ where
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{

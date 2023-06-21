@@ -182,7 +182,7 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+#[cfg(all(test, web_test))]
 mod tests {
     use super::*;
     use crate::{

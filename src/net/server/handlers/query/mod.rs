@@ -111,7 +111,7 @@ impl MaybeExtensionExt for request::Builder {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod test_helpers {
     use crate::net::test::TestServer;
     use futures_util::future::poll_immediate;
