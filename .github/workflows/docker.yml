@@ -1,17 +1,15 @@
-name: Docker Image CI
+name: Publish Helper Image CI
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  schedule:
+    # Once monthly at a randomly selected time.
+    - cron: "24 2 3,18 * *"
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - name: "Checkout"
       uses: actions/checkout@v3
@@ -29,7 +27,7 @@ jobs:
     - name: Build and Publish GitHub Actions Image
       uses: docker/build-push-action@v4
       with:
-        file: docker/baseimage/Dockerfile
+        file: docker/ci/helper.Dockerfile
         push: true
-        tags: ghcr.io/${{ github.actor }}/ipa-helper-base:latest
+        tags: ghcr.io/${{ github.actor }}/ipa-helper:latest
         platforms: linux/amd64
