@@ -48,7 +48,7 @@ pub enum ClientIdentity {
 
 impl ClientIdentity {
     /// Authenticates clients with an X.509 certificate using the provided certificate and private
-    /// key. Certificate must be in DER format, private key encoding must be [`PKCS8`].
+    /// key. Certificate must be in PEM format, private key encoding must be [`PKCS8`].
     ///
     /// [`PKCS8`]: https://datatracker.ietf.org/doc/html/rfc5958
     ///
