@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG SOURCES_DIR=/usr/src/ipa
 FROM rust:latest as builder
-ARG SOURCES_DIR
+# ARG SOURCES_DIR
 LABEL maintainer="akoshelev"
 
 # Prepare helper binaries
