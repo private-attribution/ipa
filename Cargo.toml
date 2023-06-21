@@ -15,11 +15,6 @@ disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls", "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http"]
-# The test-http and test-fixture features are mutually incompatible, and the
-# code doesn't support building tests without test-fixture. So if you want to
-# run the tests enabled by test-http, you unfortunately need to do something
-# like `s/cfg(any(test,/cfg(any(never, test/`.
-test-http = []
 test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
