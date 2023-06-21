@@ -17,7 +17,7 @@ use tempdir::TempDir;
 #[cfg(all(test, feature = "cli"))]
 pub mod tempdir;
 
-const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");
+const HELPER_BIN: &str = env!("CARGO_BIN_EXE_ipa-mpc-helper");
 const TEST_MPC_BIN: &str = env!("CARGO_BIN_EXE_test_mpc");
 
 trait UnwrapStatusExt {

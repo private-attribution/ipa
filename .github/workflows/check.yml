@@ -52,7 +52,7 @@ jobs:
 
       - name: Clippy concurrency tests
         if: ${{ success() || failure() }}
-        run: cargo clippy -p ipa --tests --features "shuttle in-memory-infra"
+        run: cargo clippy -p ipa-core --tests --features "shuttle in-memory-infra"
 
       - name: Build
         if: ${{ success() || failure() }}
@@ -62,7 +62,7 @@ jobs:
         run: cargo test
 
       - name: Run IPA Tests
-        run: cargo test -p ipa --features in-memory-infra
+        run: cargo test -p ipa-core --features in-memory-infra
 
       - name: Run Web Tests
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
@@ -97,16 +97,16 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build -p ipa --benches --no-default-features --features enable-benches
+        run: cargo build -p ipa-core --benches --no-default-features --features enable-benches
 
       - name: Build concurrency tests
-        run: cargo build -p ipa --release --features "shuttle in-memory-infra"
+        run: cargo build -p ipa-core --release --features "shuttle in-memory-infra"
 
       - name: Build concurrency tests (debug mode)
-        run: cargo build -p ipa --features "shuttle in-memory-infra"
+        run: cargo build -p ipa-core --features "shuttle in-memory-infra"
 
       - name: Run concurrency tests
-        run: cargo test -p ipa --release --features "shuttle in-memory-infra"
+        run: cargo test -p ipa-core --release --features "shuttle in-memory-infra"
 
       - name: Run IPA bench
-        run: cargo bench -p ipa --bench oneshot_ipa --no-default-features --features enable-benches
+        run: cargo bench -p ipa-core --bench oneshot_ipa --no-default-features --features enable-benches
