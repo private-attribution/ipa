@@ -1,8 +1,12 @@
 name: Publish Helper Image CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ "main" ]
+    paths:
+      - "docker/ci/**"
+      - ".github/workflows/docker.yml"
+      - "Cargo.toml"
   schedule:
     # Once monthly at a randomly selected time.
     - cron: "24 2 3,18 * *"
