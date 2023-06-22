@@ -27,11 +27,12 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Build and Publish GitHub Actions Image
+
+    - name: "Build and Publish Helper Image"
       uses: docker/build-push-action@v4
       with:
-        file: docker/ci/helper.Dockerfile
+        context: .
+        file: ./docker/ci/helper.Dockerfile
         push: true
         tags: ghcr.io/${{ github.actor }}/ipa-helper:latest
         platforms: linux/amd64
