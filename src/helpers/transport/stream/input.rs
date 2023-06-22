@@ -32,7 +32,7 @@ impl BufDeque {
     }
 
     /// Returns the total amount of buffered data
-    #[cfg(all(test, not(feature = "shuttle")))]
+    #[cfg(all(test, unit_test))]
     fn len(&self) -> usize {
         self.buffered_size
     }
@@ -440,7 +440,7 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 mod test {
     use rand::Rng;
     use rand_core::RngCore;

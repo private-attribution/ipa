@@ -14,15 +14,7 @@ no-prss = []
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
-web-app = [
-    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls",
-    "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http",
-]
-# The test-http and test-fixture features are mutually incompatible, and the
-# code doesn't support building tests without test-fixture. So if you want to
-# run the tests enabled by test-http, you unfortunately need to do something
-# like `s/cfg(any(test,/cfg(any(never, test/`.
-test-http = []
+web-app = ["axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls", "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http"]
 test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
@@ -93,6 +85,9 @@ x25519-dalek = "2.0.0-pre.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"
+
+[build-dependencies]
+cfg_aliases = "0.1.1"
 
 [dev-dependencies]
 command-fds = "0.2.2"

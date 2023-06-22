@@ -377,7 +377,7 @@ impl Debug for Http2Configurator {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
     use hpke::{kem::X25519HkdfSha256, Kem};

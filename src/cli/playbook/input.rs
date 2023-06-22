@@ -132,7 +132,7 @@ impl BufRead for InputSource {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         cli::playbook::input::InputItem,

@@ -185,7 +185,7 @@ impl MultiplyWork for MultiplyZeroPositions {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub(in crate::protocol) mod test {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
