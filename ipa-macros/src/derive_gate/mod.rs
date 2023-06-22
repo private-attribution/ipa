@@ -107,6 +107,7 @@ pub fn expand(item: TokenStream) -> TokenStream {
     let steps = ipa_state_transition_map();
     let grouped_steps = group_by_modules(&steps);
     let mut reverse_map = Vec::new();
+    let mut deserialize_map = Vec::new();
 
     for (module, steps) in grouped_steps {
         // generate the `StepNarrow` implementation for each module
@@ -139,6 +140,14 @@ pub fn expand(item: TokenStream) -> TokenStream {
                 #state_id => #path,
             )
         }));
+
+        deserialize_map.extend(steps.iter().map(|s| {
+            let path = &s.path;
+            let state_id = s.id;
+            quote!(
+                #path => #state_id,
+            )
+        }));
     }
 
     expanded.extend(quote!(
@@ -151,6 +160,21 @@ pub fn expand(item: TokenStream) -> TokenStream {
             }
         }
     ));
+
+    // replace `u16` with the type acquired from the AST
+    expanded.extend(
+        quote!(
+            impl Compact {
+                pub fn deserialize(s: &str) -> Compact {
+                    Self(match s {
+                        #(#deserialize_map)*
+                        _ => static_deserialize_state_map(s),
+                    })
+                }
+            }
+        )
+        .into_iter(),
+    );
 
     expanded.into()
 }
