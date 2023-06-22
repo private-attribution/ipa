@@ -1,7 +1,6 @@
 use futures::stream::Stream;
 use pin_project::pin_project;
 use std::{
-    ops::DerefMut,
     pin::Pin,
     task::{Context, Poll},
 };
