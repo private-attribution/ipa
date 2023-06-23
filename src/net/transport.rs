@@ -1,17 +1,18 @@
 use crate::{
     config::{NetworkConfig, ServerConfig},
+    error::BoxError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
-        QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportCallbacks,
+        BodyStream, CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier,
+        PrepareQueryResult, QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords,
+        RouteId, RouteParams, StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{step::Gate, QueryId},
     sync::Arc,
 };
 use async_trait::async_trait;
-use axum::{body::Bytes, extract::BodyStream};
+use bytes::Bytes;
 use futures::{Stream, TryFutureExt};
 use std::{
     borrow::Borrow,
@@ -20,7 +21,7 @@ use std::{
     task::{Context, Poll},
 };
 
-type LogHttpErrors = LogErrors<BodyStream, Bytes, axum::Error>;
+type LogHttpErrors = LogErrors<BodyStream, Bytes, BoxError>;
 
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
@@ -181,16 +182,16 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+#[cfg(all(test, web_test))]
 mod tests {
     use super::*;
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
-        helpers::{query::QueryType::TestMultiply, ByteArrStream},
+        helpers::query::QueryType::TestMultiply,
         net::{
             client::ClientIdentity,
-            test::{body_stream, get_test_identity, TestConfig, TestConfigBuilder, TestServer},
+            test::{get_test_identity, TestConfig, TestConfigBuilder, TestServer},
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_fixture::Reconstruct,
@@ -215,7 +216,9 @@ mod tests {
 
         let TestServer { transport, .. } = TestServer::default().await;
 
-        let body = body_stream(Box::new(ReceiverStream::new(rx))).await;
+        let body = BodyStream::from_body(
+            Box::new(ReceiverStream::new(rx)) as Box<dyn Stream<Item = _> + Send>
+        );
 
         // Register the stream with the transport (normally called by step data HTTP API handler)
         Arc::clone(&transport).receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);
@@ -331,7 +334,7 @@ mod tests {
             let mut vec = vec![0u8; 2 * SZ];
             a.serialize(GenericArray::from_mut_slice(&mut vec[..SZ]));
             b.serialize(GenericArray::from_mut_slice(&mut vec[SZ..]));
-            ByteArrStream::from(vec)
+            BodyStream::from(vec)
         });
 
         let mut handle_resps = Vec::with_capacity(helper_shares.len());

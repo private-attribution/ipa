@@ -1,13 +1,20 @@
-use crate::helpers::HelperIdentity;
+use crate::{
+    error::BoxError,
+    helpers::HelperIdentity,
+    hpke::{
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
+    },
+};
 
 use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
 use serde::{Deserialize, Deserializer, Serialize};
+use tokio::fs;
 use tokio_rustls::rustls::Certificate;
 
 use std::{
     array,
-    borrow::Borrow,
+    borrow::{Borrow, Cow},
     fmt::{Debug, Formatter},
     iter::Zip,
     path::PathBuf,
@@ -129,14 +136,23 @@ impl PeerConfig {
 
 /// Match key encryption client configuration. To encrypt match keys towards a helper node, clients
 /// need to know helper's public key.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct HpkeClientConfig {
-    pub public_key: String,
+    #[serde(deserialize_with = "pk_from_str")]
+    pub public_key: IpaPublicKey,
+}
+
+impl Debug for HpkeClientConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HpkeClientConfig")
+            .field("public_key", &pk_to_str(&self.public_key))
+            .finish()
+    }
 }
 
 impl HpkeClientConfig {
     #[must_use]
-    pub fn new(public_key: String) -> Self {
+    pub fn new(public_key: IpaPublicKey) -> Self {
         Self { public_key }
     }
 }
@@ -155,6 +171,21 @@ where
             &"a certificate",
         )),
     }
+}
+
+fn pk_from_str<'de, D>(deserializer: D) -> Result<IpaPublicKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    let mut buf = vec![0_u8; 32];
+    hex::decode_to_slice(s, &mut buf).map_err(<D::Error as serde::de::Error>::custom)?;
+
+    IpaPublicKey::from_bytes(&buf).map_err(<D::Error as serde::de::Error>::custom)
+}
+
+fn pk_to_str(pk: &IpaPublicKey) -> String {
+    hex::encode(pk.to_bytes().as_slice())
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +222,38 @@ pub enum HpkeServerConfig {
         // Private key in hex format
         private_key: String,
     },
+}
+
+/// # Errors
+/// If there is a problem with the HPKE configuration.
+pub async fn hpke_registry(
+    config: Option<&HpkeServerConfig>,
+) -> Result<KeyRegistry<KeyPair>, BoxError> {
+    let (pk_str, sk_str) = match config {
+        None => return Ok(KeyRegistry::empty()),
+        Some(HpkeServerConfig::Inline {
+            public_key,
+            private_key,
+        }) => (
+            Cow::Borrowed(public_key.trim().as_bytes()),
+            Cow::Borrowed(private_key.trim().as_bytes()),
+        ),
+        Some(HpkeServerConfig::File {
+            public_key_file,
+            private_key_file,
+        }) => (
+            Cow::Owned(fs::read_to_string(public_key_file).await?.trim().into()),
+            Cow::Owned(fs::read_to_string(private_key_file).await?.trim().into()),
+        ),
+    };
+
+    let pk = hex::decode(pk_str)?;
+    let sk = hex::decode(sk_str)?;
+
+    Ok(KeyRegistry::from_keys([KeyPair::from((
+        IpaPrivateKey::from_bytes(&sk)?,
+        IpaPublicKey::from_bytes(&pk)?,
+    ))]))
 }
 
 /// Configuration information for launching an instance of the helper party web service.
@@ -314,23 +377,17 @@ impl Debug for Http2Configurator {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
-    use crate::{helpers::HelperIdentity, net::test::TestConfigBuilder};
+    use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
+    use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
+    use rand::rngs::StdRng;
+    use rand_core::SeedableRng;
 
     const URI_1: &str = "http://localhost:3000";
     const URI_2: &str = "http://localhost:3001";
     const URI_3: &str = "http://localhost:3002";
-
-    #[allow(dead_code)] // TODO(tls) need to add back report public key configuration
-    fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
-        let pk_bytes: [u8; 32] = hex::decode(hex_str)
-            .expect("valid hex string")
-            .try_into()
-            .expect("hex should be exactly 32 bytes");
-        pk_bytes.into()
-    }
 
     #[test]
     fn parse_config() {
@@ -350,5 +407,13 @@ mod tests {
         let id3 = HelperIdentity::try_from(3usize).unwrap();
         let value3 = &conf.network.peers()[id3];
         assert_eq!(value3.url, uri3);
+    }
+
+    #[test]
+    fn debug_hpke_client_config() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let (_, public_key) = X25519HkdfSha256::gen_keypair(&mut rng);
+        let config = HpkeClientConfig { public_key };
+        assert_eq!(format!("{config:?}"), "HpkeClientConfig { public_key: \"2bd9da78f01d8bc6948bbcbe44ec1e7163d05083e267d110cdb2e75d847e3b6f\" }");
     }
 }

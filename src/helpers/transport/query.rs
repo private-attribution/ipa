@@ -1,7 +1,7 @@
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{ByteArrStream, NoQueryId, NoStep},
+        transport::{BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
     protocol::{step::Step, QueryId, MAX_QUERY_SIZE},
@@ -132,7 +132,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
-    pub input_stream: ByteArrStream,
+    pub input_stream: BodyStream,
 }
 
 impl Debug for QueryInput {
@@ -231,6 +231,13 @@ pub struct IpaQueryConfig {
     pub attribution_window_seconds: Option<NonZeroU32>,
     #[cfg_attr(feature = "clap", arg(long, default_value = "3"))]
     pub num_multi_bits: u32,
+
+    /// If false, IPA decrypts match key shares in the input reports. If true, IPA uses match key
+    /// shares from input reports directly. Setting this to true also activates an alternate
+    /// input report format in which all fields are secret-shared. This option is provided
+    /// only for development and testing purposes and may be removed in the future.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub plaintext_match_keys: bool,
 }
 
 impl Default for IpaQueryConfig {
@@ -240,6 +247,7 @@ impl Default for IpaQueryConfig {
             max_breakdown_key: 64,
             attribution_window_seconds: None,
             num_multi_bits: 3,
+            plaintext_match_keys: false,
         }
     }
 }
@@ -262,6 +270,7 @@ impl IpaQueryConfig {
                     .expect("attribution window must be a positive value > 0"),
             ),
             num_multi_bits,
+            plaintext_match_keys: false,
         }
     }
 
@@ -280,6 +289,7 @@ impl IpaQueryConfig {
             max_breakdown_key,
             attribution_window_seconds: None,
             num_multi_bits,
+            plaintext_match_keys: false,
         }
     }
 }

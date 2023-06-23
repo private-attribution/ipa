@@ -29,7 +29,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
@@ -92,6 +92,7 @@ mod tests {
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
                     num_multi_bits: 3,
+                    plaintext_match_keys: true,
                 }),
                 FieldType::Fp32BitPrime,
                 1,
@@ -111,6 +112,7 @@ mod tests {
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
+                plaintext_match_keys: true,
             }),
         })
         .await;

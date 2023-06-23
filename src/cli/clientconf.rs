@@ -1,10 +1,12 @@
 use crate::{
     cli::paths::PathExt,
     config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
+    error::BoxError,
 };
 use clap::Args;
 use config::Map;
-use std::{error::Error, fs, fs::File, io::Write, iter::zip, path::PathBuf};
+use hpke::Serializable as _;
+use std::{fs, fs::File, io::Write, iter::zip, path::PathBuf};
 use toml::{Table, Value};
 
 #[derive(Debug, Args)]
@@ -49,7 +51,7 @@ pub struct ConfGenArgs {
 ///
 /// [`ConfGenArgs`]: ConfGenArgs
 /// [`Paths`]: crate::cli::paths::PathExt
-pub fn setup(args: ConfGenArgs) -> Result<(), Box<dyn Error>> {
+pub fn setup(args: ConfGenArgs) -> Result<(), BoxError> {
     let clients_conf: [_; 3] = zip(args.hosts.iter(), args.ports)
         .enumerate()
         .map(|(id, (host, port))| {
@@ -102,7 +104,7 @@ pub fn gen_client_config<'a>(
     clients_conf: [HelperClientConf<'a>; 3],
     use_http1: bool,
     conf_file: &'a mut File,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), BoxError> {
     let mut peers = Vec::<Value>::with_capacity(3);
     for client_conf in clients_conf {
         let certificate = fs::read_to_string(&client_conf.tls_cert_file).map_err(|e| {
@@ -208,6 +210,6 @@ fn assert_hpke_config(expected: &Value, actual: Option<&HpkeClientConfig>) {
             .get("public_key")
             .and_then(toml::Value::as_str)
             .map(ToOwned::to_owned),
-        actual.map(|v| v.public_key.clone())
+        actual.map(|v| hex::encode(v.public_key.to_bytes()))
     );
 }

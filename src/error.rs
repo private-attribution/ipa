@@ -2,6 +2,8 @@ use crate::task::JoinError;
 use std::fmt::Debug;
 use thiserror::Error;
 
+use crate::report::InvalidReportError;
+
 /// An error raised by the IPA protocol.
 ///
 /// This error type could be thought of as `ipa::protocol::Error`. There are other error types for
@@ -52,6 +54,8 @@ pub enum Error {
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
     InvalidQueryParameter(String),
+    #[error("invalid report: {0}")]
+    InvalidReport(#[from] InvalidReportError),
 }
 
 impl Default for Error {
