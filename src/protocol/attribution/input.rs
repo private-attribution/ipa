@@ -33,22 +33,22 @@ pub struct ApplyAttributionWindowInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCApplyAttributionWindowInputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub timestamp: T,
-    pub is_trigger_report: T,
-    pub helper_bit: T,
+pub struct MCApplyAttributionWindowInputRow<F: Field, S: LinearSecretSharing<F>> {
+    pub timestamp: S,
+    pub is_trigger_report: S,
+    pub helper_bit: S,
     pub breakdown_key: Vec<Replicated<Gf2>>,
-    pub trigger_value: T,
+    pub trigger_value: S,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, T> {
+impl<F: Field, S: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, S> {
     pub fn new(
-        timestamp: T,
-        is_trigger_report: T,
-        helper_bit: T,
+        timestamp: S,
+        is_trigger_report: S,
+        helper_bit: S,
         breakdown_key: Vec<Replicated<Gf2>>,
-        trigger_value: T,
+        trigger_value: S,
     ) -> Self {
         Self {
             timestamp,
@@ -61,7 +61,7 @@ impl<F: Field, T: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, T>
     }
 }
 
-pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
+pub type MCApplyAttributionWindowOutputRow<F, S> = MCAccumulateCreditInputRow<F, S>;
 
 //
 // `accumulate_credit` protocol
@@ -76,22 +76,22 @@ pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCAccumulateCreditInputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub is_trigger_report: T,
-    pub helper_bit: T,
-    pub active_bit: T,
+pub struct MCAccumulateCreditInputRow<F: Field, S: LinearSecretSharing<F>> {
+    pub is_trigger_report: S,
+    pub helper_bit: S,
+    pub active_bit: S,
     pub breakdown_key: Vec<Replicated<Gf2>>,
-    pub trigger_value: T,
+    pub trigger_value: S,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
+impl<F: Field, S: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, S> {
     pub fn new(
-        is_trigger_report: T,
-        helper_bit: T,
-        active_bit: T,
+        is_trigger_report: S,
+        helper_bit: S,
+        active_bit: S,
         breakdown_key: Vec<Replicated<Gf2>>,
-        trigger_value: T,
+        trigger_value: S,
     ) -> Self {
         Self {
             is_trigger_report,

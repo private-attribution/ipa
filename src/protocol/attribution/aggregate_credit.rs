@@ -4,7 +4,7 @@ use crate::{
     protocol::{
         attribution::input::{MCAggregateCreditInputRow, MCAggregateCreditOutputRow},
         basics::ZeroPositions,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
+        context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::{convert_bit, convert_bit_local},
         sort::{check_everything, generate_permutation::ShuffledPermutationWrapper},
         step::BitOpStep,
@@ -52,9 +52,12 @@ where
 
     if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
         let res = simple_aggregate_credit(m_ctx, capped_credits, max_breakdown_key).await?;
-        return Ok((validator, res));
+        Ok((validator, res))
+    } else {
+        Err(Error::Unsupported(
+            format!("query uses {max_breakdown_key} breakdown keys; only {SIMPLE_AGGREGATION_BREAK_EVEN_POINT} are supported")
+        ))
     }
-    panic!()
 }
 
 async fn simple_aggregate_credit<F, C, I, T, BK>(
@@ -65,7 +68,7 @@ async fn simple_aggregate_credit<F, C, I, T, BK>(
 where
     F: PrimeField,
     I: Iterator<Item = MCAggregateCreditInputRow<F, T>> + ExactSizeIterator + Send,
-    C: Context + UpgradedContext<F, Share = T>,
+    C: UpgradedContext<F, Share = T>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
     BK: GaloisField,
 {
