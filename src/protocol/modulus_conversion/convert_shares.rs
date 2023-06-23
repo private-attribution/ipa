@@ -254,9 +254,9 @@ mod tests {
                 let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = ctx.validator();
+                let m_triples = v.context().upgrade([triple]).await.unwrap();
                 let m_ctx = v.context().set_total_records(1);
-                let m_triple = m_ctx.upgrade(triple).await.unwrap();
-                let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triples[0])
                     .await
                     .unwrap();
                 v.validate(m_bit).await.unwrap()
@@ -314,9 +314,9 @@ mod tests {
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = ctx.validator();
+                    let m_triples = v.context().upgrade([tweaked]).await.unwrap();
                     let m_ctx = v.context().set_total_records(1);
-                    let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
-                    let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                    let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triples[0])
                         .await
                         .unwrap();
                     let err = v

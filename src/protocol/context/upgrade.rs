@@ -17,10 +17,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 /// Special context type used for malicious upgrades.
 ///
@@ -43,17 +40,6 @@ use std::{
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Replicated<F>, Replicated<F>), _>>::upgrade;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Vec<Replicated<F>>, Vec<Replicated<F>>), _>>::upgrade;
-/// ```
-///
-/// ```compile_fail
-/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
-/// use ipa::ff::Fp32BitPrime as F;
-/// use ipa::secret_sharing::replicated::{
-///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
-/// };
-/// // This can't be upgraded with a record-bound context because the record ID
-/// // is used internally for vector indexing.
-/// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 /// ```
 pub struct UpgradeContext<
     'a,
@@ -195,18 +181,21 @@ impl AsRef<str> for Upgrade2DVectors {
 }
 
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<T>, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: Send + 'static,
+    T: IntoIterator + Send + 'static,
+    T::IntoIter: ExactSizeIterator + Send,
+    T::Item: Send + 'static,
     M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T::Item, M>,
 {
-    async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
-        let ctx = self.ctx.set_total_records(input.len());
+    async fn upgrade(self, input: T) -> Result<Vec<M>, Error> {
+        let iter = input.into_iter();
+        let ctx = self.ctx.set_total_records(iter.len());
         let ctx_ref = &ctx;
-        ctx.try_join(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.try_join(iter.enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext::new(ctx_ref.clone(), RecordId::from(i))
                 .upgrade(share)
@@ -220,8 +209,7 @@ where
 /// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
 /// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<Vec<T>>, Vec<Vec<M>>>
-    for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<T>, Vec<M>> for UpgradeContext<'a, C, F, RecordId>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
@@ -230,28 +218,16 @@ where
     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
 {
     /// # Panics
-    /// Panics if input is empty
-    async fn upgrade(self, input: Vec<Vec<T>>) -> Result<Vec<Vec<M>>, Error> {
-        let num_records = input.len();
-        let num_columns = input.first().map_or(1, Vec::len);
-        assert_ne!(num_columns, 0);
-        let ctx = self.ctx.set_total_records(num_records);
+    /// Only vectors with 64 or less items are supported; larger vectors cause a panic.
+    async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx_ref = &self.ctx;
-        let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
-
-        ctx_ref
-            .try_join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
-                |(record_idx, (all_ctx, one_input))| async move {
-                    // This inner join is truly concurrent.
-                    ctx_ref
-                        .parallel_join(zip(all_ctx, one_input).map(|(ctx, share)| async move {
-                            UpgradeContext::new(ctx, RecordId::from(record_idx))
-                                .upgrade(share)
-                                .await
-                        }))
-                        .await
-                },
-            ))
+        let record_id = self.record_binding;
+        self.ctx
+            .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
+                UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
+                    .upgrade(share)
+                    .await
+            }))
             .await
     }
 }
@@ -431,15 +407,14 @@ where
 // context. This is only used for tests where the protocol takes a single `Replicated<F>` input.
 #[cfg(test)]
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, M> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, M> UpgradeToMalicious<'a, Replicated<F>, M> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: Send + 'static,
     M: 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, Replicated<F>, M>,
 {
-    async fn upgrade(self, input: T) -> Result<M, Error> {
+    async fn upgrade(self, input: Replicated<F>) -> Result<M, Error> {
         let ctx = if self.ctx.total_records().is_unspecified() {
             self.ctx.set_total_records(1)
         } else {
