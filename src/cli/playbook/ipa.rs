@@ -1,5 +1,4 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
-
 use crate::{
     ff::{Field, PrimeField, Serializable},
     helpers::{query::QueryInput, BodyStream},
@@ -88,6 +87,7 @@ where
     }
 
     let inputs = buffers.map(BodyStream::from);
+    tracing::info!("Starting query after finishing encryption");
     let mpc_time = Instant::now();
     try_join_all(
         inputs

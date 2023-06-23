@@ -128,6 +128,11 @@ required-features = ["cli", "enable-serde"]
 bench = false
 
 [[bin]]
+name = "report_collector"
+required-features = ["cli", "test-fixture", "web-app"]
+bench = false
+
+[[bin]]
 name = "test_mpc"
 required-features = ["cli", "test-fixture", "web-app", "weak-field"]
 bench = false
