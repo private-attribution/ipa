@@ -4,29 +4,97 @@ use crate::{
         transport::{BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{step::Step, QueryId, MAX_QUERY_SIZE},
+    protocol::{step::Step, QueryId},
     query::ProtocolResult,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
 };
 use tokio::sync::oneshot;
+
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+pub struct QuerySize(u32);
+
+impl QuerySize {
+    pub const MAX: u32 = 1_000_000_000;
+}
+
+#[cfg(feature = "enable-serde")]
+impl<'de> Deserialize<'de> for QuerySize {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u32::deserialize(deserializer)?;
+        Self::try_from(v).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Display for QuerySize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "Query size is 0 or too large. Must be within [1, {}], got: {0}",
+    QuerySize::MAX
+)]
+pub enum BadQuerySizeError {
+    U32(u32),
+    USize(usize),
+    I32(i32),
+}
+
+macro_rules! query_size_from_impl {
+    ( $( $Int: ident => $err: expr ),+ ) => {
+        $(
+            impl TryFrom<$Int> for QuerySize {
+                type Error = BadQuerySizeError;
+
+                fn try_from(value: $Int) -> Result<Self, Self::Error> {
+                    if value > 0 && value <= $Int::try_from(Self::MAX).expect(concat!(stringify!($Int), " is large enough to fit 1B")) {
+                        Ok(Self(u32::try_from(value).unwrap()))
+                    } else {
+                        Err($err(value))
+                    }
+                }
+            }
+        )+
+    }
+}
+
+query_size_from_impl!(u32 => BadQuerySizeError::U32, usize => BadQuerySizeError::USize, i32 => BadQuerySizeError::I32);
+
+impl From<QuerySize> for u32 {
+    fn from(value: QuerySize) -> Self {
+        value.0
+    }
+}
+
+impl From<QuerySize> for usize {
+    fn from(value: QuerySize) -> Self {
+        usize::try_from(value.0).expect("u32 fits into usize")
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
-    pub size: NonZeroU32,
+    pub size: QuerySize,
     pub field_type: FieldType,
     pub query_type: QueryType,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueryConfigError {
-    #[error("Query size is 0 or too large. Must be within [1, {max_size}], got: {actual_size}")]
-    BadQuerySize { actual_size: usize, max_size: usize },
+    #[error(transparent)]
+    BadQuerySize(#[from] BadQuerySizeError),
 }
 
 #[derive(Clone, Debug)]
@@ -76,28 +144,16 @@ impl QueryConfig {
     ///
     /// ## Errors
     /// If query size is too large or 0.
-    ///
-    /// ## Panics
-    /// if query size does not fit into a pointer-sized type.
     pub fn new<S>(
         query_type: QueryType,
         field_type: FieldType,
         size: S,
     ) -> Result<Self, QueryConfigError>
     where
-        <S as TryInto<usize>>::Error: Debug,
-        S: TryInto<usize> + TryInto<u32>,
+        S: TryInto<QuerySize, Error = BadQuerySizeError>,
     {
-        let sz: usize = size.try_into().expect("query size fits into machine word");
-        let sz = u32::try_from(sz)
-            .and_then(NonZeroU32::try_from)
-            .map_err(|_| QueryConfigError::BadQuerySize {
-                actual_size: sz,
-                max_size: MAX_QUERY_SIZE,
-            })?;
-
         Ok(Self {
-            size: sz,
+            size: size.try_into()?,
             field_type,
             query_type,
         })

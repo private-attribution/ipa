@@ -22,7 +22,6 @@ pub use basics::BasicProtocols;
 
 pub type MatchKey = Gf40Bit;
 pub type BreakdownKey = Gf8Bit;
-pub const MAX_QUERY_SIZE: usize = 1 << 30;
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and

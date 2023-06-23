@@ -415,7 +415,7 @@ mod tests {
                 }),
                 ..Default::default()
             });
-        let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1).unwrap();
+        let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(
             &tx,

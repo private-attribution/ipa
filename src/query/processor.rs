@@ -497,7 +497,6 @@ mod tests {
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
-        use std::num::NonZeroU32;
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {
@@ -542,15 +541,13 @@ mod tests {
                 ];
                 (Fp31, MatchKey, BreakdownKey)
             );
-            let record_count = u32::try_from(records.len())
-                .and_then(NonZeroU32::try_from)
-                .unwrap();
+            let record_count = records.len();
 
             let _results = app
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
                     records,
                     QueryConfig {
-                        size: record_count,
+                        size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,
                         query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                             per_user_credit_cap: 3,

@@ -80,7 +80,7 @@ pub mod echo {
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
+        helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
         net::Error,
     };
     use async_trait::async_trait;
@@ -109,8 +109,7 @@ pub mod query {
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             #[derive(serde::Deserialize)]
             struct QueryTypeParam {
-                // TODO: serde custom error?
-                size: NonZeroU32,
+                size: QuerySize,
                 field_type: FieldType,
                 query_type: String,
             }

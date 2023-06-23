@@ -1,7 +1,10 @@
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
-    helpers::{query::IpaQueryConfig, BodyStream, LengthDelimitedStream, RecordsStream},
+    helpers::{
+        query::{IpaQueryConfig, QuerySize},
+        BodyStream, LengthDelimitedStream, RecordsStream,
+    },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
         attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
@@ -17,12 +20,13 @@ use crate::{
         replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
         Linear as LinearSecretSharing,
     },
+    sync::Arc,
 };
 use futures::{
     stream::{iter, repeat},
     Stream, StreamExt, TryStreamExt,
 };
-use std::{marker::PhantomData, num::NonZeroU32, sync::Arc};
+use std::marker::PhantomData;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,
@@ -69,7 +73,7 @@ where
     pub async fn execute<'a>(
         self,
         ctx: C,
-        record_count: NonZeroU32,
+        query_size: QuerySize,
         input_stream: BodyStream,
     ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
         let Self {
@@ -77,7 +81,7 @@ where
             key_registry,
             phantom_data: _,
         } = self;
-        let max_sz = usize::try_from(record_count.get()).unwrap();
+        let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
             let mut v = assert_stream_send(RecordsStream::<
@@ -86,8 +90,7 @@ where
             >::new(input_stream))
             .try_concat()
             .await?;
-
-            v.truncate(max_sz);
+            v.truncate(sz);
             v
         } else {
             assert_stream_send(LengthDelimitedStream::<
@@ -103,7 +106,7 @@ where
                 }))
             })
             .try_flatten()
-            .take(max_sz)
+            .take(sz)
             .zip(repeat(ctx.clone()))
             .map(|(res, ctx)| {
                 res.and_then(|report| {
@@ -186,9 +189,7 @@ mod tests {
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
-        let record_count = u32::try_from(records.len() - 2)
-            .and_then(NonZeroU32::try_from)
-            .unwrap();
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
 
         let records = records
             .share()
@@ -224,11 +225,8 @@ mod tests {
             // Note that we ignore the last 2 records to test that runner follows the rule
             // to take up to `record_count` reports. Everything else outside that will
             // be ignored
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
-                ctx,
-                record_count,
-                input,
-            )
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty()))
+                .execute(ctx, query_size, input)
         }))
         .await;
 
@@ -259,9 +257,7 @@ mod tests {
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
-        let record_count = u32::try_from(records.len())
-            .and_then(NonZeroU32::try_from)
-            .unwrap();
+        let query_size = QuerySize::try_from(records.len()).unwrap();
 
         let records = records
             .share()
@@ -296,7 +292,7 @@ mod tests {
             };
             IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
                 ctx,
-                record_count,
+                query_size,
                 shares.into(),
             )
         }))
@@ -332,9 +328,7 @@ mod tests {
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
-        let record_count = u32::try_from(records.len() - 2)
-            .and_then(NonZeroU32::try_from)
-            .unwrap();
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
 
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
@@ -363,7 +357,7 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, record_count, input)
+            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, query_size, input)
         }))
         .await;
 
