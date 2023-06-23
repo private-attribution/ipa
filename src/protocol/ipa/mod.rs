@@ -6,7 +6,7 @@ use crate::{
         attribution::{input::MCAggregateCreditOutputRow, secure_attribution},
         basics::Reshare,
         boolean::RandomBits,
-        context::{Context, Validator},
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
@@ -30,8 +30,6 @@ use futures_util::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
 use std::{iter::zip, marker::PhantomData, ops::Add};
 use typenum::Unsigned;
-
-use super::context::{UpgradableContext, UpgradedContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {

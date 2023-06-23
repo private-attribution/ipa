@@ -19,6 +19,7 @@ use crate::{
         basics::SecureMul,
         boolean::{bitwise_equal::bitwise_equal_gf2, or::or, RandomBits},
         context::{Context, UpgradableContext, UpgradedContext, Validator},
+        ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs},
         modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         sort::generate_permutation::ShuffledPermutationWrapper,
         step, BasicProtocols, RecordId,
@@ -35,8 +36,6 @@ use crate::{
 };
 use futures::future::try_join;
 use std::iter::{empty, once, zip};
-
-use super::ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs};
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
