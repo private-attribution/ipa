@@ -34,7 +34,7 @@ impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::ShareKnownValue;
     use crate::{

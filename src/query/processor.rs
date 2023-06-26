@@ -8,14 +8,11 @@ use crate::{
     protocol::QueryId,
     query::{
         executor,
-        state::{QueryState, QueryStatus, RunningQueries, StateError},
+        state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
         CompletionHandle, ProtocolResult,
     },
 };
-
 use futures_util::{future::try_join, stream};
-
-use crate::query::state::RemoveQuery;
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
@@ -136,6 +133,7 @@ impl Processor {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
+        let guard = handle.remove_query_on_drop();
 
         let id = transport.identity();
         let [right, left] = id.others();
@@ -159,6 +157,7 @@ impl Processor {
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
+        guard.restore();
         Ok(prepare_request)
     }
 
@@ -265,13 +264,7 @@ impl Processor {
             match queries.remove(&query_id) {
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
-                    CompletionHandle::new(
-                        RemoveQuery {
-                            query_id,
-                            queries: &self.queries,
-                        },
-                        handle,
-                    )
+                    CompletionHandle::new(RemoveQuery::new(query_id, &self.queries), handle)
                 }
                 Some(state) => {
                     let state_error = StateError::InvalidState {
@@ -291,7 +284,7 @@ impl Processor {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
@@ -405,6 +398,30 @@ mod tests {
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = QueryConfig::default();
+
+        assert!(matches!(
+            p0.new_query(t0, request).await.unwrap_err(),
+            NewQueryError::Transport(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn can_recover_from_prepare_error() {
+        let cb2 = TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
+            ..Default::default()
+        };
+        let cb3 = TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async {
+                Err(PrepareQueryError::WrongTarget)
+            }),
+            ..Default::default()
+        };
+        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let [t0, _, _] = network.transports();
+        let p0 = Processor::default();
+        let request = QueryConfig::default();
+        p0.new_query(t0.clone_ref(), request).await.unwrap_err();
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),

@@ -154,7 +154,7 @@ where
     Ok(malicious_ab)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod test {
     use super::sum_of_products;
     use crate::{

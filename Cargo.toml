@@ -14,15 +14,7 @@ no-prss = []
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
-web-app = [
-    "axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-tls",
-    "rcgen", "rustls-pemfile", "sec1", "time", "tokio-rustls", "toml", "tower", "tower-http",
-]
-# The test-http and test-fixture features are mutually incompatible, and the
-# code doesn't support building tests without test-fixture. So if you want to
-# run the tests enabled by test-http, you unfortunately need to do something
-# like `s/cfg(any(test,/cfg(any(never, test/`.
-test-http = []
+web-app = ["axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls", "rcgen", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http"]
 test-fixture = ["enable-serde", "weak-field"]
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
@@ -64,7 +56,7 @@ hex = { version = "0.4", features = ["serde"] }
 hkdf = "0.12.3"
 hpke = { version = "0.10.0", default-features = false, features = ["std", "x25519-dalek"] }
 hyper = { version = "0.14.26", optional = true, features = ["client", "h2", "stream"] }
-hyper-tls = { version = "0.5.0", optional = true }
+hyper-rustls = { version = "0.24.0", optional = true, features = ["http2"] }
 iai = { version = "0.1.1", optional = true }
 metrics = "0.21.0"
 metrics-tracing-context = "0.14.0"
@@ -75,8 +67,6 @@ rand = "0.8"
 rand_core = "0.6"
 rcgen = { version = "0.10", optional = true }
 rustls-pemfile = { version = "1", optional = true }
-# TODO(640): sec1 only needed until we standardize on rustls
-sec1 = { version = "0.7", features = ["alloc", "pem", "pkcs8"], optional = true }
 # TODO consider using zerocopy or serde_bytes or in-house serialization
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
@@ -101,12 +91,16 @@ x25519-dalek = "2.0.0-pre.0"
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5.0"
 
+[build-dependencies]
+cfg_aliases = "0.1.1"
+
 [dev-dependencies]
 command-fds = "0.2.2"
 hex = "0.4"
 permutation = "0.4.1"
 proptest = "1.0.0"
 tempfile = "3"
+tokio-rustls = { version = "0.24.0", features = ["dangerous_configuration"] }
 
 [profile.release]
 incremental = true
@@ -136,6 +130,11 @@ bench = false
 name = "ipa_bench"
 path = "src/bin/ipa_bench/ipa_bench.rs"
 required-features = ["cli", "enable-serde"]
+bench = false
+
+[[bin]]
+name = "report_collector"
+required-features = ["cli", "test-fixture", "web-app"]
 bench = false
 
 [[bin]]

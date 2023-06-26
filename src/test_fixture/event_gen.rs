@@ -211,7 +211,7 @@ impl<R: Rng> Iterator for EventGenerator<R> {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use rand::thread_rng;

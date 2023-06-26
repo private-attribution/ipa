@@ -401,7 +401,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+            #[cfg(all(test, unit_test))]
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};

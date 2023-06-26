@@ -151,7 +151,7 @@ impl<'a, F: ExtendableField> DowngradeMalicious
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::zip;
 
