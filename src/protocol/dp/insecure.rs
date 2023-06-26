@@ -14,11 +14,7 @@ pub enum Error<F: Float> {
 }
 
 /// Applies DP to the inputs in the clear using smooth Laplacian noise. Works with floats only, so
-/// any trimming on values must be done outside. IPA values (breakdown keys fit into `u32`)
-/// are representable by both `f32` and `f64` types, so cast is not lossy.
-/// It also makes it a bit easier to test if values expected to follow normal distribution.
-///
-/// It is not intended to be used inside IPA protocol, only for testing purposes
+/// any trimming on values must be done externally.
 #[derive(Debug)]
 pub struct Dp<F: Float> {
     normal_dist: BoxMuller<F>,
