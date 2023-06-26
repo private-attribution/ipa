@@ -33,7 +33,7 @@ use crate::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::{AdditiveShare as Replicated, AdditiveShare as SemiHonestAdditiveShare},
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
     seq_join::assert_send,
 };
@@ -49,7 +49,7 @@ pub async fn secure_attribution<C, S, SB, F, BK>(
     ctx: C,
     validator: C::Validator<F>,
     binary_validator: C::Validator<Gf2>,
-    sorted_match_keys: Vec<Vec<SB>>,
+    sorted_match_keys: Vec<BitDecomposed<SB>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, S>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
@@ -378,7 +378,7 @@ where
 
 async fn compute_helper_bits_gf2<C, S>(
     ctx: C,
-    sorted_match_keys: &[Vec<S>],
+    sorted_match_keys: &[BitDecomposed<S>],
 ) -> Result<Vec<S>, Error>
 where
     C: Context,

@@ -29,9 +29,10 @@ use crate::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
+use std::iter::once as iter_once;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
@@ -220,15 +221,13 @@ where
         .map(|(i, sum)| {
             let breakdown_key = u128::try_from(i).unwrap();
             let bk_bits = BK::truncate_from(breakdown_key);
-            let converted_bk = (0..BK::BITS)
-                .map(|i| {
-                    if bk_bits[i] {
-                        one.clone()
-                    } else {
-                        zero.clone()
-                    }
-                })
-                .collect::<Vec<_>>();
+            let converted_bk = BitDecomposed::decompose(BK::BITS, |i| {
+                if bk_bits[i] {
+                    one.clone()
+                } else {
+                    zero.clone()
+                }
+            });
 
             MCAggregateCreditOutputRow::new(converted_bk, sum)
         })
@@ -257,15 +256,13 @@ where
         .map(|i| {
             // Since these breakdown keys are publicly known, we can directly convert them to Vec<Replicated<F>>
             let bk_bits = BK::truncate_from(i);
-            let converted_bk = (0..BK::BITS)
-                .map(|i| {
-                    if bk_bits[i] {
-                        one.clone()
-                    } else {
-                        zero.clone()
-                    }
-                })
-                .collect::<Vec<_>>();
+            let converted_bk = BitDecomposed::decompose(BK::BITS, |i| {
+                if bk_bits[i] {
+                    one.clone()
+                } else {
+                    zero.clone()
+                }
+            });
 
             MCCappedCreditsWithAggregationBit::new(
                 zero.clone(),
@@ -366,7 +363,7 @@ where
     // field and wrap it in another vector.
     let aggregation_bits = [input
         .iter()
-        .map(|x| vec![x.aggregation_bit.clone()])
+        .map(|x| BitDecomposed::new(iter_once(x.aggregation_bit.clone())))
         .collect::<Vec<_>>()];
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
@@ -481,7 +478,7 @@ mod tests {
         let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
                     let mut converted_bk_shares = convert_all_bits(

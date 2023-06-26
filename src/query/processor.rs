@@ -504,7 +504,7 @@ mod tests {
             let b = Fp31::truncate_from(5u128);
             let results = app
                 .execute_query(
-                    vec![a, b],
+                    vec![a, b].into_iter(),
                     QueryConfig {
                         field_type: FieldType::Fp31,
                         query_type: QueryType::TestMultiply,
@@ -548,7 +548,7 @@ mod tests {
             );
             let _results = app
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
-                    records,
+                    records.into_iter(),
                     QueryConfig {
                         field_type: FieldType::Fp31,
                         query_type: QueryType::SemiHonestIpa(IpaQueryConfig {

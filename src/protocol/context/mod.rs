@@ -385,7 +385,7 @@ mod tests {
         let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let result = world
-            .semi_honest(input.clone(), |ctx, shares| async move {
+            .semi_honest(input.clone().into_iter(), |ctx, shares| async move {
                 join_all(
                     shares
                         .iter()
@@ -447,7 +447,7 @@ mod tests {
         let field_size = <Fp31 as Serializable>::Size::USIZE;
 
         let _result = world
-            .upgraded_malicious(input.clone(), |ctx, a| async move {
+            .upgraded_malicious(input.clone().into_iter(), |ctx, a| async move {
                 let ctx = ctx.set_total_records(input_len);
                 join_all(
                     a.iter()
@@ -523,7 +523,7 @@ mod tests {
         let world = TestWorld::default();
 
         world
-            .malicious(input, |ctx, shares| async move {
+            .malicious(input.into_iter(), |ctx, shares| async move {
                 // upgrade shares two times using different contexts
                 let v = ctx.validator();
                 let ctx = v.context().narrow("step1");

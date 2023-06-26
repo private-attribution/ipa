@@ -55,7 +55,7 @@ fn semi_honest() {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
                 let result: InputOutput = world
-                    .semi_honest(inputs(), |ctx, input_rows| async move {
+                    .semi_honest(inputs().into_iter(), |ctx, input_rows| async move {
                         ipa(ctx, &input_rows, config()).await.unwrap()
                     })
                     .await
@@ -74,7 +74,7 @@ fn malicious() {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
                 let result: InputOutput = world
-                    .malicious(inputs(), |ctx, input_rows| async move {
+                    .malicious(inputs().into_iter(), |ctx, input_rows| async move {
                         ipa(ctx, &input_rows, config()).await.unwrap()
                     })
                     .await

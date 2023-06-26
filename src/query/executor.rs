@@ -175,10 +175,7 @@ mod tests {
 
     #[test]
     fn serialize_result() {
-        let [input, ..] = (0u128..=3)
-            .map(Fp31::truncate_from)
-            .collect::<Vec<_>>()
-            .share();
+        let [input, ..] = (0u128..=3).map(Fp31::truncate_from).share();
         let expected = input.clone();
         let bytes = Box::new(input).into_bytes();
         assert_eq!(
