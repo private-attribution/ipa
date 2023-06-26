@@ -7,9 +7,8 @@ use ipa::{
         Verbosity,
     },
     ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
-    helpers::query::{QueryConfig, QueryType},
+    helpers::query::{QueryConfig, QueryType::TestMultiply},
     net::MpcHelperClient,
-    protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
 use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
@@ -99,17 +98,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn multiply_in_field<F: Field>(
-    args: &Args,
-    helper_clients: &[MpcHelperClient; 3],
-    query_id: QueryId,
-) where
+async fn multiply_in_field<F: Field>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+where
     F: Field + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     let input = InputSource::from(&args.input);
-    let input_rows: Vec<_> = input.iter::<(F, F)>().collect();
+    let input_rows = input.iter::<(F, F)>().collect::<Vec<_>>();
+    let query_config = QueryConfig::new(TestMultiply, args.input.field, input_rows.len()).unwrap();
+
+    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
     let actual = secure_mul(input_rows, &helper_clients, query_id).await;
 
@@ -117,16 +116,8 @@ async fn multiply_in_field<F: Field>(
 }
 
 async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
-    let query_config = QueryConfig {
-        field_type: args.input.field,
-        query_type: QueryType::TestMultiply,
-    };
-
-    let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     match args.input.field {
-        FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients, query_id).await,
-        FieldType::Fp32BitPrime => {
-            multiply_in_field::<Fp32BitPrime>(args, helper_clients, query_id).await
-        }
+        FieldType::Fp31 => multiply_in_field::<Fp31>(&args, helper_clients).await,
+        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(&args, helper_clients).await,
     };
 }

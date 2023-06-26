@@ -372,7 +372,8 @@ mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
+            query::QueryType::TestMultiply, transport::in_memory::InMemoryNetwork, HelperIdentity,
+            OrderingSender,
         },
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
@@ -414,10 +415,7 @@ mod tests {
                 }),
                 ..Default::default()
             });
-        let expected = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
-        };
+        let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(
             &tx,

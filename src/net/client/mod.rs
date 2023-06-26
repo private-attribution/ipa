@@ -347,8 +347,8 @@ pub(crate) mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, BytesStream, RoleAssignment, Transport, TransportCallbacks,
-            MESSAGE_PAYLOAD_SIZE_BYTES,
+            query::QueryType::TestMultiply, BytesStream, RoleAssignment, Transport,
+            TransportCallbacks, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{test::TestServer, HttpTransport},
         protocol::step::StepNarrow,
@@ -473,10 +473,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn create() {
         let expected_query_id = QueryId;
-        let expected_query_config = QueryConfig {
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        };
+        let expected_query_config = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
+
         let cb = TransportCallbacks {
             receive_query: Box::new(move |_transport, query_config| {
                 assert_eq!(query_config, expected_query_config);
@@ -496,10 +494,7 @@ pub(crate) mod tests {
     async fn prepare() {
         let input = PrepareQuery {
             query_id: QueryId,
-            config: QueryConfig {
-                field_type: FieldType::Fp31,
-                query_type: QueryType::TestMultiply,
-            },
+            config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         };
         let expected_data = input.clone();
