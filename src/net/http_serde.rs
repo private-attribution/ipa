@@ -80,7 +80,7 @@ pub mod echo {
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
+        helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
         net::Error,
     };
     use async_trait::async_trait;
@@ -109,10 +109,12 @@ pub mod query {
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             #[derive(serde::Deserialize)]
             struct QueryTypeParam {
+                size: QuerySize,
                 field_type: FieldType,
                 query_type: String,
             }
             let Query(QueryTypeParam {
+                size,
                 field_type,
                 query_type,
             }) = req.extract().await?;
@@ -127,12 +129,15 @@ pub mod query {
                         max_breakdown_key: u32,
                         attribution_window_seconds: Option<NonZeroU32>,
                         num_multi_bits: u32,
+                        #[serde(default)]
+                        plaintext_match_keys: bool,
                     }
                     let Query(IPAQueryConfigParam {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
                         num_multi_bits,
+                        plaintext_match_keys,
                     }) = req.extract().await?;
 
                     match query_type.as_str() {
@@ -142,6 +147,7 @@ pub mod query {
                                 max_breakdown_key,
                                 attribution_window_seconds,
                                 num_multi_bits,
+                                plaintext_match_keys,
                             }))
                         }
                         QueryType::MALICIOUS_IPA_STR => {
@@ -150,6 +156,7 @@ pub mod query {
                                 max_breakdown_key,
                                 attribution_window_seconds,
                                 num_multi_bits,
+                                plaintext_match_keys,
                             }))
                         }
                         &_ => unreachable!(),
@@ -159,6 +166,7 @@ pub mod query {
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
+                size,
                 field_type,
                 query_type,
             }))
@@ -167,19 +175,26 @@ pub mod query {
 
     impl Display for QueryConfigQueryParams {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(f, "field_type={:?}&", self.field_type)?;
+            write!(
+                f,
+                "query_type={qt}&field_type={f:?}&size={size}",
+                qt = self.query_type.as_ref(),
+                f = self.field_type,
+                size = self.size
+            )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-                QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                qt @ (QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config)) => {
+                QueryType::TestMultiply => Ok(()),
+                QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
                     write!(
                         f,
-                        "query_type={qt}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        config.per_user_credit_cap,
-                        config.max_breakdown_key,
-                        config.num_multi_bits,
-                        qt=qt.as_ref(),
+                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,
                     )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
+                    }
 
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;
@@ -332,19 +347,15 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            helpers::{query::QueryInput, ByteArrStream},
+            helpers::query::QueryInput,
             net::{http_serde::query::BASE_AXUM_PATH, Error},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
-        use hyper::{
-            body::{Bytes, HttpBody},
-            header::CONTENT_TYPE,
-            Body,
-        };
+        use hyper::{header::CONTENT_TYPE, Body};
 
         #[derive(Debug)]
         pub struct Request {
@@ -378,28 +389,13 @@ pub mod query {
             }
         }
 
-        struct ByteArrStreamFromReq(ByteArrStream);
-
-        #[async_trait]
-        impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
-            for ByteArrStreamFromReq
-        {
-            type Rejection = Error;
-
-            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let body: BodyStream = req.extract().await?;
-
-                Ok(ByteArrStreamFromReq(body.into()))
-            }
-        }
-
         #[async_trait]
         impl FromRequest<Body> for Request {
             type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
-                let ByteArrStreamFromReq(input_stream) = req.extract().await?;
+                let input_stream = req.extract().await?;
 
                 Ok(Request {
                     query_input: QueryInput {
@@ -415,12 +411,13 @@ pub mod query {
 
     pub mod step {
         use crate::{
+            helpers::BodyStream,
             net::{http_serde::query::BASE_AXUM_PATH, Error},
             protocol::{step::Gate, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
 
@@ -480,7 +477,7 @@ pub mod query {
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
                 let Path((query_id, gate)) = req.extract::<Path<_>>().await?;
-                let body = req.extract::<BodyStream>().await?;
+                let body = req.extract().await?;
                 Ok(Self {
                     query_id,
                     gate,

@@ -1,10 +1,7 @@
 use crate::{
     app::Error,
     ff::Serializable,
-    helpers::{
-        query::{QueryConfig, QueryInput},
-        ByteArrStream,
-    },
+    helpers::query::{QueryConfig, QueryInput},
     secret_sharing::IntoShares,
     AppSetup, HelperApp,
 };
@@ -103,7 +100,7 @@ impl TestApp {
         let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
             self.drivers[i].execute_query(QueryInput {
                 query_id,
-                input_stream: ByteArrStream::from(input),
+                input_stream: input.into(),
             })
         }))
         .await?;

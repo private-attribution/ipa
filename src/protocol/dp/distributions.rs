@@ -38,7 +38,7 @@ pub trait Float:
     fn ceil(self) -> Self;
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 pub fn close<F: Float>(a: F, b: F, precision: u8) -> bool {
     (a - b).abs()
         < (F::from(2.0).powf((a.abs() + F::ONE).log2().ceil())
@@ -127,7 +127,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use rand::{distributions::Distribution, thread_rng};
@@ -135,8 +135,9 @@ mod tests {
 
     fn compute_mean_and_std<F: Float + Sum, A: AsRef<[F]>>(samples: A) -> (F, F) {
         let samples = samples.as_ref();
-        assert!(!samples.is_empty() && samples.len() < usize::try_from(1 << 22).unwrap());
-        #[allow(clippy::cast_precision_loss)] // we checked that len can be represented by an f32 above
+        assert!(!samples.is_empty() && samples.len() < usize::try_from(1 << 24).unwrap());
+        #[allow(clippy::cast_precision_loss)]
+        // we checked that len can be represented by an f32 above
         let l = F::from(samples.len() as f32);
         let mean = samples.iter().copied().sum::<F>() / l;
         let std = (samples

@@ -132,7 +132,7 @@ impl BufRead for InputSource {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         cli::playbook::input::InputItem,
@@ -143,8 +143,11 @@ mod tests {
 
     #[test]
     fn from_str() {
-        assert_eq!(Fp31::from(1_u128), Fp31::from_str("1"));
-        assert_eq!(Fp32BitPrime::from(0_u128), Fp32BitPrime::from_str("0"));
+        assert_eq!(Fp31::try_from(1_u128).unwrap(), Fp31::from_str("1"));
+        assert_eq!(
+            Fp32BitPrime::try_from(0_u128).unwrap(),
+            Fp32BitPrime::from_str("0")
+        );
         assert_eq!(6_u64, u64::from_str("6"));
     }
 
@@ -166,7 +169,10 @@ mod tests {
         let tp = <(Fp31, Fp31)>::from_str(input);
         let shares = tp.share();
         assert_eq!(
-            (Fp31::from(20_u128), Fp31::from(27_u128)),
+            (
+                Fp31::try_from(20_u128).unwrap(),
+                Fp31::try_from(27_u128).unwrap()
+            ),
             shares.reconstruct()
         );
     }

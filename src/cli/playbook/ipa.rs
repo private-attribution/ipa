@@ -1,65 +1,94 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
-
 use crate::{
-    ff::{Field, GaloisField, Serializable},
-    helpers::{query::QueryInput, ByteArrStream},
+    ff::{Field, PrimeField, Serializable},
+    helpers::{query::QueryInput, BodyStream},
+    hpke::PublicKeyRegistry,
     ipa_test_input,
     net::MpcHelperClient,
-    protocol::{attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
+    protocol::{
+        attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey, MatchKey,
+        QueryId,
+    },
+    report::{KeyIdentifier, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
 };
 use futures_util::future::try_join_all;
 use generic_array::GenericArray;
-use rand::{distributions::Standard, prelude::Distribution};
-use std::iter::zip;
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand_core::SeedableRng;
+use std::{iter::zip, time::Instant};
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
 /// Returns aggregated values per breakdown key represented as index in the returned vector
 #[allow(clippy::missing_panics_doc)]
-pub async fn playbook_ipa<F, MK, BK>(
+pub async fn playbook_ipa<F, MK, BK, KR>(
     records: &[TestRawDataRecord],
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
+    encryption: Option<(KeyIdentifier, [&KR; 3])>,
 ) -> Vec<u32>
 where
-    F: Field + IntoShares<AdditiveShare<F>>,
-    MK: GaloisField + IntoShares<AdditiveShare<MK>>,
-    BK: GaloisField + IntoShares<AdditiveShare<BK>>,
+    F: PrimeField + IntoShares<AdditiveShare<F>>,
     Standard: Distribution<F>,
-    IPAInputRow<F, MK, BK>: Serializable,
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+    TestRawDataRecord: IntoShares<Report<F, MatchKey, BreakdownKey>>,
     AdditiveShare<F>: Serializable,
+    KR: PublicKeyRegistry,
 {
-    // prepare inputs
-    let inputs = records
-        .iter()
-        .map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MK, BK)
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+    let query_size = records.len();
 
-    let sz = <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE;
-    let mut buffers: [_; 3] = std::array::from_fn(|_| vec![0u8; inputs.len() * sz]);
-
-    let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
-    zip(&mut buffers, shares).for_each(|(buf, shares)| {
-        for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
-            share.serialize(GenericArray::from_mut_slice(chunk));
+    if let Some((key_id, key_registries)) = encryption {
+        const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
+        for buffer in &mut buffers {
+            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
         }
-    });
 
-    let inputs = buffers.map(ByteArrStream::from);
+        let mut rng = StdRng::from_entropy();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.to_owned().share();
+        zip(&mut buffers, shares)
+            .zip(key_registries)
+            .for_each(|((buf, shares), key_registry)| {
+                for share in shares {
+                    share
+                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                        .unwrap();
+                }
+            });
+    } else {
+        let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
+        for buffer in &mut buffers {
+            buffer.resize(query_size * sz, 0u8);
+        }
 
+        let inputs = records
+            .iter()
+            .map(|x| {
+                ipa_test_input!(
+                    {
+                        timestamp: x.timestamp,
+                        match_key: x.user_id,
+                        is_trigger_report: x.is_trigger_report,
+                        breakdown_key: x.breakdown_key,
+                        trigger_value: x.trigger_value,
+                    };
+                    (F, MatchKey, BreakdownKey)
+                )
+            })
+            .collect::<Vec<_>>();
+        let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
+        zip(&mut buffers, shares).for_each(|(buf, shares)| {
+            for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
+                share.serialize(GenericArray::from_mut_slice(chunk));
+            }
+        });
+    }
+
+    let inputs = buffers.map(BodyStream::from);
+    tracing::info!("Starting query after finishing encryption");
+    let mpc_time = Instant::now();
     try_join_all(
         inputs
             .into_iter()
@@ -81,13 +110,16 @@ where
         .try_into()
         .unwrap();
 
-    let results: Vec<GenericReportTestInput<F, MK, BK>> = results
+    let results: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = results
         .map(|bytes| {
-            MCAggregateCreditOutputRow::<F, AdditiveShare<F>, BK>::from_byte_slice(&bytes)
+            MCAggregateCreditOutputRow::<F, AdditiveShare<F>, BreakdownKey>::from_byte_slice(&bytes)
                 .collect::<Vec<_>>()
         })
         .reconstruct();
-
+    tracing::info!(
+        "Running IPA for {query_size:?} records took {t:?}",
+        t = mpc_time.elapsed()
+    );
     let mut breakdowns = Vec::new();
     for row in results {
         let breakdown_key = usize::try_from(row.breakdown_key.as_u128()).unwrap();

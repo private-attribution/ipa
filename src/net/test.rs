@@ -15,24 +15,19 @@ use crate::{
         TlsConfig,
     },
     helpers::{HelperIdentity, TransportCallbacks},
+    hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
-use axum::{
-    body::{Body, Bytes},
-    extract::{BodyStream, FromRequest, RequestParts},
-    http::Request,
-};
-use futures::Stream;
-use hyper_tls::native_tls::Identity;
 use once_cell::sync::Lazy;
 use std::{
     array,
-    error::Error as StdError,
     net::{SocketAddr, TcpListener},
 };
+
 use tokio::task::JoinHandle;
+
 use tokio_rustls::rustls::Certificate;
 
 pub const DEFAULT_TEST_PORTS: [u16; 3] = [3000, 3001, 3002];
@@ -176,7 +171,12 @@ impl TestConfigBuilder {
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
-                    Some(HpkeClientConfig::new(TEST_HPKE_PUBLIC_KEY.to_owned()))
+                    Some(HpkeClientConfig::new(
+                        IpaPublicKey::from_bytes(
+                            &hex::decode(TEST_HPKE_PUBLIC_KEY.trim()).unwrap(),
+                        )
+                        .unwrap(),
+                    ))
                 },
             })
             .collect::<Vec<_>>()
@@ -205,19 +205,6 @@ impl TestConfigBuilder {
 }
 
 type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
-
-pub async fn body_stream(
-    stream: Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>,
-) -> BodyStream {
-    BodyStream::from_request(&mut RequestParts::new(
-        Request::builder()
-            .uri("/ignored")
-            .body(Body::from(stream))
-            .unwrap(),
-    ))
-    .await
-    .unwrap()
-}
 
 pub struct TestServer {
     pub addr: SocketAddr,
@@ -259,7 +246,7 @@ impl TestServerBuilder {
         self
     }
 
-    #[cfg(all(test, feature = "in-memory-infra"))] // only used in unit tests
+    #[cfg(all(test, unit_test))]
     #[must_use]
     pub fn with_metrics(mut self, metrics: MetricsHandle) -> Self {
         self.metrics = Some(metrics);
@@ -280,7 +267,7 @@ impl TestServerBuilder {
         self
     }
 
-    #[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+    #[cfg(all(test, web_test))]
     pub fn use_http1(mut self) -> Self {
         self.use_http1 = true;
         self
@@ -331,18 +318,13 @@ impl TestServerBuilder {
 }
 
 fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static [u8]) {
-    // TODO(640): to be removed when we standardize on rustls
-    #[cfg(not(target_os = "macos"))]
-    let key = TEST_KEYS[id];
-    #[cfg(target_os = "macos")]
-    let key = TEST_KEYS_MUNGED[id];
-    (TEST_CERTS[id], key)
+    (TEST_CERTS[id], TEST_KEYS[id])
 }
 
 #[must_use]
 pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
     let (certificate, private_key) = get_test_certificate_and_key(id);
-    ClientIdentity::Certificate(Identity::from_pkcs8(certificate, private_key).unwrap())
+    ClientIdentity::from_pks8(certificate, private_key).unwrap()
 }
 
 pub const TEST_CERTS: [&[u8]; 3] = [
@@ -418,33 +400,8 @@ yV8EGPwurXSVtO3V2WHGFicoOuS5mEWAQJdgBHxlR+nn/EFOMN2JI7HV
 ",
 ];
 
-// These keys are re-coded by the munge_private_key function in `src/bin/helper.rs`.
-// TODO(640): to be removed when we standardize on rustls
-#[cfg(target_os = "macos")]
-pub const TEST_KEYS_MUNGED: [&[u8]; 3] = [
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIEoI/mJ3hAM68vk3OnT3mD9nIWORrWlwJdL6ea8cfHHKoAoGCCqGSM49
-AwEHoUQDQgAEm1kSoFLr+NqpxsD9um7SHeMkOwN9nucVc+2kp38rBJdQXMn7Y24r
-SmGfle0cqFZGMr9yX7yiaPlI9he3bHGxUQ==
------END PRIVATE KEY-----
-",
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIAdZyYoFLL6nzr/Wa0zXM1Aej3sVa31KppqiwtrhOSmcoAoGCCqGSM49
-AwEHoUQDQgAE4+qYlzJ97HnR0l75c1SbfcEh264VxSm0jFaX2I77sT7snsB1UXa4
-z+DPctpTEsaCao8xf2vhrp/Zg+drYa2k6w==
------END PRIVATE KEY-----
-",
-    b"\
------BEGIN PRIVATE KEY-----
-MHcCAQEEIJ+Oqm7HE1cHQ7ObDiMiWwfwa7ERUjAby7FJId9HS3RcoAoGCCqGSM49
-AwEHoUQDQgAEwTmF1UEnifmQ242uQWzZgoZD0SHD+clfBBj8Lq10lbTt1dlhxhYn
-KDrkuZhFgECXYAR8ZUfp5/xBTjDdiSOx1Q==
------END PRIVATE KEY-----
-",
-];
-
+// Yes, these strings have trailing newlines. Things that consume them
+// should strip whitespace.
 const TEST_HPKE_PUBLIC_KEY: &str = "\
 0ef21c2f73e6fac215ea8ec24d39d4b77836d09b1cf9aeb2257ddd181d7e663d
 ";

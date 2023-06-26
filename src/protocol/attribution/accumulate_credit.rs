@@ -84,6 +84,7 @@ where
 /// # Errors
 ///
 /// Fails if the multiplication fails.
+#[tracing::instrument(name = "accumulate_credit", skip_all)]
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
@@ -157,7 +158,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::{iter, num::NonZeroU32};
 

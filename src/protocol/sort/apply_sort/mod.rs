@@ -17,6 +17,7 @@ use crate::{
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
+#[tracing::instrument(name = "apply_sort", skip_all, fields(gate = %ctx.gate()))]
 pub async fn apply_sort_permutation<C, I>(
     ctx: C,
     input: Vec<I>,
@@ -40,7 +41,7 @@ where
     Ok(shuffled_objects)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         accumulation_test_input,

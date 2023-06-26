@@ -25,7 +25,6 @@ pub struct Dp<F: Float> {
 }
 
 impl<F: Float> Dp<F> {
-
     /// ## Errors
     /// If epsilon or delta is negative or delta exceeds the maximum value allowed.
     pub fn new(epsilon: F, delta: F, cap: F) -> Result<Self, Error<F>> {
@@ -66,7 +65,7 @@ impl<F: Float> Dp<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
     use super::*;
     use crate::protocol::dp::distributions::close;

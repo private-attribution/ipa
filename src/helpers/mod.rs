@@ -17,10 +17,12 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
+#[cfg(feature = "web-app")]
+pub use transport::WrappedAxumBodyStream;
 pub use transport::{
-    callbacks::*, AlignedByteArrStream, ByteArrStream, LogErrors, NoResourceIdentifier,
-    QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey,
-    Transport,
+    callbacks::*, BodyStream, BytesStream, LengthDelimitedStream, LogErrors, NoResourceIdentifier,
+    QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams, StepBinding,
+    StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
 };
 
 #[cfg(feature = "in-memory-infra")]
@@ -498,7 +500,7 @@ impl From<usize> for TotalRecords {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
 

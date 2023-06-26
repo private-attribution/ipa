@@ -88,6 +88,7 @@ impl Args {
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
+            plaintext_match_keys: true,
         }
     }
 }
@@ -95,14 +96,14 @@ impl Args {
 async fn run(args: Args) -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
 
-    let prep_time = Instant::now();
+    let _prep_time = Instant::now();
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(args.active()),
         ..TestWorldConfig::default()
     };
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
-    println!(
+    tracing::trace!(
         "Using random seed: {seed} for {q} records",
         q = args.query_size
     );
@@ -123,9 +124,9 @@ async fn run(args: Args) -> Result<(), Error> {
         ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
-    println!("Preparation complete in {:?}", prep_time.elapsed());
+    tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
-    let protocol_time = Instant::now();
+    let _protocol_time = Instant::now();
     test_ipa::<BenchField>(
         &world,
         &raw_data,
@@ -134,11 +135,11 @@ async fn run(args: Args) -> Result<(), Error> {
         args.mode,
     )
     .await;
-    println!(
+    tracing::trace!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,
         q = args.query_size,
-        t = protocol_time.elapsed()
+        t = _protocol_time.elapsed()
     );
     Ok(())
 }

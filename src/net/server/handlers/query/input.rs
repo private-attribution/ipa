@@ -23,11 +23,11 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
-        helpers::{query::QueryInput, TransportCallbacks},
+        helpers::{query::QueryInput, BytesStream, TransportCallbacks},
         net::{
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::TestServer,

@@ -25,13 +25,13 @@ use std::{collections::HashSet, fmt::Formatter};
 /// a given step.
 #[cfg(debug_assertions)]
 struct UsedSet {
-    key: String,
+    key: Gate,
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
 #[cfg(debug_assertions)]
 impl UsedSet {
-    fn new(key: String) -> Self {
+    fn new(key: Gate) -> Self {
         Self {
             key,
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -158,7 +158,7 @@ impl Endpoint {
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
     pub fn indexed(&self, key: &Gate) -> Arc<IndexedSharedRandomness> {
-        self.inner.lock().unwrap().indexed(key.as_ref())
+        self.inner.lock().unwrap().indexed(key)
     }
 
     /// Get a sequential shared randomness.
@@ -169,7 +169,7 @@ impl Endpoint {
         &self,
         key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.inner.lock().unwrap().sequential(key.as_ref())
+        self.inner.lock().unwrap().sequential(key)
     }
 }
 
@@ -187,23 +187,23 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    items: HashMap<String, EndpointItem>,
+    items: HashMap<Gate, EndpointItem>,
 }
 
 impl EndpointInner {
-    pub fn indexed(&mut self, key: &str) -> Arc<IndexedSharedRandomness> {
+    pub fn indexed(&mut self, key: &Gate) -> Arc<IndexedSharedRandomness> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
         let item = if let Some(item) = self.items.get(key) {
             item
         } else {
-            self.items.entry(key.to_owned()).or_insert_with_key(|k| {
+            self.items.entry(key.clone()).or_insert_with_key(|k| {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
-                    left: self.left.generator(k.as_bytes()),
-                    right: self.right.generator(k.as_bytes()),
+                    left: self.left.generator(k.as_ref().as_bytes()),
+                    right: self.right.generator(k.as_ref().as_bytes()),
                     #[cfg(debug_assertions)]
-                    used: UsedSet::new(key.to_owned()),
+                    used: UsedSet::new(key.clone()),
                 }))
             })
         };
@@ -216,16 +216,16 @@ impl EndpointInner {
 
     pub fn sequential(
         &mut self,
-        key: &str,
+        key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let prev = self.items.insert(key.to_owned(), EndpointItem::Sequential);
+        let prev = self.items.insert(key.clone(), EndpointItem::Sequential);
         assert!(
             prev.is_none(),
             "Attempt access a sequential PRSS for {key} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.as_ref().as_bytes())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_ref().as_bytes())),
         )
     }
 }
@@ -261,7 +261,7 @@ impl EndpointSetup {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{

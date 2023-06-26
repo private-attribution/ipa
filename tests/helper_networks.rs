@@ -19,6 +19,7 @@ pub mod tempdir;
 
 const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");
 const TEST_MPC_BIN: &str = env!("CARGO_BIN_EXE_test_mpc");
+const TEST_RC_BIN: &str = env!("CARGO_BIN_EXE_report_collector");
 
 trait UnwrapStatusExt {
     fn unwrap_status(self);
@@ -141,7 +142,7 @@ fn spawn_helpers(
                     ])
                     .args([
                         "--mk-private-key".into(),
-                        config_path.join(format!("h{id}_mk")),
+                        config_path.join(format!("h{id}_mk.key")),
                     ]);
             } else {
                 command.arg("--disable-https");
@@ -205,7 +206,7 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
 
     // Gen inputs
     let inputs_file = dir.path().join("ipa_inputs.txt");
-    let mut command = Command::new(TEST_MPC_BIN);
+    let mut command = Command::new(TEST_RC_BIN);
     command
         .arg("gen-ipa-inputs")
         .args(["--count", "10"])
@@ -216,7 +217,7 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
     command.status().unwrap_status();
 
     // Run IPA
-    let mut command = Command::new(TEST_MPC_BIN);
+    let mut command = Command::new(TEST_RC_BIN);
     command
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--input-file".as_ref(), inputs_file.as_os_str()])
@@ -235,6 +236,11 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
         .arg(protocol)
         .args(["--max-breakdown-key", "20"])
         .stdin(Stdio::piped());
+    if !https {
+        // No reason that match key encryption needs to be coupled with helper-to-helper TLS, but
+        // currently it is.
+        command.arg("--plaintext-match-keys");
+    }
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();

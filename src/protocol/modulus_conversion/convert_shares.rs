@@ -139,6 +139,7 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = %num_bits, parallel = %num_multi_bits, gate = %ctx.gate()))]
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
@@ -205,7 +206,7 @@ where
     .await
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         error::Error,

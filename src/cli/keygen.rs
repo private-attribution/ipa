@@ -1,4 +1,4 @@
-use crate::hpke::KeyPair;
+use crate::{error::BoxError, hpke::KeyPair};
 use clap::Args;
 use rand::{thread_rng, Rng};
 use rand_core::CryptoRng;
@@ -7,7 +7,6 @@ use rcgen::{
     KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
 };
 use std::{
-    error::Error,
     fs::File,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -58,10 +57,7 @@ fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
 ///
 /// # Panics
 /// If something that shouldn't happen goes wrong during key generation.
-pub fn keygen_tls<R: Rng + CryptoRng>(
-    args: &KeygenArgs,
-    rng: &mut R,
-) -> Result<(), Box<dyn Error>> {
+pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<(), BoxError> {
     let mut params = CertificateParams::default();
     params.alg = &PKCS_ECDSA_P256_SHA256;
 
@@ -96,10 +92,7 @@ pub fn keygen_tls<R: Rng + CryptoRng>(
 }
 
 /// Generates public and private key used for encrypting and decrypting match keys.
-fn keygen_matchkey<R: Rng + CryptoRng>(
-    args: &KeygenArgs,
-    mut rng: &mut R,
-) -> Result<(), Box<dyn Error>> {
+fn keygen_matchkey<R: Rng + CryptoRng>(args: &KeygenArgs, mut rng: &mut R) -> Result<(), BoxError> {
     let keypair = KeyPair::gen(&mut rng);
 
     create_new(&args.mk_public_key)?.write_all(hex::encode(keypair.pk_bytes()).as_bytes())?;
@@ -115,7 +108,7 @@ fn keygen_matchkey<R: Rng + CryptoRng>(
 ///
 /// # Panics
 /// If something that shouldn't happen goes wrong during key generation.
-pub fn keygen(args: &KeygenArgs) -> Result<(), Box<dyn Error>> {
+pub fn keygen(args: &KeygenArgs) -> Result<(), BoxError> {
     let mut rng = thread_rng();
     keygen_tls(args, &mut rng)?;
     keygen_matchkey(args, &mut rng)?;
