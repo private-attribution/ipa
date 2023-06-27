@@ -9,6 +9,7 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey, MatchKey,
         QueryId,
     },
+    query::QueryStatus,
     report::{KeyIdentifier, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
@@ -17,7 +18,12 @@ use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::SeedableRng;
-use std::{iter::zip, time::Instant};
+use std::{
+    cmp::min,
+    iter::zip,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
@@ -102,6 +108,23 @@ where
     )
     .await
     .unwrap();
+
+    let mut delay = Duration::from_millis(125);
+    loop {
+        if try_join_all(clients.iter().map(|client| client.query_status(query_id)))
+            .await
+            .unwrap()
+            .into_iter()
+            .all(|status| status == QueryStatus::Completed)
+        {
+            break;
+        }
+
+        sleep(delay).await;
+        delay = min(Duration::from_secs(60), delay * 2);
+        // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
+        // the status API so we can check whether the query is making progress.
+    }
 
     // wait until helpers have processed the query and get the results from them
     let results: [_; 3] = try_join_all(clients.iter().map(|client| client.query_results(query_id)))

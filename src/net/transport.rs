@@ -4,8 +4,9 @@ use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         BodyStream, CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier,
-        PrepareQueryResult, QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords,
-        RouteId, RouteParams, StepBinding, StreamCollection, Transport, TransportCallbacks,
+        PrepareQueryResult, QueryIdBinding, QueryInputResult, QueryStatusResult,
+        ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection,
+        Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{step::Gate, QueryId},
@@ -70,6 +71,10 @@ impl HttpTransport {
 
     pub fn query_input(self: Arc<Self>, req: QueryInput) -> QueryInputResult {
         (Arc::clone(&self).callbacks.query_input)(self, req)
+    }
+
+    pub fn query_status(self: Arc<Self>, query_id: QueryId) -> QueryStatusResult {
+        (Arc::clone(&self).callbacks.query_status)(self, query_id)
     }
 
     pub fn complete_query(self: Arc<Self>, query_id: QueryId) -> CompleteQueryResult {

@@ -12,13 +12,12 @@ use crate::{
         CompletionHandle, ProtocolResult,
     },
 };
-use futures_util::{future::try_join, stream};
+use futures::{future::try_join, stream};
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
     sync::Arc,
 };
-use tokio::sync::oneshot;
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
 /// network. It makes sure queries are coordinated and each party starts processing it when
@@ -57,8 +56,6 @@ pub enum NewQueryError {
     State(#[from] StateError),
     #[error(transparent)]
     Transport(#[from] TransportError),
-    #[error(transparent)]
-    OneshotRecv(#[from] oneshot::error::RecvError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -83,6 +80,12 @@ pub enum QueryInputError {
         #[from]
         source: StateError,
     },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryStatusError {
+    #[error("The query with id {0:?} does not exist")]
+    NoSuchQuery(QueryId),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -243,8 +246,28 @@ impl Processor {
         }
     }
 
-    pub fn status(&self, query_id: QueryId) -> Option<QueryStatus> {
-        self.queries.handle(query_id).status()
+    /// Returns the query status.
+    ///
+    /// ## Errors
+    /// If query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If the query collection mutex is poisoned.
+    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, QueryStatusError> {
+        let mut queries = self.queries.inner.lock().unwrap();
+        let Some(mut state) = queries.remove(&query_id) else {
+            return Err(QueryStatusError::NoSuchQuery(query_id));
+        };
+
+        if let QueryState::Running(ref mut running) = state {
+            if let Some(result) = running.try_complete() {
+                state = QueryState::Completed(result);
+            }
+        }
+
+        let status = QueryStatus::from(&state);
+        queries.insert(query_id, state);
+        Ok(status)
     }
 
     /// Awaits the query completion
@@ -262,6 +285,7 @@ impl Processor {
             let mut queries = self.queries.inner.lock().unwrap();
 
             match queries.remove(&query_id) {
+                Some(QueryState::Completed(result)) => return result.map_err(Into::into),
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
                     CompletionHandle::new(RemoveQuery::new(query_id, &self.queries), handle)
@@ -347,7 +371,7 @@ mod tests {
         // poll future once to trigger query status change
         let _qc = poll_immediate(&mut qc_future).await;
 
-        assert_eq!(Some(QueryStatus::Preparing), p0.status(QueryId));
+        assert_eq!(QueryStatus::Preparing, p0.query_status(QueryId).unwrap());
         // unblock sends
         barrier.wait().await;
 
@@ -362,7 +386,10 @@ mod tests {
             },
             qc
         );
-        assert_eq!(Some(QueryStatus::AwaitingInputs), p0.status(QueryId));
+        assert_eq!(
+            QueryStatus::AwaitingInputs,
+            p0.query_status(QueryId).unwrap()
+        );
     }
 
     #[tokio::test]
@@ -452,9 +479,15 @@ mod tests {
             let transport = network.transport(identities[1]);
             let processor = Processor::default();
 
-            assert_eq!(None, processor.status(QueryId));
+            assert!(matches!(
+                processor.query_status(QueryId).unwrap_err(),
+                QueryStatusError::NoSuchQuery(_)
+            ));
             processor.prepare(&transport, req).unwrap();
-            assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
+            assert_eq!(
+                QueryStatus::AwaitingInputs,
+                processor.query_status(QueryId).unwrap()
+            );
         }
 
         #[tokio::test]
@@ -497,6 +530,8 @@ mod tests {
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
+        use std::time::Duration;
+        use tokio::time::sleep;
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {
@@ -508,6 +543,31 @@ mod tests {
                 .await?;
 
             let results = results.map(|bytes| {
+                semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+            });
+
+            Ok(assert_eq!(
+                vec![Fp31::truncate_from(20u128)],
+                results.reconstruct()
+            ))
+        }
+
+        #[tokio::test]
+        async fn complete_query_status_poll() -> Result<(), BoxError> {
+            let app = TestApp::default();
+            let a = Fp31::truncate_from(4u128);
+            let b = Fp31::truncate_from(5u128);
+            let query_id = app.start_query(vec![a, b], test_multiply_config()).await?;
+
+            while !app
+                .query_status(query_id)?
+                .into_iter()
+                .all(|s| s == QueryStatus::Completed)
+            {
+                sleep(Duration::from_millis(1)).await;
+            }
+
+            let results = app.complete_query(query_id).await?.map(|bytes| {
                 semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
             });
 

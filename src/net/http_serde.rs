@@ -489,6 +489,60 @@ pub mod query {
         pub const AXUM_PATH: &str = "/:query_id/step/*step";
     }
 
+    pub mod status {
+        use crate::{net::Error, protocol::QueryId, query::QueryStatus};
+        use async_trait::async_trait;
+        use axum::extract::{FromRequest, Path, RequestParts};
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Debug, Clone)]
+        pub struct Request {
+            pub query_id: QueryId,
+        }
+
+        impl Request {
+            #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))] // needed because client is blocking; remove when non-blocking
+            pub fn new(query_id: QueryId) -> Self {
+                Self { query_id }
+            }
+
+            #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))] // needed because client is blocking; remove when non-blocking
+            pub fn try_into_http_request(
+                self,
+                scheme: axum::http::uri::Scheme,
+                authority: axum::http::uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, Error> {
+                let uri = axum::http::uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}",
+                        crate::net::http_serde::query::BASE_AXUM_PATH,
+                        self.query_id.as_ref()
+                    ))
+                    .build()?;
+                Ok(hyper::Request::get(uri).body(hyper::Body::empty())?)
+            }
+        }
+
+        #[async_trait]
+        impl<B: Send> FromRequest<B> for Request {
+            type Rejection = Error;
+
+            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+                let Path(query_id) = req.extract().await?;
+                Ok(Request { query_id })
+            }
+        }
+
+        #[derive(Clone, Debug, Serialize, Deserialize)]
+        pub struct ResponseBody {
+            pub status: QueryStatus,
+        }
+
+        pub const AXUM_PATH: &str = "/:query_id";
+    }
+
     pub mod results {
         use crate::{net::Error, protocol::QueryId};
         use async_trait::async_trait;

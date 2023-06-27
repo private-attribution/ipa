@@ -12,14 +12,14 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
     },
-    query::runner::IpaQuery,
+    query::{runner::IpaQuery, state::RunningQuery},
     secret_sharing::{replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing},
-    task::JoinHandle,
 };
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::query::runner::execute_test_multiply;
 use crate::query::runner::QueryResult;
+use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
 use rand::rngs::StdRng;
@@ -78,7 +78,7 @@ pub fn execute(
     key_registry: Arc<KeyRegistry<KeyPair>>,
     gateway: Gateway,
     input: BodyStream,
-) -> JoinHandle<QueryResult> {
+) -> RunningQuery {
     match (config.query_type, config.field_type) {
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::TestMultiply, FieldType::Fp31) => {
@@ -156,7 +156,7 @@ pub fn do_query<F>(
     gateway: Gateway,
     input_stream: BodyStream,
     query_impl: F,
-) -> JoinHandle<QueryResult>
+) -> RunningQuery
 where
     F: for<'a> FnOnce(
             &'a PrssEndpoint,
@@ -167,15 +167,23 @@ where
         + Send
         + 'static,
 {
-    tokio::spawn(async move {
+    let (tx, rx) = oneshot::channel();
+
+    let join_handle = tokio::spawn(async move {
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
         // Negotiate PRSS first
         let step = Gate::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
-        query_impl(&prss, &gateway, &config, input_stream).await
-    })
+        tx.send(query_impl(&prss, &gateway, &config, input_stream).await)
+            .unwrap();
+    });
+
+    RunningQuery {
+        result: rx,
+        join_handle,
+    }
 }
 
 #[cfg(all(test, unit_test))]
