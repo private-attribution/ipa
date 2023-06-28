@@ -19,7 +19,15 @@ impl From<UserId> for usize {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+pub enum ReportFilter {
+    All,
+    TriggerOnly,
+    SourceOnly
+}
+
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Config {
     #[cfg_attr(feature = "clap", arg(long, default_value = "1000000000000"))]
@@ -30,6 +38,10 @@ pub struct Config {
     pub max_breakdown_key: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
     pub max_events_per_user: NonZeroU32,
+    /// Indicates the types of reports that will appear in the output. Possible values
+    /// are: only impressions, only conversions or both.
+    #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ReportFilter::All))]
+    pub report_filter: ReportFilter
 }
 
 impl Default for Config {
@@ -55,6 +67,7 @@ impl Config {
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
+            report_filter: ReportFilter::All,
         }
     }
 
@@ -132,11 +145,22 @@ impl<R: Rng> EventGenerator<R> {
             self.current_ts += self.rng.gen_range(1..=60);
         }
 
-        if self.rng.gen() {
-            self.gen_trigger(user_id)
-        } else {
-            self.gen_source(user_id)
+        match self.config.report_filter {
+            ReportFilter::All => {
+                if self.rng.gen() {
+                    self.gen_trigger(user_id)
+                } else {
+                    self.gen_source(user_id)
+                }
+            }
+            ReportFilter::TriggerOnly => {
+                self.gen_trigger(user_id)
+            },
+            ReportFilter::SourceOnly => {
+                self.gen_source(user_id)
+            },
         }
+
     }
 
     fn gen_trigger(&mut self, user_id: UserId) -> TestRawDataRecord {
@@ -243,18 +267,70 @@ mod tests {
 
     mod proptests {
         use super::*;
-        use proptest::{prelude::Strategy, proptest};
+        use proptest::{prelude::Strategy, prop_oneof, proptest};
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
         use std::collections::HashMap;
+        use proptest::prelude::Just;
 
-        fn arb_config() -> impl Strategy<Value = Config> {
-            (1..u32::MAX, 1..u32::MAX, 1..u32::MAX).prop_map(
-                |(max_trigger_value, max_breakdown_key, max_events_per_user)| Config {
+        fn report_filter_strategy() -> impl Strategy<Value=ReportFilter> {
+            prop_oneof![
+              Just(ReportFilter::All),
+              Just(ReportFilter::TriggerOnly),
+              Just(ReportFilter::SourceOnly),
+          ]
+        }
+
+        trait Validate {
+            fn is_valid(&self, event: &TestRawDataRecord);
+        }
+
+        impl Validate for ReportFilter {
+            fn is_valid(&self, event: &TestRawDataRecord) {
+                match self {
+                    ReportFilter::All => {}
+                    ReportFilter::TriggerOnly => {
+                        assert!(
+                            event.is_trigger_report,
+                            "Generated a source report when only trigger reports were requested"
+                        );
+                    }
+                    ReportFilter::SourceOnly => {
+                        assert!(
+                            !event.is_trigger_report,
+                            "Generated a trigger report when only source reports were requested"
+                        );
+                    }
+                }
+            }
+        }
+
+        impl Validate for Config {
+            fn is_valid(&self, event: &TestRawDataRecord) {
+                self.report_filter.is_valid(event);
+
+                if event.is_trigger_report {
+                    assert_eq!(
+                        0, event.breakdown_key,
+                        "Found a trigger report with breakdown key set"
+                    );
+                } else {
+                    assert_eq!(
+                        0, event.trigger_value,
+                        "Found source report with trigger value set"
+                    );
+                }
+            }
+        }
+
+        fn arb_config() -> impl Strategy<Value=Config> {
+            (1..u32::MAX, 1..u32::MAX, 1..u32::MAX, report_filter_strategy()).prop_map(
+                |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| Config {
                     max_user_id: NonZeroU64::new(10_000).unwrap(),
                     max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
                     max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
                     max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
+                    report_filter,
                 },
             )
         }
@@ -263,7 +339,7 @@ mod tests {
             let max_breakdown = config.max_breakdown_key.get();
             let max_events = config.max_events_per_user.get();
 
-            let gen = EventGenerator::with_default_config(StdRng::seed_from_u64(rng_seed));
+            let gen = EventGenerator::with_config(StdRng::seed_from_u64(rng_seed), config.clone());
             let mut events_per_users = HashMap::<_, u32>::new();
             let mut last_ts = 0;
             for event in gen.take(total_events) {
@@ -283,17 +359,7 @@ mod tests {
                     event.timestamp >= last_ts,
                     "Found an event with timestamp preceding the previous event timestamp"
                 );
-                if event.is_trigger_report {
-                    assert_eq!(
-                        0, event.breakdown_key,
-                        "Found a trigger report with breakdown key set"
-                    );
-                } else {
-                    assert_eq!(
-                        0, event.trigger_value,
-                        "Found source report with trigger value set"
-                    );
-                }
+                config.is_valid(&event);
 
                 last_ts = event.timestamp;
             }
