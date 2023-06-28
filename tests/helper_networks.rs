@@ -12,6 +12,8 @@ use std::{
     process::{Child, Command, ExitStatus, Stdio},
     str,
 };
+use rand::thread_rng;
+use rand_core::RngCore;
 use tempdir::TempDir;
 
 #[cfg(all(test, feature = "cli"))]
@@ -211,6 +213,7 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
         .arg("gen-ipa-inputs")
         .args(["--count", "10"])
         .args(["--max-breakdown-key", "20"])
+        .args(["--seed", &thread_rng().next_u64().to_string()])
         .args(["--output-file".as_ref(), inputs_file.as_os_str()])
         .silent()
         .stdin(Stdio::piped());

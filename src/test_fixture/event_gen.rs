@@ -24,7 +24,7 @@ impl From<UserId> for usize {
 pub enum ReportFilter {
     All,
     TriggerOnly,
-    SourceOnly
+    SourceOnly,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ pub struct Config {
     /// Indicates the types of reports that will appear in the output. Possible values
     /// are: only impressions, only conversions or both.
     #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ReportFilter::All))]
-    pub report_filter: ReportFilter
+    pub report_filter: ReportFilter,
 }
 
 impl Default for Config {
@@ -153,14 +153,9 @@ impl<R: Rng> EventGenerator<R> {
                     self.gen_source(user_id)
                 }
             }
-            ReportFilter::TriggerOnly => {
-                self.gen_trigger(user_id)
-            },
-            ReportFilter::SourceOnly => {
-                self.gen_source(user_id)
-            },
+            ReportFilter::TriggerOnly => self.gen_trigger(user_id),
+            ReportFilter::SourceOnly => self.gen_source(user_id),
         }
-
     }
 
     fn gen_trigger(&mut self, user_id: UserId) -> TestRawDataRecord {
@@ -267,18 +262,20 @@ mod tests {
 
     mod proptests {
         use super::*;
-        use proptest::{prelude::Strategy, prop_oneof, proptest};
+        use proptest::{
+            prelude::{Just, Strategy},
+            prop_oneof, proptest,
+        };
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
         use std::collections::HashMap;
-        use proptest::prelude::Just;
 
-        fn report_filter_strategy() -> impl Strategy<Value=ReportFilter> {
+        fn report_filter_strategy() -> impl Strategy<Value = ReportFilter> {
             prop_oneof![
-              Just(ReportFilter::All),
-              Just(ReportFilter::TriggerOnly),
-              Just(ReportFilter::SourceOnly),
-          ]
+                Just(ReportFilter::All),
+                Just(ReportFilter::TriggerOnly),
+                Just(ReportFilter::SourceOnly),
+            ]
         }
 
         trait Validate {
@@ -323,16 +320,24 @@ mod tests {
             }
         }
 
-        fn arb_config() -> impl Strategy<Value=Config> {
-            (1..u32::MAX, 1..u32::MAX, 1..u32::MAX, report_filter_strategy()).prop_map(
-                |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| Config {
-                    max_user_id: NonZeroU64::new(10_000).unwrap(),
-                    max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
-                    max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
-                    max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
-                    report_filter,
-                },
+        fn arb_config() -> impl Strategy<Value = Config> {
+            (
+                1..u32::MAX,
+                1..u32::MAX,
+                1..u32::MAX,
+                report_filter_strategy(),
             )
+                .prop_map(
+                    |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| {
+                        Config {
+                            max_user_id: NonZeroU64::new(10_000).unwrap(),
+                            max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
+                            max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                            max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
+                            report_filter,
+                        }
+                    },
+                )
         }
 
         fn does_not_exceed_config_maximums(rng_seed: u64, config: &Config, total_events: usize) {
