@@ -93,7 +93,7 @@ mod test {
         let mut rng = thread_rng();
         let cap: u32 = rng.gen();
         let delta: f64 = rng.gen_range(1e-9..1e-6);
-        let epsilon: f64 = f64::from(rand::random::<u8>());
+        let epsilon = f64::from(rng.gen_range(1..255_u8));
         let sensitivity = f64::from(cap);
         let dp = Dp::new(epsilon, delta, sensitivity).unwrap();
         let s = (sensitivity) / (epsilon) * ((2_f64 * (1.25_f64.ln() - delta.ln())).sqrt());
