@@ -100,45 +100,31 @@ fn static_deserialize_state_map(s: &str) -> u16 {
     panic!("cannot deserialize from the invalid step \"{s}\"");
 }
 
-//
-// "conditional" steps
-//
+trait NoCommsStep: AsRef<str> {}
 
-impl StepNarrow<crate::protocol::boolean::random_bits_generator::FallbackStep> for Compact {
-    // `src/protocol/boolean/random_bits_generator.rs`
-    // We create `fallback_ctx` because the underlying bits generator can fail. In reality,
-    // this only happens in 5/2^32 cases with `Fp32BitPrime` so we need to rely on the static map.
-    fn narrow(&self, step: &crate::protocol::boolean::random_bits_generator::FallbackStep) -> Self {
+impl<C: Step + NoCommsStep> StepNarrow<C> for Compact {
+    fn narrow(&self, step: &C) -> Self {
         Self(static_state_map(self.0, step.as_ref()))
     }
 }
 
-// steps that do not trigger communications
+// `src/protocol/boolean/random_bits_generator.rs`
+// We create `fallback_ctx` because the underlying bits generator can fail. In reality,
+// this only happens in 5/2^32 cases with `Fp32BitPrime` so we need to rely on the static map.
+impl NoCommsStep for crate::protocol::boolean::random_bits_generator::FallbackStep {}
 
-impl StepNarrow<crate::protocol::context::semi_honest::UpgradeStep> for Compact {
-    // `src/protocol/context/semi_honest.rs`
-    // Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
-    // `UpgradeToMalicious::upgrade()` narrows but these will end up in `UpgradedContext::upgrade_one()`
-    // or `UpgradedContext::upgrade_sparse()` which both return Ok() and never trigger communications.
-    fn narrow(&self, step: &crate::protocol::context::semi_honest::UpgradeStep) -> Self {
-        Self(static_state_map(self.0, step.as_ref()))
-    }
-}
+// `src/protocol/context/semi_honest.rs`
+// Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
+// `UpgradeToMalicious::upgrade()` narrows but these will end up in `UpgradedContext::upgrade_one()`
+// or `UpgradedContext::upgrade_sparse()` which both return Ok() and never trigger communications.
+impl NoCommsStep for crate::protocol::context::semi_honest::UpgradeStep {}
 
-impl StepNarrow<crate::helpers::query::QueryType> for Compact {
-    // src/query/executor.rs - do_query()
-    // These are only executed in `real-world-infra` for PRSS generation
-    fn narrow(&self, step: &crate::helpers::query::QueryType) -> Self {
-        Self(static_state_map(self.0, step.as_ref()))
-    }
-}
+// src/query/executor.rs - do_query()
+// These are only executed in `real-world-infra` for PRSS generation
+impl NoCommsStep for crate::helpers::query::QueryType {}
 
-impl StepNarrow<crate::helpers::prss_protocol::PrssExchangeStep> for Compact {
-    // src/hlpers/prss_protocol.rs - negotiate()
-    fn narrow(&self, step: &crate::helpers::prss_protocol::PrssExchangeStep) -> Self {
-        Self(static_state_map(self.0, step.as_ref()))
-    }
-}
+// src/hlpers/prss_protocol.rs - negotiate()
+impl NoCommsStep for crate::helpers::prss_protocol::PrssExchangeStep {}
 
 // obsolete steps. should be removed in the future
 
@@ -176,15 +162,7 @@ impl StepNarrow<crate::protocol::boolean::bitwise_equal::Step> for Compact {
 //
 
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<str> for Compact {
-    fn narrow(&self, step: &str) -> Self {
-        Self(static_state_map(self.0, step))
-    }
-}
+impl NoCommsStep for str {}
 
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl StepNarrow<String> for Compact {
-    fn narrow(&self, step: &String) -> Self {
-        Self(static_state_map(self.0, step.as_str()))
-    }
-}
+impl NoCommsStep for String {}
