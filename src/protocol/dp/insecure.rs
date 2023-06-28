@@ -1,49 +1,46 @@
 #![allow(dead_code)]
 
-use crate::protocol::dp::distributions::{BoxMuller, Float};
+use crate::protocol::dp::distributions::BoxMuller;
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
-use std::ops::Range;
+use std::f64;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error<F: Float> {
-    #[error("Epsilon value must be greater than {0}, got {1}")]
-    BadEpsilon(F, F),
-    #[error("Valid values for DP-delta are within {0}, got: {1}")]
-    BadDelta(Range<F>, F),
+pub enum Error {
+    #[error("Epsilon value must be greater than {}, got {0}", f64::MIN_POSITIVE)]
+    BadEpsilon(f64),
+    #[error("Valid values for DP-delta are within {:?}, got: {0}", f64::MIN_POSITIVE..1.0 - f64::MIN_POSITIVE)]
+    BadDelta(f64),
 }
 
 /// Applies DP to the inputs in the clear using smooth Laplacian noise. Works with floats only, so
 /// any trimming on values must be done externally.
 #[derive(Debug)]
-pub struct Dp<F: Float> {
-    normal_dist: BoxMuller<F>,
+pub struct Dp {
+    normal_dist: BoxMuller,
 }
 
-impl<F: Float> Dp<F> {
+impl Dp {
     /// ## Errors
     /// If epsilon or delta is negative or delta exceeds the maximum value allowed.
-    pub fn new(epsilon: F, delta: F, cap: F) -> Result<Self, Error<F>> {
+    pub fn new(epsilon: f64, delta: f64, cap: f64) -> Result<Self, Error> {
         // make sure delta and epsilon are in range, i.e. >min and delta<1-min
-        if epsilon < F::MIN_POSITIVE {
-            return Err(Error::BadEpsilon(F::MIN_POSITIVE, epsilon));
+        if epsilon < f64::MIN_POSITIVE {
+            return Err(Error::BadEpsilon(epsilon));
         }
 
-        if delta < F::MIN_POSITIVE || delta > F::ONE - F::MIN_POSITIVE {
-            return Err(Error::BadDelta(
-                F::MIN_POSITIVE..F::ONE - F::MIN_POSITIVE,
-                delta,
-            ));
+        if !(f64::MIN_POSITIVE..=1.0 - f64::MIN_POSITIVE).contains(&delta) {
+            return Err(Error::BadDelta(delta));
         }
 
         // for (eps, delta) DP, the variance needs to be sensitivity^2/(eps^2) * 2ln(1.25/delta) see https://arxiv.org/pdf/1702.07476.pdf page 2
         // sensitivity=L2(max(output_(with user x) - output_(without user x)))=sqrt(breakdown_count * user_contribution_per_breakdown^2)<cap
         // minimum eps, delta is 1/u64_max, max for delta is 1-min
-        let variance = (cap / epsilon) * F::sqrt(F::from(2.0) * F::ln(F::from(1.25_f32) / delta));
+        let variance = (cap / epsilon) * f64::sqrt(2.0 * f64::ln(1.25 / delta));
 
         Ok(Self {
             normal_dist: BoxMuller {
-                mean: F::ZERO,
+                mean: 0.0,
                 std: variance,
             },
         })
@@ -52,11 +49,11 @@ impl<F: Float> Dp<F> {
     fn apply<I, R>(&self, mut input: I, rng: &mut R)
     where
         R: RngCore + CryptoRng,
-        I: AsMut<[F]>,
+        I: AsMut<[f64]>,
     {
         for v in input.as_mut() {
             let sample = self.normal_dist.sample(rng);
-            *v = *v + sample;
+            *v += sample;
         }
     }
 }
@@ -79,16 +76,16 @@ mod test {
     #[test]
     fn dp_bad_epsilon() {
         let e = Dp::new(-1.0, 0.5, 1.0).unwrap_err();
-        assert!(matches!(e, Error::BadEpsilon(_, _)));
+        assert!(matches!(e, Error::BadEpsilon(_)));
     }
 
     #[test]
     fn dp_bad_delta() {
         let e = Dp::new(1.0, -1.0, 1.0).unwrap_err();
-        assert!(matches!(e, Error::BadDelta(_, _)));
+        assert!(matches!(e, Error::BadDelta(_)));
 
         let e = Dp::new(1.0, 2.0, 1.0).unwrap_err();
-        assert!(matches!(e, Error::BadDelta(_, _)));
+        assert!(matches!(e, Error::BadDelta(_)));
     }
 
     #[test]
