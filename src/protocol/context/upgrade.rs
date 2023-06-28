@@ -41,6 +41,16 @@ use std::marker::PhantomData;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Vec<Replicated<F>>, Vec<Replicated<F>>), _>>::upgrade;
 /// ```
+///
+/// ```compile_fail
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime as F;
+/// use ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
+/// // This can't be upgraded with a record-bound context because the record ID
+/// // is used internally for vector indexing.
+/// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 pub struct UpgradeContext<
     'a,
     C: UpgradedContext<F>,
