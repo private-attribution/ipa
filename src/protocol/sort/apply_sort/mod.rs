@@ -94,7 +94,7 @@ mod tests {
 
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
-                (match_keys, sidecar),
+                (match_keys.into_iter(), sidecar.into_iter()),
                 |ctx,
                  (mk_shares, secret): (
                     Vec<AdditiveShare<MatchKey>>,

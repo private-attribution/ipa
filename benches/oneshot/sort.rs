@@ -35,16 +35,19 @@ async fn main() -> Result<(), Error> {
     }
 
     let converted_shares = world
-        .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits::<BenchField, _, _>(
-                &ctx,
-                &convert_all_bits_local(ctx.role(), match_key.into_iter()),
-                Gf40Bit::BITS,
-                NUM_MULTI_BITS,
-            )
-            .await
-            .unwrap()
-        })
+        .semi_honest(
+            match_keys.clone().into_iter(),
+            |ctx, match_key| async move {
+                convert_all_bits::<BenchField, _, _>(
+                    &ctx,
+                    &convert_all_bits_local(ctx.role(), match_key.into_iter()),
+                    Gf40Bit::BITS,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            },
+        )
         .await;
 
     let start = Instant::now();
