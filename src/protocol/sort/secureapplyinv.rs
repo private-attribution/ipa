@@ -39,36 +39,7 @@ mod tests {
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
         use rand::seq::SliceRandom;
-        use std::iter::{from_fn, repeat_with};
-
-        struct Unflatten<I> {
-            it: I,
-            rowlen: usize,
-        }
-
-        impl<I> Unflatten<I> {
-            fn new<T: IntoIterator<IntoIter = I>>(rowlen: usize, it: T) -> Self {
-                Self {
-                    it: it.into_iter(),
-                    rowlen,
-                }
-            }
-        }
-
-        impl<I: Iterator> Iterator for Unflatten<I> {
-            type Item = Vec<I::Item>;
-            fn next(&mut self) -> Option<Self::Item> {
-                let row = from_fn(|| self.it.next())
-                    .take(self.rowlen)
-                    .collect::<Vec<_>>();
-                if row.len() < self.rowlen {
-                    assert!(row.is_empty(), "incomplete row");
-                    None
-                } else {
-                    Some(row)
-                }
-            }
-        }
+        use std::iter::repeat_with;
 
         #[tokio::test]
         pub async fn multi() {
@@ -98,11 +69,8 @@ mod tests {
             // Flatten the input so that it can implement `IntoShares`.
             let result = world
                 .semi_honest(
-                    (input.into_iter().flatten(), permutation_iter),
+                    (input.into_iter(), permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let m_shares = Unflatten::new(NUM_MULTI_BITS, m_shares)
-                            .map(BitDecomposed::new)
-                            .collect::<Vec<_>>();
                         let v = ctx.narrow("shuffle_reveal").validator();
                         let perm_and_randoms = shuffle_and_reveal_permutation::<
                             SemiHonestContext,
