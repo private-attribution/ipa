@@ -122,7 +122,7 @@ mod tests {
                 BreakdownKey, MatchKey,
             },
             rand::{thread_rng, Rng},
-            secret_sharing::replicated::ReplicatedSecretSharing,
+            secret_sharing::{replicated::ReplicatedSecretSharing, BitDecomposed},
         };
 
         use crate::{
@@ -176,7 +176,7 @@ mod tests {
 
             let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
                 .semi_honest(
-                    input.clone(),
+                    input.clone().into_iter(),
                     |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
@@ -240,7 +240,7 @@ mod tests {
 
         fn share_appears_anywhere(
             x: &Replicated<Fp32BitPrime>,
-            inputs: &[Vec<Replicated<Fp32BitPrime>>],
+            inputs: &[BitDecomposed<Replicated<Fp32BitPrime>>],
         ) -> bool {
             inputs.iter().any(|row| {
                 row.iter()
@@ -251,39 +251,34 @@ mod tests {
         #[tokio::test]
         async fn shuffle_vec_of_replicated() {
             const BIT_LENGTH: u32 = 32;
-            let some_numbers = [
+            let some_numbers = vec![
                 123_456_789,
                 234_567_890,
                 345_678_901,
                 456_789_012,
                 567_890_123,
             ];
-            let some_numbers_as_bits =
-                some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
+            let some_numbers_as_bits = some_numbers
+                .iter()
+                .map(|&x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH))
+                .collect::<Vec<_>>();
             let world = TestWorld::default();
 
             let result = world
-                .semi_honest(
-                    some_numbers_as_bits,
-                    |ctx, vec_of_vec_of_shares| async move {
-                        let copy_of_input = vec_of_vec_of_shares.clone();
+                .semi_honest(some_numbers_as_bits.into_iter(), |ctx, shares| async move {
+                    let copy_of_input = shares.clone();
+                    let perms = get_two_of_three_random_permutations(5, ctx.prss_rng());
+                    let shuffled_shares =
+                        shuffle_shares(shares, (perms.0.as_slice(), perms.1.as_slice()), ctx)
+                            .await
+                            .unwrap();
 
-                        let perms = get_two_of_three_random_permutations(5, ctx.prss_rng());
-                        let shuffled_shares = shuffle_shares(
-                            vec_of_vec_of_shares,
-                            (perms.0.as_slice(), perms.1.as_slice()),
-                            ctx,
-                        )
-                        .await
-                        .unwrap();
+                    assert!(!shuffled_shares.iter().any(|row| row
+                        .iter()
+                        .any(|x| share_appears_anywhere(x, &copy_of_input))));
 
-                        assert!(!shuffled_shares.iter().any(|row| row
-                            .iter()
-                            .any(|x| share_appears_anywhere(x, &copy_of_input))));
-
-                        shuffled_shares
-                    },
-                )
+                    shuffled_shares
+                })
                 .await
                 .reconstruct();
 

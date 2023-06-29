@@ -222,7 +222,7 @@ mod tests {
     {
         let input = into_bits(a);
         let result = world
-            .semi_honest(input.clone(), |ctx, a_share| async move {
+            .semi_honest(input.clone().into_iter(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -231,7 +231,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .upgraded_malicious(input, |ctx, a_share| async move {
+            .upgraded_malicious(input.into_iter(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -249,34 +249,39 @@ mod tests {
         F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
-        let input = (into_bits(a), maybe);
         let result = world
-            .semi_honest(input.clone(), |ctx, (a_share, maybe_share)| async move {
-                maybe_add_constant_mod2l(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    b,
-                    &maybe_share,
-                )
-                .await
-                .unwrap()
-            })
+            .semi_honest(
+                (into_bits(a), maybe),
+                |ctx, (a_share, maybe_share)| async move {
+                    maybe_add_constant_mod2l(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_share,
+                        b,
+                        &maybe_share,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 
         let m_result = world
-            .upgraded_malicious(input, |ctx, (a_share, maybe_share)| async move {
-                maybe_add_constant_mod2l(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    b,
-                    &maybe_share,
-                )
-                .await
-                .unwrap()
-            })
+            .upgraded_malicious(
+                (into_bits(a), maybe),
+                |ctx, (a_share, maybe_share)| async move {
+                    maybe_add_constant_mod2l(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_share,
+                        b,
+                        &maybe_share,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 

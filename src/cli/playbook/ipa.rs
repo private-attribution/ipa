@@ -53,7 +53,7 @@ where
         }
 
         let mut rng = StdRng::from_entropy();
-        let shares: [Vec<Report<_, _, _>>; 3] = records.to_owned().share();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
         zip(&mut buffers, shares)
             .zip(key_registries)
             .for_each(|((buf, shares), key_registry)| {
@@ -69,21 +69,18 @@ where
             buffer.resize(query_size * sz, 0u8);
         }
 
-        let inputs = records
-            .iter()
-            .map(|x| {
-                ipa_test_input!(
-                    {
-                        timestamp: x.timestamp,
-                        match_key: x.user_id,
-                        is_trigger_report: x.is_trigger_report,
-                        breakdown_key: x.breakdown_key,
-                        trigger_value: x.trigger_value,
-                    };
-                    (F, MatchKey, BreakdownKey)
-                )
-            })
-            .collect::<Vec<_>>();
+        let inputs = records.iter().map(|x| {
+            ipa_test_input!(
+                {
+                    timestamp: x.timestamp,
+                    match_key: x.user_id,
+                    is_trigger_report: x.is_trigger_report,
+                    breakdown_key: x.breakdown_key,
+                    trigger_value: x.trigger_value,
+                };
+                (F, MatchKey, BreakdownKey)
+            )
+        });
         let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
         zip(&mut buffers, shares).for_each(|(buf, shares)| {
             for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {

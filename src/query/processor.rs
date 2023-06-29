@@ -539,7 +539,7 @@ mod tests {
             let a = Fp31::truncate_from(4u128);
             let b = Fp31::truncate_from(5u128);
             let results = app
-                .execute_query(vec![a, b], test_multiply_config())
+                .execute_query(vec![a, b].into_iter(), test_multiply_config())
                 .await?;
 
             let results = results.map(|bytes| {
@@ -557,7 +557,9 @@ mod tests {
             let app = TestApp::default();
             let a = Fp31::truncate_from(4u128);
             let b = Fp31::truncate_from(5u128);
-            let query_id = app.start_query(vec![a, b], test_multiply_config()).await?;
+            let query_id = app
+                .start_query(vec![a, b].into_iter(), test_multiply_config())
+                .await?;
 
             while !app
                 .query_status(query_id)?
@@ -605,7 +607,7 @@ mod tests {
 
             let _results = app
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
-                    records,
+                    records.into_iter(),
                     QueryConfig {
                         size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,

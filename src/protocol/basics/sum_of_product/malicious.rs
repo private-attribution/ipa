@@ -183,7 +183,7 @@ mod test {
         }
 
         let res = world
-            .upgraded_malicious((av, bv), |ctx, (a, b)| async move {
+            .upgraded_malicious((av.into_iter(), bv.into_iter()), |ctx, (a, b)| async move {
                 sum_of_products(
                     ctx.set_total_records(1),
                     RecordId::from(0),
