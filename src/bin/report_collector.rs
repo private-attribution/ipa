@@ -18,7 +18,7 @@ use ipa::{
     },
 };
 
-use ipa::cli::CsvSerializer;
+use ipa::{cli::CsvSerializer, helpers::query::QuerySize};
 use rand::thread_rng;
 use std::{
     error::Error,
@@ -224,12 +224,13 @@ async fn ipa(
         }
     };
 
+    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
     let query_config = QueryConfig {
+        size: QuerySize::try_from(input_rows.len()).unwrap(),
         field_type: FieldType::Fp32BitPrime,
         query_type,
     };
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
-    let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
 
     let expected = {
         let mut r = ipa_in_the_clear(
