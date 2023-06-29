@@ -572,7 +572,7 @@ mod tests {
             });
 
             Ok(assert_eq!(
-                vec![Fp31::truncate_from(20u128)],
+                &[Fp31::truncate_from(20u128)] as &[_],
                 results.reconstruct()
             ))
         }

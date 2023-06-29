@@ -121,7 +121,7 @@ where
         }
 
         sleep(delay).await;
-        delay = min(Duration::from_secs(60), delay * 2);
+        delay = min(Duration::from_secs(5), delay * 2);
         // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
         // the status API so we can check whether the query is making progress.
     }

@@ -5,6 +5,7 @@ use crate::{
     protocol::QueryId,
     query::QueryStatus,
     secret_sharing::IntoShares,
+    test_fixture::try_join3_array,
     AppSetup, HelperApp,
 };
 use std::iter::zip;
@@ -126,15 +127,10 @@ impl TestApp {
     /// ## Panics
     /// Never.
     pub async fn complete_query(&self, query_id: QueryId) -> Result<[Vec<u8>; 3], Error> {
-        // Shuttle executor may resolve futures out of order, so as long as seq_try_join_all
-        // panics when that happens, it can't be used here
-        use futures::future::try_join_all;
-        #[allow(clippy::disallowed_methods)]
-        let r = try_join_all((0..3).map(|i| self.drivers[i].complete_query(query_id))).await?;
-
+        let results =
+            try_join3_array([0, 1, 2].map(|i| self.drivers[i].complete_query(query_id))).await;
         self.network.reset();
-
-        Ok(<[_; 3]>::try_from(r).unwrap())
+        results
     }
 
     /// Initiates a new query on all helpers and drives it to completion.

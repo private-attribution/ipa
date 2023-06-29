@@ -107,6 +107,15 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
 }
 
 /// Wrapper for joining three things into an array.
+/// # Errors
+/// If one of the futures returned an error.
+pub async fn try_join3_array<T: TryFuture>([f0, f1, f2]: [T; 3]) -> Result<[T::Ok; 3], T::Error> {
+    futures::future::try_join3(f0, f1, f2)
+        .await
+        .map(|(a, b, c)| [a, b, c])
+}
+
+/// Wrapper for joining three things into an array.
 /// # Panics
 /// If the tasks return `Err`.
 pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
