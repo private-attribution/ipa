@@ -6,7 +6,7 @@ use crate::{
         attribution::{input::MCAggregateCreditOutputRow, secure_attribution},
         basics::Reshare,
         boolean::RandomBits,
-        context::{Context, Validator},
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
@@ -26,13 +26,10 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::try_join4;
 use futures_util::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
-use std::{marker::PhantomData, ops::Add};
+use std::{iter::zip, marker::PhantomData, ops::Add};
 use typenum::Unsigned;
-
-use super::context::{UpgradableContext, UpgradedContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
@@ -322,80 +319,6 @@ where
     }
 }
 
-pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub timestamp: T,
-    pub is_trigger_bit: T,
-    pub breakdown_key: Vec<T>,
-    pub trigger_value: T,
-    _marker: PhantomData<F>,
-}
-
-impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(timestamp: T, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
-        Self {
-            timestamp,
-            is_trigger_bit,
-            breakdown_key,
-            trigger_value,
-            _marker: PhantomData,
-        }
-    }
-}
-
-#[async_trait]
-impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
-where
-    F: Field,
-    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
-    C: Context,
-{
-    async fn reshare<'fut>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
-    where
-        C: 'fut,
-    {
-        let f_timestamp = self.timestamp.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::Timestamp),
-            record_id,
-            to_helper,
-        );
-        let f_is_trigger_bit = self.is_trigger_bit.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
-            record_id,
-            to_helper,
-        );
-        let f_breakdown_key = self.breakdown_key.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::BreakdownKey),
-            record_id,
-            to_helper,
-        );
-        let f_trigger_value = self.trigger_value.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::TriggerValue),
-            record_id,
-            to_helper,
-        );
-
-        let (breakdown_key, timestamp, is_trigger_bit, trigger_value) = try_join4(
-            f_breakdown_key,
-            f_timestamp,
-            f_is_trigger_bit,
-            f_trigger_value,
-        )
-        .await?;
-
-        Ok(IPAModulusConvertedInputRow::new(
-            timestamp,
-            is_trigger_bit,
-            breakdown_key,
-            trigger_value,
-        ))
-    }
-}
-
 /// IPA Protocol
 ///
 /// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort.
@@ -492,30 +415,23 @@ where
 
     let arithmetically_shared_values = m_ctx.upgrade(arithmetically_shared_values).await?;
 
-    let binary_shared_values = upgraded_gf2_match_key_bits
-        .iter()
-        .zip(upgraded_gf2_breakdown_key_bits.iter())
-        .map(|(match_key, breakdown_key)| {
-            BinarySharedIPAInputs::new(match_key.clone(), breakdown_key.clone())
-        })
+    let binary_shared_values = zip(upgraded_gf2_match_key_bits, upgraded_gf2_breakdown_key_bits)
+        .map(|(match_key, breakdown_key)| BinarySharedIPAInputs::new(match_key, breakdown_key))
         .collect::<Vec<_>>();
 
-    let arithmetically_shared_values = apply_sort_permutation(
-        m_ctx.narrow(&Step::ApplySortPermutation),
-        arithmetically_shared_values,
-        &sort_permutation,
+    let (arithmetically_shared_values, binary_shared_values) = try_join(
+        apply_sort_permutation(
+            m_ctx.narrow(&Step::ApplySortPermutation),
+            arithmetically_shared_values,
+            &sort_permutation,
+        ),
+        apply_sort_permutation(
+            binary_m_ctx.narrow(&Step::ApplySortPermutation),
+            binary_shared_values,
+            &sort_permutation,
+        ),
     )
-    .await
-    .unwrap();
-
-    // TODO: parallelize with line above
-    let binary_shared_values = apply_sort_permutation(
-        binary_m_ctx.narrow(&Step::ApplySortPermutation),
-        binary_shared_values,
-        &sort_permutation,
-    )
-    .await
-    .unwrap();
+    .await?;
 
     secure_attribution(
         sh_ctx,

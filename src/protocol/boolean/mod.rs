@@ -1,12 +1,15 @@
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
-    protocol::{basics::SecureMul, BasicProtocols},
+    protocol::{
+        basics::{SecureMul, ShareKnownValue},
+        context::Context,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
+    },
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 use std::iter::repeat;
-
-use super::{basics::ShareKnownValue, context::Context, step::BitOpStep, RecordId};
 
 mod add_constant;
 mod bit_decomposition;

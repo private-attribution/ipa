@@ -1,7 +1,4 @@
-use crate::sample::Sample;
-
-use super::gen_events::generate_events;
-
+use crate::{gen_events::generate_events, sample::Sample};
 use clap::Parser;
 use ipa::cli::Verbosity;
 use rand::{rngs::StdRng, SeedableRng};

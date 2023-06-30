@@ -7,7 +7,13 @@ pub mod validator;
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{basics::ZeroPositions, prss::Endpoint as PrssEndpoint, step, NoRecord, RecordId},
+    protocol::{
+        basics::ZeroPositions,
+        prss::Endpoint as PrssEndpoint,
+        step,
+        step::{Gate, StepNarrow},
+        NoRecord, RecordId,
+    },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -22,8 +28,6 @@ pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousCo
 pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
-
-use super::step::{Gate, StepNarrow};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
