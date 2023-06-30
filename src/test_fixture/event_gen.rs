@@ -19,7 +19,14 @@ impl From<UserId> for usize {
     }
 }
 
-#[derive(Debug, Clone)]
+impl UserId {
+    /// 0 is reserved for ephemeral conversions, i.e. conversions that occurred without
+    /// an impression
+    pub const EPHEMERAL: Self = Self(0);
+    pub const FIRST: Self = Self(1);
+}
+
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ReportFilter {
     All,
@@ -42,6 +49,19 @@ pub struct Config {
     /// are: only impressions, only conversions or both.
     #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ReportFilter::All))]
     pub report_filter: ReportFilter,
+    #[cfg_attr(feature = "clap", arg(long, required_if_eq("report_filter", "TriggerOnly"), default_value = "0.02", value_parser = validate_probability))]
+    pub conversion_probability: Option<f32>,
+}
+
+fn validate_probability(value: &str) -> Result<f32, String> {
+    let v = value
+        .parse::<f32>()
+        .map_err(|e| format!("{e} not a float number"))?;
+    if (0.0..=1.0).contains(&v) {
+        Ok(v)
+    } else {
+        Err(format!("probability must be between 0.0 and 1.0, got {v}"))
+    }
 }
 
 impl Default for Config {
@@ -68,6 +88,7 @@ impl Config {
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
+            conversion_probability: None,
         }
     }
 
@@ -153,7 +174,16 @@ impl<R: Rng> EventGenerator<R> {
                     self.gen_source(user_id)
                 }
             }
-            ReportFilter::TriggerOnly => self.gen_trigger(user_id),
+            ReportFilter::TriggerOnly => {
+                // safe to unwrap because clap validation is done before
+                let user_id =
+                    if self.rng.gen::<f32>() <= self.config.conversion_probability.unwrap() {
+                        user_id
+                    } else {
+                        UserId::EPHEMERAL
+                    };
+                self.gen_trigger(user_id)
+            }
             ReportFilter::SourceOnly => self.gen_source(user_id),
         }
     }
@@ -183,14 +213,17 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn sample_user(&mut self) -> Option<UserStats> {
-        if self.used.len() == self.config.max_user_id() + 1 {
+        if self.used.len() == self.config.max_user_id() {
             return None;
         }
 
         let valid = |user_id| -> bool { !self.used.contains(&user_id) };
 
         Some(loop {
-            let next = UserId::from(self.rng.gen_range(0..=self.config.max_user_id.get()));
+            let next = UserId::from(
+                self.rng
+                    .gen_range(UserId::FIRST.into()..=self.config.max_user_id.get()),
+            );
             if valid(next) {
                 self.used.insert(next);
                 break UserStats::new(
@@ -249,7 +282,7 @@ mod tests {
         let mut gen = EventGenerator::with_config(
             thread_rng(),
             Config {
-                max_user_id: NonZeroU64::new(1).unwrap(),
+                max_user_id: NonZeroU64::new(2).unwrap(),
                 max_events_per_user: NonZeroU32::new(1).unwrap(),
                 ..Config::default()
             },
@@ -335,6 +368,10 @@ mod tests {
                             max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
                             max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
                             report_filter,
+                            conversion_probability: match report_filter {
+                                ReportFilter::TriggerOnly => Some(0.02),
+                                _ => None,
+                            },
                         }
                     },
                 )
