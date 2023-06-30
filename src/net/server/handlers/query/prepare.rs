@@ -29,7 +29,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::future::ready;
 
@@ -37,7 +37,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{PrepareQuery, QueryConfig, QueryType},
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             HelperIdentity, RoleAssignment, TransportCallbacks,
         },
         net::{
@@ -59,10 +59,7 @@ mod tests {
     async fn prepare_test() {
         let req = http_serde::query::prepare::Request::new(PrepareQuery {
             query_id: QueryId,
-            config: QueryConfig {
-                field_type: FieldType::Fp31,
-                query_type: QueryType::TestMultiply,
-            },
+            config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         });
         let expected_prepare_query = req.data.clone();
@@ -89,17 +86,18 @@ mod tests {
         client_id: Option<ClientIdentity>,
         query_id: String,
         field_type: String,
+        size: Option<i32>,
         roles: Vec<String>,
     }
 
     impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://localhost:{}{}/{}?field_type={}&query_type=test-multiply",
-                port,
-                http_serde::query::BASE_AXUM_PATH,
-                self.query_id,
-                self.field_type
+                "http://localhost:{port}{path}/{query_id}?{size}field_type={ft}&query_type=test-multiply",
+                size = self.size.map_or(String::new(), |v| format!("size={v}&")),
+                path = http_serde::query::BASE_AXUM_PATH,
+                query_id = self.query_id,
+                ft = self.field_type
             );
             let body = serde_json::to_vec(&self.roles).unwrap();
             hyper::Request::post(uri)
@@ -118,6 +116,7 @@ mod tests {
                 client_id: Some(ClientIdentity(HelperIdentity::TWO)),
                 query_id: QueryId.as_ref().to_string(),
                 field_type: format!("{:?}", FieldType::Fp31),
+                size: Some(1),
                 roles,
             }
         }
@@ -166,5 +165,34 @@ mod tests {
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNAUTHORIZED).await;
+    }
+
+    #[tokio::test]
+    async fn query_size_unspecified() {
+        let req = OverrideReq {
+            size: None,
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn query_size_invalid() {
+        assert_req_fails_with(
+            OverrideReq {
+                size: Some(0),
+                ..Default::default()
+            },
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+        assert_req_fails_with(
+            OverrideReq {
+                size: Some(-1),
+                ..Default::default()
+            },
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
     }
 }

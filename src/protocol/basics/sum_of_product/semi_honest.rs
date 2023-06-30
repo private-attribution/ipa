@@ -66,7 +66,7 @@ where
     Ok(Replicated::new(lhs, rhs))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod test {
     use super::sum_of_products;
     use crate::{
@@ -112,7 +112,7 @@ mod test {
         }
 
         let res = world
-            .semi_honest((av, bv), |ctx, (a, b)| async move {
+            .semi_honest((av.into_iter(), bv.into_iter()), |ctx, (a, b)| async move {
                 sum_of_products(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -132,7 +132,7 @@ mod test {
         let b: Vec<_> = b.iter().map(|x| Fp31::try_from(*x).unwrap()).collect();
 
         let result = world
-            .semi_honest((a, b), |ctx, (a, b)| async move {
+            .semi_honest((a.into_iter(), b.into_iter()), |ctx, (a, b)| async move {
                 sum_of_products(
                     ctx.set_total_records(1),
                     RecordId::from(0),

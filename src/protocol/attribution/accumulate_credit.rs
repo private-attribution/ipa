@@ -158,7 +158,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::{iter, num::NonZeroU32};
 
@@ -195,7 +195,7 @@ mod tests {
 
         world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 

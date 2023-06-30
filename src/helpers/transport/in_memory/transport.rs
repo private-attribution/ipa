@@ -213,7 +213,7 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
-    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+    #[cfg(all(test, unit_test))]
     fn empty() -> Self {
         Self::from_iter(std::iter::empty())
     }
@@ -224,7 +224,7 @@ impl InMemoryStream {
         }
     }
 
-    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+    #[cfg(all(test, unit_test))]
     fn from_iter<I>(input: I) -> Self
     where
         I: IntoIterator<Item = StreamItem>,
@@ -291,7 +291,7 @@ impl Addr {
         serde_json::from_str(&self.params).unwrap()
     }
 
-    #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+    #[cfg(all(test, unit_test))]
     fn records(from: HelperIdentity, query_id: QueryId, gate: Gate) -> Self {
         Self {
             route: RouteId::Records,
@@ -366,13 +366,14 @@ impl Setup {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, transport::in_memory::InMemoryNetwork, HelperIdentity, OrderingSender,
+            query::QueryType::TestMultiply, transport::in_memory::InMemoryNetwork, HelperIdentity,
+            OrderingSender,
         },
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
@@ -414,10 +415,7 @@ mod tests {
                 }),
                 ..Default::default()
             });
-        let expected = QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::TestMultiply,
-        };
+        let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(
             &tx,

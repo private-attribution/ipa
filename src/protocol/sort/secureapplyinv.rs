@@ -28,11 +28,9 @@ pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + S
     Ok(shuffled_input)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     mod semi_honest {
-        use rand::seq::SliceRandom;
-
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -42,26 +40,27 @@ mod tests {
                     secureapplyinv::secureapplyinv_multi,
                 },
             },
-            rand::Rng,
+            rand::{thread_rng, Rng},
+            secret_sharing::BitDecomposed,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
+        use rand::seq::SliceRandom;
+        use std::iter::repeat_with;
 
         #[tokio::test]
         pub async fn multi() {
-            const BATCHSIZE: u32 = 25;
-            const NUM_MULTI_BITS: u32 = 3;
+            const BATCHSIZE: usize = 25;
+            const NUM_MULTI_BITS: usize = 3;
             let world = TestWorld::default();
-            let mut rng = rand::thread_rng();
 
-            let mut input = Vec::with_capacity(NUM_MULTI_BITS.try_into().unwrap());
-            for _ in 0..BATCHSIZE {
-                let mut one_record = Vec::with_capacity(BATCHSIZE as usize);
-                one_record.resize_with(NUM_MULTI_BITS.try_into().unwrap(), || rng.gen::<Fp31>());
-                input.push(one_record);
-            }
+            let input = repeat_with(|| {
+                BitDecomposed::new(repeat_with(|| thread_rng().gen::<Fp31>()).take(NUM_MULTI_BITS))
+            })
+            .take(BATCHSIZE)
+            .collect::<Vec<_>>();
 
-            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-            permutation.shuffle(&mut rng);
+            let mut permutation: Vec<u32> = (0..u32::try_from(BATCHSIZE).unwrap()).collect();
+            permutation.shuffle(&mut thread_rng());
 
             let mut expected_result = input.clone();
 
@@ -73,9 +72,10 @@ mod tests {
                 .map(u128::from)
                 .map(Fp31::truncate_from);
 
+            // Flatten the input so that it can implement `IntoShares`.
             let result = world
                 .semi_honest(
-                    (input, permutation_iter),
+                    (input.into_iter(), permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
                         let v = ctx.narrow("shuffle_reveal").validator();
                         let perm_and_randoms = shuffle_and_reveal_permutation::<

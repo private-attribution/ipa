@@ -11,10 +11,13 @@ use crate::{
         },
         NoRecord, RecordBinding, RecordId,
     },
-    secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-        semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
+    secret_sharing::{
+        replicated::{
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
+        BitDecomposed,
     },
 };
 use async_trait::async_trait;
@@ -44,23 +47,6 @@ pub trait Reshare<C: Context, B: RecordBinding>: Sized {
         record_binding: B,
         to_helper: Role,
     ) -> Result<Self, Error>
-    where
-        C: 'fut;
-}
-
-// Variant of Reshare implemented for types like [T] where resharing doesn't return `Self`.  This is
-// just a more general version of `Reshare`, but a bunch of consumers that don't otherwise care
-// would need to specify an associated type bound `T: Reshare<Output = T>` to use this more general
-// version.
-#[async_trait]
-pub trait ReshareBorrowed<C: Context, B: RecordBinding> {
-    type Output: Sized;
-    async fn reshare_borrowed<'fut>(
-        &self,
-        ctx: C,
-        record_binding: B,
-        to_helper: Role,
-    ) -> Result<Self::Output, Error>
     where
         C: 'fut;
 }
@@ -154,52 +140,41 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
     }
 }
 
-// `T` must be `Send + Sync` because we are passing `&T` into futures. In practice `T` is plain old data,
-// which is always `Sync`.
 #[async_trait]
-impl<T, C: Context> ReshareBorrowed<C, RecordId> for [T]
+impl<S, C: Context> Reshare<C, RecordId> for BitDecomposed<S>
 where
-    T: Reshare<C, RecordId> + Send + Sync,
+    S: Reshare<C, RecordId> + Send + Sync,
 {
-    type Output = Vec<T>;
-    /// This is intended to be used for resharing bit-decomposed values, i.e., vectors with a
-    /// finite, small maximum length.
-    /// # Errors
-    /// If the vector has more than 64 elements
-    async fn reshare_borrowed<'fut>(
-        self: &[T],
+    async fn reshare<'fut>(
+        self: &BitDecomposed<S>,
         ctx: C,
-        record_id: RecordId,
+        record_binding: RecordId,
         to_helper: Role,
-    ) -> Result<Vec<T>, Error>
+    ) -> Result<BitDecomposed<S>, Error>
     where
         C: 'fut,
     {
-        // This is a truly parallel operation.
-        ctx.parallel_join(self.iter().enumerate().map(|(i, x)| {
-            let c = ctx.narrow(&InnerVectorElementStep::from(i));
-            async move { x.reshare(c, record_id, to_helper).await }
-        }))
-        .await
+        BitDecomposed::try_from(
+            ctx.parallel_join(self.iter().enumerate().map(|(i, x)| {
+                let c = ctx.narrow(&InnerVectorElementStep::from(i));
+                async move { x.reshare(c, record_binding, to_helper).await }
+            }))
+            .await?,
+        )
     }
 }
 
-// T must be `Sync` because we are passing `&T` into futures. In practice `T` is plain old data,
-// which is always `Sync`.
 #[async_trait]
-impl<T, C: Context> ReshareBorrowed<C, NoRecord> for [T]
+impl<S, C: Context> Reshare<C, NoRecord> for Vec<S>
 where
-    T: Reshare<C, RecordId> + Send + Sync,
+    S: Reshare<C, RecordId> + Send + Sync,
 {
-    type Output = Vec<T>;
-    /// This is intended to be used for resharing arbitrarily long vectors of something other than
-    /// bit-decomposed values (because resharing of bit-decomposed values uses record iteration).
-    async fn reshare_borrowed<'fut>(
-        self: &[T],
+    async fn reshare<'fut>(
+        &self,
         ctx: C,
-        _: NoRecord,
+        _record_binding: NoRecord,
         to_helper: Role,
-    ) -> Result<Vec<T>, Error>
+    ) -> Result<Vec<S>, Error>
     where
         C: 'fut,
     {
@@ -212,30 +187,7 @@ where
     }
 }
 
-// Note that this can delegate to either of the ReshareBorrowed implementations (short or long
-// vectors) depending on the specified RecordBinding.
-#[async_trait]
-impl<T, C: Context, B: RecordBinding> Reshare<C, B> for Vec<T>
-where
-    T: Reshare<C, RecordId> + Send + Sync,
-    [T]: ReshareBorrowed<C, B, Output = Vec<T>>,
-{
-    async fn reshare<'fut>(
-        self: &Vec<T>,
-        ctx: C,
-        record_binding: B,
-        to_helper: Role,
-    ) -> Result<Vec<T>, Error>
-    where
-        C: 'fut,
-    {
-        self.as_slice()
-            .reshare_borrowed(ctx, record_binding, to_helper)
-            .await
-    }
-}
-
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     mod semi_honest {
         use crate::{

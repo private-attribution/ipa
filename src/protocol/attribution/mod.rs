@@ -55,8 +55,10 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
-    Vec<SB>: DowngradeMalicious<Target = Vec<SemiHonestAdditiveShare<Gf2>>>,
+    SB: LinearSecretSharing<Gf2>
+        + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
+        + DowngradeMalicious<Target = Replicated<Gf2>>
+        + 'static,
     F: PrimeField + ExtendableField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,

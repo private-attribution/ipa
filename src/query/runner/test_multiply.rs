@@ -65,7 +65,7 @@ where
     Ok(results)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
@@ -83,7 +83,7 @@ mod tests {
         let a = [Fp31::truncate_from(4u128), Fp31::truncate_from(5u128)];
         let b = [Fp31::truncate_from(3u128), Fp31::truncate_from(6u128)];
 
-        let helper_shares = (a, b).share().map(|(a, b)| {
+        let helper_shares = (a.into_iter(), b.into_iter()).share().map(|(a, b)| {
             const SIZE: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
             a.into_iter()
                 .zip(b)

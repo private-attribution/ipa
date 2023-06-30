@@ -51,7 +51,7 @@ pub async fn compose<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>, C: Co
     Ok(unshuffled_rho)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::{Field, Fp31},

@@ -22,7 +22,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -272,13 +272,13 @@ where
 }
 
 pub struct BinarySharedIPAInputs<T: LinearSecretSharing<Gf2>> {
-    pub match_key: Vec<T>,
-    pub breakdown_key: Vec<T>,
+    pub match_key: BitDecomposed<T>,
+    pub breakdown_key: BitDecomposed<T>,
 }
 
 impl<T: LinearSecretSharing<Gf2>> BinarySharedIPAInputs<T> {
     #[must_use]
-    pub fn new(match_key: Vec<T>, breakdown_key: Vec<T>) -> Self {
+    pub fn new(match_key: BitDecomposed<T>, breakdown_key: BitDecomposed<T>) -> Self {
         Self {
             match_key,
             breakdown_key,
@@ -446,7 +446,7 @@ where
 
 fn get_gf2_match_key_bits<F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
-) -> Vec<Vec<Replicated<Gf2>>>
+) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
     MK: GaloisField,
@@ -455,21 +455,19 @@ where
     input_rows
         .iter()
         .map(|row| {
-            (0..MK::BITS)
-                .map(|i| {
-                    Replicated::new(
-                        Gf2::truncate_from(row.mk_shares.left()[i]),
-                        Gf2::truncate_from(row.mk_shares.right()[i]),
-                    )
-                })
-                .collect::<Vec<_>>()
+            BitDecomposed::decompose(MK::BITS, |i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.mk_shares.left()[i]),
+                    Gf2::truncate_from(row.mk_shares.right()[i]),
+                )
+            })
         })
         .collect::<Vec<_>>()
 }
 
 fn get_gf2_breakdown_key_bits<F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
-) -> Vec<Vec<Replicated<Gf2>>>
+) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
     MK: GaloisField,
@@ -478,19 +476,17 @@ where
     input_rows
         .iter()
         .map(|row| {
-            (0..BK::BITS)
-                .map(|i| {
-                    Replicated::new(
-                        Gf2::truncate_from(row.breakdown_key.left()[i]),
-                        Gf2::truncate_from(row.breakdown_key.right()[i]),
-                    )
-                })
-                .collect::<Vec<_>>()
+            BitDecomposed::decompose(BK::BITS, |i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.breakdown_key.left()[i]),
+                    Gf2::truncate_from(row.breakdown_key.right()[i]),
+                )
+            })
         })
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{
@@ -552,7 +548,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -598,7 +594,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -653,7 +649,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -705,7 +701,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .malicious(records, |ctx, input_rows| async move {
+            .malicious(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -767,7 +763,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
+            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -792,7 +788,7 @@ pub mod tests {
         }
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -850,7 +846,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
+            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -880,7 +876,7 @@ pub mod tests {
         }
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -992,7 +988,7 @@ pub mod tests {
 
         let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -1096,7 +1092,8 @@ pub mod tests {
             )
         }
 
-        fn generate_input<F: Field>() -> Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
+        fn generate_input<F: Field>(
+        ) -> std::vec::IntoIter<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
             ipa_test_input!(
                 [
                     { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
@@ -1110,7 +1107,7 @@ pub mod tests {
                     { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
                 ];
                 (F, MatchKey, BreakdownKey)
-            )
+            ).into_iter()
         }
 
         /// Metrics that reflect IPA performance
@@ -1144,11 +1141,10 @@ pub mod tests {
             mode: IpaSecurityModel,
             expected: PerfMetrics,
         ) {
-            let records = generate_input();
             let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
             let world = TestWorld::new_with(test_config);
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = match mode {
-                Malicious => world.malicious(records, |ctx, input_rows| async move {
+                Malicious => world.malicious(generate_input(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
@@ -1157,7 +1153,7 @@ pub mod tests {
                     .await
                     .unwrap()
                 }),
-                SemiHonest => world.semi_honest(records, |ctx, input_rows| async move {
+                SemiHonest => world.semi_honest(generate_input(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,

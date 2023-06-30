@@ -1,7 +1,10 @@
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
-    helpers::{query::IpaQueryConfig, BodyStream, LengthDelimitedStream, RecordsStream},
+    helpers::{
+        query::{IpaQueryConfig, QuerySize},
+        BodyStream, LengthDelimitedStream, RecordsStream,
+    },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -17,12 +20,13 @@ use crate::{
         replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
         Linear as LinearSecretSharing,
     },
+    sync::Arc,
 };
 use futures::{
     stream::{iter, repeat},
     Stream, StreamExt, TryStreamExt,
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::marker::PhantomData;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,
@@ -67,6 +71,7 @@ where
     pub async fn execute<'a>(
         self,
         ctx: C,
+        query_size: QuerySize,
         input_stream: BodyStream,
     ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
         let Self {
@@ -74,13 +79,17 @@ where
             key_registry,
             phantom_data: _,
         } = self;
+        let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            assert_stream_send(
-                RecordsStream::<IPAInputRow<F, MatchKey, BreakdownKey>, _>::new(input_stream),
-            )
+            let mut v = assert_stream_send(RecordsStream::<
+                IPAInputRow<F, MatchKey, BreakdownKey>,
+                _,
+            >::new(input_stream))
             .try_concat()
-            .await?
+            .await?;
+            v.truncate(sz);
+            v
         } else {
             assert_stream_send(LengthDelimitedStream::<
                 EncryptedReport<F, MatchKey, BreakdownKey, _>,
@@ -95,6 +104,7 @@ where
                 }))
             })
             .try_flatten()
+            .take(sz)
             .zip(repeat(ctx.clone()))
             .map(|(res, ctx)| {
                 res.and_then(|report| {
@@ -143,7 +153,7 @@ pub fn assert_stream_send<'a, T>(
 }
 
 /// no dependency on `weak-field` feature because it is enabled in tests by default
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra",))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::zip;
 
@@ -171,10 +181,16 @@ mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                // everything below this line will be ignored in IPA
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 1, breakdown_key: 1, trigger_value: 20 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
+
         let records = records
+            .into_iter()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
@@ -205,7 +221,11 @@ mod tests {
                 plaintext_match_keys: true,
             };
             let input = BodyStream::from(shares);
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(ctx, input)
+            // Note that we ignore the last 2 records to test that runner follows the rule
+            // to take up to `record_count` reports. Everything else outside that will
+            // be ignored
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty()))
+                .execute(ctx, query_size, input)
         }))
         .await;
 
@@ -236,7 +256,10 @@ mod tests {
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
+        let query_size = QuerySize::try_from(records.len()).unwrap();
+
         let records = records
+            .into_iter()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
@@ -257,6 +280,7 @@ mod tests {
 
         let world = TestWorld::default();
         let contexts = world.malicious_contexts();
+
         #[allow(clippy::large_futures)]
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
@@ -266,7 +290,11 @@ mod tests {
                 max_breakdown_key: 3,
                 plaintext_match_keys: true,
             };
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(ctx, shares.into())
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
+                ctx,
+                query_size,
+                shares.into(),
+            )
         }))
         .await;
 
@@ -294,9 +322,13 @@ mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                // everything below this line will be ignored in IPA
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 1, breakdown_key: 1, trigger_value: 20 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
 
         let mut rng = StdRng::seed_from_u64(42);
         let key_id = DEFAULT_KEY_ID;
@@ -304,7 +336,7 @@ mod tests {
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
-        let shares: [Vec<Report<_, _, _>>; 3] = records.share();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.into_iter().share();
         for (buf, shares) in zip(&mut buffers, shares) {
             for share in shares {
                 share
@@ -325,7 +357,7 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, input)
+            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, query_size, input)
         }))
         .await;
 

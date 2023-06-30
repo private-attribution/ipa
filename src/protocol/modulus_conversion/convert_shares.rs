@@ -32,7 +32,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
     seq_join::assert_send,
 };
@@ -97,12 +97,12 @@ pub fn convert_bit_local<F: Field, B: GaloisField>(
 pub fn convert_all_bits_local<F: Field, B: GaloisField>(
     helper_role: Role,
     input: impl Iterator<Item = Replicated<B>>,
-) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
+) -> Vec<BitDecomposed<BitConversionTriple<Replicated<F>>>> {
     input
         .map(move |record| {
-            (0..B::BITS)
-                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, &record))
-                .collect::<Vec<_>>()
+            BitDecomposed::decompose(B::BITS, |bit_index| {
+                convert_bit_local::<F, B>(helper_role, bit_index, &record)
+            })
         })
         .collect::<Vec<_>>()
 }
@@ -142,10 +142,10 @@ where
 #[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = %num_bits, parallel = %num_multi_bits, gate = %ctx.gate()))]
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
-    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
+    locally_converted_bits: &[BitDecomposed<BitConversionTriple<S>>],
     num_bits: u32,
     num_multi_bits: u32,
-) -> Result<Vec<Vec<Vec<S>>>, Error>
+) -> Result<Vec<Vec<BitDecomposed<S>>>, Error>
 where
     F: Field,
     C: Context,
@@ -184,29 +184,31 @@ pub async fn convert_bit_list<F, C, S>(
     ctx: C,
     locally_converted_bits: &[&BitConversionTriple<S>],
     record_id: RecordId,
-) -> Result<Vec<S>, Error>
+) -> Result<BitDecomposed<S>, Error>
 where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
     // True concurrency needed here (different contexts).
-    ctx.parallel_join(
-        zip(repeat(ctx.clone()), locally_converted_bits.iter())
-            .enumerate()
-            .map(|(i, (ctx, bit))| async move {
-                convert_bit(
-                    ctx.narrow(&IpaProtocolStep::ModulusConversion(i.try_into().unwrap())),
-                    record_id,
-                    bit,
-                )
-                .await
-            }),
+    BitDecomposed::try_from(
+        ctx.parallel_join(
+            zip(repeat(ctx.clone()), locally_converted_bits.iter())
+                .enumerate()
+                .map(|(i, (ctx, bit))| async move {
+                    convert_bit(
+                        ctx.narrow(&IpaProtocolStep::ModulusConversion(i.try_into().unwrap())),
+                        record_id,
+                        bit,
+                    )
+                    .await
+                }),
+        )
+        .await?,
     )
-    .await
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         error::Error,

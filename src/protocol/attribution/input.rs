@@ -11,7 +11,7 @@ use crate::{
             },
             semi_honest::{AdditiveShare as Replicated, AdditiveShare},
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -37,7 +37,7 @@ pub struct MCApplyAttributionWindowInputRow<F: Field, S: LinearSecretSharing<F>>
     pub timestamp: S,
     pub is_trigger_report: S,
     pub helper_bit: S,
-    pub breakdown_key: Vec<Replicated<Gf2>>,
+    pub breakdown_key: BitDecomposed<Replicated<Gf2>>,
     pub trigger_value: S,
     _marker: PhantomData<F>,
 }
@@ -47,7 +47,7 @@ impl<F: Field, S: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, S>
         timestamp: S,
         is_trigger_report: S,
         helper_bit: S,
-        breakdown_key: Vec<Replicated<Gf2>>,
+        breakdown_key: BitDecomposed<Replicated<Gf2>>,
         trigger_value: S,
     ) -> Self {
         Self {
@@ -80,7 +80,7 @@ pub struct MCAccumulateCreditInputRow<F: Field, S: LinearSecretSharing<F>> {
     pub is_trigger_report: S,
     pub helper_bit: S,
     pub active_bit: S,
-    pub breakdown_key: Vec<Replicated<Gf2>>,
+    pub breakdown_key: BitDecomposed<Replicated<Gf2>>,
     pub trigger_value: S,
     _marker: PhantomData<F>,
 }
@@ -90,7 +90,7 @@ impl<F: Field, S: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, S> {
         is_trigger_report: S,
         helper_bit: S,
         active_bit: S,
-        breakdown_key: Vec<Replicated<Gf2>>,
+        breakdown_key: BitDecomposed<Replicated<Gf2>>,
         trigger_value: S,
     ) -> Self {
         Self {
@@ -121,7 +121,7 @@ pub struct CreditCappingInputRow<F: Field, BK: GaloisField> {
 pub struct MCCreditCappingInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
-    pub breakdown_key: Vec<Replicated<Gf2>>,
+    pub breakdown_key: BitDecomposed<Replicated<Gf2>>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
@@ -130,7 +130,7 @@ impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
-        breakdown_key: Vec<Replicated<Gf2>>,
+        breakdown_key: BitDecomposed<Replicated<Gf2>>,
         trigger_value: T,
     ) -> Self {
         Self {
@@ -145,12 +145,12 @@ impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingInputRow<F, T> {
 
 #[derive(Debug)]
 pub struct MCCreditCappingOutputRow<F: Field, T: LinearSecretSharing<F>> {
-    pub breakdown_key: Vec<Replicated<Gf2>>,
+    pub breakdown_key: BitDecomposed<Replicated<Gf2>>,
     pub credit: T,
     _marker: PhantomData<F>,
 }
 impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
-    pub fn new(breakdown_key: Vec<Replicated<Gf2>>, credit: T) -> Self {
+    pub fn new(breakdown_key: BitDecomposed<Replicated<Gf2>>, credit: T) -> Self {
         Self {
             breakdown_key,
             credit,
@@ -167,12 +167,14 @@ where
 {
     type Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let Self {
+            breakdown_key,
+            credit,
+            ..
+        } = self;
         UnauthorizedDowngradeWrapper::new(Self::Target::new(
-            self.breakdown_key
-                .into_iter()
-                .map(|bk| bk.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            self.credit.x().access_without_downgrade().clone(),
+            breakdown_key.map(|bk| bk.downgrade().access_without_downgrade()),
+            credit.downgrade().access_without_downgrade(),
         ))
     }
 }
@@ -203,7 +205,7 @@ pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
 // TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
 //       instead of having a `Vec`, we can probably use an array since the length is known at compile time
 pub struct MCAggregateCreditOutputRow<F, T, BK> {
-    pub breakdown_key: Vec<T>,
+    pub breakdown_key: BitDecomposed<T>,
     pub credit: T,
     _marker: PhantomData<(F, BK)>,
 }
@@ -217,7 +219,7 @@ where
     /// We know there will be exactly `BK::BITS` number of `breakdown_key` parts
     pub const SIZE: usize = (BK::BITS as usize + 1) * <T as Serializable>::Size::USIZE;
 
-    pub fn new(breakdown_key: Vec<T>, credit: T) -> Self {
+    pub fn new(breakdown_key: BitDecomposed<T>, credit: T) -> Self {
         Self {
             breakdown_key,
             credit,
@@ -252,13 +254,13 @@ where
     #[must_use]
     pub fn deserialize(buf: &[u8]) -> Self {
         assert_eq!(buf.len(), Self::SIZE);
-        let mut breakdown_key = Vec::with_capacity(BK::BITS as usize);
-        for i in 0..BK::BITS as usize {
-            breakdown_key.push(<T as Serializable>::deserialize(GenericArray::from_slice(
+        let breakdown_key = BitDecomposed::decompose(BK::BITS, |i| {
+            let i = i as usize;
+            <T as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[<T as Serializable>::Size::USIZE * i
                     ..<T as Serializable>::Size::USIZE * (i + 1)],
-            )));
-        }
+            ))
+        });
         let credit = <T as Serializable>::deserialize(GenericArray::from_slice(
             &buf[<T as Serializable>::Size::USIZE * BK::BITS as usize..],
         ));

@@ -12,7 +12,7 @@ use crate::{
     repeat64str,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -41,6 +41,16 @@ use std::marker::PhantomData;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 /// let _ = <UpgradeContext<C<'_, F>, F, NoRecord> as UpgradeToMalicious<(Vec<Replicated<F>>, Vec<Replicated<F>>), _>>::upgrade;
 /// ```
+///
+/// ```compile_fail
+/// use ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
+/// use ipa::ff::Fp32BitPrime as F;
+/// use ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
+/// // This can't be upgraded with a record-bound context because the record ID
+/// // is used internally for vector indexing.
+/// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
 pub struct UpgradeContext<
     'a,
     C: UpgradedContext<F>,
@@ -205,11 +215,9 @@ where
     }
 }
 
-/// This function is not a generic implementation of 2D vector upgrade.
-/// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
-/// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<T>, Vec<M>> for UpgradeContext<'a, C, F, RecordId>
+impl<'a, C, F, T, M> UpgradeToMalicious<'a, BitDecomposed<T>, BitDecomposed<M>>
+    for UpgradeContext<'a, C, F, RecordId>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
@@ -217,18 +225,18 @@ where
     M: Send + 'static,
     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
 {
-    /// # Panics
-    /// Only vectors with 64 or less items are supported; larger vectors cause a panic.
-    async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
+    async fn upgrade(self, input: BitDecomposed<T>) -> Result<BitDecomposed<M>, Error> {
         let ctx_ref = &self.ctx;
         let record_id = self.record_binding;
-        self.ctx
-            .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
-                UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
-                    .upgrade(share)
-                    .await
-            }))
-            .await
+        BitDecomposed::try_from(
+            self.ctx
+                .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
+                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
+                        .upgrade(share)
+                        .await
+                }))
+                .await?,
+        )
     }
 }
 
@@ -367,8 +375,7 @@ where
     }
 }
 
-// Impl for upgrading things that can be upgraded using a single record ID using a non-record-bound
-// context. This is only used for tests where the protocol takes a single `Replicated<F>` input.
+// Impl to upgrade a single `Replicated<F>` using a non-record-bound context. Used for tests.
 #[cfg(test)]
 #[async_trait]
 impl<'a, C, F, M> UpgradeToMalicious<'a, Replicated<F>, M> for UpgradeContext<'a, C, F, NoRecord>

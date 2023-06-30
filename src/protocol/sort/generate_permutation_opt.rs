@@ -18,7 +18,7 @@ use crate::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use embed_doc_image::embed_doc_image;
@@ -85,7 +85,7 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
     F: PrimeField + ExtendableField,
-    I: IntoIterator<Item = &'a Vec<Vec<Replicated<F>>>>,
+    I: IntoIterator<Item = &'a Vec<BitDecomposed<Replicated<F>>>>,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     let mut malicious_validator = sh_ctx.clone().validator();
@@ -154,7 +154,7 @@ where
     ))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField, Gf40Bit},
@@ -185,20 +185,23 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
+            .semi_honest(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    let local_lists =
+                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                    let converted_shares =
+                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
 
-                let (_validator, result) =
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                        .await
-                        .unwrap();
-                result
-            })
+                    let (_validator, result) =
+                        generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                            .await
+                            .unwrap();
+                    result
+                },
+            )
             .await;
 
         let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
@@ -224,17 +227,20 @@ mod tests {
         }
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
-            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
+            .malicious(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    let local_lists =
+                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                    let converted_shares =
+                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                         .await
-                        .unwrap();
-                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                    .await
-                    .unwrap()
-            })
+                        .unwrap()
+                },
+            )
             .await;
 
         let result = join3(
@@ -270,18 +276,21 @@ mod tests {
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         _ = world
-            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
+            .malicious(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    let local_lists =
+                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                    let converted_shares =
+                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
 
-                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                    .await
-                    .unwrap()
-            })
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 

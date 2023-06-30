@@ -29,7 +29,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
@@ -80,31 +80,32 @@ mod tests {
 
     #[tokio::test]
     async fn create_test_multiply() {
-        create_test(QueryConfig {
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        })
-        .await;
+        create_test(QueryConfig::new(QueryType::TestMultiply, FieldType::Fp31, 1).unwrap()).await;
     }
 
     #[tokio::test]
     async fn create_test_ipa_no_attr_window() {
-        create_test(QueryConfig {
-            field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
-                per_user_credit_cap: 1,
-                max_breakdown_key: 1,
-                attribution_window_seconds: None,
-                num_multi_bits: 3,
-                plaintext_match_keys: true,
-            }),
-        })
+        create_test(
+            QueryConfig::new(
+                QueryType::SemiHonestIpa(IpaQueryConfig {
+                    per_user_credit_cap: 1,
+                    max_breakdown_key: 1,
+                    attribution_window_seconds: None,
+                    num_multi_bits: 3,
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
+            )
+            .unwrap(),
+        )
         .await;
     }
 
     #[tokio::test]
     async fn create_test_ipa_with_attr_window() {
         create_test(QueryConfig {
+            size: 1.try_into().unwrap(),
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                 per_user_credit_cap: 1,
@@ -125,11 +126,11 @@ mod tests {
     impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> hyper::Request<hyper::Body> {
             let uri = format!(
-                "http://localhost:{}{}?field_type={}&{}",
-                port,
-                http_serde::query::BASE_AXUM_PATH,
-                self.field_type,
-                self.query_type_params
+                "http://localhost:{p}{path}?size=1&field_type={f}&{qt}",
+                p = port,
+                path = http_serde::query::BASE_AXUM_PATH,
+                f = self.field_type,
+                qt = self.query_type_params
             );
             hyper::Request::post(uri)
                 .body(hyper::Body::empty())
@@ -184,22 +185,25 @@ mod tests {
         query_type: String,
         per_user_credit_cap: String,
         max_breakdown_key: String,
-        attribution_window_seconds: String,
+        attribution_window_seconds: Option<String>,
         num_multi_bits: String,
     }
 
     impl IntoFailingReq for OverrideIPAReq {
         fn into_req(self, port: u16) -> Request<Body> {
+            let mut query = format!(
+                "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                self.query_type,
+                self.per_user_credit_cap,
+                self.max_breakdown_key,
+                self.num_multi_bits
+            );
+            if let Some(window) = self.attribution_window_seconds {
+                query.push_str(&format!("&attribution_window_seconds={window}"));
+            }
             OverrideReq {
                 field_type: self.field_type,
-                query_type_params: format!(
-                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&attribution_window_seconds={}&num_multi_bits={}",
-                    self.query_type,
-                    self.per_user_credit_cap,
-                    self.max_breakdown_key,
-                    self.attribution_window_seconds,
-                    self.num_multi_bits
-                ),
+                query_type_params: query,
             }
             .into_req(port)
         }
@@ -212,7 +216,7 @@ mod tests {
                 query_type: QueryType::SEMIHONEST_IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
-                attribution_window_seconds: "0".into(),
+                attribution_window_seconds: None,
                 num_multi_bits: "3".into(),
             }
         }
@@ -257,7 +261,7 @@ mod tests {
     #[tokio::test]
     async fn malformed_attribution_window_seconds_ipa() {
         let req = OverrideIPAReq {
-            attribution_window_seconds: "-1".into(),
+            attribution_window_seconds: Some("-1".to_string()),
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;

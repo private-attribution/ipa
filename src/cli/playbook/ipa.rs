@@ -1,5 +1,4 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
-
 use crate::{
     ff::{Field, PrimeField, Serializable},
     helpers::{query::QueryInput, BodyStream},
@@ -18,7 +17,7 @@ use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::SeedableRng;
-use std::iter::zip;
+use std::{iter::zip, time::Instant};
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
@@ -39,15 +38,16 @@ where
     KR: PublicKeyRegistry,
 {
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+    let query_size = records.len();
 
     if let Some((key_id, key_registries)) = encryption {
         const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
         for buffer in &mut buffers {
-            buffer.reserve(records.len() * ESTIMATED_AVERAGE_REPORT_SIZE);
+            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
         }
 
         let mut rng = StdRng::from_entropy();
-        let shares: [Vec<Report<_, _, _>>; 3] = records.to_owned().share();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
         zip(&mut buffers, shares)
             .zip(key_registries)
             .for_each(|((buf, shares), key_registry)| {
@@ -60,24 +60,21 @@ where
     } else {
         let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
-            buffer.resize(records.len() * sz, 0u8);
+            buffer.resize(query_size * sz, 0u8);
         }
 
-        let inputs = records
-            .iter()
-            .map(|x| {
-                ipa_test_input!(
-                    {
-                        timestamp: x.timestamp,
-                        match_key: x.user_id,
-                        is_trigger_report: x.is_trigger_report,
-                        breakdown_key: x.breakdown_key,
-                        trigger_value: x.trigger_value,
-                    };
-                    (F, MatchKey, BreakdownKey)
-                )
-            })
-            .collect::<Vec<_>>();
+        let inputs = records.iter().map(|x| {
+            ipa_test_input!(
+                {
+                    timestamp: x.timestamp,
+                    match_key: x.user_id,
+                    is_trigger_report: x.is_trigger_report,
+                    breakdown_key: x.breakdown_key,
+                    trigger_value: x.trigger_value,
+                };
+                (F, MatchKey, BreakdownKey)
+            )
+        });
         let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
         zip(&mut buffers, shares).for_each(|(buf, shares)| {
             for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
@@ -87,7 +84,8 @@ where
     }
 
     let inputs = buffers.map(BodyStream::from);
-
+    tracing::info!("Starting query after finishing encryption");
+    let mpc_time = Instant::now();
     try_join_all(
         inputs
             .into_iter()
@@ -115,7 +113,10 @@ where
                 .collect::<Vec<_>>()
         })
         .reconstruct();
-
+    tracing::info!(
+        "Running IPA for {query_size:?} records took {t:?}",
+        t = mpc_time.elapsed()
+    );
     let mut breakdowns = Vec::new();
     for row in results {
         let breakdown_key = usize::try_from(row.breakdown_key.as_u128()).unwrap();
