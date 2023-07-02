@@ -1,6 +1,7 @@
-use crate::models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number};
-
-use super::sample::Sample;
+use crate::{
+    models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number},
+    sample::Sample,
+};
 use bitvec::view::BitViewSized;
 use rand::{
     distributions::{Bernoulli, Distribution},

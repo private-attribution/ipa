@@ -3,16 +3,10 @@ use crate::{
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
-        attribution::{
-            input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
-            secure_attribution,
-        },
+        attribution::{input::MCAggregateCreditOutputRow, secure_attribution},
         basics::Reshare,
         boolean::RandomBits,
-        context::{
-            upgrade::IPAModulusConvertedInputRowWrapper, Context, UpgradableContext,
-            UpgradedContext, Validator,
-        },
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::apply_sort_permutation,
@@ -32,9 +26,9 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::try_join4;
+use futures_util::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
-use std::{marker::PhantomData, ops::Add};
+use std::{iter::zip, marker::PhantomData, ops::Add};
 use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,6 +39,8 @@ pub enum Step {
     ApplySortPermutation,
     ApplySortPermutationToMatchKeys,
     AfterConvertAllBits,
+    UpgradeMatchKeyBits,
+    UpgradeBreakdownKeyBits,
     BinaryValidator,
 }
 
@@ -59,6 +55,8 @@ impl AsRef<str> for Step {
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::UpgradeMatchKeyBits => "upgrade_match_key_bits",
+            Self::UpgradeBreakdownKeyBits => "upgrade_breakdown_key_bits",
             Self::BinaryValidator => "binary_validator",
         }
     }
@@ -212,25 +210,18 @@ where
     }
 }
 
-pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
+pub struct ArithmeticallySharedIPAInputs<F: Field, T: LinearSecretSharing<F>> {
     pub timestamp: T,
     pub is_trigger_bit: T,
-    pub breakdown_key: BitDecomposed<T>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(
-        timestamp: T,
-        is_trigger_bit: T,
-        breakdown_key: BitDecomposed<T>,
-        trigger_value: T,
-    ) -> Self {
+impl<F: Field, T: LinearSecretSharing<F>> ArithmeticallySharedIPAInputs<F, T> {
+    pub fn new(timestamp: T, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             timestamp,
             is_trigger_bit,
-            breakdown_key,
             trigger_value,
             _marker: PhantomData,
         }
@@ -238,7 +229,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
 }
 
 #[async_trait]
-impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
+impl<F, T, C> Reshare<C, RecordId> for ArithmeticallySharedIPAInputs<F, T>
 where
     F: Field,
     T: LinearSecretSharing<F> + Reshare<C, RecordId>,
@@ -263,31 +254,68 @@ where
             record_id,
             to_helper,
         );
-        let f_breakdown_key = self.breakdown_key.reshare(
-            ctx.narrow(&IPAInputRowResharableStep::BreakdownKey),
-            record_id,
-            to_helper,
-        );
         let f_trigger_value = self.trigger_value.reshare(
             ctx.narrow(&IPAInputRowResharableStep::TriggerValue),
             record_id,
             to_helper,
         );
 
-        let (breakdown_key, timestamp, is_trigger_bit, trigger_value) = try_join4(
-            f_breakdown_key,
-            f_timestamp,
-            f_is_trigger_bit,
-            f_trigger_value,
+        let (timestamp, is_trigger_bit, trigger_value) =
+            try_join3(f_timestamp, f_is_trigger_bit, f_trigger_value).await?;
+
+        Ok(ArithmeticallySharedIPAInputs::new(
+            timestamp,
+            is_trigger_bit,
+            trigger_value,
+        ))
+    }
+}
+
+pub struct BinarySharedIPAInputs<T: LinearSecretSharing<Gf2>> {
+    pub match_key: BitDecomposed<T>,
+    pub breakdown_key: BitDecomposed<T>,
+}
+
+impl<T: LinearSecretSharing<Gf2>> BinarySharedIPAInputs<T> {
+    #[must_use]
+    pub fn new(match_key: BitDecomposed<T>, breakdown_key: BitDecomposed<T>) -> Self {
+        Self {
+            match_key,
+            breakdown_key,
+        }
+    }
+}
+
+#[async_trait]
+impl<T, C> Reshare<C, RecordId> for BinarySharedIPAInputs<T>
+where
+    T: LinearSecretSharing<Gf2> + Reshare<C, RecordId>,
+    C: Context,
+{
+    async fn reshare<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
+    where
+        C: 'fut,
+    {
+        let (match_key, breakdown_key) = try_join(
+            self.match_key.reshare(
+                ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
+                record_id,
+                to_helper,
+            ),
+            self.breakdown_key.reshare(
+                ctx.narrow(&IPAInputRowResharableStep::BreakdownKey),
+                record_id,
+                to_helper,
+            ),
         )
         .await?;
 
-        Ok(IPAModulusConvertedInputRow::new(
-            timestamp,
-            is_trigger_bit,
-            breakdown_key,
-            trigger_value,
-        ))
+        Ok(BinarySharedIPAInputs::new(match_key, breakdown_key))
     }
 }
 
@@ -322,8 +350,6 @@ where
     MK: GaloisField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
@@ -334,10 +360,7 @@ where
     let validator = sh_ctx.clone().validator::<F>();
     let m_ctx = validator.context();
 
-    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
-        .iter()
-        .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
-        .unzip();
+    let mk_shares: Vec<_> = input_rows.iter().map(|x| x.mk_shares.clone()).collect();
 
     // Match key modulus conversion, and then sort
     let locally_converted = convert_all_bits_local(m_ctx.role(), mk_shares.into_iter());
@@ -364,31 +387,25 @@ where
     let m_ctx = validator.context();
 
     let gf2_match_key_bits = get_gf2_match_key_bits(input_rows);
+    let gf2_breakdown_key_bits = get_gf2_breakdown_key_bits(input_rows);
 
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     let binary_m_ctx = binary_validator.context();
 
-    let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
-
-    // Breakdown key modulus conversion
-    let mut converted_bk_shares = convert_all_bits(
-        &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &m_ctx
-            .narrow(&Step::ModulusConversionForBreakdownKeys)
-            .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
-            .await?,
-        BK::BITS,
-        BK::BITS,
+    let (upgraded_gf2_match_key_bits, upgraded_gf2_breakdown_key_bits) = try_join(
+        binary_m_ctx
+            .narrow(&Step::UpgradeMatchKeyBits)
+            .upgrade(gf2_match_key_bits),
+        binary_m_ctx
+            .narrow(&Step::UpgradeBreakdownKeyBits)
+            .upgrade(gf2_breakdown_key_bits),
     )
-    .await
-    .unwrap();
+    .await?;
 
-    let converted_bk_shares = converted_bk_shares.pop().unwrap();
-
-    let intermediate = input_rows
+    let arithmetically_shared_values = input_rows
         .iter()
         .map(|input_row| {
-            IPAModulusConvertedInputRowWrapper::new(
+            ArithmeticallySharedIPAInputs::new(
                 input_row.timestamp.clone(),
                 input_row.is_trigger_bit.clone(),
                 input_row.trigger_value.clone(),
@@ -396,42 +413,32 @@ where
         })
         .collect::<Vec<_>>();
 
-    let intermediate = m_ctx.upgrade(intermediate).await?;
+    let arithmetically_shared_values = m_ctx.upgrade(arithmetically_shared_values).await?;
 
-    let inputs_sans_match_keys = intermediate
-        .into_iter()
-        .zip(converted_bk_shares)
-        .map(|(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, S> {
-            timestamp: one_row.timestamp,
-            is_trigger_bit: one_row.is_trigger_bit,
-            trigger_value: one_row.trigger_value,
-            breakdown_key: bk_shares,
-            _marker: PhantomData,
-        })
+    let binary_shared_values = zip(upgraded_gf2_match_key_bits, upgraded_gf2_breakdown_key_bits)
+        .map(|(match_key, breakdown_key)| BinarySharedIPAInputs::new(match_key, breakdown_key))
         .collect::<Vec<_>>();
 
-    let sorted_rows = apply_sort_permutation(
-        m_ctx.narrow(&Step::ApplySortPermutation),
-        inputs_sans_match_keys,
-        &sort_permutation,
+    let (arithmetically_shared_values, binary_shared_values) = try_join(
+        apply_sort_permutation(
+            m_ctx.narrow(&Step::ApplySortPermutation),
+            arithmetically_shared_values,
+            &sort_permutation,
+        ),
+        apply_sort_permutation(
+            binary_m_ctx.narrow(&Step::ApplySortPermutation),
+            binary_shared_values,
+            &sort_permutation,
+        ),
     )
-    .await
-    .unwrap();
-
-    let sorted_match_keys = apply_sort_permutation(
-        binary_m_ctx.narrow(&Step::ApplySortPermutation),
-        upgraded_gf2_match_key_bits,
-        &sort_permutation,
-    )
-    .await
-    .unwrap();
+    .await?;
 
     secure_attribution(
         sh_ctx,
         validator,
         binary_validator,
-        sorted_match_keys,
-        sorted_rows,
+        arithmetically_shared_values,
+        binary_shared_values,
         config,
     )
     .await
@@ -452,6 +459,27 @@ where
                 Replicated::new(
                     Gf2::truncate_from(row.mk_shares.left()[i]),
                     Gf2::truncate_from(row.mk_shares.right()[i]),
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+}
+
+fn get_gf2_breakdown_key_bits<F, MK, BK>(
+    input_rows: &[IPAInputRow<F, MK, BK>],
+) -> Vec<BitDecomposed<Replicated<Gf2>>>
+where
+    F: PrimeField,
+    MK: GaloisField,
+    BK: GaloisField,
+{
+    input_rows
+        .iter()
+        .map(|row| {
+            BitDecomposed::decompose(BK::BITS, |i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.breakdown_key.left()[i]),
+                    Gf2::truncate_from(row.breakdown_key.right()[i]),
                 )
             })
         })
@@ -881,7 +909,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        const MAX_BREAKDOWN_KEY: u32 = 64;
+        const MAX_BREAKDOWN_KEY: u32 = 32;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: u64 = 8;
         const MAX_RECORDS_PER_USER: u32 = 8;
@@ -1156,9 +1184,9 @@ pub mod tests {
                 cap_one(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 14_589,
-                    bytes_sent: 49_068,
-                    indexed_prss: 19_473,
+                    records_sent: 14_421,
+                    bytes_sent: 47_100,
+                    indexed_prss: 19_137,
                     seq_prss: 1124,
                 },
             )
@@ -1171,9 +1199,9 @@ pub mod tests {
                 cap_three(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 21_936,
-                    bytes_sent: 78_456,
-                    indexed_prss: 28_494,
+                    records_sent: 21_774,
+                    bytes_sent: 76_512,
+                    indexed_prss: 28_170,
                     seq_prss: 1124,
                 },
             )
@@ -1186,9 +1214,9 @@ pub mod tests {
                 cap_one(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 36_714,
-                    bytes_sent: 137_568,
-                    indexed_prss: 76_014,
+                    records_sent: 36_090,
+                    bytes_sent: 133_776,
+                    indexed_prss: 74_046,
                     seq_prss: 1098,
                 },
             )
@@ -1201,9 +1229,9 @@ pub mod tests {
                 cap_three(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 55_440,
-                    bytes_sent: 212_472,
-                    indexed_prss: 113_337,
+                    records_sent: 54_828,
+                    bytes_sent: 208_728,
+                    indexed_prss: 111_393,
                     seq_prss: 1098,
                 },
             )
