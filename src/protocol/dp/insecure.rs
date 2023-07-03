@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::protocol::dp::distributions::BoxMuller;
+use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller};
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
 use std::f64;
@@ -13,7 +13,7 @@ pub enum Error {
     BadDelta(f64),
 }
 
-/// Applies DP to the inputs in the clear using smooth Laplacian noise. Works with floats only, so
+/// Applies DP to the inputs in the clear using continuous Gaussian noise. Works with floats only, so
 /// any trimming on values must be done externally.
 #[derive(Debug)]
 pub struct Dp {
@@ -53,6 +53,50 @@ impl Dp {
     {
         for v in input.as_mut() {
             let sample = self.normal_dist.sample(rng);
+            *v += sample;
+        }
+    }
+}
+
+/// Applies DP to the inputs in the clear using a rounded continuous Gaussian noise. Works with floats only, so
+/// any trimming on values must be done externally.
+#[derive(Debug)]
+pub struct DiscreteDp {
+    rounded_normal_dist: RoundedBoxMuller,
+}
+impl DiscreteDp {
+    /// ## Errors
+    /// If epsilon or delta is negative or delta exceeds the maximum value allowed.
+    pub fn new(epsilon: f64, delta: f64, cap: f64) -> Result<Self, Error> {
+        // make sure delta and epsilon are in range, i.e. >min and delta<1-min
+        if epsilon < f64::MIN_POSITIVE {
+            return Err(Error::BadEpsilon(epsilon));
+        }
+
+        if !(f64::MIN_POSITIVE..=1.0 - f64::MIN_POSITIVE).contains(&delta) {
+            return Err(Error::BadDelta(delta));
+        }
+
+        // for (eps, delta) DP, the variance needs to be sensitivity^2/(eps^2) * 2ln(1.25/delta) see https://arxiv.org/pdf/1702.07476.pdf page 2
+        // sensitivity=L2(max(output_(with user x) - output_(without user x)))=sqrt(breakdown_count * user_contribution_per_breakdown^2)<cap
+        // minimum eps, delta is 1/u64_max, max for delta is 1-min
+        let variance = (cap / epsilon) * f64::sqrt(2.0 * f64::ln(1.25 / delta));
+
+        Ok(Self {
+            rounded_normal_dist: RoundedBoxMuller {
+                mean: 0.0,
+                std: variance,
+            },
+        })
+    }
+
+    fn apply<I, R>(&self, mut input: I, rng: &mut R)
+    where
+        R: RngCore + CryptoRng,
+        I: AsMut<[f64]>,
+    {
+        for v in input.as_mut() {
+            let sample = self.rounded_normal_dist.sample(rng);
             *v += sample;
         }
     }
@@ -113,12 +157,12 @@ mod test {
         // LB = (n - 1) * std^2 / chi2inv(alpha/2,n - 1)
         // UB = (n - 1) * std^2 / chi2inv(1 - alpha/2, n - 1)
         // where N is the size of the sample, alpha - the probability of any value to be outside
-        // of the expected distribution range. For the purpose of this test, alpha is set to 0.01,
-        // chi2inv(0.9999,10,000 - 1) = 10,535
+        // of the expected distribution range. For the purpose of this test, alpha is set to 0.02%,
         // chi2inv(0.0001,10,000 - 1) = 9,482.6
+        // chi2inv(0.9999,10,000 - 1) = 10,535
         // if the dataset size changes, those values need to be recomputed
-        const CHI2_INV_LB: f64 = 9_482.6;
-        const CHI2_INV_UB: f64 = 10_535.0;
+        const CHI2_INV_UB: f64 = 9_482.6;
+        const CHI2_INV_LB: f64 = 10_535.0;
 
         let mut rng = StdRng::seed_from_u64(seed);
         let mut sample = [0_f64; N];
@@ -136,12 +180,12 @@ mod test {
             .sum::<f64>()
             / (n - 1.0);
         let distribution = dp.normal_dist.std.powi(2);
-        let lower = (n - 1.0) * distribution / CHI2_INV_UB;
-        let upper = (n - 1.0) * distribution / CHI2_INV_LB;
+        let lower = (n - 1.0) * distribution / CHI2_INV_LB;
+        let upper = (n - 1.0) * distribution / CHI2_INV_UB;
 
         assert!(
             lower <= sample_variance && sample_variance <= upper,
-            "{lower} <= {sample_variance} <= {upper} invariant does not hold"
+            "{lower} <= {sample_variance} <= {upper} invariant does not hold, epsilon = {epsilon}"
         );
     }
 
@@ -154,6 +198,40 @@ mod test {
             delta in 1e-9..1e-6,
             cap in 1..255_u8) {
             follows_normal_distribution(rng_seed, cap, epsilon, delta);
+        }
+    }
+
+    /// Tests for Rounded Normal
+    #[test]
+
+    fn epsilon_variance_table() {
+        // manual test to print the sample variance of rounded normal vs the variance of the continuous normal
+        // cargo test -- protocol::dp::insecure::test::epsilon_variance_table --nocapture
+        const N: usize = 10000;
+        let delta: f64 = 1e-6;
+        let cap = 1_u8;
+
+        for epsilon in 1..11_u8 {
+            let mut rng = thread_rng();
+            let mut sample = [0_f64; N];
+            let dp = DiscreteDp::new(f64::from(epsilon), delta, f64::from(cap)).unwrap();
+            #[allow(clippy::cast_precision_loss)]
+            let n = N as f64;
+            dp.apply(&mut sample, &mut rng);
+            let sample_mean = sample.iter().sum::<f64>() / n;
+            let sample_variance = sample
+                .iter()
+                .map(|i| (i - sample_mean).powi(2))
+                .sum::<f64>()
+                / (n - 1.0);
+
+            println!(
+                "epsilon = {}, rounded_normal_sample_variance = {}, continuous_variance = {}",
+                epsilon,
+                sample_variance,
+                dp.rounded_normal_dist.std.powi(2)
+            );
+            assert!(sample_variance - dp.rounded_normal_dist.std.powi(2) < 1.0);
         }
     }
 }
