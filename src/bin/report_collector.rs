@@ -24,9 +24,9 @@ use rand_core::SeedableRng;
 use std::{
     error::Error,
     fmt::Debug,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io,
-    io::{stdout, Write},
+    io::{stdout, BufWriter, Write},
     path::PathBuf,
 };
 
@@ -51,6 +51,10 @@ struct Args {
 
     #[clap(flatten)]
     input: CommandInput,
+
+    /// The destination file for generated records
+    #[arg(long)]
+    output_file: Option<PathBuf>,
 
     #[command(subcommand)]
     action: ReportCollectorCommand,
@@ -91,10 +95,6 @@ enum ReportCollectorCommand {
         #[clap(long, short = 's')]
         seed: Option<u64>,
 
-        /// The destination file for generated records
-        #[arg(long)]
-        output_file: Option<PathBuf>,
-
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
@@ -123,7 +123,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (clients, network) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
         ReportCollectorCommand::SemiHonestIpa(config) => {
-            // semi_honest_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
@@ -131,10 +130,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 &config,
                 &clients,
             )
-            .await
+            .await?
         }
         ReportCollectorCommand::MaliciousIpa(config) => {
-            // malicious_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
@@ -142,14 +140,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 &config,
                 &clients,
             )
-            .await
+            .await?
         }
         ReportCollectorCommand::GenIpaInputs {
             count,
             seed,
-            output_file,
             gen_args,
-        } => gen_inputs(count, seed, output_file, gen_args).unwrap(),
+        } => gen_inputs(count, seed, args.output_file, gen_args).unwrap(),
     };
 
     Ok(())
@@ -222,7 +219,7 @@ async fn ipa(
     security_model: IpaSecurityModel,
     ipa_query_config: &IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
-) {
+) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
     match security_model {
@@ -282,5 +279,23 @@ async fn ipa(
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-    validate(expected, actual)
+    validate(&expected, &actual);
+
+    if let Some(ref path) = args.output_file {
+        let file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
+
+        let mut writer = BufWriter::new(file);
+        for (i, row) in actual.iter().enumerate() {
+            if i > 0 {
+                write!(writer, ",")?;
+            }
+            write!(writer, "{}", row)?;
+        }
+    }
+
+    Ok(())
 }

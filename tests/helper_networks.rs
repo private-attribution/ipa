@@ -198,6 +198,7 @@ fn test_network(https: bool) {
 }
 
 fn test_ipa(mode: IpaSecurityModel, https: bool) {
+    const BREAKDOWNS: usize = 20;
     // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new(false);
     let path = dir.path();
@@ -208,13 +209,14 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
 
     // Gen inputs
     let inputs_file = dir.path().join("ipa_inputs.txt");
+    let output_file = dir.path().join("ipa_output.txt");
     let mut command = Command::new(TEST_RC_BIN);
     command
+        .args(["--output-file".as_ref(), inputs_file.as_os_str()])
         .arg("gen-ipa-inputs")
         .args(["--count", "10"])
-        .args(["--max-breakdown-key", "20"])
+        .args(["--max-breakdown-key", &BREAKDOWNS.to_string()])
         .args(["--seed", &thread_rng().next_u64().to_string()])
-        .args(["--output-file".as_ref(), inputs_file.as_os_str()])
         .silent()
         .stdin(Stdio::piped());
     command.status().unwrap_status();
@@ -224,6 +226,7 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
     command
         .args(["--network".into(), dir.path().join("network.toml")])
         .args(["--input-file".as_ref(), inputs_file.as_os_str()])
+        .args(["--output-file".as_ref(), output_file.as_os_str()])
         .args(["--wait", "2"])
         .silent();
 
@@ -247,6 +250,22 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
 
     let test_mpc = command.spawn().unwrap().terminate_on_drop();
     test_mpc.wait().unwrap_status();
+
+    // basic output checks - output should have the exact size as number of breakdowns
+    let output = std::fs::read_to_string(&output_file)
+        .expect("IPA results file exists")
+        .split(',')
+        .map(|s| {
+            s.parse::<u32>()
+                .expect(&format!("breakdown key {} is an unsigned integer", s))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        BREAKDOWNS,
+        output.len(),
+        "Number of breakdowns does not match the expected"
+    );
 }
 
 #[test]
