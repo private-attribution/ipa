@@ -7,26 +7,24 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        SecretSharing,
+        BitDecomposed, SecretSharing,
     },
 };
-use std::{borrow::Borrow, iter::zip};
+use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 /// Deconstructs a field value into N values, one for each bit.
-pub fn into_bits<F: PrimeField>(v: F) -> Vec<F> {
-    (0..(u128::BITS - F::PRIME.into().leading_zeros()))
-        .map(|i| F::truncate_from((v.as_u128() >> i) & 1))
-        .collect::<Vec<_>>()
+pub fn into_bits<F: PrimeField>(v: F) -> BitDecomposed<F> {
+    BitDecomposed::decompose(u128::BITS - F::PRIME.into().leading_zeros(), |i| {
+        F::truncate_from((v.as_u128() >> i) & 1)
+    })
 }
 
 /// Deconstructs a value into N values, one for each bi3t.
 /// # Panics
 /// It won't
 #[must_use]
-pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
-    (0..num_bits.try_into().unwrap())
-        .map(|i| F::truncate_from((x >> i) & 1))
-        .collect::<Vec<_>>()
+pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> BitDecomposed<F> {
+    BitDecomposed::decompose(num_bits, |i| F::truncate_from((x >> i) & 1))
 }
 
 /// A trait that is helpful for reconstruction of values in tests.
@@ -87,7 +85,25 @@ where
     }
 }
 
+impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
+where
+    for<'i> [&'i I; 3]: Reconstruct<T>,
+{
+    fn reconstruct(&self) -> BitDecomposed<T> {
+        BitDecomposed::new(self.map(Deref::deref).reconstruct())
+    }
+}
+
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
+where
+    for<'i> [&'i I; 3]: Reconstruct<T>,
+{
+    fn reconstruct(&self) -> Vec<T> {
+        self.map(Deref::deref).reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<Vec<T>> for [&[I]; 3]
 where
     for<'i> [&'i I; 3]: Reconstruct<T>,
 {

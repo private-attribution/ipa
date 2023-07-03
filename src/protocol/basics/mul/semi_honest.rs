@@ -135,24 +135,27 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
-        let b: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let a = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
+        let b = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect::<Vec<_>>();
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
-            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                ctx.try_join(
-                    zip(
-                        repeat(ctx.set_total_records(COUNT)),
-                        zip(a_shares, b_shares),
+            .semi_honest(
+                (a.into_iter(), b.into_iter()),
+                |ctx, (a_shares, b_shares)| async move {
+                    ctx.try_join(
+                        zip(
+                            repeat(ctx.set_total_records(COUNT)),
+                            zip(a_shares, b_shares),
+                        )
+                        .enumerate()
+                        .map(|(i, (ctx, (a_share, b_share)))| async move {
+                            a_share.multiply(&b_share, ctx, RecordId::from(i)).await
+                        }),
                     )
-                    .enumerate()
-                    .map(|(i, (ctx, (a_share, b_share)))| async move {
-                        a_share.multiply(&b_share, ctx, RecordId::from(i)).await
-                    }),
-                )
-                .await
-                .unwrap()
-            })
+                    .await
+                    .unwrap()
+                },
+            )
             .await;
         assert_eq!(expected, results.reconstruct());
     }

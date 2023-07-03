@@ -1,8 +1,11 @@
-use super::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits};
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{
+        boolean::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits},
+        context::Context,
+        BasicProtocols, RecordId,
+    },
     secret_sharing::{
         replicated::malicious::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,

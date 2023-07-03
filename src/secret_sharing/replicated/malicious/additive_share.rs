@@ -1,15 +1,20 @@
 use crate::{
     ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, BitDecomposed,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
+    seq_join::seq_join,
 };
 use async_trait::async_trait;
-use futures::future::{join, join_all};
+use futures::{
+    future::{join, join_all},
+    stream::{iter as stream_iter, StreamExt},
+};
 use generic_array::{ArrayLength, GenericArray};
 use std::{
     fmt::{Debug, Formatter},
+    num::NonZeroUsize,
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 use typenum::Unsigned;
@@ -112,6 +117,10 @@ impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
 
     pub fn x(&self) -> UnauthorizedDowngradeWrapper<&SemiHonestAdditiveShare<V>> {
         UnauthorizedDowngradeWrapper(&self.x)
+    }
+
+    pub fn downgrade(self) -> UnauthorizedDowngradeWrapper<SemiHonestAdditiveShare<V>> {
+        UnauthorizedDowngradeWrapper(self.x)
     }
 
     pub fn rx(&self) -> &SemiHonestAdditiveShare<V::ExtendedField> {
@@ -268,19 +277,37 @@ where
 }
 
 #[async_trait]
+impl<T> Downgrade for BitDecomposed<T>
+where
+    T: Downgrade,
+{
+    type Target = BitDecomposed<<T as Downgrade>::Target>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        #[allow(clippy::disallowed_methods)]
+        let result = join_all(
+            self.into_iter()
+                .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
+        );
+        UnauthorizedDowngradeWrapper(BitDecomposed::new(result.await))
+    }
+}
+
+#[async_trait]
 impl<T> Downgrade for Vec<T>
 where
     T: Downgrade,
 {
     type Target = Vec<<T as Downgrade>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        // TODO: validate that the vector here is truly small.
-        #[allow(clippy::disallowed_methods)]
-        let result = join_all(
-            self.into_iter()
-                .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
+        // TODO: connect this number to something.
+        let result = seq_join(
+            NonZeroUsize::new(4096).unwrap(),
+            stream_iter(
+                self.into_iter()
+                    .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
+            ),
         );
-        UnauthorizedDowngradeWrapper(result.await)
+        UnauthorizedDowngradeWrapper(result.collect::<Self::Target>().await)
     }
 }
 
@@ -390,6 +417,6 @@ mod tests {
         let x = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
         let y = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
         let m = AdditiveShare::new(x.clone(), y);
-        assert_eq!(x, m.downgrade().await.access_without_downgrade());
+        assert_eq!(x, Downgrade::downgrade(m).await.access_without_downgrade());
     }
 }

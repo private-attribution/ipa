@@ -1,4 +1,3 @@
-use super::{GenericReportShare, GenericReportTestInput};
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
@@ -12,7 +11,11 @@ use crate::{
     rand::Rng,
     report::{EventType, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
+    test_fixture::{
+        input::{GenericReportShare, GenericReportTestInput},
+        ipa::TestRawDataRecord,
+        Reconstruct,
+    },
 };
 use rand::{distributions::Standard, prelude::Distribution};
 use std::iter::zip;

@@ -2,9 +2,9 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        attribution::input::MCCappedCreditsWithAggregationBit,
         basics::ZeroPositions,
         context::UpgradedContext,
+        ipa::ArithmeticallySharedIPAInputs,
         modulus_conversion::BitConversionTriple,
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
@@ -12,15 +12,12 @@ use crate::{
     repeat64str,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 /// Special context type used for malicious upgrades.
 ///
@@ -54,7 +51,6 @@ use std::{
 /// // This can't be upgraded with a record-bound context because the record ID
 /// // is used internally for vector indexing.
 /// let _ = <UpgradeContext<C<'_, F>, F, RecordId> as UpgradeToMalicious<Vec<Replicated<F>>, _>>::upgrade;
-/// ```
 pub struct UpgradeContext<
     'a,
     C: UpgradedContext<F>,
@@ -198,18 +194,21 @@ impl AsRef<str> for Upgrade2DVectors {
 }
 
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<T>, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: Send + 'static,
+    T: IntoIterator + Send + 'static,
+    T::IntoIter: ExactSizeIterator + Send,
+    T::Item: Send + 'static,
     M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T::Item, M>,
 {
-    async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
-        let ctx = self.ctx.set_total_records(input.len());
+    async fn upgrade(self, input: T) -> Result<Vec<M>, Error> {
+        let iter = input.into_iter();
+        let ctx = self.ctx.set_total_records(iter.len());
         let ctx_ref = &ctx;
-        ctx.try_join(input.into_iter().enumerate().map(|(i, share)| async move {
+        ctx.try_join(iter.enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext::new(ctx_ref.clone(), RecordId::from(i))
                 .upgrade(share)
@@ -219,12 +218,9 @@ where
     }
 }
 
-/// This function is not a generic implementation of 2D vector upgrade.
-/// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
-/// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, Vec<Vec<T>>, Vec<Vec<M>>>
-    for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, T, M> UpgradeToMalicious<'a, BitDecomposed<T>, BitDecomposed<M>>
+    for UpgradeContext<'a, C, F, RecordId>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
@@ -232,30 +228,18 @@ where
     M: Send + 'static,
     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
 {
-    /// # Panics
-    /// Panics if input is empty
-    async fn upgrade(self, input: Vec<Vec<T>>) -> Result<Vec<Vec<M>>, Error> {
-        let num_records = input.len();
-        let num_columns = input.first().map_or(1, Vec::len);
-        assert_ne!(num_columns, 0);
-        let ctx = self.ctx.set_total_records(num_records);
+    async fn upgrade(self, input: BitDecomposed<T>) -> Result<BitDecomposed<M>, Error> {
         let ctx_ref = &self.ctx;
-        let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
-
-        ctx_ref
-            .try_join(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
-                |(record_idx, (all_ctx, one_input))| async move {
-                    // This inner join is truly concurrent.
-                    ctx_ref
-                        .parallel_join(zip(all_ctx, one_input).map(|(ctx, share)| async move {
-                            UpgradeContext::new(ctx, RecordId::from(record_idx))
-                                .upgrade(share)
-                                .await
-                        }))
+        let record_id = self.record_binding;
+        BitDecomposed::try_from(
+            self.ctx
+                .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
+                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
+                        .upgrade(share)
                         .await
-                },
-            ))
-            .await
+                }))
+                .await?,
+        )
     }
 }
 
@@ -312,6 +296,49 @@ impl AsRef<str> for UpgradeModConvStep {
 impl<'a, C, F>
     UpgradeToMalicious<
         'a,
+        ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+        ArithmeticallySharedIPAInputs<F, C::Share>,
+    > for UpgradeContext<'a, C, F, RecordId>
+where
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F>,
+    F: ExtendableField,
+{
+    async fn upgrade(
+        self,
+        input: ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+    ) -> Result<ArithmeticallySharedIPAInputs<F, C::Share>, Error> {
+        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
+            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
+                self.record_binding,
+                input.is_trigger_bit,
+                ZeroPositions::Pvvv,
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
+                self.record_binding,
+                input.trigger_value,
+                ZeroPositions::Pvvv,
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
+                self.record_binding,
+                input.timestamp,
+                ZeroPositions::Pvvv,
+            ),
+        )
+        .await?;
+
+        Ok(ArithmeticallySharedIPAInputs::new(
+            timestamp,
+            is_trigger_bit,
+            trigger_value,
+        ))
+    }
+}
+
+#[async_trait]
+impl<'a, C, F>
+    UpgradeToMalicious<
+        'a,
         IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
         IPAModulusConvertedInputRowWrapper<F, C::Share>,
     > for UpgradeContext<'a, C, F, RecordId>
@@ -350,99 +377,18 @@ where
         ))
     }
 }
-pub(crate) enum UpgradeMCCappedCreditsWithAggregationBit {
-    V0(usize),
-    V1,
-    V2,
-    V3,
-}
 
-impl crate::protocol::step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
-
-impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
-    fn as_ref(&self) -> &str {
-        const UPGRADE_AGGREGATION_BIT0: [&str; 64] = repeat64str!["upgrade_aggregation_bit0"];
-
-        match self {
-            Self::V0(i) => UPGRADE_AGGREGATION_BIT0[*i],
-            Self::V1 => "upgrade_aggregation_bit1",
-            Self::V2 => "upgrade_aggregation_bit2",
-            Self::V3 => "upgrade_aggregation_bit3",
-        }
-    }
-}
-
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-        MCCappedCreditsWithAggregationBit<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-    ) -> Result<MCCappedCreditsWithAggregationBit<F, C::Share>, Error> {
-        let ctx_ref = &self.ctx;
-        let breakdown_key = ctx_ref
-            .parallel_join(input.breakdown_key.into_iter().enumerate().map(
-                |(idx, bit)| async move {
-                    ctx_ref
-                        .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                        .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                        .await
-                },
-            ))
-            .await?;
-
-        let helper_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
-            .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
-            .await?;
-
-        let aggregation_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
-            .upgrade_one(
-                self.record_binding,
-                input.aggregation_bit,
-                ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let credit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
-            .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
-            .await?;
-        Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
-        ))
-    }
-}
-
-// Impl for upgrading things that can be upgraded using a single record ID using a non-record-bound
-// context. This is only used for tests where the protocol takes a single `Replicated<F>` input.
+// Impl to upgrade a single `Replicated<F>` using a non-record-bound context. Used for tests.
 #[cfg(test)]
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, M> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, M> UpgradeToMalicious<'a, Replicated<F>, M> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: Send + 'static,
     M: 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, Replicated<F>, M>,
 {
-    async fn upgrade(self, input: T) -> Result<M, Error> {
+    async fn upgrade(self, input: Replicated<F>) -> Result<M, Error> {
         let ctx = if self.ctx.total_records().is_unspecified() {
             self.ctx.set_total_records(1)
         } else {

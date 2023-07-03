@@ -1,4 +1,3 @@
-use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
@@ -19,7 +18,9 @@ use crate::{
         Arc,
     },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle},
+    test_fixture::{
+        logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
+    },
 };
 use async_trait::async_trait;
 use futures::{future::join_all, Future};

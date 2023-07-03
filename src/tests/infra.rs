@@ -3,7 +3,7 @@
 use crate::{
     ff::{Field, FieldType, Fp31, Fp32BitPrime},
     helpers::{
-        query::{QueryConfig, QueryType},
+        query::{QueryConfig, QueryType::TestMultiply},
         Direction, GatewayConfig,
     },
     protocol::{context::Context, RecordId},
@@ -31,7 +31,7 @@ fn send_receive_sequential() {
                 let world = TestWorld::new_with(config);
 
                 let output = world
-                    .semi_honest(input.clone(), |ctx, mut shares| async move {
+                    .semi_honest(input.clone().into_iter(), |ctx, mut shares| async move {
                         let ctx = ctx.set_total_records(shares.len());
                         let (left_ctx, right_ctx) = (ctx.narrow("left"), ctx.narrow("right"));
                         let right_peer = ctx.role().peer(Direction::Right);
@@ -86,7 +86,7 @@ fn send_receive_parallel() {
                 let world = TestWorld::new_with(config);
 
                 let output = world
-                    .semi_honest(input.clone(), |ctx, shares| async move {
+                    .semi_honest(input.clone().into_iter(), |ctx, shares| async move {
                         let ctx = ctx.set_total_records(shares.len());
                         let (left_ctx, right_ctx) = (ctx.narrow("left"), ctx.narrow("right"));
                         let left_peer = ctx.role().peer(Direction::Left);
@@ -144,7 +144,8 @@ fn execute_query() {
                     .take(20)
                     .map(Fp31::truncate_from)
                     .collect::<Vec<_>>();
-                assert_eq!(0, inputs.len() % 2);
+                let sz = inputs.len();
+                assert_eq!(0, sz % 2);
 
                 let expected = inputs
                     .as_slice()
@@ -154,11 +155,8 @@ fn execute_query() {
 
                 let results = app
                     .execute_query(
-                        inputs,
-                        QueryConfig {
-                            field_type: FieldType::Fp31,
-                            query_type: QueryType::TestMultiply,
-                        },
+                        inputs.into_iter(),
+                        QueryConfig::new(TestMultiply, FieldType::Fp31, sz).unwrap(),
                     )
                     .await
                     .unwrap();

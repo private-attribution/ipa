@@ -513,7 +513,7 @@ mod tests {
         let world = TestWorld::default();
         world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 

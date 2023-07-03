@@ -1,9 +1,11 @@
-use super::{any_ones, or::or};
 use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        boolean::multiply_all_shares, context::Context, step::BitOpStep, BasicProtocols, RecordId,
+        boolean::{any_ones, multiply_all_shares, or::or},
+        context::Context,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
