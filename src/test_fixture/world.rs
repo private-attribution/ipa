@@ -6,7 +6,6 @@ use crate::{
             UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        step::Step,
         QueryId,
     },
     rand::thread_rng,
@@ -167,7 +166,7 @@ impl TestWorld {
     }
 
     #[must_use]
-    pub fn execution_step(execution: usize) -> impl Step {
+    pub fn execution_step(execution: usize) -> String {
         format!("run-{execution}")
     }
 

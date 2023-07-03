@@ -32,12 +32,10 @@ use std::{iter::zip, marker::PhantomData, ops::Add};
 use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
+pub(crate) enum Step {
     ModulusConversionForMatchKeys,
-    ModulusConversionForBreakdownKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
-    ApplySortPermutationToMatchKeys,
     AfterConvertAllBits,
     UpgradeMatchKeyBits,
     UpgradeBreakdownKeyBits,
@@ -50,10 +48,8 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::ModulusConversionForMatchKeys => "mod_conv_match_key",
-            Self::ModulusConversionForBreakdownKeys => "mod_conv_breakdown_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
-            Self::ApplySortPermutationToMatchKeys => "apply_sort_permutation_to_match_keys",
             Self::AfterConvertAllBits => "after_convert_all_bits",
             Self::UpgradeMatchKeyBits => "upgrade_match_key_bits",
             Self::UpgradeBreakdownKeyBits => "upgrade_breakdown_key_bits",

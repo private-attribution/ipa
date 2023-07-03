@@ -67,14 +67,19 @@ where
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-
-// Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
-// Each bit has a 50% chance of being a 0 or 1, so there are
-// `F::Integer::MAX - p` cases where `b` may become larger than `p`.
-// However, we calculate the number of bits needed to form a random
-// number that has the same number of bits as the prime.
-// With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
-// 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
+/// Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
+/// Each bit has a 50% chance of being a 0 or 1, so there are
+/// `F::Integer::MAX - p` cases where `b` may become larger than `p`.
+/// However, we calculate the number of bits needed to form a random
+/// number that has the same number of bits as the prime.
+/// With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
+/// 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
+///
+/// # Errors
+/// Fails if the multiplication protocol fails.
+///
+/// # Panics
+/// it won't.
 pub async fn solved_bits<F, S, C>(
     ctx: C,
     record_id: RecordId,
@@ -131,7 +136,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     RandomBits,
     IsPLessThanB,
     RevealC,

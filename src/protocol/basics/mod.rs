@@ -1,10 +1,10 @@
-mod check_zero;
+pub mod check_zero;
 mod if_else;
 pub(crate) mod mul;
 mod reshare;
 mod reveal;
 mod share_known_value;
-mod sum_of_product;
+pub mod sum_of_product;
 
 pub use check_zero::check_zero;
 pub use if_else::if_else;
