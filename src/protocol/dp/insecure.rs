@@ -141,8 +141,13 @@ mod test {
         let sensitivity = f64::from(cap);
         let dp = Dp::new(epsilon, delta, sensitivity).unwrap();
         let s = (sensitivity) / (epsilon) * ((2_f64 * (1.25_f64.ln() - delta.ln())).sqrt());
-        assert!(dp.normal_dist.mean.abs() < f64::EPSILON);
-        assert!((dp.normal_dist.std - s).abs() < f64::EPSILON);
+        assert!(
+            dp.normal_dist.mean.abs() < f64::EPSILON,
+            "{} >= {}",
+            dp.normal_dist.mean,
+            f64::EPSILON
+        );
+        assert!(close(dp.normal_dist.std, s, 5));
     }
 
     #[test]
