@@ -1,12 +1,15 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{basics::Reshare, context::Context, RecordId},
+    protocol::{
+        basics::Reshare,
+        context::Context,
+        sort::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho},
+        RecordId,
+    },
     secret_sharing::SecretSharing,
 };
 use embed_doc_image::embed_doc_image;
-
-use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 
 #[embed_doc_image("compose", "images/sort/compose.png")]
 /// This is an implementation of Compose (Algorithm 5) found in the paper:

@@ -9,10 +9,7 @@ use self::{
     aggregate_credit::aggregate_credit,
     apply_attribution_window::apply_attribution_window,
     credit_capping::credit_capping,
-    input::{
-        MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow,
-        MCCappedCreditsWithAggregationBit,
-    },
+    input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
 };
 use crate::{
     error::Error,
@@ -22,7 +19,7 @@ use crate::{
         basics::SecureMul,
         boolean::{bitwise_equal::bitwise_equal_gf2, or::or, RandomBits},
         context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa::IPAModulusConvertedInputRow,
+        ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs},
         modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         sort::generate_permutation::ShuffledPermutationWrapper,
         step, BasicProtocols, RecordId,
@@ -49,8 +46,8 @@ pub async fn secure_attribution<C, S, SB, F, BK>(
     ctx: C,
     validator: C::Validator<F>,
     binary_validator: C::Validator<Gf2>,
-    sorted_match_keys: Vec<Vec<SB>>,
-    sorted_rows: Vec<IPAModulusConvertedInputRow<F, S>>,
+    arithmetically_shared_values: Vec<ArithmeticallySharedIPAInputs<F, S>>,
+    binary_shared_values: Vec<BinarySharedIPAInputs<SB>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
@@ -58,29 +55,34 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
-    Vec<SB>: DowngradeMalicious<Target = Vec<SemiHonestAdditiveShare<Gf2>>>,
+    SB: LinearSecretSharing<Gf2>
+        + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
+        + DowngradeMalicious<Target = Replicated<Gf2>>
+        + 'static,
     F: PrimeField + ExtendableField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S>: DowngradeMalicious<
-        Target = MCCappedCreditsWithAggregationBit<F, SemiHonestAdditiveShare<F>>,
-    >,
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>,
 {
     let m_ctx = validator.context();
     let m_binary_ctx = binary_validator.context();
 
-    let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &sorted_match_keys).await?;
-    let validated_helper_bits_gf2 = binary_validator.validate(helper_bits_gf2).await?;
+    let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &binary_shared_values).await?;
+    let breakdown_key_bits_gf2: Vec<_> = binary_shared_values
+        .iter()
+        .map(|x| x.breakdown_key.clone())
+        .collect();
+    let (validated_helper_bits_gf2, validated_breakdown_key_bits_gf2) = binary_validator
+        .validate((helper_bits_gf2, breakdown_key_bits_gf2))
+        .await?;
     let semi_honest_fp_helper_bits =
         mod_conv_helper_bits(ctx.clone(), &validated_helper_bits_gf2).await?;
     let helper_bits = once(S::ZERO)
         .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
         .collect::<Vec<_>>();
 
-    let is_trigger_bits = sorted_rows
+    let is_trigger_bits = arithmetically_shared_values
         .iter()
         .map(|x| x.is_trigger_bit.clone())
         .collect::<Vec<_>>();
@@ -88,14 +90,15 @@ where
         .await?
         .collect::<Vec<_>>();
 
-    let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| {
+    let attribution_input_rows = zip(arithmetically_shared_values, helper_bits)
+        .zip(validated_breakdown_key_bits_gf2)
+        .map(|((arithmetic, hb), breakdown_key_bits)| {
             MCApplyAttributionWindowInputRow::new(
-                row.timestamp,
-                row.is_trigger_bit,
+                arithmetic.timestamp,
+                arithmetic.is_trigger_bit,
                 hb,
-                row.breakdown_key,
-                row.trigger_value,
+                breakdown_key_bits,
+                arithmetic.trigger_value,
             )
         })
         .collect::<Vec<_>>();
@@ -126,10 +129,8 @@ where
 
     let (validator, output) = aggregate_credit(
         validator,
-        ctx,
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
-        config.num_multi_bits,
     )
     .await?;
 
@@ -378,7 +379,7 @@ where
 
 async fn compute_helper_bits_gf2<C, S>(
     ctx: C,
-    sorted_match_keys: &[Vec<S>],
+    binary_shared_values: &[BinarySharedIPAInputs<S>],
 ) -> Result<Vec<S>, Error>
 where
     C: Context,
@@ -386,13 +387,20 @@ where
 {
     let narrowed_ctx = ctx
         .narrow(&Step::ComputeHelperBits)
-        .set_total_records(sorted_match_keys.len() - 1);
+        .set_total_records(binary_shared_values.len() - 1);
 
-    ctx.try_join(sorted_match_keys.windows(2).enumerate().map(|(i, rows)| {
-        let c = narrowed_ctx.clone();
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal_gf2(c, record_id, &rows[0], &rows[1]).await }
-    }))
+    ctx.try_join(
+        binary_shared_values
+            .windows(2)
+            .enumerate()
+            .map(|(i, rows)| {
+                let c = narrowed_ctx.clone();
+                let record_id = RecordId::from(i);
+                async move {
+                    bitwise_equal_gf2(c, record_id, &rows[0].match_key, &rows[1].match_key).await
+                }
+            }),
+    )
     .await
 }
 
@@ -422,7 +430,7 @@ async fn mod_conv_helper_bits<C: Context, F: Field>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
-enum Step {
+pub(in crate::protocol) enum Step {
     CurrentStopBitTimesSuccessorCredit,
     CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
@@ -448,7 +456,7 @@ impl AsRef<str> for Step {
     }
 }
 
-struct InteractionPatternStep(usize);
+pub(crate) struct InteractionPatternStep(usize);
 
 impl crate::protocol::step::Step for InteractionPatternStep {}
 

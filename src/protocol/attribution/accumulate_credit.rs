@@ -144,7 +144,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     ActiveBitTimesStopBit,
 }
 
@@ -195,7 +195,7 @@ mod tests {
 
         world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 

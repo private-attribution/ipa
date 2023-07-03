@@ -91,7 +91,7 @@ mod tests {
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::truncate_from(*x)).collect();
         let result = world
-            .semi_honest(input, |ctx, m_shares| async move {
+            .semi_honest(input.into_iter(), |ctx, m_shares| async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
             })
             .await;
@@ -105,7 +105,7 @@ mod tests {
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::truncate_from(*x)).collect();
         let result = world
-            .upgraded_malicious(input, |ctx, m_shares| async move {
+            .upgraded_malicious(input.into_iter(), |ctx, m_shares| async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
             })
             .await;

@@ -1,4 +1,3 @@
-use super::{sharing::ValidateMalicious, Reconstruct};
 use crate::{
     helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
@@ -7,7 +6,6 @@ use crate::{
             UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
-        step::Step,
         QueryId,
     },
     rand::thread_rng,
@@ -20,7 +18,9 @@ use crate::{
         Arc,
     },
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{logging, make_participants, metrics::MetricsHandle},
+    test_fixture::{
+        logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
+    },
 };
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
@@ -166,7 +166,7 @@ impl TestWorld {
     }
 
     #[must_use]
-    pub fn execution_step(execution: usize) -> impl Step {
+    pub fn execution_step(execution: usize) -> String {
         format!("run-{execution}")
     }
 

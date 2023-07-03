@@ -1,10 +1,9 @@
+use crate::config::Config;
 use rand::{
     distributions::{Distribution, WeightedIndex},
     CryptoRng, Rng, RngCore,
 };
 use std::time::Duration;
-
-use crate::config::Config;
 
 pub struct Sample<'a> {
     config: &'a Config,

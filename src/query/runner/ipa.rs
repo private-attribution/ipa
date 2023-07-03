@@ -7,7 +7,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
+        attribution::input::MCAggregateCreditOutputRow,
         basics::{Reshare, ShareKnownValue},
         boolean::RandomBits,
         context::{UpgradableContext, UpgradedContext},
@@ -63,8 +63,6 @@ where
     AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, AdditiveShare<F>>>,
     MCAggregateCreditOutputRow<F, S, BreakdownKey>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
     AdditiveShare<F>: Serializable,
@@ -192,6 +190,7 @@ mod tests {
         let query_size = QuerySize::try_from(records.len() - 2).unwrap();
 
         let records = records
+            .into_iter()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
@@ -260,6 +259,7 @@ mod tests {
         let query_size = QuerySize::try_from(records.len()).unwrap();
 
         let records = records
+            .into_iter()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
@@ -336,7 +336,7 @@ mod tests {
 
         let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
 
-        let shares: [Vec<Report<_, _, _>>; 3] = records.share();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.into_iter().share();
         for (buf, shares) in zip(&mut buffers, shares) {
             for share in shares {
                 share

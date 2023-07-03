@@ -39,6 +39,9 @@ use crate::{
 ///
 /// As such, there are a total of l-2 multiplications (one less than the bit-length of the input).
 /// Sometimes, a multiplication can be skipped, because we know, a prioi that the result must be zero.
+///
+/// # Errors
+/// Fails if the multiplication protocol fails.
 pub async fn add_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -120,6 +123,12 @@ where
 // `maybe` must be a secret sharing of either `1` or `0`. It should be thought of as a secret-shared boolean.
 //
 // The output is the bitwise `a + (b*maybe)`, modulo `2^el`.
+///
+/// # Errors
+/// Fails if the multiplication protocol fails.
+///
+/// # Panics
+/// it won't
 pub async fn maybe_add_constant_mod2l<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -186,7 +195,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     CarryXorBitTimesMaybe,
 }
 
@@ -222,7 +231,7 @@ mod tests {
     {
         let input = into_bits(a);
         let result = world
-            .semi_honest(input.clone(), |ctx, a_share| async move {
+            .semi_honest(input.clone().into_iter(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -231,7 +240,7 @@ mod tests {
             .reconstruct();
 
         let m_result = world
-            .upgraded_malicious(input, |ctx, a_share| async move {
+            .upgraded_malicious(input.into_iter(), |ctx, a_share| async move {
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
@@ -249,34 +258,39 @@ mod tests {
         F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
-        let input = (into_bits(a), maybe);
         let result = world
-            .semi_honest(input.clone(), |ctx, (a_share, maybe_share)| async move {
-                maybe_add_constant_mod2l(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    b,
-                    &maybe_share,
-                )
-                .await
-                .unwrap()
-            })
+            .semi_honest(
+                (into_bits(a), maybe),
+                |ctx, (a_share, maybe_share)| async move {
+                    maybe_add_constant_mod2l(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_share,
+                        b,
+                        &maybe_share,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 
         let m_result = world
-            .upgraded_malicious(input, |ctx, (a_share, maybe_share)| async move {
-                maybe_add_constant_mod2l(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    b,
-                    &maybe_share,
-                )
-                .await
-                .unwrap()
-            })
+            .upgraded_malicious(
+                (into_bits(a), maybe),
+                |ctx, (a_share, maybe_share)| async move {
+                    maybe_add_constant_mod2l(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_share,
+                        b,
+                        &maybe_share,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await
             .reconstruct();
 

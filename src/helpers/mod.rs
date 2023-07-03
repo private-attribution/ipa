@@ -6,7 +6,7 @@ use std::{
 mod buffers;
 mod error;
 mod gateway;
-mod prss_protocol;
+pub(crate) mod prss_protocol;
 mod transport;
 
 pub use error::{Error, Result};

@@ -1,10 +1,7 @@
-use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
     rand::{thread_rng, Rng},
-    secret_sharing::replicated::semi_honest::AdditiveShare,
+    secret_sharing::BitDecomposed,
 };
-
-use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
@@ -13,44 +10,38 @@ pub trait IntoShares<T>: Sized {
     fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
 }
 
-impl<V> IntoShares<AdditiveShare<V>> for V
+fn vec_shares<I, U, T, R>(values: I, rng: &mut R) -> [Vec<T>; 3]
 where
-    V: SharedValue,
-    Standard: Distribution<V>,
+    I: IntoIterator<Item = U>,
+    U: IntoShares<T>,
+    R: Rng,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {
-        let x1 = rng.gen::<V>();
-        let x2 = rng.gen::<V>();
-        let x3 = self - (x1 + x2);
+    let (i0, (i1, i2)) = values
+        .into_iter()
+        .map(|v| {
+            let [v0, v1, v2] = v.share_with(rng);
+            (v0, (v1, v2))
+        })
+        .unzip();
+    [i0, i1, i2]
+}
 
-        [
-            AdditiveShare::new(x1, x2),
-            AdditiveShare::new(x2, x3),
-            AdditiveShare::new(x3, x1),
-        ]
+impl<I, U, T> IntoShares<Vec<T>> for I
+where
+    I: Iterator<Item = U>,
+    U: IntoShares<T>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
+        vec_shares(self, rng)
     }
 }
 
-impl<U, V, T> IntoShares<Vec<T>> for V
+impl<U, T> IntoShares<BitDecomposed<T>> for BitDecomposed<U>
 where
     U: IntoShares<T>,
-    V: IntoIterator<Item = U>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
-        let it = self.into_iter();
-        let (lower_bound, upper_bound) = it.size_hint();
-        let len = upper_bound.unwrap_or(lower_bound);
-        let mut res = [
-            Vec::with_capacity(len),
-            Vec::with_capacity(len),
-            Vec::with_capacity(len),
-        ];
-        for u in it {
-            for (i, s) in u.share_with(rng).into_iter().enumerate() {
-                res[i].push(s);
-            }
-        }
-        res
+    fn share_with<R: Rng>(self, rng: &mut R) -> [BitDecomposed<T>; 3] {
+        vec_shares(self, rng).map(BitDecomposed::new)
     }
 }
 
