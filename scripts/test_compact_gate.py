@@ -19,7 +19,10 @@ ARGS = [
 QUERY_SIZE = 10
 PER_USER_CAP = [1, 10]
 ATTRIBUTION_WINDOW = [0, 86400]
-BREAKDOWN_KEYS = [32, 64]
+# breakdown_keys = [1..32] runs an optimized protocol, and the steps generated
+# depend on the number of bits in the breakdown key. >= 33 runs a general protocol.
+# As of July 2023, we are limiting the number of breakdown keys to 32.
+BREAKDOWN_KEYS = [32]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 
 

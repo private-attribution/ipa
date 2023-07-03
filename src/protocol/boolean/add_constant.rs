@@ -195,7 +195,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Step {
+pub(crate) enum Step {
     CarryXorBitTimesMaybe,
 }
 

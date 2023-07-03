@@ -39,7 +39,7 @@ const QUERY_TYPE_SEMIHONEST_STATE: u16 = 65533;
 const QUERY_TYPE_MALICIOUS_STATE: u16 = 65532;
 const PRSS_EXCHANGE_STATE: u16 = 65531;
 
-// Hard-coded state map for steps that are narrows but never executed.
+// Hard-coded state map for steps that call `narrow` but never executed.
 // Such steps are used in many places in the code base, either for convenience of
 // writing compact code, by design, or for tests.
 // For example, `semi_honest::Upgraded` implements `UpgradeContext` trait, but it's
@@ -55,10 +55,13 @@ fn static_state_map(state: u16, step: &str) -> u16 {
         // if there were, we would need to do the same as in `UPGRADE_SEMI_HONEST_STATE` below.
         return FALLBACK_STATE;
     } else if step == crate::protocol::context::semi_honest::UpgradeStep.as_ref()
+        || step == crate::protocol::ipa::Step::UpgradeMatchKeyBits.as_ref()
+        || step == crate::protocol::ipa::Step::UpgradeBreakdownKeyBits.as_ref()
+        || step == crate::protocol::attribution::aggregate_credit::Step::UpgradeBits.as_ref()
         || state == UPGRADE_SEMI_HONEST_STATE
     {
-        // if we see `upgrade_semi-honest` step, we move to UPGRADE_SEMI_HONEST_STATE to indicate
-        // that any subsequent narrows from this state will be ignored.
+        // ignore any upgrade steps in the semi-honest setting.
+        // any subsequent narrows from this state will be ignored.
         return UPGRADE_SEMI_HONEST_STATE;
     } else if step == crate::helpers::query::QueryType::SEMIHONEST_IPA_STR {
         return QUERY_TYPE_SEMIHONEST_STATE;
@@ -152,6 +155,19 @@ impl StepNarrow<crate::protocol::boolean::bitwise_equal::Step> for Compact {
     fn narrow(&self, step: &crate::protocol::boolean::bitwise_equal::Step) -> Self {
         panic!(
             "Cannot narrow a boolean::bitwise_equal::Step::{}",
+            step.as_ref()
+        )
+    }
+}
+
+impl StepNarrow<crate::protocol::attribution::input::AttributionResharableStep> for Compact {
+    // This is used in unit tests only
+    fn narrow(
+        &self,
+        step: &crate::protocol::attribution::input::AttributionResharableStep,
+    ) -> Self {
+        panic!(
+            "Cannot narrow a attribution::input::AttributionResharableStep::{}",
             step.as_ref()
         )
     }
