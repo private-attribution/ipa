@@ -1,5 +1,7 @@
 use command_fds::CommandFdExt;
 use ipa::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
+use rand::thread_rng;
+use rand_core::RngCore;
 use std::{
     array,
     error::Error,
@@ -211,6 +213,7 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
         .arg("gen-ipa-inputs")
         .args(["--count", "10"])
         .args(["--max-breakdown-key", "20"])
+        .args(["--seed", &thread_rng().next_u64().to_string()])
         .args(["--output-file".as_ref(), inputs_file.as_os_str()])
         .silent()
         .stdin(Stdio::piped());
