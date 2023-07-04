@@ -143,7 +143,7 @@ mod test {
         let s = (sensitivity) / (epsilon) * ((2_f64 * (1.25_f64.ln() - delta.ln())).sqrt());
         assert!(
             dp.normal_dist.mean.abs() < f64::EPSILON,
-            "{} >= {}",
+            "|{}| >= {}",
             dp.normal_dist.mean,
             f64::EPSILON
         );
@@ -208,7 +208,6 @@ mod test {
 
     /// Tests for Rounded Normal
     #[test]
-
     fn epsilon_variance_table() {
         // manual test to print the sample variance of rounded normal vs the variance of the continuous normal
         // cargo test -- protocol::dp::insecure::test::epsilon_variance_table --nocapture
