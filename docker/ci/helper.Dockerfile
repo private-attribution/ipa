@@ -4,7 +4,7 @@ FROM rust:latest as builder
 COPY . /ipa/
 RUN cd /ipa && \
   cargo build --bin helper --release --no-default-features \
-        --features "web-app real-world-infra"
+        --features "web-app real-world-infra compact-gate"
 
 # Copy them to the final image
 FROM debian:bullseye-slim
