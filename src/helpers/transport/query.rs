@@ -9,7 +9,7 @@ use crate::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
-    fmt::{Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     num::NonZeroU32,
 };
 use tokio::sync::oneshot;
@@ -305,6 +305,12 @@ impl Default for IpaQueryConfig {
             num_multi_bits: 3,
             plaintext_match_keys: false,
         }
+    }
+}
+
+impl Display for IpaQueryConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
     }
 }
 
