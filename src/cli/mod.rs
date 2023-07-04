@@ -1,6 +1,7 @@
 #[cfg(feature = "web-app")]
 mod clientconf;
 mod csv;
+mod ipa_output;
 #[cfg(feature = "web-app")]
 mod keygen;
 mod metric_collector;
@@ -14,6 +15,7 @@ mod verbosity;
 #[cfg(feature = "web-app")]
 pub use clientconf::{setup as client_config_setup, ConfGenArgs};
 pub use csv::Serializer as CsvSerializer;
+pub use ipa_output::QueryResult as IpaQueryResult;
 #[cfg(feature = "web-app")]
 pub use keygen::{keygen, KeygenArgs};
 pub use metric_collector::{install_collector, CollectorHandle};

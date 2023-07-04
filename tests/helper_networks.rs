@@ -1,5 +1,9 @@
 use command_fds::CommandFdExt;
-use ipa::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
+use ipa::{
+    cli::{CliPaths, IpaQueryResult},
+    helpers::HelperIdentity,
+    test_fixture::ipa::IpaSecurityModel,
+};
 use rand::thread_rng;
 use rand_core::RngCore;
 use std::{
@@ -199,6 +203,7 @@ fn test_network(https: bool) {
 
 fn test_ipa(mode: IpaSecurityModel, https: bool) {
     const BREAKDOWNS: usize = 20;
+    const INPUT_SIZE: usize = 10;
     // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new(false);
     let path = dir.path();
@@ -209,12 +214,12 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
 
     // Gen inputs
     let inputs_file = dir.path().join("ipa_inputs.txt");
-    let output_file = dir.path().join("ipa_output.txt");
+    let output_file = dir.path().join("ipa_output.json");
     let mut command = Command::new(TEST_RC_BIN);
     command
         .args(["--output-file".as_ref(), inputs_file.as_os_str()])
         .arg("gen-ipa-inputs")
-        .args(["--count", "10"])
+        .args(["--count", &INPUT_SIZE.to_string()])
         .args(["--max-breakdown-key", &BREAKDOWNS.to_string()])
         .args(["--seed", &thread_rng().next_u64().to_string()])
         .silent()
@@ -252,20 +257,17 @@ fn test_ipa(mode: IpaSecurityModel, https: bool) {
     test_mpc.wait().unwrap_status();
 
     // basic output checks - output should have the exact size as number of breakdowns
-    let output = std::fs::read_to_string(&output_file)
-        .expect("IPA results file exists")
-        .split(',')
-        .map(|s| {
-            s.parse::<u32>()
-                .expect(&format!("breakdown key {} is an unsigned integer", s))
-        })
-        .collect::<Vec<_>>();
+    let output = serde_json::from_str::<IpaQueryResult>(
+        &std::fs::read_to_string(&output_file).expect("IPA results file exists"),
+    )
+    .expect("IPA results file is valid JSON");
 
     assert_eq!(
         BREAKDOWNS,
-        output.len(),
-        "Number of breakdowns does not match the expected"
+        output.breakdowns.len(),
+        "Number of breakdowns does not match the expected",
     );
+    assert_eq!(INPUT_SIZE, usize::from(output.input_size));
 }
 
 #[test]
