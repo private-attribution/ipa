@@ -399,11 +399,12 @@ mod test {
         ff::{Field, Fp31, Fp32BitPrime, Serializable},
         rand::thread_rng,
         sync::Arc,
+        test_executor::run,
     };
     use futures::{
         future::{join, join3, join_all},
         stream::StreamExt,
-        Future, FutureExt,
+        FutureExt,
     };
     use generic_array::GenericArray;
     use rand::Rng;
@@ -415,28 +416,6 @@ mod test {
             NonZeroUsize::new(6).unwrap(),
             NonZeroUsize::new(5).unwrap(),
         ))
-    }
-
-    #[cfg(not(feature = "shuttle"))]
-    fn run<F, Fut>(f: F)
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()>,
-    {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(f());
-    }
-
-    #[cfg(feature = "shuttle")]
-    fn run<F, Fut>(f: F)
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()>,
-    {
-        shuttle::check_random(move || shuttle::future::block_on(f()), 32);
     }
 
     /// Writing a single value cannot be read until the stream closes.

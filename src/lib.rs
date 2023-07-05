@@ -32,7 +32,6 @@ pub mod test_fixture;
 mod app;
 mod exact;
 mod seq_join;
-mod tests;
 
 pub use app::{HelperApp, Setup as AppSetup};
 
@@ -78,6 +77,52 @@ pub(crate) mod task {
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
     pub use tokio::task::{JoinError, JoinHandle};
+}
+
+#[cfg(all(feature = "shuttle", test))]
+pub(crate) mod test_executor {
+    use std::future::Future;
+
+    pub fn run<F, Fut>(f: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        run_with::<_, _, 32>(f);
+    }
+
+    pub fn run_with<F, Fut, const ITER: usize>(f: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        shuttle::check_random(move || shuttle::future::block_on(f()), ITER);
+    }
+}
+
+#[cfg(all(test, unit_test, not(feature = "shuttle")))]
+pub(crate) mod test_executor {
+    use std::future::Future;
+
+    pub fn run_with<F, Fut, const ITER: usize>(f: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        run(f);
+    }
+
+    pub fn run<F, Fut>(f: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()>,
+    {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f());
+    }
 }
 
 #[cfg(all(feature = "in-memory-infra", feature = "real-world-infra"))]
