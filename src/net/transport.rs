@@ -1,27 +1,35 @@
 use crate::{
     config::{NetworkConfig, ServerConfig},
+    error::BoxError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier, PrepareQueryResult,
-        QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportCallbacks,
+        BodyStream, CompleteQueryResult, HelperIdentity, LogErrors, NoResourceIdentifier,
+        PrepareQueryResult, QueryIdBinding, QueryInputResult, ReceiveQueryResult, ReceiveRecords,
+        RouteId, RouteParams, StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{step, QueryId},
+    protocol::{step::Gate, QueryId},
     sync::Arc,
 };
 use async_trait::async_trait;
-use axum::{body::Bytes, extract::BodyStream};
+use bytes::Bytes;
 use futures::{Stream, TryFutureExt};
-use std::borrow::Borrow;
+use std::{
+    borrow::Borrow,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-type LogHttpErrors = LogErrors<BodyStream, Bytes, axum::Error>;
+type LogHttpErrors = LogErrors<BodyStream, Bytes, BoxError>;
 
 /// HTTP transport for IPA helper service.
 pub struct HttpTransport {
     identity: HelperIdentity,
     callbacks: TransportCallbacks<Arc<HttpTransport>>,
     clients: [MpcHelperClient; 3],
+    // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
+    // only allow one query at a time.
     record_streams: StreamCollection<LogHttpErrors>,
 }
 
@@ -65,7 +73,31 @@ impl HttpTransport {
     }
 
     pub fn complete_query(self: Arc<Self>, query_id: QueryId) -> CompleteQueryResult {
-        (Arc::clone(&self).callbacks.complete_query)(self, query_id)
+        /// Cleans up the `records_stream` collection after drop to ensure this transport
+        /// can process the next query even in case of a panic.
+        struct ClearOnDrop {
+            transport: Arc<HttpTransport>,
+            qr: CompleteQueryResult,
+        }
+
+        impl Future for ClearOnDrop {
+            type Output = <CompleteQueryResult as Future>::Output;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                self.qr.as_mut().poll(cx)
+            }
+        }
+
+        impl Drop for ClearOnDrop {
+            fn drop(&mut self) {
+                self.transport.record_streams.clear();
+            }
+        }
+
+        Box::pin(ClearOnDrop {
+            transport: Arc::clone(&self),
+            qr: Box::pin((Arc::clone(&self).callbacks.complete_query)(self, query_id)),
+        })
     }
 
     /// Connect an inbound stream of MPC record data.
@@ -74,12 +106,12 @@ impl HttpTransport {
     pub fn receive_stream(
         self: Arc<Self>,
         query_id: QueryId,
-        step: step::Descriptive,
+        gate: Gate,
         from: HelperIdentity,
         stream: BodyStream,
     ) {
         self.record_streams
-            .add_stream((query_id, from, step), LogErrors::new(stream));
+            .add_stream((query_id, from, gate), LogErrors::new(stream));
     }
 }
 
@@ -105,7 +137,7 @@ impl Transport for Arc<HttpTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<step::Descriptive>: From<S>,
+        Option<Gate>: From<S>,
     {
         let route_id = route.resource_identifier();
         match route_id {
@@ -113,9 +145,9 @@ impl Transport for Arc<HttpTransport> {
                 // TODO(600): These fallible extractions aren't really necessary.
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id required when sending records");
-                let step = <Option<step::Descriptive>>::from(route.step())
-                    .expect("step required when sending records");
-                let resp_future = self.clients[dest].step(self.identity, query_id, &step, data)?;
+                let step =
+                    <Option<Gate>>::from(route.gate()).expect("step required when sending records");
+                let resp_future = self.clients[dest].step(query_id, &step, data)?;
                 tokio::spawn(async move {
                     resp_future
                         .map_err(Into::into)
@@ -130,7 +162,7 @@ impl Transport for Arc<HttpTransport> {
             }
             RouteId::PrepareQuery => {
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
-                self.clients[dest].prepare_query(self.identity, req).await
+                self.clients[dest].prepare_query(req).await
             }
             RouteId::ReceiveQuery => {
                 unimplemented!("attempting to send ReceiveQuery to another helper")
@@ -138,29 +170,31 @@ impl Transport for Arc<HttpTransport> {
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, step::Descriptive>>(
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
         ReceiveRecords::new(
-            (route.query_id(), from, route.step()),
+            (route.query_id(), from, route.gate()),
             self.record_streams.clone(),
         )
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
-mod e2e_tests {
+#[cfg(all(test, web_test))]
+mod tests {
     use super::*;
     use crate::{
         config::{NetworkConfig, ServerConfig},
         ff::{FieldType, Fp31, Serializable},
-        helpers::{query::QueryType, ByteArrStream},
-        net::test::{body_stream, TestClients, TestServer},
-        protocol::step,
+        helpers::query::QueryType::TestMultiply,
+        net::{
+            client::ClientIdentity,
+            test::{get_test_identity, TestConfig, TestConfigBuilder, TestServer},
+        },
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-        test_fixture::{config::TestConfigBuilder, Reconstruct},
+        test_fixture::Reconstruct,
         AppSetup, HelperApp,
     };
     use futures::stream::{poll_immediate, StreamExt};
@@ -172,7 +206,7 @@ mod e2e_tests {
     use tokio_stream::wrappers::ReceiverStream;
     use typenum::Unsigned;
 
-    static STEP: Lazy<step::Descriptive> = Lazy::new(|| step::Descriptive::from("http-transport"));
+    static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
 
     #[tokio::test]
     async fn receive_stream() {
@@ -182,7 +216,9 @@ mod e2e_tests {
 
         let TestServer { transport, .. } = TestServer::default().await;
 
-        let body = body_stream(Box::new(ReceiverStream::new(rx))).await;
+        let body = BodyStream::from_body(
+            Box::new(ReceiverStream::new(rx)) as Box<dyn Stream<Item = _> + Send>
+        );
 
         // Register the stream with the transport (normally called by step data HTTP API handler)
         Arc::clone(&transport).receive_stream(QueryId, STEP.clone(), HelperIdentity::TWO, body);
@@ -214,60 +250,78 @@ mod e2e_tests {
         );
     }
 
-    // TODO: write a test for an error while reading the body (after error handling is finalized)
+    // TODO(651): write a test for an error while reading the body (after error handling is finalized)
 
     async fn make_helpers(
-        ids: [HelperIdentity; 3],
         sockets: [TcpListener; 3],
         server_config: [ServerConfig; 3],
         network_config: &NetworkConfig,
+        disable_https: bool,
     ) -> [HelperApp; 3] {
-        join_all(zip(ids, zip(sockets, server_config)).map(
-            |(id, (socket, server_config))| async move {
-                let (setup, callbacks) = AppSetup::new();
-                let client_config = network_config.clone();
-                let clients = TestClients::builder()
-                    .with_network_config(client_config)
-                    .build()
-                    .into();
-                let (transport, server) = HttpTransport::new(
-                    id,
-                    server_config,
-                    network_config.clone(),
-                    clients,
-                    callbacks,
-                );
-                server.start_on(Some(socket), ()).await;
-                let app = setup.connect(transport);
-                app
-            },
-        ))
+        join_all(
+            zip(HelperIdentity::make_three(), zip(sockets, server_config)).map(
+                |(id, (socket, server_config))| async move {
+                    let identity = if disable_https {
+                        ClientIdentity::Helper(id)
+                    } else {
+                        get_test_identity(id)
+                    };
+                    let (setup, callbacks) = AppSetup::new();
+                    let clients = MpcHelperClient::from_conf(network_config, identity);
+                    let (transport, server) = HttpTransport::new(
+                        id,
+                        server_config,
+                        network_config.clone(),
+                        clients,
+                        callbacks,
+                    );
+                    server.start_on(Some(socket), ()).await;
+                    let app = setup.connect(transport);
+                    app
+                },
+            ),
+        )
         .await
         .try_into()
         .ok()
         .unwrap()
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn happy_case() {
-        const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
-        let mut conf = TestConfigBuilder::with_open_ports().build();
-        let ids = HelperIdentity::make_three();
-        let clients = MpcHelperClient::from_conf(&conf.network);
+    async fn test_three_helpers(mut conf: TestConfig) {
+        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
         let _helpers = make_helpers(
-            ids,
             conf.sockets.take().unwrap(),
             conf.servers,
             &conf.network,
+            conf.disable_https,
         )
         .await;
 
+        test_multiply(&clients).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn happy_case_twice() {
+        let mut conf = TestConfigBuilder::with_open_ports().build();
+        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
+        let _helpers = make_helpers(
+            conf.sockets.take().unwrap(),
+            conf.servers,
+            &conf.network,
+            conf.disable_https,
+        )
+        .await;
+
+        test_multiply(&clients).await;
+        test_multiply(&clients).await;
+    }
+
+    async fn test_multiply(clients: &[MpcHelperClient; 3]) {
+        const SZ: usize = <AdditiveShare<Fp31> as Serializable>::Size::USIZE;
+
         // send a create query command
         let leader_client = &clients[0];
-        let create_data = QueryConfig {
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        };
+        let create_data = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
 
         // create query
         let query_id = leader_client.create_query(create_data).await.unwrap();
@@ -280,7 +334,7 @@ mod e2e_tests {
             let mut vec = vec![0u8; 2 * SZ];
             a.serialize(GenericArray::from_mut_slice(&mut vec[..SZ]));
             b.serialize(GenericArray::from_mut_slice(&mut vec[SZ..]));
-            ByteArrStream::from(vec)
+            BodyStream::from(vec)
         });
 
         let mut handle_resps = Vec::with_capacity(helper_shares.len());
@@ -293,7 +347,7 @@ mod e2e_tests {
         }
         try_join_all(handle_resps).await.unwrap();
 
-        let result: [_; 3] = join_all(clients.map(|client| async move {
+        let result: [_; 3] = join_all(clients.clone().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();
             AdditiveShare::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
         }))
@@ -302,5 +356,19 @@ mod e2e_tests {
         .unwrap();
         let res = result.reconstruct();
         assert_eq!(Fp31::try_from(20u128).unwrap(), res[0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_helpers_http() {
+        let conf = TestConfigBuilder::with_open_ports()
+            .with_disable_https_option(true)
+            .build();
+        test_three_helpers(conf).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_helpers_https() {
+        let conf = TestConfigBuilder::with_open_ports().build();
+        test_three_helpers(conf).await;
     }
 }

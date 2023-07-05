@@ -35,7 +35,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
         self.inner
             .send(
                 dest_identity,
-                (RouteId::Records, self.query_id, channel_id.step.clone()),
+                (RouteId::Records, self.query_id, channel_id.gate.clone()),
                 data,
             )
             .await
@@ -52,7 +52,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
         UnorderedReceiver::new(
             Box::pin(
                 self.inner
-                    .receive(peer, (self.query_id, channel_id.step.clone())),
+                    .receive(peer, (self.query_id, channel_id.gate.clone())),
             ),
             self.config.active_work(),
         )

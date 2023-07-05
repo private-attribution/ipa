@@ -1,87 +1,174 @@
 use crate::{
     error::Error,
-    ff::{FieldType, Fp32BitPrime, GaloisField, PrimeField, Serializable},
-    helpers::{query::IpaQueryConfig, ByteArrStream},
-    protocol::{
-        attribution::input::MCAggregateCreditOutputRow,
-        context::SemiHonestContext,
-        ipa::{ipa, IPAInputRow},
-        BreakdownKey, MatchKey,
+    ff::{Gf2, PrimeField, Serializable},
+    helpers::{
+        query::{IpaQueryConfig, QuerySize},
+        BodyStream, LengthDelimitedStream, RecordsStream,
     },
-    query::ProtocolResult,
-    secret_sharing::replicated::semi_honest::AdditiveShare,
+    hpke::{KeyPair, KeyRegistry},
+    protocol::{
+        attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
+        basics::{Reshare, ShareKnownValue},
+        context::{UpgradableContext, UpgradedContext},
+        ipa::{ipa, IPAInputRow},
+        sort::generate_permutation::ShuffledPermutationWrapper,
+        BasicProtocols, BreakdownKey, MatchKey, RecordId,
+    },
+    report::{EncryptedReport, EventType, InvalidReportError},
+    secret_sharing::{
+        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
+        Linear as LinearSecretSharing,
+    },
+    sync::Arc,
 };
-use futures_util::StreamExt;
-use std::future::Future;
-use typenum::Unsigned;
+use futures::{
+    stream::{iter, repeat},
+    Stream, StreamExt, TryStreamExt,
+};
+use std::marker::PhantomData;
 
-pub struct Runner(pub IpaQueryConfig);
+pub struct IpaQuery<F, C, S> {
+    config: IpaQueryConfig,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
+    phantom_data: PhantomData<(F, C, S)>,
+}
 
-impl Runner {
-    pub async fn run(
-        &self,
-        ctx: SemiHonestContext<'_>,
-        field: FieldType,
-        input: ByteArrStream,
-    ) -> Box<dyn ProtocolResult> {
-        match field {
-            #[cfg(any(test, feature = "weak-field"))]
-            FieldType::Fp31 => Box::new(
-                self.run_internal::<crate::ff::Fp31, MatchKey, BreakdownKey>(ctx, input)
-                    .await
-                    .expect("IPA query failed"),
-            ),
-            FieldType::Fp32BitPrime => Box::new(
-                self.run_internal::<Fp32BitPrime, MatchKey, BreakdownKey>(ctx, input)
-                    .await
-                    .expect("IPA query failed"),
-            ),
-        }
-    }
-
-    // This is intentionally made not async because it does not capture `self`.
-    fn run_internal<'a, F: PrimeField, MK: GaloisField, BK: GaloisField>(
-        &self,
-        ctx: SemiHonestContext<'a>,
-        input: ByteArrStream,
-    ) -> impl Future<
-        Output = std::result::Result<
-            Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>,
-            Error,
-        >,
-    > + 'a
-    where
-        IPAInputRow<F, MK, BK>: Serializable,
-        AdditiveShare<F>: Serializable,
-    {
-        let config = self.0;
-        async move {
-            let mut input = input.align(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE);
-            let mut input_vec = Vec::new();
-            while let Some(data) = input.next().await {
-                input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
-            }
-
-            ipa(ctx, input_vec.as_slice(), config).await
+impl<F, C, S> IpaQuery<F, C, S> {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
+        Self {
+            config,
+            key_registry,
+            phantom_data: PhantomData,
         }
     }
 }
 
-#[cfg(all(
-    test,
-    not(feature = "shuttle"),
-    feature = "in-memory-infra",
-    feature = "weak-field"
-))]
+impl<F, C, S, SB> IpaQuery<F, C, S>
+where
+    C: UpgradableContext + Send,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F>
+        + BasicProtocols<C::UpgradedContext<F>, F>
+        + Reshare<C::UpgradedContext<F>, RecordId>
+        + Serializable
+        + DowngradeMalicious<Target = AdditiveShare<F>>
+        + 'static,
+    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
+    SB: LinearSecretSharing<Gf2>
+        + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
+        + DowngradeMalicious<Target = AdditiveShare<Gf2>>
+        + 'static,
+    F: PrimeField,
+    AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
+    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+    ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    MCCappedCreditsWithAggregationBit<F, S>:
+        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, AdditiveShare<F>>>,
+    MCAggregateCreditOutputRow<F, S, BreakdownKey>:
+        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
+    AdditiveShare<F>: Serializable,
+{
+    #[tracing::instrument("ipa_query", skip_all)]
+    pub async fn execute<'a>(
+        self,
+        ctx: C,
+        query_size: QuerySize,
+        input_stream: BodyStream,
+    ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
+        let Self {
+            config,
+            key_registry,
+            phantom_data: _,
+        } = self;
+        let sz = usize::from(query_size);
+
+        let input = if config.plaintext_match_keys {
+            let mut v = assert_stream_send(RecordsStream::<
+                IPAInputRow<F, MatchKey, BreakdownKey>,
+                _,
+            >::new(input_stream))
+            .try_concat()
+            .await?;
+            v.truncate(sz);
+            v
+        } else {
+            assert_stream_send(LengthDelimitedStream::<
+                EncryptedReport<F, MatchKey, BreakdownKey, _>,
+                _,
+            >::new(input_stream))
+            .map_err(Into::<Error>::into)
+            .map_ok(|enc_reports| {
+                iter(enc_reports.into_iter().map(|enc_report| {
+                    enc_report
+                        .decrypt(key_registry.as_ref())
+                        .map_err(Into::<Error>::into)
+                }))
+            })
+            .try_flatten()
+            .take(sz)
+            .zip(repeat(ctx.clone()))
+            .map(|(res, ctx)| {
+                res.and_then(|report| {
+                    let timestamp = AdditiveShare::<F>::share_known_value(
+                        &ctx,
+                        F::try_from(report.timestamp.into())
+                            .map_err(|_| InvalidReportError::Timestamp(report.timestamp))?,
+                    );
+                    let breakdown_key = AdditiveShare::<BreakdownKey>::share_known_value(
+                        &ctx,
+                        report.breakdown_key,
+                    );
+                    let is_trigger_bit = AdditiveShare::<F>::share_known_value(
+                        &ctx,
+                        match report.event_type {
+                            EventType::Source => F::ZERO,
+                            EventType::Trigger => F::ONE,
+                        },
+                    );
+
+                    Ok(IPAInputRow {
+                        timestamp,
+                        mk_shares: report.mk_shares,
+                        is_trigger_bit,
+                        breakdown_key,
+                        trigger_value: report.trigger_value,
+                    })
+                })
+            })
+            .try_collect::<Vec<_>>()
+            .await?
+        };
+
+        ipa(ctx, input.as_slice(), config).await
+    }
+}
+
+/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
+/// streams.
+///
+/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
+pub fn assert_stream_send<'a, T>(
+    st: impl Stream<Item = T> + Send + 'a,
+) -> impl Stream<Item = T> + Send + 'a {
+    st
+}
+
+/// no dependency on `weak-field` feature because it is enabled in tests by default
+#[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::zip;
+
     use super::*;
     use crate::{
-        ff::Field,
+        ff::{Field, Fp31},
         ipa_test_input,
+        report::{Report, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
         test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
     };
     use generic_array::GenericArray;
+    use rand::rngs::StdRng;
+    use rand_core::SeedableRng;
     use typenum::Unsigned;
 
     #[tokio::test]
@@ -95,10 +182,16 @@ mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                // everything below this line will be ignored in IPA
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 1, breakdown_key: 1, trigger_value: 20 },
             ];
             (Fp31, MatchKey, BreakdownKey)
         );
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
+
         let records = records
+            .into_iter()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
@@ -119,15 +212,153 @@ mod tests {
 
         let world = TestWorld::default();
         let contexts = world.contexts();
+        #[allow(clippy::large_futures)]
         let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
                 attribution_window_seconds: None,
                 max_breakdown_key: 3,
+                plaintext_match_keys: true,
             };
-            let input = ByteArrStream::from(shares);
-            Runner(query_config).run_internal::<Fp31, MatchKey, BreakdownKey>(ctx, input)
+            let input = BodyStream::from(shares);
+            // Note that we ignore the last 2 records to test that runner follows the rule
+            // to take up to `record_count` reports. Everything else outside that will
+            // be ignored
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty()))
+                .execute(ctx, query_size, input)
+        }))
+        .await;
+
+        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+            results.reconstruct();
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    results[i].breakdown_key.as_u128(),
+                    results[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malicious_ipa() {
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+        let query_size = QuerySize::try_from(records.len()).unwrap();
+
+        let records = records
+            .into_iter()
+            .share()
+            // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
+            .map(|shares| {
+                shares
+                    .into_iter()
+                    .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
+                        let mut buf = [0u8; <IPAInputRow<
+                            Fp31,
+                            MatchKey,
+                            BreakdownKey,
+                        > as Serializable>::Size::USIZE];
+                        share.serialize(GenericArray::from_mut_slice(&mut buf));
+
+                        buf
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+        let world = TestWorld::default();
+        let contexts = world.malicious_contexts();
+
+        #[allow(clippy::large_futures)]
+        let results = join3v(records.into_iter().zip(contexts).map(|(shares, ctx)| {
+            let query_config = IpaQueryConfig {
+                num_multi_bits: 3,
+                per_user_credit_cap: 3,
+                attribution_window_seconds: None,
+                max_breakdown_key: 3,
+                plaintext_match_keys: true,
+            };
+            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
+                ctx,
+                query_size,
+                shares.into(),
+            )
+        }))
+        .await;
+
+        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+            results.reconstruct();
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    results[i].breakdown_key.as_u128(),
+                    results[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn encrypted_match_keys() {
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                // everything below this line will be ignored in IPA
+                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { timestamp: 3, match_key: 68362, is_trigger_report: 1, breakdown_key: 1, trigger_value: 20 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+        let query_size = QuerySize::try_from(records.len() - 2).unwrap();
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let key_id = DEFAULT_KEY_ID;
+        let key_registry = Arc::new(KeyRegistry::random(1, &mut rng));
+
+        let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+
+        let shares: [Vec<Report<_, _, _>>; 3] = records.into_iter().share();
+        for (buf, shares) in zip(&mut buffers, shares) {
+            for share in shares {
+                share
+                    .delimited_encrypt_to(key_id, key_registry.as_ref(), &mut rng, buf)
+                    .unwrap();
+            }
+        }
+
+        let world = TestWorld::default();
+        let contexts = world.contexts();
+        #[allow(clippy::large_futures)]
+        let results = join3v(buffers.into_iter().zip(contexts).map(|(buffer, ctx)| {
+            let query_config = IpaQueryConfig {
+                num_multi_bits: 3,
+                per_user_credit_cap: 3,
+                attribution_window_seconds: None,
+                max_breakdown_key: 3,
+                plaintext_match_keys: false,
+            };
+            let input = BodyStream::from(buffer);
+            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, query_size, input)
         }))
         .await;
 

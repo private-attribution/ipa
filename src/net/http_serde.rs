@@ -80,19 +80,14 @@ pub mod echo {
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
-            HelperIdentity,
-        },
+        helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
         net::Error,
     };
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
-    use hyper::header::HeaderName;
     use std::{
         fmt::{Display, Formatter},
         num::NonZeroU32,
-        str::FromStr,
     };
 
     /// wrapper around [`QueryConfig`] to enable extraction from an `Axum` request. To be used with
@@ -114,10 +109,12 @@ pub mod query {
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
             #[derive(serde::Deserialize)]
             struct QueryTypeParam {
+                size: QuerySize,
                 field_type: FieldType,
                 query_type: String,
             }
             let Query(QueryTypeParam {
+                size,
                 field_type,
                 query_type,
             }) = req.extract().await?;
@@ -125,31 +122,51 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::IPA_STR => {
+                QueryType::SEMIHONEST_IPA_STR | QueryType::MALICIOUS_IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
                         max_breakdown_key: u32,
                         attribution_window_seconds: Option<NonZeroU32>,
                         num_multi_bits: u32,
+                        #[serde(default)]
+                        plaintext_match_keys: bool,
                     }
                     let Query(IPAQueryConfigParam {
                         per_user_credit_cap,
                         max_breakdown_key,
                         attribution_window_seconds,
                         num_multi_bits,
+                        plaintext_match_keys,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::Ipa(IpaQueryConfig {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                    }))
+                    match query_type.as_str() {
+                        QueryType::SEMIHONEST_IPA_STR => {
+                            Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                                plaintext_match_keys,
+                            }))
+                        }
+                        QueryType::MALICIOUS_IPA_STR => {
+                            Ok(QueryType::MaliciousIpa(IpaQueryConfig {
+                                per_user_credit_cap,
+                                max_breakdown_key,
+                                attribution_window_seconds,
+                                num_multi_bits,
+                                plaintext_match_keys,
+                            }))
+                        }
+                        &_ => unreachable!(),
+                    }
                 }
+
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
+                size,
                 field_type,
                 query_type,
             }))
@@ -158,19 +175,26 @@ pub mod query {
 
     impl Display for QueryConfigQueryParams {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(f, "field_type={:?}&", self.field_type)?;
+            write!(
+                f,
+                "query_type={qt}&field_type={f:?}&size={size}",
+                qt = self.query_type.as_ref(),
+                f = self.field_type,
+                size = self.size
+            )?;
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-                QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
-                QueryType::Ipa(config) => {
+                QueryType::TestMultiply => Ok(()),
+                QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
                     write!(
                         f,
-                        "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                        QueryType::IPA_STR,
-                        config.per_user_credit_cap,
-                        config.max_breakdown_key,
-                        config.num_multi_bits,
+                        "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                        config.per_user_credit_cap, config.max_breakdown_key, config.num_multi_bits,
                     )?;
+
+                    if config.plaintext_match_keys {
+                        write!(f, "&plaintext_match_keys=true")?;
+                    }
 
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;
@@ -179,46 +203,6 @@ pub mod query {
                     Ok(())
                 }
             }
-        }
-    }
-
-    /// name of the `origin` header to use for [`OriginHeader`]
-    static ORIGIN_HEADER_NAME: HeaderName = HeaderName::from_static("origin");
-
-    fn get_header<B, H: FromStr>(req: &RequestParts<B>, header_name: HeaderName) -> Result<H, Error>
-    where
-        Error: From<<H as FromStr>::Err>,
-    {
-        let header_name_string = header_name.to_string();
-        req.headers()
-            .get(header_name)
-            .ok_or(Error::MissingHeader(header_name_string))
-            .and_then(|header_value| header_value.to_str().map_err(Into::into))
-            .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
-    }
-
-    /// Header indicating the originating `HelperIdentity`.
-    /// May be replaced in the future with a method with better security
-    #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-    struct OriginHeader {
-        origin: HelperIdentity,
-    }
-
-    impl OriginHeader {
-        fn add_to(self, req: axum::http::request::Builder) -> axum::http::request::Builder {
-            req.header(ORIGIN_HEADER_NAME.clone(), self.origin)
-        }
-    }
-
-    #[async_trait]
-    impl<B: Send> FromRequest<B> for OriginHeader {
-        type Rejection = Error;
-
-        async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-            let origin: usize = get_header(req, ORIGIN_HEADER_NAME.clone())?;
-            let origin =
-                HelperIdentity::try_from(origin).map_err(|err| Error::InvalidHeader(err.into()))?;
-            Ok(OriginHeader { origin })
         }
     }
 
@@ -285,9 +269,9 @@ pub mod query {
 
     pub mod prepare {
         use crate::{
-            helpers::{query::PrepareQuery, HelperIdentity, RoleAssignment},
+            helpers::{query::PrepareQuery, RoleAssignment},
             net::{
-                http_serde::query::{OriginHeader, QueryConfigQueryParams, BASE_AXUM_PATH},
+                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
                 Error,
             },
         };
@@ -301,13 +285,12 @@ pub mod query {
 
         #[derive(Debug, Clone)]
         pub struct Request {
-            pub origin: HelperIdentity,
             pub data: PrepareQuery,
         }
 
         impl Request {
-            pub fn new(origin: HelperIdentity, data: PrepareQuery) -> Self {
-                Self { origin, data }
+            pub fn new(data: PrepareQuery) -> Self {
+                Self { data }
             }
             pub fn try_into_http_request(
                 self,
@@ -324,15 +307,11 @@ pub mod query {
                         QueryConfigQueryParams(self.data.config),
                     ))
                     .build()?;
-                let origin_header = OriginHeader {
-                    origin: self.origin,
-                };
                 let body = RequestBody {
                     roles: self.data.roles,
                 };
                 let body = hyper::Body::from(serde_json::to_string(&body)?);
-                Ok(origin_header
-                    .add_to(hyper::Request::post(uri))
+                Ok(hyper::Request::post(uri)
                     .header(CONTENT_TYPE, "application/json")
                     .body(body)?)
             }
@@ -347,10 +326,8 @@ pub mod query {
             ) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
                 let QueryConfigQueryParams(config) = req.extract().await?;
-                let origin_header = req.extract::<OriginHeader>().await?;
                 let Json(RequestBody { roles }) = req.extract().await?;
                 Ok(Request {
-                    origin: origin_header.origin,
                     data: PrepareQuery {
                         query_id,
                         config,
@@ -370,19 +347,15 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            helpers::{query::QueryInput, ByteArrStream},
+            helpers::query::QueryInput,
             net::{http_serde::query::BASE_AXUM_PATH, Error},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
-        use hyper::{
-            body::{Bytes, HttpBody},
-            header::CONTENT_TYPE,
-            Body,
-        };
+        use hyper::{header::CONTENT_TYPE, Body};
 
         #[derive(Debug)]
         pub struct Request {
@@ -416,28 +389,13 @@ pub mod query {
             }
         }
 
-        struct ByteArrStreamFromReq(ByteArrStream);
-
-        #[async_trait]
-        impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
-            for ByteArrStreamFromReq
-        {
-            type Rejection = Error;
-
-            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let body: BodyStream = req.extract().await?;
-
-                Ok(ByteArrStreamFromReq(body.into()))
-            }
-        }
-
         #[async_trait]
         impl FromRequest<Body> for Request {
             type Rejection = Error;
 
             async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
-                let ByteArrStreamFromReq(input_stream) = req.extract().await?;
+                let input_stream = req.extract().await?;
 
                 Ok(Request {
                     query_input: QueryInput {
@@ -453,16 +411,13 @@ pub mod query {
 
     pub mod step {
         use crate::{
-            helpers::HelperIdentity,
-            net::{
-                http_serde::query::{OriginHeader, BASE_AXUM_PATH},
-                Error,
-            },
-            protocol::{step, QueryId},
+            helpers::BodyStream,
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
+            protocol::{step::Gate, QueryId},
         };
         use async_trait::async_trait;
         use axum::{
-            extract::{BodyStream, FromRequest, Path, RequestParts},
+            extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
 
@@ -470,23 +425,16 @@ pub mod query {
         // is used on the server side, `B` can be any body type supported by axum.
         #[derive(Debug)]
         pub struct Request<B> {
-            pub origin: HelperIdentity,
             pub query_id: QueryId,
-            pub step: step::Descriptive,
+            pub gate: Gate,
             pub body: B,
         }
 
         impl<B> Request<B> {
-            pub fn new(
-                origin: HelperIdentity,
-                query_id: QueryId,
-                step: step::Descriptive,
-                body: B,
-            ) -> Self {
+            pub fn new(query_id: QueryId, gate: Gate, body: B) -> Self {
                 Self {
-                    origin,
                     query_id,
-                    step,
+                    gate,
                     body,
                 }
             }
@@ -506,17 +454,10 @@ pub mod query {
                         "{}/{}/step/{}",
                         BASE_AXUM_PATH,
                         self.query_id.as_ref(),
-                        self.step.as_ref()
+                        self.gate.as_ref()
                     ))
                     .build()?;
-                // TODO(597): this is a misuse of the origin header, and is insecure.
-                // need to authenticate clients with TLS.
-                let origin_header = OriginHeader {
-                    origin: self.origin,
-                };
-                let req = hyper::Request::post(uri);
-                let req = origin_header.add_to(req);
-                Ok(req.body(self.body)?)
+                Ok(hyper::Request::post(uri).body(self.body)?)
             }
         }
 
@@ -535,13 +476,11 @@ pub mod query {
             // the form of trait bounds on the impl) to see that PathRejection can be converted to
             // Error. Writing `Path` twice somehow avoids that.
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                let Path((query_id, step)) = req.extract::<Path<_>>().await?;
-                let origin_header = req.extract::<OriginHeader>().await?;
-                let body = req.extract::<BodyStream>().await?;
+                let Path((query_id, gate)) = req.extract::<Path<_>>().await?;
+                let body = req.extract().await?;
                 Ok(Self {
-                    origin: origin_header.origin,
                     query_id,
-                    step,
+                    gate,
                     body,
                 })
             }

@@ -1,21 +1,22 @@
 use crate::{
+    error::Error as ProtocolError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
     query::{
         executor,
-        state::{QueryState, QueryStatus, RunningQueries, StateError},
-        ProtocolResult,
+        state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
+        CompletionHandle, ProtocolResult,
     },
 };
-
 use futures_util::{future::try_join, stream};
-
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
+    sync::Arc,
 };
 use tokio::sync::oneshot;
 
@@ -36,9 +37,18 @@ use tokio::sync::oneshot;
 /// that initiated this request asks for them.
 ///
 /// [`AdditiveShare`]: crate::secret_sharing::replicated::semi_honest::AdditiveShare
-#[derive(Default)]
 pub struct Processor {
     queries: RunningQueries,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Self {
+            queries: RunningQueries::default(),
+            key_registry: Arc::new(KeyRegistry::<KeyPair>::empty()),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -84,6 +94,8 @@ pub enum QueryCompletionError {
         #[from]
         source: StateError,
     },
+    #[error("query execution failed: {0}")]
+    ExecutionError(#[from] ProtocolError),
 }
 
 impl Debug for Processor {
@@ -93,6 +105,14 @@ impl Debug for Processor {
 }
 
 impl Processor {
+    #[must_use]
+    pub fn new(key_registry: KeyRegistry<KeyPair>) -> Self {
+        Self {
+            queries: RunningQueries::default(),
+            key_registry: Arc::new(key_registry),
+        }
+    }
+
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
@@ -113,6 +133,7 @@ impl Processor {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
+        let guard = handle.remove_query_on_drop();
 
         let id = transport.identity();
         let [right, left] = id.others();
@@ -136,6 +157,7 @@ impl Processor {
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
+        guard.restore();
         Ok(prepare_request)
     }
 
@@ -194,14 +216,15 @@ impl Processor {
                     );
                     let gateway = Gateway::new(
                         query_id,
-                        GatewayConfig::default(),
+                        GatewayConfig::from(&config),
                         role_assignment,
                         transport,
                     );
                     queries.insert(
                         input.query_id,
-                        QueryState::Running(executor::start_query(
+                        QueryState::Running(executor::execute(
                             config,
+                            Arc::clone(&self.key_registry),
                             gateway,
                             input.input_stream,
                         )),
@@ -241,7 +264,7 @@ impl Processor {
             match queries.remove(&query_id) {
                 Some(QueryState::Running(handle)) => {
                     queries.insert(query_id, QueryState::AwaitingCompletion);
-                    Ok(handle)
+                    CompletionHandle::new(RemoveQuery::new(query_id, &self.queries), handle)
                 }
                 Some(state) => {
                     let state_error = StateError::InvalidState {
@@ -249,26 +272,26 @@ impl Processor {
                         to: QueryStatus::Running,
                     };
                     queries.insert(query_id, state);
-                    Err(QueryCompletionError::StateError {
+                    return Err(QueryCompletionError::StateError {
                         source: state_error,
-                    })
+                    });
                 }
-                None => Err(QueryCompletionError::NoSuchQuery(query_id)),
+                None => return Err(QueryCompletionError::NoSuchQuery(query_id)),
             }
-        }?;
+        }; // release mutex before await
 
-        Ok(handle.await.unwrap())
+        Ok(handle.await?)
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
-            query::QueryType, HelperIdentity, InMemoryNetwork, PrepareQueryCallback,
-            TransportCallbacks,
+            query::{QueryType, QueryType::TestMultiply},
+            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
         },
     };
     use futures::pin_mut;
@@ -282,6 +305,10 @@ mod tests {
         Fut: Future<Output = Result<(), PrepareQueryError>> + Send + 'static,
     {
         Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
+    }
+
+    fn test_multiply_config() -> QueryConfig {
+        QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap()
     }
 
     #[tokio::test]
@@ -312,7 +339,7 @@ mod tests {
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = QueryConfig::default();
+        let request = test_multiply_config();
 
         let qc_future = p0.new_query(t0, request);
         pin_mut!(qc_future);
@@ -347,7 +374,7 @@ mod tests {
         let network = InMemoryNetwork::new(cb);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = QueryConfig::default();
+        let request = test_multiply_config();
 
         let _qc = p0
             .new_query(Transport::clone_ref(&t0), request)
@@ -374,7 +401,31 @@ mod tests {
         let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
-        let request = QueryConfig::default();
+        let request = test_multiply_config();
+
+        assert!(matches!(
+            p0.new_query(t0, request).await.unwrap_err(),
+            NewQueryError::Transport(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn can_recover_from_prepare_error() {
+        let cb2 = TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
+            ..Default::default()
+        };
+        let cb3 = TransportCallbacks {
+            prepare_query: prepare_query_callback(|_, _| async {
+                Err(PrepareQueryError::WrongTarget)
+            }),
+            ..Default::default()
+        };
+        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let [t0, _, _] = network.transports();
+        let p0 = Processor::default();
+        let request = test_multiply_config();
+        p0.new_query(t0.clone_ref(), request).await.unwrap_err();
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
@@ -388,10 +439,7 @@ mod tests {
         fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
                 query_id: QueryId,
-                config: QueryConfig {
-                    field_type: FieldType::Fp31,
-                    query_type: QueryType::TestMultiply,
-                },
+                config: test_multiply_config(),
                 roles: RoleAssignment::new(identities),
             }
         }
@@ -456,13 +504,7 @@ mod tests {
             let a = Fp31::truncate_from(4u128);
             let b = Fp31::truncate_from(5u128);
             let results = app
-                .execute_query(
-                    vec![a, b],
-                    QueryConfig {
-                        field_type: FieldType::Fp31,
-                        query_type: QueryType::TestMultiply,
-                    },
-                )
+                .execute_query(vec![a, b].into_iter(), test_multiply_config())
                 .await?;
 
             let results = results.map(|bytes| {
@@ -478,6 +520,17 @@ mod tests {
         #[tokio::test]
         async fn complete_query_ipa() -> Result<(), BoxError> {
             let app = TestApp::default();
+            ipa_query(&app).await
+        }
+
+        #[tokio::test]
+        async fn complete_query_twice() -> Result<(), BoxError> {
+            let app = TestApp::default();
+            ipa_query(&app).await?;
+            ipa_query(&app).await
+        }
+
+        async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
                 [
                     { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
@@ -488,16 +541,20 @@ mod tests {
                 ];
                 (Fp31, MatchKey, BreakdownKey)
             );
+            let record_count = records.len();
+
             let _results = app
                 .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
-                    records,
+                    records.into_iter(),
                     QueryConfig {
+                        size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::Ipa(IpaQueryConfig {
+                        query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
                             per_user_credit_cap: 3,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,
+                            plaintext_match_keys: true,
                         }),
                     },
                 )

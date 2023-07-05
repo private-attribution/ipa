@@ -8,7 +8,7 @@ pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 #[cfg(feature = "no-prss")]
 pub use no_op::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
-use super::step;
+use super::step::Gate;
 use crate::{
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
@@ -25,13 +25,13 @@ use std::{collections::HashSet, fmt::Formatter};
 /// a given step.
 #[cfg(debug_assertions)]
 struct UsedSet {
-    key: String,
+    key: Gate,
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
 #[cfg(debug_assertions)]
 impl UsedSet {
-    fn new(key: String) -> Self {
+    fn new(key: Gate) -> Self {
         Self {
             key,
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -157,8 +157,8 @@ impl Endpoint {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn indexed(&self, key: &step::Descriptive) -> Arc<IndexedSharedRandomness> {
-        self.inner.lock().unwrap().indexed(key.as_ref())
+    pub fn indexed(&self, key: &Gate) -> Arc<IndexedSharedRandomness> {
+        self.inner.lock().unwrap().indexed(key)
     }
 
     /// Get a sequential shared randomness.
@@ -167,9 +167,9 @@ impl Endpoint {
     /// This can only be called once.  After that, calls to this function or `indexed` will panic.
     pub fn sequential(
         &self,
-        key: &step::Descriptive,
+        key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.inner.lock().unwrap().sequential(key.as_ref())
+        self.inner.lock().unwrap().sequential(key)
     }
 }
 
@@ -187,23 +187,23 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    items: HashMap<String, EndpointItem>,
+    items: HashMap<Gate, EndpointItem>,
 }
 
 impl EndpointInner {
-    pub fn indexed(&mut self, key: &str) -> Arc<IndexedSharedRandomness> {
+    pub fn indexed(&mut self, key: &Gate) -> Arc<IndexedSharedRandomness> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
         let item = if let Some(item) = self.items.get(key) {
             item
         } else {
-            self.items.entry(key.to_owned()).or_insert_with_key(|k| {
+            self.items.entry(key.clone()).or_insert_with_key(|k| {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
-                    left: self.left.generator(k.as_bytes()),
-                    right: self.right.generator(k.as_bytes()),
+                    left: self.left.generator(k.as_ref().as_bytes()),
+                    right: self.right.generator(k.as_ref().as_bytes()),
                     #[cfg(debug_assertions)]
-                    used: UsedSet::new(key.to_owned()),
+                    used: UsedSet::new(key.clone()),
                 }))
             })
         };
@@ -216,16 +216,16 @@ impl EndpointInner {
 
     pub fn sequential(
         &mut self,
-        key: &str,
+        key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let prev = self.items.insert(key.to_owned(), EndpointItem::Sequential);
+        let prev = self.items.insert(key.clone(), EndpointItem::Sequential);
         assert!(
             prev.is_none(),
             "Attempt access a sequential PRSS for {key} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.as_ref().as_bytes())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_ref().as_bytes())),
         )
     }
 }
@@ -261,15 +261,14 @@ impl EndpointSetup {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
         ff::{Field, Fp31},
         protocol::{
             prss::{Endpoint, SharedRandomness},
-            step,
-            step::StepNarrow,
+            step::{Gate, StepNarrow},
         },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
@@ -336,7 +335,7 @@ pub mod test {
         const IDX: u128 = 7;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
         assert_ne!(r1_l, r1_r);
         let (r2_l, r2_r) = p2.indexed(&step).generate_values(IDX);
@@ -354,7 +353,7 @@ pub mod test {
         const IDX: u128 = 7;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let z1 = p1.indexed(&step).zero_u128(IDX);
         let z2 = p2.indexed(&step).zero_u128(IDX);
         let z3 = p3.indexed(&step).zero_u128(IDX);
@@ -367,7 +366,7 @@ pub mod test {
         const IDX: u128 = 7;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let z1 = p1.indexed(&step).zero_xor(IDX);
         let z2 = p2.indexed(&step).zero_xor(IDX);
         let z3 = p3.indexed(&step).zero_xor(IDX);
@@ -381,7 +380,7 @@ pub mod test {
         const IDX2: u128 = 21362;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let r1 = p1.indexed(&step).random_u128(IDX1);
         let r2 = p2.indexed(&step).random_u128(IDX1);
         let r3 = p3.indexed(&step).random_u128(IDX1);
@@ -404,7 +403,7 @@ pub mod test {
 
         // These tests do not check that left != right because
         // the field might not be large enough.
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
         let (r2_l, r2_r): (Fp31, Fp31) = p2.indexed(&step).generate_fields(IDX);
         let (r3_l, r3_r): (Fp31, Fp31) = p3.indexed(&step).generate_fields(IDX);
@@ -419,7 +418,7 @@ pub mod test {
         const IDX: u128 = 72;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
         let z2: Fp31 = p2.indexed(&step).zero(IDX);
         let z3: Fp31 = p3.indexed(&step).zero(IDX);
@@ -433,7 +432,7 @@ pub mod test {
         const IDX2: u128 = 12634;
         let [p1, p2, p3] = participants();
 
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let s1 = p1.indexed(&step);
         let s2 = p2.indexed(&step);
         let s3 = p3.indexed(&step);
@@ -469,7 +468,7 @@ pub mod test {
         }
 
         let [p1, p2, p3] = participants();
-        let step = step::Descriptive::default();
+        let step = Gate::default();
         let (rng1_l, rng1_r) = p1.sequential(&step);
         let (rng2_l, rng2_r) = p2.sequential(&step);
         let (rng3_l, rng3_r) = p3.sequential(&step);
@@ -483,7 +482,7 @@ pub mod test {
     fn indexed_and_sequential() {
         let [p1, _p2, _p3] = participants();
 
-        let base = step::Descriptive::default();
+        let base = Gate::default();
         let idx = p1.indexed(&base.narrow("indexed"));
         let (mut s_left, mut s_right) = p1.sequential(&base.narrow("sequential"));
         let (i_left, i_right) = idx.generate_values(0_u128);
@@ -502,7 +501,7 @@ pub mod test {
     fn indexed_then_sequential() {
         let [p1, _p2, _p3] = participants();
 
-        let step = step::Descriptive::default().narrow("test");
+        let step = Gate::default().narrow("test");
         drop(p1.indexed(&step));
         let _: (_, _) = p1.sequential(&step);
     }
@@ -512,7 +511,7 @@ pub mod test {
     fn sequential_then_indexed() {
         let [p1, _p2, _p3] = participants();
 
-        let step = step::Descriptive::default().narrow("test");
+        let step = Gate::default().narrow("test");
         let _: (_, _) = p1.sequential(&step);
         drop(p1.indexed(&step));
     }
@@ -520,7 +519,7 @@ pub mod test {
     #[test]
     fn indexed_accepts_unique_index() {
         let [_, p2, _p3] = participants();
-        let step = step::Descriptive::default().narrow("test");
+        let step = Gate::default().narrow("test");
         let mut indices = (1..100_u128).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
         let indexed_prss = p2.indexed(&step);
@@ -535,7 +534,7 @@ pub mod test {
     #[should_panic]
     fn indexed_rejects_the_same_index() {
         let [p1, _p2, _p3] = participants();
-        let step = step::Descriptive::default().narrow("test");
+        let step = Gate::default().narrow("test");
 
         let _: u128 = p1.indexed(&step).random_u128(100_u128);
         let _: u128 = p1.indexed(&step).random_u128(100_u128);

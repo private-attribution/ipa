@@ -1,24 +1,77 @@
 use crate::{
-    config::{NetworkConfig, PeerConfig},
+    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
     },
-    net::{http_serde, Error},
-    protocol::{step, QueryId},
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
+    protocol::{step::Gate, QueryId},
 };
 use axum::http::uri::{self, Parts, Scheme};
 use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
-    Body, Client, Response, StatusCode, Uri,
+    header::HeaderName,
+    http::HeaderValue,
+    Body, Client, Request, Response, StatusCode, Uri,
 };
-use hyper_tls::{
-    native_tls::{Certificate, TlsConnector},
-    HttpsConnector,
+use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
+use std::{
+    collections::HashMap,
+    io,
+    io::{BufReader, Cursor},
+    iter::repeat,
 };
-use std::collections::HashMap;
+use tokio_rustls::{
+    rustls,
+    rustls::{Certificate, PrivateKey, RootCertStore},
+};
+use tracing::error;
+
+#[derive(Clone, Default)]
+pub enum ClientIdentity {
+    /// Claim the specified helper identity without any additional authentication.
+    ///
+    /// This is only supported for HTTP clients.
+    Helper(HelperIdentity),
+
+    /// Authenticate with an X.509 certificate or a certificate chain.
+    ///
+    /// This is only supported for HTTPS clients.
+    Certificate((Vec<Certificate>, PrivateKey)),
+
+    /// Do not authenticate nor claim a helper identity.
+    #[default]
+    None,
+}
+
+impl ClientIdentity {
+    /// Authenticates clients with an X.509 certificate using the provided certificate and private
+    /// key. Certificate must be in PEM format, private key encoding must be [`PKCS8`].
+    ///
+    /// [`PKCS8`]: https://datatracker.ietf.org/doc/html/rfc5958
+    ///
+    /// ## Errors
+    /// If either cert or private key is not the required format.
+    ///
+    /// ## Panics
+    /// If either cert or private key byte slice is empty.
+    pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
+        let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
+        let mut pk_reader = BufReader::new(Cursor::new(private_key_bytes));
+
+        let cert_chain = rustls_pemfile::certs(&mut certs_reader)?
+            .into_iter()
+            .map(Certificate)
+            .collect();
+        let pk = rustls_pemfile::pkcs8_private_keys(&mut pk_reader)?
+            .pop()
+            .expect("Non-empty byte slice is provided to parse a private key");
+
+        Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
+    }
+}
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -30,15 +83,25 @@ pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     scheme: uri::Scheme,
     authority: uri::Authority,
+    auth_header: Option<(HeaderName, HeaderValue)>,
 }
 
 impl MpcHelperClient {
+    /// Create a set of clients for the MPC helpers in the supplied helper network configuration.
+    ///
+    /// This function returns a set of three clients, which may be used to talk to each of the
+    /// helpers.
+    ///
+    /// `identity` configures whether and how the client will authenticate to the server. It is for
+    /// the helper making the calls, so the same one is used for all three of the clients.
+    /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig) -> [MpcHelperClient; 3] {
+    pub fn from_conf(conf: &NetworkConfig, identity: ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .map(|conf| Self::new(conf.clone()))
+            .zip(repeat(identity))
+            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -46,36 +109,86 @@ impl MpcHelperClient {
 
     /// Create a new client with the given configuration
     ///
+    /// `identity`, if present, configures whether and how the client will authenticate to the server
+    /// (e.g. an X.509 certificate).
+    ///
     /// # Panics
     /// If some aspect of the configuration is not valid.
     #[must_use]
-    pub fn new(config: PeerConfig) -> Self {
-        let connector = if config.url.scheme() == Some(&Scheme::HTTP) {
+    pub fn new(
+        client_config: &ClientConfig,
+        peer_config: PeerConfig,
+        identity: ClientIdentity,
+    ) -> Self {
+        let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
             // but would make the type of `self.client` variable.
-            HttpsConnector::new()
+            let auth_header = match identity {
+                ClientIdentity::Certificate(_) => {
+                    error!("certificate identity ignored for HTTP client");
+                    None
+                }
+                ClientIdentity::Helper(id) => Some((
+                    HTTP_CLIENT_ID_HEADER.clone(),
+                    id.try_into().expect("integer not ascii?"),
+                )),
+                ClientIdentity::None => None,
+            };
+            (
+                HttpsConnectorBuilder::new()
+                    .with_native_roots()
+                    .https_or_http()
+                    .enable_http2()
+                    .wrap_connector(make_http_connector()),
+                auth_header,
+            )
         } else {
-            let mut builder = TlsConnector::builder();
-            if let Some(certificate) = config.certificate {
-                builder
-                    .disable_built_in_roots(true)
-                    .add_root_certificate(Certificate::from_pem(certificate.as_bytes()).unwrap());
-            }
+            let builder = rustls::ClientConfig::builder().with_safe_defaults();
+            let client_config = if let Some(certificate) = peer_config.certificate {
+                let cert_store = {
+                    let mut store = RootCertStore::empty();
+                    store.add(&certificate).unwrap();
+                    store
+                };
+
+                let builder = builder.with_root_certificates(cert_store);
+                match identity {
+                    ClientIdentity::Certificate((cert_chain, pk)) => builder
+                        .with_single_cert(cert_chain, pk)
+                        .expect("Can setup client authentication with certificate"),
+                    ClientIdentity::Helper(_) => {
+                        error!("header-passed identity ignored for HTTPS client");
+                        builder.with_no_client_auth()
+                    }
+                    ClientIdentity::None => builder.with_no_client_auth(),
+                }
+            } else {
+                builder.with_native_roots().with_no_client_auth()
+            };
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
-            let mut http = HttpConnector::new();
+            let mut http = make_http_connector();
             http.enforce_http(false);
-            HttpsConnector::from((http, builder.build().unwrap().into()))
+            (
+                HttpsConnectorBuilder::new()
+                    .with_tls_config(client_config)
+                    .https_only()
+                    .enable_http2()
+                    .wrap_connector(http),
+                None,
+            )
         };
-        Self::new_with_connector(config.url, connector)
+        Self::new_internal(peer_config.url, connector, auth_header, client_config)
     }
 
-    /// addr must have a valid scheme and authority
-    /// # Panics
-    /// if addr does not have scheme and authority
     #[must_use]
-    pub fn new_with_connector(addr: Uri, connector: HttpsConnector<HttpConnector>) -> Self {
-        let client = Client::builder().build(connector);
+    fn new_internal<C: HyperClientConfigurator>(
+        addr: Uri,
+        connector: HttpsConnector<HttpConnector>,
+        auth_header: Option<(HeaderName, HeaderValue)>,
+        conf: &C,
+    ) -> Self {
+        let client = conf.configure(&mut Client::builder()).build(connector);
         let Parts {
             scheme: Some(scheme),
             authority: Some(authority),
@@ -87,14 +200,15 @@ impl MpcHelperClient {
             client,
             scheme,
             authority,
+            auth_header,
         }
     }
 
-    /// same as new, but first parses the addr from a [&str]
-    /// # Errors
-    /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, Error> {
-        Ok(Self::new(PeerConfig::new(addr.parse()?)))
+    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
+        if let Some((k, v)) = self.auth_header.clone() {
+            req.headers_mut().insert(k, v);
+        }
+        self.client.request(req)
     }
 
     /// Responds with whatever input is passed to it
@@ -106,7 +220,7 @@ impl MpcHelperClient {
         let req =
             http_serde::echo::Request::new(HashMap::from([(FOO.into(), s.into())]), HashMap::new());
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         let status = resp.status();
         if status.is_success() {
             let result = hyper::body::to_bytes(resp.into_body()).await?;
@@ -143,7 +257,7 @@ impl MpcHelperClient {
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
         let req = http_serde::query::create::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         if resp.status().is_success() {
             let body_bytes = body::to_bytes(resp.into_body()).await?;
             let http_serde::query::create::ResponseBody { query_id } =
@@ -159,14 +273,10 @@ impl MpcHelperClient {
     /// other helpers, which this prepare query does.
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn prepare_query(
-        &self,
-        origin: HelperIdentity,
-        data: PrepareQuery,
-    ) -> Result<(), Error> {
-        let req = http_serde::query::prepare::Request::new(origin, data);
+    pub async fn prepare_query(&self, data: PrepareQuery) -> Result<(), Error> {
+        let req = http_serde::query::prepare::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -178,7 +288,7 @@ impl MpcHelperClient {
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         let req = http_serde::query::input::Request::new(data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -191,15 +301,14 @@ impl MpcHelperClient {
     /// If messages size > max u32 (unlikely)
     pub fn step<S: Stream<Item = Vec<u8>> + Send + 'static>(
         &self,
-        origin: HelperIdentity,
         query_id: QueryId,
-        step: &step::Descriptive,
+        gate: &Gate,
         data: S,
     ) -> Result<ResponseFuture, Error> {
         let body = hyper::Body::wrap_stream::<_, _, Error>(data.map(Ok));
-        let req = http_serde::query::step::Request::new(origin, query_id, step.clone(), body);
+        let req = http_serde::query::step::Request::new(query_id, gate.clone(), body);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
-        Ok(self.client.request(req))
+        Ok(self.request(req))
     }
 
     /// Wait for completion of the query and pull the results of this query. This is a blocking
@@ -214,7 +323,7 @@ impl MpcHelperClient {
         let req = http_serde::query::results::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
 
-        let resp = self.client.request(req).await?;
+        let resp = self.request(req).await?;
         if resp.status().is_success() {
             Ok(body::to_bytes(resp.into_body()).await.unwrap())
         } else {
@@ -223,14 +332,23 @@ impl MpcHelperClient {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "real-world-infra"))]
+fn make_http_connector() -> HttpConnector {
+    let mut connector = HttpConnector::new();
+    // IPA uses HTTP2 and it is sensitive to those delays especially in high-latency network
+    // configurations.
+    connector.set_nodelay(true);
+
+    connector
+}
+
+#[cfg(all(test, web_test))]
 pub(crate) mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType, RoleAssignment, Transport, TransportCallbacks,
-            MESSAGE_PAYLOAD_SIZE_BYTES,
+            query::QueryType::TestMultiply, BytesStream, RoleAssignment, Transport,
+            TransportCallbacks, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{test::TestServer, HttpTransport},
         protocol::step::StepNarrow,
@@ -242,6 +360,7 @@ pub(crate) mod tests {
     use std::{
         fmt::Debug,
         future::{ready, Future},
+        iter::zip,
         task::Poll,
     };
 
@@ -277,13 +396,15 @@ pub(crate) mod tests {
 
         let TestServer { addr, .. } = TestServer::default().await;
 
-        let client_config = PeerConfig {
+        let peer_config = PeerConfig {
             url: format!("https://localhost:{}", addr.port())
                 .parse()
                 .unwrap(),
             certificate: None,
+            hpke_config: None,
         };
-        let client = MpcHelperClient::new(client_config);
+        let client =
+            MpcHelperClient::new(&ClientConfig::default(), peer_config, ClientIdentity::None);
 
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
@@ -297,9 +418,9 @@ pub(crate) mod tests {
     /// (`serverf`), and executing them simultaneously (via a `join!`). Finally, return the results
     /// of `clientf` for final checks.
     ///
-    /// Also tests that the same functionality works for both `http` and `https`. In order to ensure
-    /// this, the return type of `clientf` must be `Eq + Debug` so that the results of `http` and
-    /// `https` can be compared.
+    /// Also tests that the same functionality works for both `http` and `https` and all supported
+    /// HTTP versions (HTTP 1.1 and HTTP 2 at the moment) . In order to ensure
+    /// this, the return type of `clientf` must be `Eq + Debug` so that the results can be compared.
     async fn test_query_command<ClientOut, ClientFut, ClientF>(
         clientf: ClientF,
         server_cb: TransportCallbacks<Arc<HttpTransport>>,
@@ -309,28 +430,32 @@ pub(crate) mod tests {
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(MpcHelperClient) -> ClientFut,
     {
-        let (http_cb, https_cb) = clone_callbacks(server_cb);
+        let mut cb = server_cb;
+        let mut results = Vec::with_capacity(4);
+        for (use_https, use_http1) in zip([true, false], [true, false]) {
+            let (cur, next) = clone_callbacks(cb);
+            cb = next;
 
-        let TestServer {
-            client: http_client,
-            ..
-        } = TestServer::builder()
-            .disable_https()
-            .with_callbacks(http_cb)
-            .build()
-            .await;
+            let mut test_server_builder = TestServer::builder();
+            if !use_https {
+                test_server_builder = test_server_builder.disable_https();
+            }
 
-        let clientf_res_http = clientf(http_client).await;
+            if use_http1 {
+                test_server_builder = test_server_builder.use_http1();
+            }
 
-        let TestServer {
-            client: https_client,
-            ..
-        } = TestServer::builder().with_callbacks(https_cb).build().await;
+            let TestServer {
+                client: http_client,
+                ..
+            } = test_server_builder.with_callbacks(cur).build().await;
 
-        let clientf_res_https = clientf(https_client).await;
+            results.push(clientf(http_client).await);
+        }
 
-        assert_eq!(clientf_res_http, clientf_res_https);
-        clientf_res_http
+        assert!(results.windows(2).all(|slice| slice[0] == slice[1]));
+
+        results.pop().unwrap()
     }
 
     #[tokio::test]
@@ -348,10 +473,8 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn create() {
         let expected_query_id = QueryId;
-        let expected_query_config = QueryConfig {
-            field_type: FieldType::Fp31,
-            query_type: QueryType::TestMultiply,
-        };
+        let expected_query_config = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
+
         let cb = TransportCallbacks {
             receive_query: Box::new(move |_transport, query_config| {
                 assert_eq!(query_config, expected_query_config);
@@ -371,14 +494,10 @@ pub(crate) mod tests {
     async fn prepare() {
         let input = PrepareQuery {
             query_id: QueryId,
-            config: QueryConfig {
-                field_type: FieldType::Fp31,
-                query_type: QueryType::TestMultiply,
-            },
+            config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         };
         let expected_data = input.clone();
-        let origin = HelperIdentity::ONE;
         let cb = TransportCallbacks {
             prepare_query: Box::new(move |_transport, prepare_query| {
                 assert_eq!(prepare_query, expected_data);
@@ -389,7 +508,7 @@ pub(crate) mod tests {
         test_query_command(
             |client| {
                 let req = input.clone();
-                async move { client.prepare_query(origin, req).await.unwrap() }
+                async move { client.prepare_query(req).await.unwrap() }
             },
             cb,
         )
@@ -411,12 +530,12 @@ pub(crate) mod tests {
             ..Default::default()
         };
         test_query_command(
-            |client| {
+            |client| async move {
                 let data = QueryInput {
                     query_id: expected_query_id,
                     input_stream: expected_input.to_vec().into(),
                 };
-                async move { client.query_input(data).await.unwrap() }
+                client.query_input(data).await.unwrap()
             },
             cb,
         )
@@ -428,14 +547,12 @@ pub(crate) mod tests {
         let TestServer {
             client, transport, ..
         } = TestServer::builder().build().await;
-        let origin = HelperIdentity::ONE;
         let expected_query_id = QueryId;
-        let expected_step = step::Descriptive::default().narrow("test-step");
+        let expected_step = Gate::default().narrow("test-step");
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let resp = client
             .step(
-                origin,
                 expected_query_id,
                 &expected_step,
                 once(ready(expected_payload.clone())),

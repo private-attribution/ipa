@@ -1,8 +1,10 @@
-use crate::helpers::transport::stream::{StreamCollection, StreamKey};
+use crate::{
+    error::BoxError,
+    helpers::transport::stream::{StreamCollection, StreamKey},
+};
 use futures::Stream;
 use futures_util::StreamExt;
 use std::{
-    error::Error as StdError,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -15,7 +17,7 @@ pub struct LogErrors<S, T, E>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
     T: Into<Vec<u8>>,
-    E: StdError,
+    E: Into<BoxError>,
 {
     inner: S,
 }
@@ -24,7 +26,7 @@ impl<S, T, E> LogErrors<S, T, E>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
     T: Into<Vec<u8>>,
-    E: StdError,
+    E: Into<BoxError>,
 {
     pub fn new(inner: S) -> Self {
         Self { inner }
@@ -35,7 +37,7 @@ impl<S, T, E> Stream for LogErrors<S, T, E>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
     T: Into<Vec<u8>>,
-    E: StdError,
+    E: Into<BoxError>,
 {
     type Item = Vec<u8>;
 
@@ -50,7 +52,7 @@ where
                 //
                 // Note that returning `Poll::Ready(None)` here will be turned back into
                 // an `EndOfStream` error by `UnorderedReceiver`.
-                error!("error reading records: {err}");
+                error!("error reading records: {}", err.into());
                 Poll::Ready(None)
             }
             Poll::Ready(None) => Poll::Ready(None),

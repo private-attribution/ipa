@@ -154,7 +154,7 @@ where
     Ok(malicious_ab)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod test {
     use super::sum_of_products;
     use crate::{
@@ -183,7 +183,7 @@ mod test {
         }
 
         let res = world
-            .upgraded_malicious((av, bv), |ctx, (a, b)| async move {
+            .upgraded_malicious((av.into_iter(), bv.into_iter()), |ctx, (a, b)| async move {
                 sum_of_products(
                     ctx.set_total_records(1),
                     RecordId::from(0),

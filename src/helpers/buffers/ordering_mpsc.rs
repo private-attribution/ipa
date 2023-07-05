@@ -355,7 +355,7 @@ mod fixture {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod unit {
     use crate::{
         ff::{Field, Fp31, Serializable},
@@ -487,7 +487,7 @@ mod concurrency {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod proptests {
     use crate::helpers::buffers::ordering_mpsc::fixture::{shuffle_indices, shuffled_send_recv};
 

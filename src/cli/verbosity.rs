@@ -3,7 +3,9 @@ use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
 use std::io::stderr;
 use tracing::{info, metadata::LevelFilter, Level};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 #[derive(Debug, Parser)]
 pub struct Verbosity {
@@ -25,7 +27,9 @@ impl Verbosity {
     #[must_use]
     pub fn setup_logging(&self) -> LoggingHandle {
         let filter_layer = self.level_filter();
-        let fmt_layer = fmt::layer().without_time().with_writer(stderr);
+        let fmt_layer = fmt::layer()
+            .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+            .with_writer(stderr);
 
         tracing_subscriber::registry()
             .with(self.level_filter())

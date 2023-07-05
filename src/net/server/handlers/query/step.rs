@@ -1,17 +1,22 @@
 use crate::{
-    helpers::Transport,
-    net::{http_serde, server::Error, HttpTransport},
+    helpers::{BodyStream, Transport},
+    net::{
+        http_serde,
+        server::{ClientIdentity, Error},
+        HttpTransport,
+    },
     sync::Arc,
 };
-use axum::{extract::BodyStream, routing::post, Extension, Router};
+use axum::{routing::post, Extension, Router};
 
 #[allow(clippy::unused_async)] // axum doesn't like synchronous handler
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
+    from: Extension<ClientIdentity>,
     req: http_serde::query::step::Request<BodyStream>,
 ) -> Result<(), Error> {
     let transport = Transport::clone_ref(&*transport);
-    transport.receive_stream(req.query_id, req.step, req.origin, req.body);
+    transport.receive_stream(req.query_id, req.gate, **from, req.body);
     Ok(())
 }
 
@@ -21,27 +26,27 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
         .layer(Extension(transport))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
-    use std::{future::ready, task::Poll};
+    use std::task::Poll;
 
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
-            test::{body_stream, TestServer},
+            server::handlers::query::{
+                test_helpers::{assert_req_fails_with, IntoFailingReq},
+                MaybeExtensionExt,
+            },
+            test::TestServer,
         },
         protocol::{
-            step::{self, StepNarrow},
+            step::{Gate, StepNarrow},
             QueryId,
         },
     };
     use axum::http::Request;
-    use futures::{
-        stream::{once, poll_immediate},
-        StreamExt,
-    };
+    use futures::{stream::poll_immediate, StreamExt};
     use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
@@ -50,18 +55,18 @@ mod tests {
     async fn step() {
         let TestServer { transport, .. } = TestServer::builder().build().await;
 
-        let step = step::Descriptive::default().narrow("test");
+        let step = Gate::default().narrow("test");
         let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
-        let req = http_serde::query::step::Request::new(
-            HelperIdentity::TWO,
-            QueryId,
-            step.clone(),
-            body_stream(Box::new(once(ready(Ok(payload.clone().into()))))).await,
-        );
+        let req =
+            http_serde::query::step::Request::new(QueryId, step.clone(), payload.clone().into());
 
-        handler(Extension(Arc::clone(&transport)), req)
-            .await
-            .unwrap();
+        handler(
+            Extension(Arc::clone(&transport)),
+            Extension(ClientIdentity(HelperIdentity::TWO)),
+            req,
+        )
+        .await
+        .unwrap();
 
         let mut stream = Arc::clone(&transport).receive(HelperIdentity::TWO, (QueryId, step));
 
@@ -72,9 +77,9 @@ mod tests {
     }
 
     struct OverrideReq {
-        origin: u8,
+        client_id: Option<ClientIdentity>,
         query_id: String,
-        step: step::Descriptive,
+        gate: Gate,
         payload: Vec<u8>,
     }
 
@@ -85,10 +90,10 @@ mod tests {
                 port,
                 http_serde::query::BASE_AXUM_PATH,
                 self.query_id,
-                self.step.as_ref()
+                self.gate.as_ref()
             );
             hyper::Request::post(uri)
-                .header("origin", u32::from(self.origin))
+                .maybe_extension(self.client_id)
                 .body(hyper::Body::from(self.payload))
                 .unwrap()
         }
@@ -97,21 +102,12 @@ mod tests {
     impl Default for OverrideReq {
         fn default() -> Self {
             Self {
-                origin: 1,
+                client_id: Some(ClientIdentity(HelperIdentity::ONE)),
                 query_id: QueryId.as_ref().to_string(),
-                step: step::Descriptive::default().narrow("test"),
+                gate: Gate::default().narrow("test"),
                 payload: vec![1; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
             }
         }
-    }
-
-    #[tokio::test]
-    async fn malformed_origin_fails() {
-        let req = OverrideReq {
-            origin: 4,
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::BAD_REQUEST).await;
     }
 
     #[tokio::test]
@@ -121,5 +117,14 @@ mod tests {
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn auth_required() {
+        let req = OverrideReq {
+            client_id: None,
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNAUTHORIZED).await;
     }
 }

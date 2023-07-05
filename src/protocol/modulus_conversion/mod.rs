@@ -4,6 +4,8 @@ pub use convert_shares::{
     convert_some_bits, BitConversionTriple, LocalBitConverter, ToBitConversionTriples,
 };
 
+use crate::secret_sharing::BitDecomposed;
+
 /// Split rows of bits into bits of rows such that each 2D vector can be processed as a set
 ///
 /// input:
@@ -28,10 +30,10 @@ pub use convert_shares::{
 /// `]`
 #[must_use]
 pub fn split_into_multi_bit_slices<T: Clone>(
-    input: &[Vec<T>],
+    input: &[BitDecomposed<T>],
     num_bits: u32,
     num_multi_bits: u32,
-) -> Vec<Vec<Vec<T>>> {
+) -> Vec<Vec<BitDecomposed<T>>> {
     let total_records = input.len();
     (0..num_bits)
         .step_by(num_multi_bits as usize)
@@ -40,7 +42,7 @@ pub fn split_into_multi_bit_slices<T: Clone>(
                 .map(|record_idx| {
                     let last_bit = std::cmp::min(chunk_number + num_multi_bits, num_bits) as usize;
                     let next_few_bits = &input[record_idx][chunk_number as usize..last_bit];
-                    next_few_bits.to_vec()
+                    BitDecomposed::new(next_few_bits.to_vec())
                 })
                 .collect::<Vec<_>>()
         })

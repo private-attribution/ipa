@@ -35,25 +35,13 @@ async fn main() -> Result<(), Error> {
         match_keys.push(rng.gen::<MatchKey>());
     }
 
-    let converted_shares = world
-        .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_some_bits::<BenchField, _, _>(
-                &ctx,
-                &LocalBitConverter::new(ctx.role(), iter(match_key))
-                    .collect::<Vec<_>>()
-                    .await,
-                Gf40Bit::BITS,
-            )
-            .await
-            .unwrap()
-        })
-        .await;
+    let shares = match_keys.into_shares(); // TODO
 
     let start = Instant::now();
     let [(v0, r0), (v1, r1), (v2, r2)] = join3(
-        generate_permutation_opt(ctx0, converted_shares[0].iter()),
-        generate_permutation_opt(ctx1, converted_shares[1].iter()),
-        generate_permutation_opt(ctx2, converted_shares[2].iter()),
+        generate_permutation_opt(ctx0, stream_iter(shares[0]), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx1, stream_iter(shares[1]), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx2, stream_iter(shares[2]), NUM_MULTI_BITS, MatchKey::BITS),
     )
     .await;
     let result = join3(v0.validate(r0), v1.validate(r1), v2.validate(r2)).await;

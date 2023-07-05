@@ -26,7 +26,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -216,13 +216,18 @@ where
 pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub timestamp: T,
     pub is_trigger_bit: T,
-    pub breakdown_key: Vec<T>,
+    pub breakdown_key: BitDecomposed<T>,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
-    pub fn new(timestamp: T, is_trigger_bit: T, breakdown_key: Vec<T>, trigger_value: T) -> Self {
+    pub fn new(
+        timestamp: T,
+        is_trigger_bit: T,
+        breakdown_key: BitDecomposed<T>,
+        trigger_value: T,
+    ) -> Self {
         Self {
             timestamp,
             is_trigger_bit,
@@ -287,8 +292,9 @@ where
     }
 }
 
-/// Malicious IPA
-/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
+/// IPA Protocol
+///
+/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort.
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -322,6 +328,10 @@ where
     MCAggregateCreditOutputRow<F, S, BK>:
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
 {
+    // TODO: We are sorting, which suggests there's limited value in trying to stream the input.
+    // However, we immediately copy the complete input into separate vectors for different pieces
+    // (MK, BK, credit), so streaming could still be beneficial.
+
     let validator = sh_ctx.clone().validator::<F>();
     let m_ctx = validator.context();
 
@@ -348,16 +358,6 @@ where
     let binary_m_ctx = binary_validator.context();
 
     let upgraded_gf2_match_key_bits = binary_m_ctx.upgrade(gf2_match_key_bits).await?;
-
-    // // Breakdown key modulus conversion
-    // let converted_bk_shares = convert_some_bits(
-    //     m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-    //     stream_iter(bk_shares),
-    //     0..BK::BITS,
-    // )
-    // .try_collect::<Vec<_>>()
-    // .await
-    // .unwrap();
 
     let intermediate = input_rows
         .iter()
@@ -413,7 +413,7 @@ where
 
 fn get_gf2_match_key_bits<F, MK, BK>(
     input_rows: &[IPAInputRow<F, MK, BK>],
-) -> Vec<Vec<Replicated<Gf2>>>
+) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
     MK: GaloisField,
@@ -422,19 +422,17 @@ where
     input_rows
         .iter()
         .map(|row| {
-            (0..MK::BITS)
-                .map(|i| {
-                    Replicated::new(
-                        Gf2::truncate_from(row.mk_shares.left()[i]),
-                        Gf2::truncate_from(row.mk_shares.right()[i]),
-                    )
-                })
-                .collect::<Vec<_>>()
+            BitDecomposed::decompose(MK::BITS, |i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.mk_shares.left()[i]),
+                    Gf2::truncate_from(row.mk_shares.right()[i]),
+                )
+            })
         })
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 pub mod tests {
     use super::{ipa, IPAInputRow};
     use crate::{
@@ -451,11 +449,8 @@ pub mod tests {
         },
         test_fixture::{
             input::GenericReportTestInput,
-            ipa::{
-                generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
-                test_ipa, IpaSecurityModel,
-            },
-            Reconstruct, Runner, TestWorld, TestWorldConfig,
+            ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+            EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
     };
     use generic_array::GenericArray;
@@ -499,7 +494,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -545,7 +540,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -600,7 +595,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -652,7 +647,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .malicious(records, |ctx, input_rows| async move {
+            .malicious(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -714,7 +709,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
+            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -739,7 +734,7 @@ pub mod tests {
         }
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -797,7 +792,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
+            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -827,7 +822,7 @@ pub mod tests {
         }
 
         let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -862,31 +857,26 @@ pub mod tests {
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: u32 = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 8;
-        const MAX_RECORDS_PER_USER: usize = 8;
+        const NUM_USERS: u64 = 8;
+        const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
 
         let random_seed = thread_rng().gen();
         println!("Using random seed: {random_seed}");
-        let mut rng = StdRng::seed_from_u64(random_seed);
-
-        let mut random_user_records = Vec::with_capacity(NUM_USERS);
-        for _ in 0..NUM_USERS {
-            let records_for_user = generate_random_user_records_in_reverse_chronological_order(
-                &mut rng,
-                MAX_RECORDS_PER_USER,
-                MAX_BREAKDOWN_KEY,
+        let rng = StdRng::seed_from_u64(random_seed);
+        let raw_data = EventGenerator::with_config(
+            rng,
+            EventGeneratorConfig::new(
+                NUM_USERS,
                 MAX_TRIGGER_VALUE,
-            );
-            random_user_records.push(records_for_user);
-        }
-        let mut raw_data = random_user_records.concat();
-
-        // Sort the records in chronological order
-        // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
-        raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+                MAX_BREAKDOWN_KEY,
+                MAX_RECORDS_PER_USER,
+            ),
+        )
+        .take(usize::try_from(NUM_USERS * u64::from(MAX_RECORDS_PER_USER)).unwrap())
+        .collect::<Vec<_>>();
 
         let config = TestWorldConfig {
             gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
@@ -907,6 +897,7 @@ pub mod tests {
                     max_breakdown_key: MAX_BREAKDOWN_KEY,
                     attribution_window_seconds: ATTRIBUTION_WINDOW_SECONDS,
                     num_multi_bits: NUM_MULTI_BITS,
+                    plaintext_match_keys: true,
                 },
                 IpaSecurityModel::SemiHonest,
             )
@@ -943,7 +934,7 @@ pub mod tests {
 
         let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -1047,7 +1038,8 @@ pub mod tests {
             )
         }
 
-        fn generate_input<F: Field>() -> Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
+        fn generate_input<F: Field>(
+        ) -> std::vec::IntoIter<GenericReportTestInput<F, MatchKey, BreakdownKey>> {
             ipa_test_input!(
                 [
                     { timestamp: 100, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
@@ -1061,7 +1053,7 @@ pub mod tests {
                     { timestamp: 900, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
                 ];
                 (F, MatchKey, BreakdownKey)
-            )
+            ).into_iter()
         }
 
         /// Metrics that reflect IPA performance
@@ -1095,11 +1087,10 @@ pub mod tests {
             mode: IpaSecurityModel,
             expected: PerfMetrics,
         ) {
-            let records = generate_input();
             let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
             let world = TestWorld::new_with(test_config);
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = match mode {
-                Malicious => world.malicious(records, |ctx, input_rows| async move {
+                Malicious => world.malicious(generate_input(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
@@ -1108,7 +1099,7 @@ pub mod tests {
                     .await
                     .unwrap()
                 }),
-                SemiHonest => world.semi_honest(records, |ctx, input_rows| async move {
+                SemiHonest => world.semi_honest(generate_input(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,

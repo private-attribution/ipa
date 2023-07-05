@@ -121,11 +121,12 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
+        secret_sharing::BitDecomposed,
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
@@ -194,7 +195,7 @@ mod tests {
         let answer_fp31 = world
             .semi_honest(
                 (a_fp31, b_fp31),
-                |ctx, (a_bits, b_bits): (Vec<_>, Vec<_>)| async move {
+                |ctx, (a_bits, b_bits): (BitDecomposed<_>, BitDecomposed<_>)| async move {
                     bitwise_equal(
                         ctx.set_total_records(1),
                         RecordId::from(0),

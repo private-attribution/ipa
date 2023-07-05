@@ -18,7 +18,7 @@ use crate::{
         BasicProtocols, RecordId,
     },
     repeat64str,
-    secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
+    secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
 use std::fmt::Debug;
 
@@ -163,7 +163,7 @@ pub async fn check_everything<F, C, S>(
     ctx: C,
     record_idx: usize,
     record: &[S],
-) -> Result<Vec<S>, Error>
+) -> Result<BitDecomposed<S>, Error>
 where
     F: Field,
     C: Context,
@@ -212,8 +212,7 @@ where
     // Where 000, 101, 011, and 110 mean positive contributions, and
     // 001, 010, 100, and 111 mean negative contributions.
     let side_length = 1 << num_bits;
-    let mut equality_checks = Vec::with_capacity(side_length);
-    for i in 0..side_length {
+    Ok(BitDecomposed::decompose(side_length, |i| {
         let mut check = S::ZERO;
         for (j, combination) in precomputed_combinations.iter().enumerate() {
             let bit: i8 = i8::from((i & j) == i);
@@ -225,9 +224,8 @@ where
                 }
             }
         }
-        equality_checks.push(check);
-    }
-    Ok(equality_checks)
+        check
+    }))
 }
 
 //

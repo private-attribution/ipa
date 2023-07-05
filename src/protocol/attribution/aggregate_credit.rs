@@ -29,10 +29,11 @@ use crate::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
 };
 use futures::stream::iter as stream_iter;
+use std::iter::once as iter_once;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
@@ -45,6 +46,9 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[tracing::instrument(name = "aggregate_credit", skip_all)]
+// instrumenting this function makes the return type look bad to Clippy
+#[allow(clippy::type_complexity)]
 pub async fn aggregate_credit<C, V, F, BK, I, S>(
     validator: V,
     sh_ctx: C,
@@ -218,15 +222,13 @@ where
         .map(|(i, sum)| {
             let breakdown_key = u128::try_from(i).unwrap();
             let bk_bits = BK::truncate_from(breakdown_key);
-            let converted_bk = (0..BK::BITS)
-                .map(|i| {
-                    if bk_bits[i] {
-                        one.clone()
-                    } else {
-                        zero.clone()
-                    }
-                })
-                .collect::<Vec<_>>();
+            let converted_bk = BitDecomposed::decompose(BK::BITS, |i| {
+                if bk_bits[i] {
+                    one.clone()
+                } else {
+                    zero.clone()
+                }
+            });
 
             MCAggregateCreditOutputRow::new(converted_bk, sum)
         })
@@ -255,15 +257,13 @@ where
         .map(|i| {
             // Since these breakdown keys are publicly known, we can directly convert them to Vec<Replicated<F>>
             let bk_bits = BK::truncate_from(i);
-            let converted_bk = (0..BK::BITS)
-                .map(|i| {
-                    if bk_bits[i] {
-                        one.clone()
-                    } else {
-                        zero.clone()
-                    }
-                })
-                .collect::<Vec<_>>();
+            let converted_bk = BitDecomposed::decompose(BK::BITS, |i| {
+                if bk_bits[i] {
+                    one.clone()
+                } else {
+                    zero.clone()
+                }
+            });
 
             MCCappedCreditsWithAggregationBit::new(
                 zero.clone(),
@@ -408,7 +408,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
 
     use super::aggregate_credit;
@@ -471,7 +471,7 @@ mod tests {
         let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let validator = ctx.validator::<Fp32BitPrime>();
                     let u_ctx = validator.context();

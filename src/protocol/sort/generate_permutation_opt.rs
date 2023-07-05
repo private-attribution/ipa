@@ -2,8 +2,11 @@ use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::{convert_some_bits, ToBitConversionTriples},
+        context::{
+            Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            Validator,
+        },
+        modulus_conversion::{convert_some_bits, BitConversionTriple, ToBitConversionTriples},
         sort::{
             compose::compose,
             generate_permutation::{shuffle_and_reveal_permutation, ShuffledPermutationWrapper},
@@ -18,7 +21,10 @@ use crate::{
         BasicProtocols,
     },
     secret_sharing::{
-        replicated::malicious::{DowngradeMalicious, ExtendableField},
+        replicated::{
+            malicious::{DowngradeMalicious, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+        },
         Linear as LinearSecretSharing,
     },
 };
@@ -83,7 +89,7 @@ pub async fn generate_permutation_opt<'a, F, C, S, I>(
     sh_ctx: C,
     sort_keys: I,
     num_multi_bits: u32,
-    max_bits: u32,
+    max_bits: u32, // TODO: use a const generic on I::Item; see comment on ToBitConversionTriples::bits.
 ) -> Result<(C::Validator<F>, Vec<S>), Error>
 where
     F: PrimeField + ExtendableField,
@@ -93,6 +99,8 @@ where
     I: Stream,
     I::Item: ToBitConversionTriples + Clone + Send + Sync,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let mut malicious_validator = sh_ctx.clone().validator();
     let mut m_ctx = malicious_validator.context();
@@ -177,7 +185,7 @@ where
     ))
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, GaloisField},
@@ -208,17 +216,20 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let (_validator, result) = generate_permutation_opt::<Fp32BitPrime, _, _, _>(
-                    ctx.narrow("sort"),
-                    stream_iter(mk_shares),
-                    NUM_MULTI_BITS,
-                    MatchKey::BITS,
-                )
-                .await
-                .unwrap();
-                result
-            })
+            .semi_honest(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    let (_validator, result) = generate_permutation_opt::<Fp32BitPrime, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap();
+                    result
+                },
+            )
             .await;
 
         let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
@@ -244,16 +255,19 @@ mod tests {
         }
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
-            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                generate_permutation_opt::<Fp31, _, _, _>(
-                    ctx.narrow("sort"),
-                    stream_iter(mk_shares),
-                    NUM_MULTI_BITS,
-                    MatchKey::BITS,
-                )
-                .await
-                .unwrap()
-            })
+            .malicious(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    generate_permutation_opt::<Fp31, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await;
 
         let result = join3(
@@ -289,16 +303,19 @@ mod tests {
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         _ = world
-            .malicious(match_keys.clone(), |ctx, mk_shares| async move {
-                generate_permutation_opt::<Fp31, _, _, _>(
-                    ctx.narrow("sort"),
-                    stream_iter(mk_shares),
-                    NUM_MULTI_BITS,
-                    MatchKey::BITS,
-                )
-                .await
-                .unwrap()
-            })
+            .malicious(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    generate_permutation_opt::<Fp31, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
             .await;
     }
 

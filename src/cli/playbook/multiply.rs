@@ -2,7 +2,7 @@
 
 use crate::{
     ff::{Field, Serializable},
-    helpers::{query::QueryInput, ByteArrStream},
+    helpers::{query::QueryInput, BodyStream},
     net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
@@ -28,7 +28,7 @@ where
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     // prepare inputs
-    let inputs = input.share().map(|vec| {
+    let inputs = input.into_iter().share().map(|vec| {
         let r = vec
             .into_iter()
             .flat_map(|(a, b)| {
@@ -44,7 +44,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        ByteArrStream::from(r)
+        BodyStream::from(r)
     });
 
     // send inputs

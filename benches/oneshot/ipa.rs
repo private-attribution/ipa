@@ -4,11 +4,8 @@ use ipa::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{
-            generate_random_user_records_in_reverse_chronological_order, ipa_in_the_clear,
-            test_ipa, IpaSecurityModel,
-        },
-        TestWorld, TestWorldConfig,
+        ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+        EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -38,7 +35,7 @@ struct Args {
     query_size: usize,
     /// The maximum number of records for each person.
     #[arg(short = 'u', long, default_value = "50")]
-    records_per_user: usize,
+    records_per_user: u32,
     /// The contribution cap for each person.
     #[arg(short = 'c', long, default_value = "3")]
     per_user_cap: u32,
@@ -91,6 +88,7 @@ impl Args {
             max_breakdown_key: self.breakdown_keys,
             attribution_window_seconds: self.attribution_window(),
             num_multi_bits: self.num_multi_bits,
+            plaintext_match_keys: true,
         }
     }
 }
@@ -98,41 +96,37 @@ impl Args {
 async fn run(args: Args) -> Result<(), Error> {
     type BenchField = Fp32BitPrime;
 
-    let prep_time = Instant::now();
+    let _prep_time = Instant::now();
     let config = TestWorldConfig {
         gateway_config: GatewayConfig::new(args.active()),
         ..TestWorldConfig::default()
     };
 
     let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
-    println!(
+    tracing::trace!(
         "Using random seed: {seed} for {q} records",
         q = args.query_size
     );
-    let mut rng = StdRng::seed_from_u64(seed);
+    let rng = StdRng::seed_from_u64(seed);
+    let raw_data = EventGenerator::with_config(
+        rng,
+        EventGeneratorConfig {
+            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
+            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
+            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+            ..Default::default()
+        },
+    )
+    .take(args.query_size)
+    .collect::<Vec<_>>();
 
-    let mut raw_data = Vec::with_capacity(args.query_size + args.records_per_user);
-    while raw_data.len() < args.query_size {
-        let mut records_for_user = generate_random_user_records_in_reverse_chronological_order(
-            &mut rng,
-            args.records_per_user,
-            args.breakdown_keys,
-            args.max_trigger_value,
-        );
-        records_for_user.truncate(args.query_size - raw_data.len());
-        raw_data.append(&mut records_for_user);
-    }
-
-    // Sort the records in chronological order
-    // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
-    raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
     let expected_results =
         ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
 
     let world = TestWorld::new_with(config.clone());
-    println!("Preparation complete in {:?}", prep_time.elapsed());
+    tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
-    let protocol_time = Instant::now();
+    let _protocol_time = Instant::now();
     test_ipa::<BenchField>(
         &world,
         &raw_data,
@@ -141,11 +135,11 @@ async fn run(args: Args) -> Result<(), Error> {
         args.mode,
     )
     .await;
-    println!(
+    tracing::trace!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,
         q = args.query_size,
-        t = protocol_time.elapsed()
+        t = _protocol_time.elapsed()
     );
     Ok(())
 }

@@ -26,6 +26,7 @@ use std::iter::{repeat, zip};
 /// ## Errors
 /// Fails if the multiplication protocol fails, or if the `cap` is larger than
 /// 1/2 of the prime number.
+#[tracing::instrument(name = "user_capping", skip_all)]
 pub async fn credit_capping<F, C, S>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, S>],
@@ -487,7 +488,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         credit_capping_test_input,
@@ -513,7 +514,7 @@ mod tests {
         let world = TestWorld::default();
         world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let validator = ctx.validator(); // We're not running validation for this in this case.
                     let ctx = validator.context();

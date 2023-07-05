@@ -24,7 +24,7 @@ use crate::{
             },
             semi_honest::AdditiveShare as Replicated,
         },
-        Linear as LinearSecretSharing, SecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -100,6 +100,7 @@ where
 /// If unable to convert sort keys length to u32
 /// # Errors
 /// If unable to convert sort keys length to u32
+#[tracing::instrument(name = "sort_permutation", skip_all)]
 pub async fn generate_permutation_and_reveal_shuffled<F, C, S, I>(
     sh_ctx: C,
     sort_keys: I,
@@ -161,7 +162,7 @@ impl<'a, F: ExtendableField> DowngradeMalicious
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in_memory_infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         ff::{Field, Fp31, GaloisField},
@@ -196,21 +197,20 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    LocalBitConverter::<Fp31, _>::new(ctx.role(), stream_iter(mk_shares))
-                        .collect::<Vec<_>>()
-                        .await;
-                let converted_shares =
-                    convert_some_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
-                let (_validator, result) =
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                        .await
-                        .unwrap();
-                result
-            })
+            .semi_honest(
+                match_keys.clone().into_iter(),
+                |ctx, mk_shares| async move {
+                    let (_validator, result) = generate_permutation_opt(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap();
+                    result
+                },
+            )
             .await;
 
         let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();

@@ -1,7 +1,28 @@
+//! This takes a replicated secret sharing of a sequence of bits (in a packed format)
+//! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
+//!
+//! This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
+//! "Efficient generation of a pair of random shares for small number of parties"
+//!
+//! This protocol takes as input such a 3-way random binary replicated secret-sharing,
+//! and produces a 3-party replicated secret-sharing of the same value in a target field
+//! of the caller's choosing.
+//! Example:
+//! For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
+//! sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
+//! This transformation is simple:
+//! The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
+//! Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
+//! So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
+//! as (0, 1, 0).
+//! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
+//! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
+//! is equivalent to fn xor(a, b) { a + b - 2*a*b }
+
 use crate::{
     error::Error,
     exact::ExactSizeStream,
-    ff::{Field, GaloisField, PrimeField},
+    ff::{Field, GaloisField, Gf2, PrimeField},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},
@@ -12,7 +33,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
     seq_join::seq_join,
 };
@@ -27,26 +48,6 @@ use std::{
 };
 use typenum::Bit;
 
-/// This takes a replicated secret sharing of a sequence of bits (in a packed format)
-/// and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
-///
-/// This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
-/// "Efficient generation of a pair of random shares for small number of parties"
-///
-/// This protocol takes as input such a 3-way random binary replicated secret-sharing,
-/// and produces a 3-party replicated secret-sharing of the same value in a target field
-/// of the caller's choosing.
-/// Example:
-/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
-/// sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
-/// This transformation is simple:
-/// The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
-/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
-/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
-/// as (0, 1, 0).
-/// Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
-/// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
-/// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     Xor1,
@@ -102,8 +103,11 @@ impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
 
 pub trait ToBitConversionTriples {
     /// Get the maximum number of bits that can be produced for this type.
-    fn bits(&self) -> u32;
+    ///
+    /// Note that this should be an associated constant, but one of the implementations would then need
+    /// const generics to be more fully available in the language, so this is a method instead.  For now.
 
+    fn bits(&self) -> u32;
     /// Produce a `BitConversionTriple` for the given role and bit index.
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>>;
 
@@ -126,6 +130,18 @@ impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
 
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
         BitConversionTriple::new(role, self.left()[i], self.right()[i])
+    }
+}
+
+impl ToBitConversionTriples for BitDecomposed<Replicated<Gf2>> {
+    fn bits(&self) -> u32 {
+        u32::try_from(self.len()).unwrap()
+    }
+
+    fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
+        const BIT0: u32 = 0;
+        let i = usize::try_from(i).unwrap();
+        BitConversionTriple::new(role, self[i].left()[BIT0], self[i].right()[BIT0])
     }
 }
 
@@ -234,14 +250,14 @@ pub fn convert_some_bits<F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<Vec<S>, Error>>
+) -> impl Stream<Item = Result<BitDecomposed<S>, Error>>
 where
     F: PrimeField,
     V: ToBitConversionTriples,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + SecureMul<C>,
     VS: Stream<Item = V> + Unpin + Send,
-    for<'u> UpgradeContext<'u, C, F>:
+    for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
     let active = ctx.active_work();
@@ -251,23 +267,26 @@ where
         (ctx, locally_converted, RecordId::FIRST),
         |(ctx, mut locally_converted, record_id)| async move {
             let Some(triple) = locally_converted.next().await else { return None; };
-            let converted = ctx.parallel_join(
-                zip(
-                    (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
-                    triple,
-                )
-                .map(|(ctx, triple)| async move {
-                    let upgraded = ctx.upgrade_for(record_id, triple).await?;
-                    convert_bit(ctx, record_id, &upgraded).await
-                }),
-            );
+            let iter = zip(
+                (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
+                triple,
+            )
+            .map(|(ctx, triple)| async move {
+                let upgraded = ctx.upgrade_for(record_id, triple).await?;
+                convert_bit(ctx, record_id, &upgraded).await
+            });
+            let converted = async move {
+                #[allow(clippy::disallowed_methods)] // Just in this one place.
+                let bits = futures::future::try_join_all(iter).await?;
+                Ok(BitDecomposed::new(bits))
+            };
             Some((converted, (ctx, locally_converted, record_id + 1)))
         },
     );
     seq_join(active, stream)
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         error::Error,
@@ -383,6 +402,7 @@ mod tests {
                     let tweaked = tweak.flip_bit(ctx.role(), triples.remove(0).remove(0));
 
                     let v = ctx.validator();
+                    let m_triples = v.context().upgrade([tweaked]).await.unwrap();
                     let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = super::convert_bit(m_ctx, RecordId::from(0), &m_triple)

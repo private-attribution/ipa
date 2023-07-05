@@ -23,6 +23,7 @@ use std::{
 ///
 /// # Errors
 /// Fails if sub-protocols fails.
+#[tracing::instrument(name = "apply_window", skip_all)]
 pub async fn apply_attribution_window<F, C, S>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, S>],
@@ -201,7 +202,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
         attribution_window_test_input,
@@ -267,7 +268,7 @@ mod tests {
         let world = TestWorld::default();
         let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let validator = ctx.validator();
                     let ctx = validator.context();

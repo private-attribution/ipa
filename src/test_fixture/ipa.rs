@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, num::NonZeroU32, ops::Deref};
+use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::{
@@ -13,8 +13,6 @@ use crate::{
     test_fixture::{input::GenericReportTestInput, Reconstruct},
 };
 
-use rand::Rng;
-
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum IpaSecurityModel {
@@ -24,8 +22,8 @@ pub enum IpaSecurityModel {
 
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
+    pub timestamp: u64,
     pub user_id: u64,
-    pub timestamp: u32,
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
@@ -85,49 +83,6 @@ pub fn ipa_in_the_clear(
     breakdowns
 }
 
-pub fn generate_random_user_records_in_reverse_chronological_order(
-    rng: &mut impl Rng,
-    max_records_per_user: usize,
-    max_breakdown_key: u32,
-    max_trigger_value: u32,
-) -> Vec<TestRawDataRecord> {
-    const MAX_USER_ID: u64 = 1_000_000_000_000;
-    const SECONDS_IN_EPOCH: u32 = 604_800;
-
-    let random_user_id = rng.gen_range(0..MAX_USER_ID);
-    let num_records_for_user = min(
-        rng.gen_range(1..max_records_per_user),
-        rng.gen_range(1..max_records_per_user),
-    );
-    let mut records_for_user = Vec::with_capacity(num_records_for_user);
-    for _ in 0..num_records_for_user {
-        let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
-        let is_trigger_report = rng.gen::<bool>();
-        let random_breakdown_key = if is_trigger_report {
-            0
-        } else {
-            rng.gen_range(0..max_breakdown_key)
-        };
-        let trigger_value = if is_trigger_report {
-            rng.gen_range(1..max_trigger_value)
-        } else {
-            0
-        };
-        records_for_user.push(TestRawDataRecord {
-            user_id: random_user_id,
-            timestamp: random_timestamp,
-            is_trigger_report,
-            breakdown_key: random_breakdown_key,
-            trigger_value,
-        });
-    }
-
-    // sort in reverse time order
-    records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-    records_for_user
-}
-
 /// Assumes records all belong to the same user, and are in reverse chronological order
 /// Will give incorrect results if this is not true
 #[allow(clippy::missing_panics_doc)]
@@ -137,9 +92,9 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     per_user_cap: u32,
     attribution_window_seconds: Option<NonZeroU32>,
 ) {
-    let within_window = |value: u32| -> bool {
+    let within_window = |value: u64| -> bool {
         if let Some(window) = attribution_window_seconds {
-            value <= window.get()
+            value <= u64::from(window.get())
         } else {
             // if window is not specified, it is considered of infinite size. Everything is
             // within that window.
@@ -214,7 +169,7 @@ pub async fn test_ipa<F>(
 
     let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
         IpaSecurityModel::Malicious => world
-            .malicious(records, |ctx, input_rows| async move {
+            .malicious(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
                     .await
                     .unwrap()
@@ -222,7 +177,7 @@ pub async fn test_ipa<F>(
             .await
             .reconstruct(),
         IpaSecurityModel::SemiHonest => world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
                     .await
                     .unwrap()

@@ -1,6 +1,6 @@
 use crate::{
     helpers::HelperIdentity,
-    protocol::{step, QueryId},
+    protocol::{step::Gate, QueryId},
     sync::{Arc, Mutex},
 };
 use futures::Stream;
@@ -12,16 +12,16 @@ use std::{
 
 /// Each stream is indexed by query id, the identity of helper where stream is originated from
 /// and step.
-pub type StreamKey = (QueryId, HelperIdentity, step::Descriptive);
+pub type StreamKey = (QueryId, HelperIdentity, Gate);
 
 /// Thread-safe append-only collection of homogeneous record streams.
 /// Streams are indexed by [`StreamKey`] and the lifecycle of each stream is described by the
-/// [`RecordsStream`] struct.
+/// [`StreamState`] struct.
 ///
 /// Each stream can be inserted and taken away exactly once, any deviation from this behaviour will
 /// result in panic.
 pub struct StreamCollection<S> {
-    inner: Arc<Mutex<HashMap<StreamKey, RecordsStream<S>>>>,
+    inner: Arc<Mutex<HashMap<StreamKey, StreamState<S>>>>,
 }
 
 impl<S> Default for StreamCollection<S> {
@@ -49,13 +49,13 @@ impl<S: Stream> StreamCollection<S> {
         let mut streams = self.inner.lock().unwrap();
         match streams.entry(key) {
             Entry::Occupied(mut entry) => match entry.get_mut() {
-                rs @ RecordsStream::Waiting(_) => {
-                    let RecordsStream::Waiting(waker) = std::mem::replace(rs, RecordsStream::Ready(stream)) else {
+                rs @ StreamState::Waiting(_) => {
+                    let StreamState::Waiting(waker) = std::mem::replace(rs, StreamState::Ready(stream)) else {
                         unreachable!()
                     };
                     waker.wake();
                 }
-                rs @ (RecordsStream::Ready(_) | RecordsStream::Completed) => {
+                rs @ (StreamState::Ready(_) | StreamState::Completed) => {
                     let state = format!("{rs:?}");
                     let key = entry.key().clone();
                     drop(streams);
@@ -63,7 +63,7 @@ impl<S: Stream> StreamCollection<S> {
                 }
             },
             Entry::Vacant(entry) => {
-                entry.insert(RecordsStream::Ready(stream));
+                entry.insert(StreamState::Ready(stream));
             }
         }
     }
@@ -79,35 +79,44 @@ impl<S: Stream> StreamCollection<S> {
         match streams.entry(key.clone()) {
             Entry::Occupied(mut entry) => {
                 match entry.get_mut() {
-                    RecordsStream::Waiting(old_waker) => {
+                    StreamState::Waiting(old_waker) => {
                         let will_wake = old_waker.will_wake(waker);
                         drop(streams); // avoid mutex poisoning
                         assert!(will_wake);
                         None
                     }
-                    rs @ RecordsStream::Ready(_) => {
-                        let RecordsStream::Ready(stream) = std::mem::replace(rs, RecordsStream::Completed) else {
+                    rs @ StreamState::Ready(_) => {
+                        let StreamState::Ready(stream) = std::mem::replace(rs, StreamState::Completed) else {
                             unreachable!();
                         };
 
                         Some(stream)
                     }
-                    RecordsStream::Completed => {
+                    StreamState::Completed => {
                         drop(streams);
                         panic!("{key:?} stream has been consumed already")
                     }
                 }
             }
             Entry::Vacant(entry) => {
-                entry.insert(RecordsStream::Waiting(waker.clone()));
+                entry.insert(StreamState::Waiting(waker.clone()));
                 None
             }
         }
     }
+
+    /// Clears up this collection, leaving no streams inside it.
+    ///
+    /// ## Panics
+    /// if mutex is poisoned.
+    pub fn clear(&self) {
+        let mut streams = self.inner.lock().unwrap();
+        streams.clear();
+    }
 }
 
 /// Describes the lifecycle of records stream inside [`StreamCollection`]
-enum RecordsStream<S> {
+enum StreamState<S> {
     /// There was a request to receive this stream, but it hasn't arrived yet
     Waiting(Waker),
     /// Stream is ready to be consumed
@@ -117,16 +126,16 @@ enum RecordsStream<S> {
     Completed,
 }
 
-impl<S> Debug for RecordsStream<S> {
+impl<S> Debug for StreamState<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecordsStream::Waiting(_) => {
+            StreamState::Waiting(_) => {
                 write!(f, "Waiting")
             }
-            RecordsStream::Ready(_) => {
+            StreamState::Ready(_) => {
                 write!(f, "Ready")
             }
-            RecordsStream::Completed => {
+            StreamState::Completed => {
                 write!(f, "Completed")
             }
         }

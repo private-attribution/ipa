@@ -1,7 +1,7 @@
 use crate::{
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
-    query::ProtocolResult,
+    query::runner::QueryResult,
     sync::Mutex,
     task::JoinHandle,
 };
@@ -44,7 +44,7 @@ pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
     AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
-    Running(JoinHandle<Box<dyn ProtocolResult>>),
+    Running(JoinHandle<QueryResult>),
     AwaitingCompletion,
 }
 
@@ -118,6 +118,10 @@ impl QueryHandle<'_> {
         let inner = self.queries.inner.lock().unwrap();
         inner.get(&self.query_id).map(QueryStatus::from)
     }
+
+    pub fn remove_query_on_drop(&self) -> RemoveQuery {
+        RemoveQuery::new(self.query_id, self.queries)
+    }
 }
 
 impl RunningQueries {
@@ -125,6 +129,48 @@ impl RunningQueries {
         QueryHandle {
             query_id,
             queries: self,
+        }
+    }
+}
+
+/// RAII guard to clean up query state when dropped.
+pub struct RemoveQuery<'a> {
+    inner: Option<RemoveQueryInner<'a>>,
+}
+
+struct RemoveQueryInner<'a> {
+    query_id: QueryId,
+    queries: &'a RunningQueries,
+}
+
+impl<'a> RemoveQuery<'a> {
+    pub fn new(query_id: QueryId, queries: &'a RunningQueries) -> Self {
+        Self {
+            inner: Some(RemoveQueryInner { query_id, queries }),
+        }
+    }
+
+    pub fn restore(mut self) {
+        self.inner.take().unwrap();
+    }
+}
+
+impl Drop for RemoveQuery<'_> {
+    fn drop(&mut self) {
+        if let Some(inner) = &self.inner {
+            if inner
+                .queries
+                .inner
+                .lock()
+                .unwrap()
+                .remove_entry(&inner.query_id)
+                .is_none()
+            {
+                tracing::warn!(
+                    "{q} query is not registered, but attempted to terminate",
+                    q = inner.query_id
+                );
+            }
         }
     }
 }

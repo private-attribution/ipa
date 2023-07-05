@@ -5,7 +5,7 @@ use std::{
 
 use metrics::{KeyName, Label, SharedString};
 
-use crate::{helpers::Role, protocol::step, telemetry::labels};
+use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,
@@ -35,6 +35,7 @@ pub struct CounterDetails {
 pub struct Metrics {
     pub counters: HashMap<KeyName, CounterDetails>,
     pub metric_description: HashMap<KeyName, SharedString>,
+    pub print_header: bool,
 }
 
 impl CounterDetails {
@@ -75,6 +76,7 @@ impl Metrics {
         let mut this = Metrics {
             counters: HashMap::new(),
             metric_description: HashMap::new(),
+            print_header: !cfg!(feature = "step-trace"),
         };
 
         let snapshot = snapshot.into_vec();
@@ -185,8 +187,8 @@ impl<'a> MetricAssertion<'a> {
     /// Validates metric value per step dimension.
     /// ## Panics
     /// Panics if value is not equal to expected
-    pub fn per_step<I: TryInto<u64>>(&self, step: &step::Descriptive, expected: I) -> Self {
-        let actual = self.get_dimension(labels::STEP).get(step.as_ref()).copied();
+    pub fn per_step<I: TryInto<u64>>(&self, gate: &Gate, expected: I) -> Self {
+        let actual = self.get_dimension(labels::STEP).get(gate.as_ref()).copied();
 
         let expected = expected.try_into().ok();
 

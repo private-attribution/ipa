@@ -81,7 +81,7 @@ impl<S: Stream> Stream for FixedLength<S> {
 
 impl<S: Stream> ExactSizeStream for FixedLength<S> {}
 
-#[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 mod test {
     use crate::exact::{ExactSizeStream, FixedLength};
     use futures::stream::iter;

@@ -32,7 +32,7 @@ use crate::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::{AdditiveShare as Replicated, AdditiveShare as SemiHonestAdditiveShare},
         },
-        Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing,
     },
     seq_join::assert_send,
 };
@@ -48,11 +48,12 @@ use super::modulus_conversion::convert_some_bits;
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[tracing::instrument(name = "attribute", skip_all)]
 pub async fn secure_attribution<C, S, SB, F, BK>(
-    sh_ctx: C,
+    ctx: C,
     validator: C::Validator<F>,
     binary_validator: C::Validator<Gf2>,
-    sorted_match_keys: Vec<Vec<SB>>,
+    sorted_match_keys: Vec<BitDecomposed<SB>>,
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, S>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
@@ -129,7 +130,7 @@ where
 
     let (validator, output) = aggregate_credit(
         validator,
-        sh_ctx,
+        ctx,
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
         config.num_multi_bits,
@@ -381,7 +382,7 @@ where
 
 async fn compute_helper_bits_gf2<C, S>(
     ctx: C,
-    sorted_match_keys: &[Vec<S>],
+    sorted_match_keys: &[BitDecomposed<S>],
 ) -> Result<Vec<S>, Error>
 where
     C: Context,

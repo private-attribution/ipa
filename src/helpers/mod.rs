@@ -17,10 +17,12 @@ pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
 pub use gateway::{Gateway, TransportError, TransportImpl};
 
 pub use prss_protocol::negotiate as negotiate_prss;
+#[cfg(feature = "web-app")]
+pub use transport::WrappedAxumBodyStream;
 pub use transport::{
-    callbacks::*, AlignedByteArrStream, ByteArrStream, LogErrors, NoResourceIdentifier,
-    QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey,
-    Transport,
+    callbacks::*, BodyStream, BytesStream, LengthDelimitedStream, LogErrors, NoResourceIdentifier,
+    QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams, StepBinding,
+    StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
 };
 
 #[cfg(feature = "in-memory-infra")]
@@ -38,7 +40,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::{step, RecordId},
+    protocol::{step::Gate, RecordId},
     secret_sharing::SharedValue,
 };
 use generic_array::GenericArray;
@@ -58,11 +60,22 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
+    derive(serde::Deserialize),
+    serde(try_from = "usize")
 )]
 pub struct HelperIdentity {
     id: u8,
+}
+
+// Serialize as `serde(transparent)` would. Don't see how to enable that
+// for only one of (de)serialization.
+impl serde::Serialize for HelperIdentity {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.id.serialize(serializer)
+    }
 }
 
 impl TryFrom<usize> for HelperIdentity {
@@ -78,6 +91,12 @@ impl TryFrom<usize> for HelperIdentity {
                 id: u8::try_from(value).unwrap(),
             })
         }
+    }
+}
+
+impl From<HelperIdentity> for u8 {
+    fn from(value: HelperIdentity) -> Self {
+        value.id
     }
 }
 
@@ -99,8 +118,8 @@ impl Debug for HelperIdentity {
 #[cfg(feature = "web-app")]
 impl From<HelperIdentity> for hyper::header::HeaderValue {
     fn from(id: HelperIdentity) -> Self {
-        // does not implement `From<u8>`
-        hyper::header::HeaderValue::from(u16::from(id.id))
+        // panic if serializing an integer fails, or is not ASCII
+        hyper::header::HeaderValue::try_from(serde_json::to_string(&id).unwrap()).unwrap()
     }
 }
 
@@ -134,7 +153,6 @@ impl HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture", feature = "in-memory-infra"))]
 impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
@@ -376,19 +394,19 @@ pub struct ChannelId {
     pub role: Role,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
-    pub step: step::Descriptive,
+    pub gate: Gate,
 }
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: step::Descriptive) -> Self {
-        Self { role, step }
+    pub fn new(role: Role, gate: Gate) -> Self {
+        Self { role, gate }
     }
 }
 
 impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.step)
+        write!(f, "channel[{:?},{:?}]", self.role, self.gate)
     }
 }
 
@@ -482,7 +500,7 @@ impl From<usize> for TotalRecords {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
+#[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
 

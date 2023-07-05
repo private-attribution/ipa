@@ -107,6 +107,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
   --instance-type $INSTANCE_TYPE \
   --key-name "$KEY_NAME" \
   --region $AWS_REGION \
+  --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":200,"VolumeType":"gp3","Iops":10000}}]' \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME}]" \
   --query 'Instances[0].InstanceId' \
   --user-data file://$CLOUD_INIT_FILE \
