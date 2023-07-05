@@ -58,17 +58,17 @@ where
                 buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
             }
 
-        let mut rng = StdRng::from_entropy();
-        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
-        zip(&mut buffers, shares)
-            .zip(key_registries)
-            .for_each(|((buf, shares), key_registry)| {
-                for share in shares {
-                    share
-                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                        .unwrap();
-                }
-            });
+            let mut rng = StdRng::from_entropy();
+            let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
+            zip(&mut buffers, shares).zip(key_registries).for_each(
+                |((buf, shares), key_registry)| {
+                    for share in shares {
+                        share
+                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                            .unwrap();
+                    }
+                },
+            );
         } else {
             panic!("match key encryption was requested, but one or more helpers is missing a public key")
         }
