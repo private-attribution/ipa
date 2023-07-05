@@ -392,7 +392,7 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
     use super::OrderingSender;
     use crate::{

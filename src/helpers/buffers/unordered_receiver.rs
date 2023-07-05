@@ -296,7 +296,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},
