@@ -2,7 +2,10 @@ use crate::{
     app::Error,
     ff::Serializable,
     helpers::query::{QueryConfig, QueryInput},
+    protocol::QueryId,
+    query::QueryStatus,
     secret_sharing::IntoShares,
+    test_fixture::try_join3_array,
     AppSetup, HelperApp,
 };
 use std::iter::zip;
@@ -76,6 +79,63 @@ impl TestApp {
     /// Initiates a new query on all helpers and drives it to completion.
     ///
     /// ## Errors
+    /// Returns an error if it can't start a query or send query input.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn start_query<I, A>(
+        &self,
+        input: I,
+        query_config: QueryConfig,
+    ) -> Result<QueryId, Error>
+    where
+        I: IntoShares<A>,
+        A: IntoBuf,
+    {
+        let helpers_input = input.share().map(IntoBuf::into_buf);
+
+        // helper 1 initiates the query
+        let query_id = self.drivers[0].start_query(query_config).await?;
+
+        // Send inputs
+        helpers_input
+            .into_iter()
+            .enumerate()
+            .map(|(i, input)| {
+                self.drivers[i].execute_query(QueryInput {
+                    query_id,
+                    input_stream: input.into(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(query_id)
+    }
+
+    /// ## Errors
+    /// Propagates errors retrieving the query status.
+    /// ## Panics
+    /// Never.
+    pub fn query_status(&self, query_id: QueryId) -> Result<[QueryStatus; 3], Error> {
+        Ok((0..3)
+            .map(|i| self.drivers[i].query_status(query_id))
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
+            .unwrap())
+    }
+
+    /// ## Errors
+    /// Returns an error if one or more helpers can't finish the processing.
+    /// ## Panics
+    /// Never.
+    pub async fn complete_query(&self, query_id: QueryId) -> Result<[Vec<u8>; 3], Error> {
+        let results =
+            try_join3_array([0, 1, 2].map(|i| self.drivers[i].complete_query(query_id))).await;
+        self.network.reset();
+        results
+    }
+
+    /// Initiates a new query on all helpers and drives it to completion.
+    ///
+    /// ## Errors
     /// Returns an error if it can't start a query or one or more helpers can't finish the processing.
     #[allow(clippy::missing_panics_doc)]
     pub async fn execute_query<I, A>(
@@ -87,26 +147,7 @@ impl TestApp {
         I: IntoShares<A>,
         A: IntoBuf,
     {
-        // Shuttle executor may resolve futures out of order, so as long as seq_try_join_all
-        // panics when that happens, it can't be used here
-        use futures::future::try_join_all;
-        let helpers_input = input.share().map(IntoBuf::into_buf);
-
-        // helper 1 initiates the query
-        let query_id = self.drivers[0].start_query(query_config).await?;
-
-        // Send inputs and poll for completion
-        #[allow(clippy::disallowed_methods)]
-        let r = try_join_all(helpers_input.into_iter().enumerate().map(|(i, input)| {
-            self.drivers[i].execute_query(QueryInput {
-                query_id,
-                input_stream: input.into(),
-            })
-        }))
-        .await?;
-
-        self.network.reset();
-
-        Ok(<[_; 3]>::try_from(r).unwrap())
+        let query_id = self.start_query(input, query_config).await?;
+        self.complete_query(query_id).await
     }
 }

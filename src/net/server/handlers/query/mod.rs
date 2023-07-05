@@ -2,6 +2,7 @@ mod create;
 mod input;
 mod prepare;
 mod results;
+mod status;
 mod step;
 
 use crate::{
@@ -29,6 +30,7 @@ pub fn query_router(transport: Arc<HttpTransport>) -> Router {
     Router::new()
         .merge(create::router(Arc::clone(&transport)))
         .merge(input::router(Arc::clone(&transport)))
+        .merge(status::router(Arc::clone(&transport)))
         .merge(results::router(transport))
 }
 

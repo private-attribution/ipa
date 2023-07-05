@@ -5,7 +5,10 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
-    query::{NewQueryError, QueryCompletionError, QueryInputError, QueryProcessor},
+    query::{
+        NewQueryError, QueryCompletionError, QueryInputError, QueryProcessor, QueryStatus,
+        QueryStatusError,
+    },
     sync::Arc,
 };
 
@@ -49,6 +52,7 @@ impl Setup {
         let rqp = Arc::clone(query_processor);
         let pqp = Arc::clone(query_processor);
         let iqp = Arc::clone(query_processor);
+        let sqp = Arc::clone(query_processor);
         let cqp = Arc::clone(query_processor);
 
         TransportCallbacks {
@@ -67,6 +71,10 @@ impl Setup {
             query_input: Box::new(move |transport: TransportImpl, query_input| {
                 let processor = Arc::clone(&iqp);
                 Box::pin(async move { processor.receive_inputs(transport, query_input) })
+            }),
+            query_status: Box::new(move |_transport: TransportImpl, query_id| {
+                let processor = Arc::clone(&sqp);
+                Box::pin(async move { processor.query_status(query_id) })
             }),
             complete_query: Box::new(move |_transport: TransportImpl, query_id| {
                 let processor = Arc::clone(&cqp);
@@ -97,17 +105,29 @@ impl HelperApp {
             .query_id)
     }
 
-    /// Drives the given query to completion by providing the inputs to it and awaiting the results
-    /// of the computation.
+    /// Sends query input to a helper.
     ///
     /// ## Errors
-    /// If a query with the given id is not running on this helper or if an error occurred while
-    /// processing this query.
-    pub async fn execute_query(&self, input: QueryInput) -> Result<Vec<u8>, Error> {
-        let query_id = input.query_id;
+    /// Propagates errors from the helper.
+    pub fn execute_query(&self, input: QueryInput) -> Result<(), Error> {
         let transport = <TransportImpl as Clone>::clone(&self.transport);
         self.query_processor.receive_inputs(transport, input)?;
+        Ok(())
+    }
 
+    /// Retrieves the status of a query.
+    ///
+    /// ## Errors
+    /// Propagates errors from the helper.
+    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, Error> {
+        Ok(self.query_processor.query_status(query_id)?)
+    }
+
+    /// Waits for a query to complete and returns the result.
+    ///
+    /// ## Errors
+    /// Propagates errors from the helper.
+    pub async fn complete_query(&self, query_id: QueryId) -> Result<Vec<u8>, Error> {
         Ok(self.query_processor.complete(query_id).await?.into_bytes())
     }
 }
@@ -121,4 +141,6 @@ pub enum Error {
     QueryInput(#[from] QueryInputError),
     #[error(transparent)]
     QueryCompletion(#[from] QueryCompletionError),
+    #[error(transparent)]
+    QueryStatus(#[from] QueryStatusError),
 }
