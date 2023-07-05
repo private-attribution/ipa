@@ -28,7 +28,7 @@ where
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     // prepare inputs
-    let inputs = input.share().map(|vec| {
+    let inputs = input.into_iter().share().map(|vec| {
         let r = vec
             .into_iter()
             .flat_map(|(a, b)| {

@@ -1,14 +1,12 @@
-use std::{
-    collections::{hash_map::Iter, HashMap},
-    fmt::Debug,
-};
-
-use metrics::{KeyName, Label, SharedString};
-
 use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
+use metrics::{KeyName, Label, SharedString};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,
+};
+use std::{
+    collections::{hash_map::Iter, HashMap},
+    fmt::Debug,
 };
 
 /// Simple counter stats
@@ -106,7 +104,7 @@ impl Metrics {
     #[must_use]
     pub fn get_counter(&self, name: &'static str) -> u64 {
         self.counters
-            .get(&name.into())
+            .get::<KeyName>(&name.into())
             .map_or(0, |details| details.total_value)
     }
 
@@ -119,7 +117,7 @@ impl Metrics {
     pub fn assert_metric(&self, name: &'static str) -> MetricAssertion {
         let details = self
             .counters
-            .get(&name.into())
+            .get::<KeyName>(&name.into())
             .unwrap_or_else(|| panic!("{name} metric does not exist in the snapshot"));
         MetricAssertion {
             name,

@@ -182,7 +182,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     InitializeTimeDelta,
     RandomBitsForBitDecomposition,
     TimeDeltaLessThanCap,
@@ -267,7 +267,7 @@ mod tests {
         let world = TestWorld::default();
         let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
-                input,
+                input.into_iter(),
                 |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input
                         .iter()

@@ -56,6 +56,8 @@ pub enum Error {
     InvalidQueryParameter(String),
     #[error("invalid report: {0}")]
     InvalidReport(#[from] InvalidReportError),
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }
 
 impl Default for Error {

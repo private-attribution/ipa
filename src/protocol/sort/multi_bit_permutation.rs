@@ -6,7 +6,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::malicious::ExtendableField, Linear as LinearSecretSharing, SecretSharing,
+        replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
+        SecretSharing,
     },
 };
 use std::iter::repeat;
@@ -29,7 +30,10 @@ use std::iter::repeat;
 ///    i. For each record
 ///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
-pub async fn multi_bit_permutation<'a, C, S, F>(ctx: C, input: &[Vec<S>]) -> Result<Vec<S>, Error>
+pub async fn multi_bit_permutation<'a, C, S, F>(
+    ctx: C,
+    input: &[BitDecomposed<S>],
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField + ExtendableField,
     C: UpgradedContext<F, Share = S>,
@@ -90,7 +94,7 @@ where
                     <S as SumOfProducts<C>>::sum_of_products(
                         ctx,
                         RecordId::from(i),
-                        eq_checks.as_slice(),
+                        &eq_checks,
                         prefix_sums.as_slice(),
                     )
                     .await
@@ -114,7 +118,7 @@ mod tests {
             context::{Context, UpgradableContext, Validator},
             sort::check_everything,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::{BitDecomposed, SharedValue},
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -135,12 +139,12 @@ mod tests {
     pub async fn semi_honest() {
         let world = TestWorld::default();
 
-        let input: Vec<Vec<_>> = INPUT
+        let input = INPUT
             .into_iter()
-            .map(|v| v.iter().map(|x| Fp31::truncate_from(*x)).collect())
-            .collect();
+            .map(|v| BitDecomposed::new(v.iter().map(|x| Fp31::truncate_from(*x))))
+            .collect::<Vec<_>>();
         let result = world
-            .semi_honest(input, |ctx, m_shares| async move {
+            .semi_honest(input.into_iter(), |ctx, m_shares| async move {
                 multi_bit_permutation(ctx.validator().context(), &m_shares)
                     .await
                     .unwrap()
@@ -154,10 +158,9 @@ mod tests {
     pub async fn equality_checks() {
         let world = TestWorld::default();
 
-        let input: Vec<Vec<_>> = INPUT
+        let input = INPUT
             .into_iter()
-            .map(|v| v.iter().map(|x| Fp31::truncate_from(*x)).collect())
-            .collect();
+            .map(|v| BitDecomposed::new(v.iter().map(|x| Fp31::truncate_from(*x))));
 
         let num_records = INPUT.len();
 
@@ -171,8 +174,8 @@ mod tests {
                 ctx.try_join(equality_check_futures).await.unwrap()
             })
             .await;
-        let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();
-        for (rec, row) in reconstructs.iter().enumerate() {
+        let reconstructed = result.reconstruct();
+        for (rec, row) in reconstructed.iter().enumerate() {
             for (j, check) in row.iter().enumerate() {
                 if EXPECTED_NUMS[rec] == j {
                     assert_eq!(*check, Fp31::ONE);

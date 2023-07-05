@@ -77,7 +77,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     ConvertShares,
     UpgradeBitTriples,
 }

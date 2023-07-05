@@ -13,6 +13,7 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey, MatchKey,
         QueryId,
     },
+    query::QueryStatus,
     report::{KeyIdentifier, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
@@ -21,7 +22,12 @@ use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::SeedableRng;
-use std::{iter::zip, time::Instant};
+use std::{
+    cmp::min,
+    iter::zip,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
@@ -52,17 +58,17 @@ where
                 buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
             }
 
-            let mut rng = StdRng::from_entropy();
-            let shares: [Vec<Report<_, _, _>>; 3] = records.to_owned().share();
-            zip(&mut buffers, shares).zip(key_registries).for_each(
-                |((buf, shares), key_registry)| {
-                    for share in shares {
-                        share
-                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                            .unwrap();
-                    }
-                },
-            );
+        let mut rng = StdRng::from_entropy();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
+        zip(&mut buffers, shares)
+            .zip(key_registries)
+            .for_each(|((buf, shares), key_registry)| {
+                for share in shares {
+                    share
+                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                        .unwrap();
+                }
+            });
         } else {
             panic!("match key encryption was requested, but one or more helpers is missing a public key")
         }
@@ -72,21 +78,18 @@ where
             buffer.resize(query_size * sz, 0u8);
         }
 
-        let inputs = records
-            .iter()
-            .map(|x| {
-                ipa_test_input!(
-                    {
-                        timestamp: x.timestamp,
-                        match_key: x.user_id,
-                        is_trigger_report: x.is_trigger_report,
-                        breakdown_key: x.breakdown_key,
-                        trigger_value: x.trigger_value,
-                    };
-                    (F, MatchKey, BreakdownKey)
-                )
-            })
-            .collect::<Vec<_>>();
+        let inputs = records.iter().map(|x| {
+            ipa_test_input!(
+                {
+                    timestamp: x.timestamp,
+                    match_key: x.user_id,
+                    is_trigger_report: x.is_trigger_report,
+                    breakdown_key: x.breakdown_key,
+                    trigger_value: x.trigger_value,
+                };
+                (F, MatchKey, BreakdownKey)
+            )
+        });
         let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
         zip(&mut buffers, shares).for_each(|(buf, shares)| {
             for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
@@ -111,6 +114,23 @@ where
     )
     .await
     .unwrap();
+
+    let mut delay = Duration::from_millis(125);
+    loop {
+        if try_join_all(clients.iter().map(|client| client.query_status(query_id)))
+            .await
+            .unwrap()
+            .into_iter()
+            .all(|status| status == QueryStatus::Completed)
+        {
+            break;
+        }
+
+        sleep(delay).await;
+        delay = min(Duration::from_secs(5), delay * 2);
+        // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
+        // the status API so we can check whether the query is making progress.
+    }
 
     // wait until helpers have processed the query and get the results from them
     let results: [_; 3] = try_join_all(clients.iter().map(|client| client.query_results(query_id)))

@@ -3,6 +3,7 @@ use crate::{
     protocol::QueryId,
     query::{
         NewQueryError, PrepareQueryError, ProtocolResult, QueryCompletionError, QueryInputError,
+        QueryStatus, QueryStatusError,
     },
 };
 use std::{future::Future, pin::Pin};
@@ -54,6 +55,10 @@ callbacks! {
     (QueryInputCallback, QueryInputResult):
         async fn(T, QueryInput) -> Result<(), QueryInputError>;
 
+    /// Called by clients to retrieve query status.
+    (QueryStatusCallback, QueryStatusResult):
+        async fn(T, QueryId) -> Result<QueryStatus, QueryStatusError>;
+
     /// Called by clients to drive query to completion and retrieve results.
     (CompleteQueryCallback, CompleteQueryResult):
         async fn(T, QueryId) -> Result<Box<dyn ProtocolResult>, QueryCompletionError>;
@@ -63,6 +68,7 @@ pub struct TransportCallbacks<T> {
     pub receive_query: Box<dyn ReceiveQueryCallback<T>>,
     pub prepare_query: Box<dyn PrepareQueryCallback<T>>,
     pub query_input: Box<dyn QueryInputCallback<T>>,
+    pub query_status: Box<dyn QueryStatusCallback<T>>,
     pub complete_query: Box<dyn CompleteQueryCallback<T>>,
 }
 
@@ -82,6 +88,9 @@ impl<T> Default for TransportCallbacks<T> {
             }),
             query_input: Box::new(move |_, _| {
                 Box::pin(async { panic!("unexpected call to query_input") })
+            }),
+            query_status: Box::new(move |_, _| {
+                Box::pin(async { panic!("unexpected call to query_status") })
             }),
             complete_query: Box::new(move |_, _| {
                 Box::pin(async { panic!("unexpected call to complete_query") })

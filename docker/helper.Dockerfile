@@ -8,7 +8,7 @@ LABEL maintainer="akoshelev"
 WORKDIR "$SOURCES_DIR"
 COPY . .
 RUN set -eux; \
-    cargo build --bin helper --release --no-default-features --features "web-app real-world-infra"
+    cargo build --bin helper --release --no-default-features --features "web-app real-world-infra compact-gate"
 
 # Copy them to the final image
 FROM debian:bullseye-slim
