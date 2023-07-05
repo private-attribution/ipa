@@ -15,11 +15,11 @@ pub use multiply::secure_mul;
 use std::{fs, path::Path, time::Duration};
 use tokio::time::sleep;
 
-pub fn validate<I, S>(expected: I, actual: I)
+pub fn validate<'a, I, S>(expected: I, actual: I)
 where
-    I: IntoIterator<Item = S>,
+    I: IntoIterator<Item = &'a S>,
     I::IntoIter: ExactSizeIterator,
-    S: PartialEq + Debug,
+    S: PartialEq + Debug + 'a,
 {
     let mut expected = expected.into_iter().fuse();
     let mut actual = actual.into_iter().fuse();

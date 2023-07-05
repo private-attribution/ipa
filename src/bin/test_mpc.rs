@@ -112,7 +112,7 @@ where
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
     let actual = secure_mul(input_rows, &helper_clients, query_id).await;
 
-    validate(expected, actual);
+    validate(&expected, &actual);
 }
 
 async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
