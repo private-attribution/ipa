@@ -5,8 +5,10 @@ use rand::{
 
 use std::{f64::consts::PI, fmt::Debug};
 
+/// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
+/// |a-b| < 10^(-precision).
 #[cfg(all(test, unit_test))]
-pub fn close(a: f64, b: f64, precision: u8) -> bool {
+pub fn is_close(a: f64, b: f64, precision: u8) -> bool {
     (a - b).abs()
         < (2.0_f64.powf((a.abs() + 1.0).log2().ceil()) / 10.0_f64.powi(i32::from(precision)))
 }
@@ -40,8 +42,14 @@ impl Distribution<f64> for BoxMuller {
 /// [`Box-Muller`]: https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 #[derive(Debug)]
 pub struct RoundedBoxMuller {
-    pub mean: f64,
-    pub std: f64,
+    inner: BoxMuller,
+}
+
+impl RoundedBoxMuller {
+    #[cfg(all(test, unit_test))]
+    pub fn std(&self) -> f64 {
+        self.inner.std
+    }
 }
 
 impl Distribution<f64> for RoundedBoxMuller {
@@ -49,13 +57,13 @@ impl Distribution<f64> for RoundedBoxMuller {
     where
         R: ?Sized + Rng,
     {
-        let ud = Uniform::new(0.0, 1.0);
-        let u = ud.sample(rng);
-        let v = ud.sample(rng);
-        let n = f64::sqrt(-2.0 * f64::ln(u)) * f64::cos(2.0 * PI * v);
+        self.inner.sample(rng).round()
+    }
+}
 
-        // map sample to N(mean,variance)=sqrt(variance)*sample+mean
-        (n * self.std + self.mean).round()
+impl From<BoxMuller> for RoundedBoxMuller {
+    fn from(value: BoxMuller) -> Self {
+        Self { inner: value }
     }
 }
 
@@ -99,10 +107,7 @@ mod tests {
                 / n as f64,
         );
 
-        // print!("variance {variance}");
-        // print!("nd.std {}",nd.std);
-
-        assert!(close(variance, nd.std, precision));
+        assert!(is_close(variance, nd.std, precision));
     }
 
     /// Tests for Rounded Normal distribution

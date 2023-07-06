@@ -68,25 +68,10 @@ impl DiscreteDp {
     /// ## Errors
     /// If epsilon or delta is negative or delta exceeds the maximum value allowed.
     pub fn new(epsilon: f64, delta: f64, cap: f64) -> Result<Self, Error> {
-        // make sure delta and epsilon are in range, i.e. >min and delta<1-min
-        if epsilon < f64::MIN_POSITIVE {
-            return Err(Error::BadEpsilon(epsilon));
-        }
-
-        if !(f64::MIN_POSITIVE..=1.0 - f64::MIN_POSITIVE).contains(&delta) {
-            return Err(Error::BadDelta(delta));
-        }
-
-        // for (eps, delta) DP, the variance needs to be sensitivity^2/(eps^2) * 2ln(1.25/delta) see https://arxiv.org/pdf/1702.07476.pdf page 2
-        // sensitivity=L2(max(output_(with user x) - output_(without user x)))=sqrt(breakdown_count * user_contribution_per_breakdown^2)<cap
-        // minimum eps, delta is 1/u64_max, max for delta is 1-min
-        let variance = (cap / epsilon) * f64::sqrt(2.0 * f64::ln(1.25 / delta));
+        let dp = Dp::new(epsilon, delta, cap)?;
 
         Ok(Self {
-            rounded_normal_dist: RoundedBoxMuller {
-                mean: 0.0,
-                std: variance,
-            },
+            rounded_normal_dist: RoundedBoxMuller::from(dp.normal_dist),
         })
     }
 
@@ -105,7 +90,7 @@ impl DiscreteDp {
 #[cfg(all(test, unit_test))]
 mod test {
     use super::*;
-    use crate::protocol::dp::distributions::close;
+    use crate::protocol::dp::distributions::is_close;
     use proptest::{prelude::ProptestConfig, proptest};
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
@@ -114,7 +99,7 @@ mod test {
     fn dp_normal_distribution_generation_standard() {
         let delta = 1.25_f64 * ((1_f64 / std::f64::consts::E).sqrt());
         let dp = Dp::new(1.0, delta, 1.0).unwrap();
-        assert!(close(dp.normal_dist.mean, 0_f64, 2) && close(dp.normal_dist.std, 1_f64, 2));
+        assert!(is_close(dp.normal_dist.mean, 0_f64, 2) && is_close(dp.normal_dist.std, 1_f64, 2));
     }
 
     #[test]
@@ -147,7 +132,7 @@ mod test {
             dp.normal_dist.mean,
             f64::EPSILON
         );
-        assert!(close(dp.normal_dist.std, s, 5));
+        assert!(is_close(dp.normal_dist.std, s, 5));
     }
 
     #[test]
@@ -233,9 +218,9 @@ mod test {
                 "epsilon = {}, rounded_normal_sample_variance = {}, continuous_variance = {}",
                 epsilon,
                 sample_variance,
-                dp.rounded_normal_dist.std.powi(2)
+                dp.rounded_normal_dist.std().powi(2)
             );
-            assert!(sample_variance - dp.rounded_normal_dist.std.powi(2) < 1.0);
+            assert!(sample_variance - dp.rounded_normal_dist.std().powi(2) < 1.0);
         }
     }
 }
