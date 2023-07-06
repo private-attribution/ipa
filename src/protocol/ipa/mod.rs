@@ -906,6 +906,7 @@ pub mod tests {
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: u32 = 32;
+        const MIN_TRIGGER_VALUE: u32 = 1;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: u64 = 8;
         const MAX_RECORDS_PER_USER: u32 = 8;
@@ -920,6 +921,7 @@ pub mod tests {
             rng,
             EventGeneratorConfig::new(
                 NUM_USERS,
+                MIN_TRIGGER_VALUE,
                 MAX_TRIGGER_VALUE,
                 MAX_BREAKDOWN_KEY,
                 MAX_RECORDS_PER_USER,
