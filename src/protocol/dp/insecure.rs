@@ -148,8 +148,8 @@ mod test {
         // UB = (n - 1) * std^2 / chi2inv(1 - alpha/2, n - 1)
         // where N is the size of the sample, alpha - the probability of any value to be outside
         // of the expected distribution range. For the purpose of this test, alpha is set to 0.02%,
-        // chi2inv(0.0001,10,000 - 1) = 9,482.6
-        // chi2inv(0.9999,10,000 - 1) = 10,535
+        // chi2inv(0.0001, 10000 - 1) = 9482.6
+        // chi2inv(0.9999, 10000 - 1) = 10535
         // if the dataset size changes, those values need to be recomputed
         const CHI2_INV_UB: f64 = 9_482.6;
         const CHI2_INV_LB: f64 = 10_535.0;
