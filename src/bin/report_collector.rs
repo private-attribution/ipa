@@ -19,7 +19,8 @@ use ipa::{
 };
 
 use ipa::{cli::CsvSerializer, helpers::query::QuerySize};
-use rand::thread_rng;
+use rand::rngs::StdRng;
+use rand_core::SeedableRng;
 use std::{
     error::Error,
     fmt::Debug,
@@ -86,6 +87,10 @@ enum ReportCollectorCommand {
         #[clap(long, short = 'n')]
         count: u32,
 
+        /// The seed for random generator.
+        #[clap(long, short = 's')]
+        seed: Option<u64>,
+
         /// The destination file for generated records
         #[arg(long)]
         output_file: Option<PathBuf>,
@@ -141,9 +146,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         ReportCollectorCommand::GenIpaInputs {
             count,
+            seed,
             output_file,
             gen_args,
-        } => gen_inputs(count, output_file, gen_args).unwrap(),
+        } => gen_inputs(count, seed, output_file, gen_args).unwrap(),
     };
 
     Ok(())
@@ -151,10 +157,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 fn gen_inputs(
     count: u32,
+    seed: Option<u64>,
     output_file: Option<PathBuf>,
     args: EventGeneratorConfig,
 ) -> io::Result<()> {
-    let event_gen = EventGenerator::with_config(thread_rng(), args).take(count as usize);
+    let rng = seed
+        .map(StdRng::seed_from_u64)
+        .unwrap_or_else(|| StdRng::from_entropy());
+    let event_gen = EventGenerator::with_config(rng, args).take(count as usize);
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
     } else {

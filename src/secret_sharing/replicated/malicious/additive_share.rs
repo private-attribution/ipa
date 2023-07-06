@@ -91,6 +91,14 @@ pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
 
+impl<V: SharedValue + ExtendableField>
+    ThisCodeIsAuthorizedToDowngradeFromMalicious<SemiHonestAdditiveShare<V>> for AdditiveShare<V>
+{
+    fn access_without_downgrade(self) -> SemiHonestAdditiveShare<V> {
+        self.x
+    }
+}
+
 impl<V: SharedValue + Debug + ExtendableField> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)

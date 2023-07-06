@@ -1,4 +1,4 @@
-mod convert_shares;
+pub mod convert_shares;
 
 pub use convert_shares::{
     convert_some_bits, BitConversionTriple, LocalBitConverter, ToBitConversionTriples,

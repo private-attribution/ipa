@@ -11,8 +11,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
-        SharedValue,
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed,
+        Linear as LinearSecretSharing, SharedValue,
     },
 };
 use futures::stream::{iter as stream_iter, Stream, StreamExt};
@@ -71,7 +71,7 @@ impl<F: PrimeField, C: Context> Iterator for RawRandomBitIter<F, C> {
 }
 
 /// Produce a stream of random bits using the provided context.
-pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<Vec<C::Share>, Error>>
+pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<BitDecomposed<C::Share>, Error>>
 where
     F: PrimeField,
     C: UpgradedContext<F>,
@@ -86,7 +86,10 @@ where
 }
 
 // TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner)
-pub async fn one_random_bit<F, C>(ctx: C, record_id: RecordId) -> Result<Vec<C::Share>, Error>
+pub async fn one_random_bit<F, C>(
+    ctx: C,
+    record_id: RecordId,
+) -> Result<BitDecomposed<C::Share>, Error>
 where
     F: PrimeField,
     C: UpgradedContext<F>,

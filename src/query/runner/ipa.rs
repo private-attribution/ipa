@@ -7,16 +7,16 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        attribution::input::{MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit},
         basics::{Reshare, ShareKnownValue},
-        context::{UpgradableContext, UpgradedContext},
-        ipa::{ipa, IPAInputRow},
+        context::{UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext},
+        ipa::{ipa, ArithmeticallySharedIPAInputs, IPAInputRow},
+        modulus_conversion::BitConversionTriple,
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, BreakdownKey, MatchKey, RecordId,
     },
     report::{EncryptedReport, EventType, InvalidReportError},
     secret_sharing::{
-        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
+        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare as Replicated},
         Linear as LinearSecretSharing,
     },
     sync::Arc,
@@ -51,30 +51,31 @@ where
         + BasicProtocols<C::UpgradedContext<F>, F>
         + Reshare<C::UpgradedContext<F>, RecordId>
         + Serializable
-        + DowngradeMalicious<Target = AdditiveShare<F>>
+        + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
-        + DowngradeMalicious<Target = AdditiveShare<Gf2>>
+        + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
     F: PrimeField,
-    AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
+    Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCCappedCreditsWithAggregationBit<F, S>:
-        DowngradeMalicious<Target = MCCappedCreditsWithAggregationBit<F, AdditiveShare<F>>>,
-    MCAggregateCreditOutputRow<F, S, BreakdownKey>:
-        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
-    AdditiveShare<F>: Serializable,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
+        + UpgradeToMalicious<
+            'u,
+            ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+            ArithmeticallySharedIPAInputs<F, S>,
+        >,
 {
-    #[tracing::instrument("ipa_query", skip_all)]
+    #[tracing::instrument("ipa_query", skip_all, fields(query_config=?self.config, %query_size))]
     pub async fn execute<'a>(
         self,
         ctx: C,
         query_size: QuerySize,
         input_stream: BodyStream,
-    ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let Self {
             config,
             key_registry,
@@ -109,16 +110,14 @@ where
             .zip(repeat(ctx.clone()))
             .map(|(res, ctx)| {
                 res.and_then(|report| {
-                    let timestamp = AdditiveShare::<F>::share_known_value(
+                    let timestamp = Replicated::<F>::share_known_value(
                         &ctx,
                         F::try_from(report.timestamp.into())
                             .map_err(|_| InvalidReportError::Timestamp(report.timestamp))?,
                     );
-                    let breakdown_key = AdditiveShare::<BreakdownKey>::share_known_value(
-                        &ctx,
-                        report.breakdown_key,
-                    );
-                    let is_trigger_bit = AdditiveShare::<F>::share_known_value(
+                    let breakdown_key =
+                        Replicated::<BreakdownKey>::share_known_value(&ctx, report.breakdown_key);
+                    let is_trigger_bit = Replicated::<F>::share_known_value(
                         &ctx,
                         match report.event_type {
                             EventType::Source => F::ZERO,
@@ -245,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn malicious_ipa() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -299,22 +298,12 @@ mod tests {
         }))
         .await;
 
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 
     #[tokio::test]
     async fn encrypted_match_keys() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -362,16 +351,6 @@ mod tests {
         }))
         .await;
 
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 }

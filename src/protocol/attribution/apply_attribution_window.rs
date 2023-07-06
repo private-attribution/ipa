@@ -1,6 +1,6 @@
 use super::{
     do_the_binary_tree_thing,
-    input::{MCApplyAttributionWindowInputRow, MCApplyAttributionWindowOutputRow},
+    input::{ApplyAttributionWindowInputRow, ApplyAttributionWindowOutputRow},
 };
 use crate::{
     error::Error,
@@ -26,10 +26,10 @@ use std::{
 #[tracing::instrument(name = "apply_window", skip_all)]
 pub async fn apply_attribution_window<F, C, S>(
     ctx: C,
-    input: &[MCApplyAttributionWindowInputRow<F, S>],
+    input: &[ApplyAttributionWindowInputRow<F, S>],
     stop_bits: &[S],
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, S>>, Error>
+) -> Result<Vec<ApplyAttributionWindowOutputRow<F, S>>, Error>
 where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
@@ -50,11 +50,10 @@ where
             .iter()
             .zip(result)
             .map(|(x, (active_bit, value))| {
-                MCApplyAttributionWindowOutputRow::new(
+                ApplyAttributionWindowOutputRow::new(
                     x.is_trigger_report.clone(),
                     x.helper_bit.clone(),
                     active_bit,
-                    x.breakdown_key.clone(),
                     value,
                 )
             })
@@ -64,11 +63,10 @@ where
         Ok(input
             .iter()
             .map(|x| {
-                MCApplyAttributionWindowOutputRow::new(
+                ApplyAttributionWindowOutputRow::new(
                     x.is_trigger_report.clone(),
                     x.helper_bit.clone(),
                     S::ZERO,
-                    x.breakdown_key.clone(),
                     x.trigger_value.clone(),
                 )
             })
@@ -82,7 +80,7 @@ where
 /// Fails if the multiplication fails.
 async fn prefix_sum_time_deltas<F, C, T>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, T>],
+    input: &[ApplyAttributionWindowInputRow<F, T>],
     stop_bits: &[T],
 ) -> Result<Vec<T>, Error>
 where
@@ -140,7 +138,7 @@ where
 /// Fails if the bit-decomposition, bitwise comparison, or multiplication fails.
 async fn zero_out_expired_trigger_values<F, C, S>(
     ctx: &C,
-    input: &[MCApplyAttributionWindowInputRow<F, S>],
+    input: &[ApplyAttributionWindowInputRow<F, S>],
     time_delta: &mut [S],
     cap: u32,
 ) -> Result<Vec<(S, S)>, Error>
@@ -182,7 +180,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     InitializeTimeDelta,
     RandomBitsForBitDecomposition,
     TimeDeltaLessThanCap,
@@ -211,10 +209,7 @@ mod tests {
             attribution::{
                 apply_attribution_window::apply_attribution_window,
                 compute_stop_bits,
-                input::{
-                    ApplyAttributionWindowInputRow, MCApplyAttributionWindowInputRow,
-                    MCApplyAttributionWindowOutputRow,
-                },
+                input::{ApplyAttributionWindowInputRow, ApplyAttributionWindowOutputRow},
             },
             context::{Context, UpgradableContext, Validator},
             modulus_conversion::convert_some_bits,
@@ -266,36 +261,16 @@ mod tests {
         let input_len = input.len();
 
         let world = TestWorld::default();
-        let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
+        let result: [Vec<ApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<_>>>; 3] = world
             .semi_honest(
                 input.into_iter(),
-                |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, Replicated<_>>>| async move {
                     let validator = ctx.validator();
                     let ctx = validator.context();
-                    let bk_shares = input
-                        .iter()
-                        .map(|x| x.breakdown_key.clone());
-                    let converted_bk_shares = convert_some_bits(
-                        ctx.clone(), stream_iter(bk_shares), 0..BreakdownKey::BITS
-                    ).try_collect::<Vec<_>>()
-                        .await
-                        .unwrap();
-                    let modulus_converted_shares = input
-                        .iter()
-                        .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCApplyAttributionWindowInputRow::new(
-                            row.timestamp.clone(),
-                            row.is_trigger_report.clone(),
-                            row.helper_bit.clone(),
-                            bk,
-                            row.trigger_value.clone(),
-                        ))
-                        .collect::<Vec<_>>();
-
                     let (itb, hb): (Vec<_>, Vec<_>) = input.iter().map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone())).unzip();
                     let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb).await.unwrap().collect::<Vec<_>>();
 
-                    apply_attribution_window(ctx, &modulus_converted_shares, &stop_bits, ATTRIBUTION_WINDOW)
+                    apply_attribution_window(ctx, &input, &stop_bits, ATTRIBUTION_WINDOW)
                         .await
                         .unwrap()
                 },

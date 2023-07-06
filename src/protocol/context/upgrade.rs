@@ -3,11 +3,11 @@ use crate::{
     exact::ExactSizeStream,
     ff::Field,
     protocol::{
-        attribution::input::MCCappedCreditsWithAggregationBit,
         basics::ZeroPositions,
         context::UpgradedContext,
+        ipa::ArithmeticallySharedIPAInputs,
         modulus_conversion::BitConversionTriple,
-        step::{BitOpStep, Step},
+        step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
     repeat64str,
@@ -86,7 +86,10 @@ where
         }
     }
 
-    fn narrow<SS: Step>(&self, step: &SS) -> Self {
+    fn narrow<SS: Step>(&self, step: &SS) -> Self
+    where
+        Gate: StepNarrow<SS>,
+    {
         Self::new(self.ctx.narrow(step), self.record_binding)
     }
 }
@@ -99,7 +102,7 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
-enum UpgradeTripleStep {
+pub(crate) enum UpgradeTripleStep {
     V0,
     V1,
     V2,
@@ -185,7 +188,7 @@ where
     }
 }
 
-enum Upgrade2DVectors {
+pub(crate) enum Upgrade2DVectors {
     V(usize),
 }
 impl Step for Upgrade2DVectors {}
@@ -201,17 +204,17 @@ impl AsRef<str> for Upgrade2DVectors {
 }
 
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, I, M> UpgradeToMalicious<'a, I, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: IntoIterator + Send + 'static,
-    T::IntoIter: ExactSizeIterator + Send,
-    T::Item: Send + 'static,
+    I: IntoIterator + Send + 'static,
+    I::IntoIter: ExactSizeIterator + Send,
+    I::Item: Send + 'static,
     M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T::Item, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, I::Item, M>,
 {
-    async fn upgrade(self, input: T) -> Result<Vec<M>, Error> {
+    async fn upgrade(self, input: I) -> Result<Vec<M>, Error> {
         let iter = input.into_iter();
         let ctx = self.ctx.set_total_records(iter.len());
         let ctx_ref = &ctx;
@@ -281,7 +284,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-enum UpgradeModConvStep {
+pub(crate) enum UpgradeModConvStep {
     V1,
     V2,
     V3,
@@ -296,6 +299,49 @@ impl AsRef<str> for UpgradeModConvStep {
             Self::V2 => "upgrade_mod_conv2",
             Self::V3 => "upgrade_mod_conv3",
         }
+    }
+}
+
+#[async_trait]
+impl<'a, C, F>
+    UpgradeToMalicious<
+        'a,
+        ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+        ArithmeticallySharedIPAInputs<F, C::Share>,
+    > for UpgradeContext<'a, C, F, RecordId>
+where
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F>,
+    F: ExtendableField,
+{
+    async fn upgrade(
+        self,
+        input: ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+    ) -> Result<ArithmeticallySharedIPAInputs<F, C::Share>, Error> {
+        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
+            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
+                self.record_binding,
+                input.is_trigger_bit,
+                ZeroPositions::Pvvv,
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
+                self.record_binding,
+                input.trigger_value,
+                ZeroPositions::Pvvv,
+            ),
+            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
+                self.record_binding,
+                input.timestamp,
+                ZeroPositions::Pvvv,
+            ),
+        )
+        .await?;
+
+        Ok(ArithmeticallySharedIPAInputs::new(
+            timestamp,
+            is_trigger_bit,
+            trigger_value,
+        ))
     }
 }
 
@@ -338,87 +384,6 @@ where
             timestamp,
             is_trigger_bit,
             trigger_value,
-        ))
-    }
-}
-enum UpgradeMCCappedCreditsWithAggregationBit {
-    V0(usize),
-    V1,
-    V2,
-    V3,
-}
-
-impl crate::protocol::step::Step for UpgradeMCCappedCreditsWithAggregationBit {}
-
-impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
-    fn as_ref(&self) -> &str {
-        const UPGRADE_AGGREGATION_BIT0: [&str; 64] = repeat64str!["upgrade_aggregation_bit0"];
-
-        match self {
-            Self::V0(i) => UPGRADE_AGGREGATION_BIT0[*i],
-            Self::V1 => "upgrade_aggregation_bit1",
-            Self::V2 => "upgrade_aggregation_bit2",
-            Self::V3 => "upgrade_aggregation_bit3",
-        }
-    }
-}
-
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-        MCCappedCreditsWithAggregationBit<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
-    ) -> Result<MCCappedCreditsWithAggregationBit<F, C::Share>, Error> {
-        let ctx_ref = &self.ctx;
-        let breakdown_key = BitDecomposed::try_from(
-            ctx_ref
-                .parallel_join(input.breakdown_key.into_iter().enumerate().map(
-                    |(idx, bit)| async move {
-                        ctx_ref
-                            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx))
-                            .upgrade_one(self.record_binding, bit, ZeroPositions::Pvvv)
-                            .await
-                    },
-                ))
-                .await?,
-        )?;
-
-        let helper_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1)
-            .upgrade_one(self.record_binding, input.helper_bit, ZeroPositions::Pvvv)
-            .await?;
-
-        let aggregation_bit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2)
-            .upgrade_one(
-                self.record_binding,
-                input.aggregation_bit,
-                ZeroPositions::Pvvv,
-            )
-            .await?;
-
-        let credit = self
-            .ctx
-            .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3)
-            .upgrade_one(self.record_binding, input.credit, ZeroPositions::Pvvv)
-            .await?;
-        Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
-            breakdown_key,
-            credit,
         ))
     }
 }

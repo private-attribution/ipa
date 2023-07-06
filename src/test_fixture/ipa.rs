@@ -167,7 +167,7 @@ pub async fn test_ipa<F>(
         })
         .collect::<Vec<_>>();
 
-    let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
+    let result: Vec<F> = match security_model {
         IpaSecurityModel::Malicious => world
             .malicious(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
@@ -185,19 +185,9 @@ pub async fn test_ipa<F>(
             .await
             .reconstruct(),
     };
-
-    assert_eq!(
-        config.max_breakdown_key,
-        u32::try_from(result.len()).unwrap()
-    );
-
-    for (i, expected) in expected_results.iter().enumerate() {
-        assert_eq!(
-            [i as u128, u128::from(*expected)],
-            [
-                result[i].breakdown_key.as_u128(),
-                result[i].trigger_value.as_u128()
-            ]
-        );
-    }
+    let result_u128 = result
+        .into_iter()
+        .map(|v| u32::try_from(v.as_u128()).unwrap()) // unwrap is OK because F::PRIME > u32::MAX, currently
+        .collect::<Vec<_>>();
+    assert_eq!(result_u128, expected_results);
 }

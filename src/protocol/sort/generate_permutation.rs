@@ -4,17 +4,17 @@ use crate::{
     protocol::{
         basics::Reveal,
         context::{
-            Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext, Validator,
+            Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
         },
-        modulus_conversion::ToBitConversionTriples,
+        modulus_conversion::{BitConversionTriple, ToBitConversionTriples},
         sort::{
             generate_permutation_opt::generate_permutation_opt,
             shuffle::{get_two_of_three_random_permutations, shuffle_shares},
             ShuffleRevealStep::{GeneratePermutation, RevealPermutation, ShufflePermutation},
             SortStep::{ShuffleRevealPermutation, SortKeys},
         },
-        BasicProtocols, NoRecord,
+        BasicProtocols, NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -115,6 +115,8 @@ where
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     I: Stream,
     I::Item: ToBitConversionTriples + Clone + Send + Sync,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let (validator, sort_permutation) = generate_permutation_opt(
         sh_ctx.narrow(&SortKeys),
@@ -200,7 +202,7 @@ mod tests {
             .semi_honest(
                 match_keys.clone().into_iter(),
                 |ctx, mk_shares| async move {
-                    let (_validator, result) = generate_permutation_opt(
+                    let (_validator, result) = generate_permutation_opt::<Fp31, _, _, _>(
                         ctx.narrow("sort"),
                         stream_iter(mk_shares),
                         NUM_MULTI_BITS,

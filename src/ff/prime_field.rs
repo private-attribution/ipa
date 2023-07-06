@@ -165,14 +165,14 @@ macro_rules! field_impl {
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, unit_test))]
         impl std::cmp::PartialEq<u128> for $field {
             fn eq(&self, other: &u128) -> bool {
                 self.as_u128() == *other
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, unit_test))]
         impl std::cmp::PartialEq<$field> for u128 {
             fn eq(&self, other: &$field) -> bool {
                 *self == other.as_u128()

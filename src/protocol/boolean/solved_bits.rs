@@ -13,7 +13,7 @@ use crate::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
             UnauthorizedDowngradeWrapper,
         },
-        Linear as LinearSecretSharing, SecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -25,7 +25,7 @@ where
     F: Field,
     S: SecretSharing<F>,
 {
-    pub b_b: Vec<S>,
+    pub b_b: BitDecomposed<S>,
     pub b_p: S,
     _marker: PhantomData<F>,
 }
@@ -44,13 +44,11 @@ where
         // Note that this clones the values rather than moving them.
         // This code is only used in test code, so that's probably OK.
         assert!(cfg!(test), "This code isn't ideal outside of tests");
+        let Self { b_b, b_p, .. } = self;
+        let b_b = BitDecomposed::new(b_b.into_iter().map(|v| v.access_without_downgrade()));
         UnauthorizedDowngradeWrapper::new(Self::Target {
-            b_b: self
-                .b_b
-                .iter()
-                .map(|v| v.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            b_p: self.b_p.x().access_without_downgrade().clone(),
+            b_b,
+            b_p: b_p.access_without_downgrade(),
             _marker: PhantomData,
         })
     }
@@ -130,7 +128,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     RandomBits,
     IsPLessThanB,
     RevealC,
@@ -157,7 +155,7 @@ mod tests {
             context::{Context, UpgradableContext, Validator},
             RecordId,
         },
-        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
+        secret_sharing::{replicated::malicious::ExtendableField, BitDecomposed, SharedValue},
         seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
@@ -260,10 +258,13 @@ mod tests {
                             //
                             // `malicious()` requires its closure to return `Downgrade`
                             // so we indicate the abort case with (0, [0]), instead
-                            // of (0, [0, 32]). But this isn't ideal because we can't
+                            // of (0, [0; 32]). But this isn't ideal because we can't
                             // catch a bug where solved_bits returns a 1-bit random bits
                             // of 0.
-                            (share_of_zero.clone(), vec![share_of_zero.clone()])
+                            (
+                                share_of_zero.clone(),
+                                BitDecomposed::decompose(1, |_| share_of_zero.clone()),
+                            )
                         }
                         Some(share) => (share.b_p, share.b_b),
                     }

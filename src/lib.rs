@@ -82,3 +82,8 @@ pub(crate) mod task {
 
 #[cfg(all(feature = "in-memory-infra", feature = "real-world-infra"))]
 compile_error!("feature \"in-memory-infra\" and feature \"real-world-infra\" cannot be enabled at the same time");
+
+#[cfg(all(feature = "compact-gate", feature = "descriptive-date"))]
+compile_error!(
+    "feature \"compact-gate\" and feature \"descriptive-gate\" cannot be enabled at the same time"
+);

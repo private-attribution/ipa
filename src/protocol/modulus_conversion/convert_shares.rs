@@ -49,7 +49,7 @@ use std::{
 use typenum::Bit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     Xor1,
     Xor2,
 }
@@ -267,22 +267,20 @@ where
         (ctx, locally_converted, RecordId::FIRST),
         |(ctx, mut locally_converted, record_id)| async move {
             let Some(triple) = locally_converted.next().await else { return None; };
-            let iter = zip(
-                (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
-                triple,
-            )
-            .map(|(ctx, triple)| async move {
-                let upgraded = ctx.upgrade_for(record_id, triple).await?;
-                convert_bit(ctx, record_id, &upgraded).await
-            });
-            let converted = async move {
-                #[allow(clippy::disallowed_methods)] // Just in this one place.
-                let bits = futures::future::try_join_all(iter).await?;
-                Ok(BitDecomposed::new(bits))
-            };
+            let converted = ctx.parallel_join(
+                zip(
+                    (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
+                    triple,
+                )
+                .map(|(ctx, triple)| async move {
+                    let upgraded = ctx.upgrade_for(record_id, triple).await?;
+                    convert_bit(ctx, record_id, &upgraded).await
+                }),
+            );
             Some((converted, (ctx, locally_converted, record_id + 1)))
         },
-    );
+    )
+    .map(|res| async move { res.await.map(|bits| BitDecomposed::new(bits)) });
     seq_join(active, stream)
 }
 
@@ -404,8 +402,7 @@ mod tests {
                     let v = ctx.validator();
                     let m_triples = v.context().upgrade([tweaked]).await.unwrap();
                     let m_ctx = v.context().set_total_records(1);
-                    let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
-                    let m_bit = super::convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                    let m_bit = super::convert_bit(m_ctx, RecordId::from(0), &m_triples[0])
                         .await
                         .unwrap();
                     let err = v

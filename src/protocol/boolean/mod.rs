@@ -1,22 +1,25 @@
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
-    protocol::{basics::SecureMul, BasicProtocols},
+    protocol::{
+        basics::{SecureMul, ShareKnownValue},
+        context::Context,
+        step::BitOpStep,
+        BasicProtocols, RecordId,
+    },
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 use std::iter::repeat;
 
-use super::{basics::ShareKnownValue, context::Context, step::BitOpStep, RecordId};
-
-mod add_constant;
-mod bit_decomposition;
+pub mod add_constant;
+pub mod bit_decomposition;
 pub mod bitwise_equal;
-mod bitwise_less_than_prime;
-mod comparison;
-mod generate_random_bits;
+pub mod bitwise_less_than_prime;
+pub mod comparison;
+pub mod generate_random_bits;
 pub mod or;
 pub mod random_bits_generator;
-mod solved_bits;
+pub mod solved_bits;
 mod xor;
 
 pub use bit_decomposition::BitDecomposition;

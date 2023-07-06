@@ -18,7 +18,7 @@ use crate::{
             },
         },
         step::IpaProtocolStep::Sort,
-        BasicProtocols,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -99,7 +99,7 @@ where
     I: Stream,
     I::Item: ToBitConversionTriples + Clone + Send + Sync,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F>:
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let mut malicious_validator = sh_ctx.clone().validator();

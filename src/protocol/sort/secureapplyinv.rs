@@ -1,9 +1,15 @@
 use crate::{
     error::Error,
-    protocol::{basics::Reshare, context::Context, sort::ApplyInvStep::ShuffleInputs, RecordId},
+    protocol::{
+        basics::Reshare,
+        context::Context,
+        sort::{
+            apply::apply_inv, apply_sort::shuffle_shares as shuffle_vectors,
+            ApplyInvStep::ShuffleInputs,
+        },
+        RecordId,
+    },
 };
-
-use super::{apply::apply_inv, apply_sort::shuffle_shares as shuffle_vectors};
 
 pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + Sync>(
     ctx: C,

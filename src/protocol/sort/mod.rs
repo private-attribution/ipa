@@ -211,8 +211,7 @@ where
     //
     // Where 000, 101, 011, and 110 mean positive contributions, and
     // 001, 010, 100, and 111 mean negative contributions.
-    let side_length = 1 << num_bits;
-    Ok(BitDecomposed::decompose(side_length, |i| {
+    Ok(BitDecomposed::decompose(1 << num_bits, |i| {
         let mut check = S::ZERO;
         for (j, combination) in precomputed_combinations.iter().enumerate() {
             let bit: i8 = i8::from((i & j) == i);
@@ -244,11 +243,15 @@ where
 // It does so by starting with the array `[1]`.
 // The next step is to multiply this by `x_1` and append it to the end of the array.
 // Now the array is `[1, x_1]`.
-// The next step is to mulitply all of these values by `x_2` and append them to the end of the array.
+// The next step is to multiply all of these values by `x_2` and append them to the end of the array.
 // Now the array is `[1, x_1, x_2, x_1*x_2]`
 // The next step is to mulitply all of these values of `x_3` and append them to the end of the array.
 // Now the array is `[1, x_1, x_2, x_1*x_2, x_3, x_1*x_3, x_2*x_3, x_1*x_2*x_3]`
 // This process continues for as many steps as there are bits of input.
+//
+// Operation complexity of this function is `2^n-n-1` where `n` is the number of bits.
+// Circuit depth is equal to `n-2`.
+// This gets inefficient very quickly as a result.
 async fn pregenerate_all_combinations<F, C, S>(
     ctx: C,
     record_idx: usize,

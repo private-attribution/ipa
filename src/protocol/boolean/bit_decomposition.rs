@@ -78,7 +78,7 @@ impl BitDecomposition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     RevealAMinusB,
     AddBtoC,
     IsPLessThanD,
@@ -113,16 +113,6 @@ mod tests {
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    pub struct GenerateRandomBits;
-
-    impl crate::protocol::step::Step for GenerateRandomBits {}
-
-    impl AsRef<str> for GenerateRandomBits {
-        fn as_ref(&self) -> &str {
-            "generate_random_bits"
-        }
-    }
-
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
         F: PrimeField + ExtendableField + Sized,
@@ -132,7 +122,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let validator = ctx.validator();
                 let ctx = validator.context().set_total_records(1);
-                let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
+                let rbg = RandomBitsGenerator::new(ctx.narrow("bitgen"));
                 BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()

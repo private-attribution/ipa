@@ -26,6 +26,20 @@ where
     [i0, i1, i2]
 }
 
+#[cfg(any(test, feature = "test-fixture"))]
+impl<U, T> IntoShares<Option<T>> for Option<U>
+where
+    U: IntoShares<T>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Option<T>; 3] {
+        if let Some(v) = self {
+            v.share_with(rng).map(|v| Some(v))
+        } else {
+            <[_; 3]>::default() // [None; 3] doesn't work because T: !Copy
+        }
+    }
+}
+
 impl<I, U, T> IntoShares<Vec<T>> for I
 where
     I: Iterator<Item = U>,

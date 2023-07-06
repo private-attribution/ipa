@@ -7,7 +7,6 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        attribution::input::MCAggregateCreditOutputRow,
         context::{MaliciousContext, SemiHonestContext},
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
@@ -38,35 +37,18 @@ pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 
-impl<F: Field> Result for Vec<AdditiveShare<F>>
-where
-    AdditiveShare<F>: Serializable,
-{
-    fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * <AdditiveShare<F> as Serializable>::Size::USIZE];
-        for (i, share) in self.into_iter().enumerate() {
-            share.serialize(GenericArray::from_mut_slice(
-                &mut r[i * <AdditiveShare<F> as Serializable>::Size::USIZE
-                    ..(i + 1) * <AdditiveShare<F> as Serializable>::Size::USIZE],
-            ));
-        }
-
-        r
-    }
-}
-
-impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> Result
-    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<T> Result for Vec<T>
 where
     T: Serializable,
+    Vec<T>: Debug + Send,
 {
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, T, BK>::SIZE];
+        let mut r = vec![0u8; self.len() * T::Size::USIZE];
         for (i, row) in self.into_iter().enumerate() {
-            row.serialize(
-                &mut r[MCAggregateCreditOutputRow::<F, T, BK>::SIZE * i
-                    ..MCAggregateCreditOutputRow::<F, T, BK>::SIZE * (i + 1)],
-            );
+            let offset = i * T::Size::USIZE;
+            row.serialize(GenericArray::from_mut_slice(
+                &mut r[i..(i + T::Size::USIZE)],
+            ));
         }
 
         r
