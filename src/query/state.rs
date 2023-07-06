@@ -5,13 +5,18 @@ use crate::{
     sync::Mutex,
     task::JoinHandle,
 };
+use ::tokio::sync::oneshot::{error::TryRecvError, Receiver};
+use futures::{ready, FutureExt};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::{Debug, Formatter},
+    future::Future,
+    task::Poll,
 };
 
 /// The status of query processing
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub enum QueryStatus {
     /// Only query running on the coordinator helper can be in this state. Means that coordinator
@@ -23,8 +28,10 @@ pub enum QueryStatus {
     AwaitingInputs,
     /// Query is being executed and can be interrupted by request.
     Running,
-    /// Task is created to await completion of a query.
+    /// Complete API has been called and is waiting for query to finish.
     AwaitingCompletion,
+    /// Query has finished and results are available.
+    Completed,
 }
 
 impl From<&QueryState> for QueryStatus {
@@ -35,6 +42,7 @@ impl From<&QueryState> for QueryStatus {
             QueryState::AwaitingInputs(_, _, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
             QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
+            QueryState::Completed(_) => QueryStatus::Completed,
         }
     }
 }
@@ -44,8 +52,9 @@ pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
     AwaitingInputs(QueryId, QueryConfig, RoleAssignment),
-    Running(JoinHandle<QueryResult>),
+    Running(RunningQuery),
     AwaitingCompletion,
+    Completed(QueryResult),
 }
 
 impl QueryState {
@@ -62,6 +71,48 @@ impl QueryState {
                 from: cur_state.into(),
                 to: QueryStatus::from(&new_state),
             }),
+        }
+    }
+}
+
+pub struct RunningQuery {
+    pub result: Receiver<QueryResult>,
+
+    /// `JoinHandle` for the query task.
+    ///
+    /// The join handle is only useful for the purpose of aborting the query. Tasks started with
+    /// `tokio::spawn` run to completion whether or not anything waits on the handle.
+    ///
+    /// We could return the result via the JoinHandle, except that we want to check the status
+    /// of the task, and shuttle doesn't implement `JoinHandle::is_finished`.
+    pub join_handle: JoinHandle<()>,
+}
+
+impl RunningQuery {
+    pub fn try_complete(&mut self) -> Option<QueryResult> {
+        match self.result.try_recv() {
+            Ok(result) => Some(result),
+            Err(TryRecvError::Closed) => {
+                panic!("query completed without returning a result");
+            }
+            Err(TryRecvError::Empty) => None,
+        }
+    }
+}
+
+impl Future for RunningQuery {
+    type Output = QueryResult;
+
+    #[allow(clippy::match_wild_err_arm)] // The error is a RecvError, which has no detail to report.
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match ready!(self.result.poll_unpin(cx)) {
+            Ok(result) => Poll::Ready(result),
+            Err(_) => {
+                panic!("query completed without returning a result");
+            }
         }
     }
 }

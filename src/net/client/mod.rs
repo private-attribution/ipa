@@ -311,13 +311,34 @@ impl MpcHelperClient {
         Ok(self.request(req))
     }
 
+    /// Retrieve the status of a query.
+    ///
+    /// ## Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))]
+    pub async fn query_status(
+        &self,
+        query_id: QueryId,
+    ) -> Result<crate::query::QueryStatus, Error> {
+        let req = http_serde::query::status::Request::new(query_id);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
+
+        let resp = self.request(req).await?;
+        if resp.status().is_success() {
+            let body_bytes = body::to_bytes(resp.into_body()).await?;
+            let http_serde::query::status::ResponseBody { status } =
+                serde_json::from_slice(&body_bytes)?;
+            Ok(status)
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
+    }
+
     /// Wait for completion of the query and pull the results of this query. This is a blocking
     /// API so it is not supposed to be used outside of CLI context.
     ///
     /// ## Errors
     /// If the request has illegal arguments, or fails to deliver to helper
-    /// # Panics
-    /// if there is a problem reading the response body
     #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))]
     pub async fn query_results(&self, query_id: QueryId) -> Result<body::Bytes, Error> {
         let req = http_serde::query::results::Request::new(query_id);
@@ -325,7 +346,7 @@ impl MpcHelperClient {
 
         let resp = self.request(req).await?;
         if resp.status().is_success() {
-            Ok(body::to_bytes(resp.into_body()).await.unwrap())
+            Ok(body::to_bytes(resp.into_body()).await?)
         } else {
             Err(Error::from_failed_resp(resp).await)
         }
@@ -377,11 +398,13 @@ pub(crate) mod tests {
             let ri = Arc::clone(inner);
             let pi = Arc::clone(inner);
             let qi = Arc::clone(inner);
+            let si = Arc::clone(inner);
             let ci = Arc::clone(inner);
             TransportCallbacks {
                 receive_query: Box::new(move |t, req| (ri.receive_query)(t, req)),
                 prepare_query: Box::new(move |t, req| (pi.prepare_query)(t, req)),
                 query_input: Box::new(move |t, req| (qi.query_input)(t, req)),
+                query_status: Box::new(move |t, req| (si.query_status)(t, req)),
                 complete_query: Box::new(move |t, req| (ci.complete_query)(t, req)),
             }
         }
