@@ -8,20 +8,16 @@ use std::num::NonZeroU32;
 use common::test_ipa_with_config;
 use ipa::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
 
-fn test_compact_gate(
+fn test_compact_gate<I: TryInto<NonZeroU32>>(
     mode: IpaSecurityModel,
     per_user_credit_cap: u32,
-    attribution_window_seconds: u32,
+    attribution_window_seconds: I,
 ) {
-    let mut config = IpaQueryConfig::default();
-    config.per_user_credit_cap = per_user_credit_cap;
-
-    if attribution_window_seconds == 0 {
-        config.attribution_window_seconds = None;
-    } else {
-        config.attribution_window_seconds =
-            Some(NonZeroU32::new(attribution_window_seconds).unwrap());
-    }
+    let config = IpaQueryConfig {
+        per_user_credit_cap,
+        attribution_window_seconds: attribution_window_seconds.try_into().ok(),
+        ..Default::default()
+    };
 
     test_ipa_with_config(mode, false, config);
 }
