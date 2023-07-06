@@ -62,7 +62,7 @@ where
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
         + UpgradeToMalicious<
             'u,
             ArithmeticallySharedIPAInputs<F, Replicated<F>>,
@@ -159,7 +159,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{Field, Fp31},
+        ff::Fp31,
         ipa_test_input,
         report::{Report, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
@@ -172,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn ipa() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -224,22 +224,11 @@ mod tests {
             // Note that we ignore the last 2 records to test that runner follows the rule
             // to take up to `record_count` reports. Everything else outside that will
             // be ignored
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty()))
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::new(KeyRegistry::empty()))
                 .execute(ctx, query_size, input)
         }))
         .await;
-
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 
     #[tokio::test]
@@ -290,7 +279,7 @@ mod tests {
                 max_breakdown_key: 3,
                 plaintext_match_keys: true,
             };
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::new(KeyRegistry::empty())).execute(
                 ctx,
                 query_size,
                 shares.into(),
@@ -347,7 +336,8 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, query_size, input)
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::clone(&key_registry))
+                .execute(ctx, query_size, input)
         }))
         .await;
 

@@ -201,7 +201,7 @@ mod tests {
         ];
 
         let world = TestWorld::default();
-        let result: Vec<_> = world
+        let result = world
             .semi_honest(
                 INPUT.iter().map(|&(bk, credit)| {
                     (
@@ -214,7 +214,8 @@ mod tests {
                         Fp32BitPrime::truncate_from(bk),
                     )
                 }),
-                |ctx, (bk_shares, credit_shares): (Vec<BitDecomposed<_>>, Vec<_>)| async move {
+                |ctx, shares| async move {
+                    let (bk_shares, credit_shares): (Vec<_>, Vec<_>) = shares.into_iter().unzip();
                     let validator = ctx.validator::<Fp32BitPrime>();
                     let u_ctx = validator.context();
                     let (_validator, output) = aggregate_credit(
