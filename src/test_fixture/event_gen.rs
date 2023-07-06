@@ -39,6 +39,8 @@ pub enum ReportFilter {
 pub struct Config {
     #[cfg_attr(feature = "clap", arg(long, default_value = "1000000000000"))]
     pub max_user_id: NonZeroU64,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "1"))]
+    pub min_trigger_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_trigger_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
@@ -66,7 +68,7 @@ fn validate_probability(value: &str) -> Result<f32, String> {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000_000_000_000, 5, 20, 50)
+        Self::new(1_000_000_000_000, 1, 5, 20, 50)
     }
 }
 
@@ -78,13 +80,21 @@ impl Config {
     #[must_use]
     pub fn new(
         max_user_id: u64,
+        min_trigger_value: u32,
         max_trigger_value: u32,
         max_breakdown_key: u32,
         max_events_per_user: u32,
     ) -> Self {
+        // Defend against incorrect trigger value settings
+        let max_trig_value = NonZeroU32::try_from(max_trigger_value).unwrap();
+        let min_trig_value = std::cmp::min(
+            NonZeroU32::try_from(min_trigger_value).unwrap(),
+            max_trig_value,
+        );
         Self {
             max_user_id: NonZeroU64::try_from(max_user_id).unwrap(),
-            max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
+            min_trigger_value: min_trig_value,
+            max_trigger_value: max_trig_value,
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
@@ -189,7 +199,9 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn gen_trigger(&mut self, user_id: UserId) -> TestRawDataRecord {
-        let trigger_value = self.rng.gen_range(1..self.config.max_trigger_value.get());
+        let trigger_value = self
+            .rng
+            .gen_range(self.config.min_trigger_value.get()..=self.config.max_trigger_value.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),
@@ -358,13 +370,28 @@ mod tests {
                 1..u32::MAX,
                 1..u32::MAX,
                 1..u32::MAX,
+                1..u32::MAX,
                 report_filter_strategy(),
             )
                 .prop_map(
-                    |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| {
+                    |(
+                        min_trigger_value,
+                        max_trigger_value,
+                        max_breakdown_key,
+                        max_events_per_user,
+                        report_filter,
+                    )| {
+                        // `new` doesn't support all Config fields, so invariants are duplicated here
+                        // Defend against incorrect trigger value settings
+                        let max_trig_value = NonZeroU32::try_from(max_trigger_value).unwrap();
+                        let min_trig_value = std::cmp::min(
+                            NonZeroU32::try_from(min_trigger_value).unwrap(),
+                            max_trig_value,
+                        );
                         Config {
                             max_user_id: NonZeroU64::new(10_000).unwrap(),
-                            max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
+                            min_trigger_value: min_trig_value,
+                            max_trigger_value: max_trig_value,
                             max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
                             max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
                             report_filter,
