@@ -26,7 +26,6 @@ where
     [i0, i1, i2]
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
 impl<U, T> IntoShares<Option<T>> for Option<U>
 where
     U: IntoShares<T>,

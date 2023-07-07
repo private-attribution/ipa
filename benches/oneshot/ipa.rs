@@ -120,8 +120,12 @@ async fn run(args: Args) -> Result<(), Error> {
     .take(args.query_size)
     .collect::<Vec<_>>();
 
-    let expected_results =
-        ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
+    let expected_results = ipa_in_the_clear(
+        &raw_data,
+        args.per_user_cap,
+        args.attribution_window(),
+        args.breakdown_keys,
+    );
 
     let world = TestWorld::new_with(config.clone());
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());

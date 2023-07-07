@@ -1,16 +1,17 @@
-use futures::stream::{iter, StreamExt};
+use futures::stream::iter as stream_iter;
 use ipa::{
     error::Error,
-    ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
+    ff::{Field, Fp32BitPrime, GaloisField},
     helpers::GatewayConfig,
     protocol::{
-        context::{Context, Validator},
-        modulus_conversion::{convert_bits, LocalBitConverter},
+        context::{validator::SemiHonest as SemiHonestValidator, Validator},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
     },
-    secret_sharing::SharedValue,
-    test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+    },
+    test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig},
 };
 use rand::Rng;
 use std::time::Instant;
@@ -35,13 +36,14 @@ async fn main() -> Result<(), Error> {
         match_keys.push(rng.gen::<MatchKey>());
     }
 
-    let shares = match_keys.into_shares(); // TODO
+    let [s0, s1, s2] = match_keys.iter().cloned().share_with(&mut rng);
 
     let start = Instant::now();
-    let [(v0, r0), (v1, r1), (v2, r2)] = join3(
-        generate_permutation_opt(ctx0, stream_iter(shares[0]), NUM_MULTI_BITS, MatchKey::BITS),
-        generate_permutation_opt(ctx1, stream_iter(shares[1]), NUM_MULTI_BITS, MatchKey::BITS),
-        generate_permutation_opt(ctx2, stream_iter(shares[2]), NUM_MULTI_BITS, MatchKey::BITS),
+    let [(v0, r0), (v1, r1), (v2, r2)]: [(SemiHonestValidator<'_, BenchField>, Vec<Replicated<_>>);
+        3] = join3(
+        generate_permutation_opt(ctx0, stream_iter(s0), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx1, stream_iter(s1), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx2, stream_iter(s2), NUM_MULTI_BITS, MatchKey::BITS),
     )
     .await;
     let result = join3(v0.validate(r0), v1.validate(r1), v2.validate(r2)).await;
