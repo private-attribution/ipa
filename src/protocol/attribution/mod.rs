@@ -34,7 +34,7 @@ use crate::{
 };
 use futures::{
     future::try_join,
-    stream::{iter as stream_iter, TryStreamExt},
+    stream::{iter as stream_iter, once as stream_once, StreamExt, TryStreamExt},
 };
 use std::iter::zip;
 
@@ -88,16 +88,16 @@ where
         .validate((helper_bits_gf2, breakdown_key_bits_gf2))
         .await?;
 
-    let helper_bits = convert_bits(
-        m_ctx
-            .narrow(&AttributionStep::ConvertHelperBits)
-            .set_total_records(validated_helper_bits_gf2.len()),
-        stream_iter(validated_helper_bits_gf2),
-        0..1,
-    )
-    .map_ok(|b| b.into_iter().next().unwrap())
-    .try_collect::<Vec<_>>()
-    .await?;
+    let convert_ctx = m_ctx
+        .narrow(&AttributionStep::ConvertHelperBits)
+        .set_total_records(validated_helper_bits_gf2.len());
+    let helper_bits = stream_once(async { Ok(S::ZERO) })
+        .chain(
+            convert_bits(convert_ctx, stream_iter(validated_helper_bits_gf2), 0..1)
+                .map_ok(|b| b.into_iter().next().unwrap()),
+        )
+        .try_collect::<Vec<_>>()
+        .await?;
 
     let is_trigger_bits = arithmetically_shared_values
         .iter()
@@ -107,6 +107,7 @@ where
         .await?
         .collect::<Vec<_>>();
 
+    debug_assert_eq!(arithmetically_shared_values.len(), helper_bits.len());
     let attribution_input_rows = zip(arithmetically_shared_values, helper_bits)
         .map(|(arithmetic, hb)| {
             ApplyAttributionWindowInputRow::new(
@@ -385,7 +386,7 @@ where
         .narrow(&Step::ComputeStopBits)
         .set_total_records(is_trigger_bits.len() - 1);
 
-    let futures = zip(&is_trigger_bits[1..], helper_bits).enumerate().map(
+    let futures = zip(is_trigger_bits, helper_bits).skip(1).enumerate().map(
         |(i, (is_trigger_bit, helper_bit))| {
             let c = stop_bits_ctx.clone();
             let record_id = RecordId::from(i);

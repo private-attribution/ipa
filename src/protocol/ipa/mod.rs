@@ -822,8 +822,12 @@ pub mod tests {
         let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {
-            let expected_results =
-                ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
+            let expected_results = ipa_in_the_clear(
+                &raw_data,
+                per_user_cap,
+                ATTRIBUTION_WINDOW_SECONDS,
+                MAX_BREAKDOWN_KEY,
+            );
 
             test_ipa::<TestField>(
                 &world,
@@ -1080,9 +1084,9 @@ pub mod tests {
                 cap_three(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 21_774,
-                    bytes_sent: 76_512,
-                    indexed_prss: 28_170,
+                    records_sent: 21_756,
+                    bytes_sent: 76_440,
+                    indexed_prss: 28_146,
                     seq_prss: 1124,
                 },
             )
@@ -1095,9 +1099,9 @@ pub mod tests {
                 cap_one(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 36_090,
-                    bytes_sent: 133_776,
-                    indexed_prss: 74_046,
+                    records_sent: 35_163,
+                    bytes_sent: 130_068,
+                    indexed_prss: 72_447,
                     seq_prss: 1098,
                 },
             )
@@ -1110,9 +1114,9 @@ pub mod tests {
                 cap_three(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 54_828,
-                    bytes_sent: 208_728,
-                    indexed_prss: 111_393,
+                    records_sent: 53_865,
+                    bytes_sent: 204_876,
+                    indexed_prss: 109_734,
                     seq_prss: 1098,
                 },
             )

@@ -79,8 +79,9 @@ where
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
 {
-    assert_eq!(capped_credits.len(), breakdown_keys.len());
-    let record_count = capped_credits.len();
+    let record_count = breakdown_keys.len();
+    // The number of records we compute is currently too high as the last row cannot have
+    // any credit associated with it.  TODO: don't compute that row when cap > 1.
 
     let to_take = usize::try_from(max_breakdown_key).unwrap();
     let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
