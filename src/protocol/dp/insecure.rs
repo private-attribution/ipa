@@ -77,20 +77,23 @@ impl DiscreteDp {
     }
 
     pub fn apply<I, R>(&self, mut input: I, rng: &mut R)
-        where
-            R: RngCore + CryptoRng,
-            I: AsMut<[i64]>,
+    where
+        R: RngCore + CryptoRng,
+        I: AsMut<[i64]>,
     {
         for v in input.as_mut() {
+            #[allow(clippy::cast_possible_truncation)]
             let sample = self.rounded_normal_dist.sample(rng) as i64;
             *v = v.saturating_add(sample);
         }
     }
 
+    #[must_use]
     pub fn mean(&self) -> f64 {
         self.rounded_normal_dist.mean()
     }
 
+    #[must_use]
     pub fn std(&self) -> f64 {
         self.rounded_normal_dist.std()
     }
