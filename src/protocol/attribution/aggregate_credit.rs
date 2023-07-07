@@ -3,7 +3,7 @@ use crate::{
     ff::{Gf2, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::convert_some_bits,
+        modulus_conversion::convert_bits,
         sort::{check_everything, generate_permutation::ShuffledPermutationWrapper},
         step::BitOpStep,
         BasicProtocols, RecordId,
@@ -33,16 +33,16 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 #[tracing::instrument(name = "aggregate_credit", skip_all)]
 // instrumenting this function makes the return type look bad to Clippy
 #[allow(clippy::type_complexity)]
-pub async fn aggregate_credit<C, V, F, IC, IB, S>(
+pub async fn aggregate_credit<V, C, F, IC, IB, S>(
     validator: V,
     breakdown_keys: IB,
     capped_credits: IC,
     max_breakdown_key: u32,
 ) -> Result<(V, Vec<S>), Error>
 where
+    V: Validator<C, F>,
     C: UpgradableContext<Validator<F> = V>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    V: Validator<C, F>,
     F: PrimeField + ExtendableField,
     IB: IntoIterator<Item = BitDecomposed<Replicated<Gf2>>> + ExactSizeIterator + Send,
     IB::IntoIter: Send,
@@ -80,19 +80,21 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
 {
     assert_eq!(capped_credits.len(), breakdown_keys.len());
-    let mut sums = vec![S::ZERO; max_breakdown_key as usize];
+    let record_count = capped_credits.len();
+
     let to_take = usize::try_from(max_breakdown_key).unwrap();
     let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
     let equality_check_context = ctx
         .narrow(&Step::ComputeEqualityChecks)
-        .set_total_records(capped_credits.len());
+        .set_total_records(record_count);
     let check_times_credit_context = ctx
         .narrow(&Step::CheckTimesCredit)
-        .set_total_records(capped_credits.len());
+        .set_total_records(record_count);
 
-    let converted_bk = convert_some_bits(
-        ctx.narrow(&Step::ModConvBreakdownKeyBits),
+    let converted_bk = convert_bits(
+        ctx.narrow(&Step::ModConvBreakdownKeyBits)
+            .set_total_records(record_count),
         stream_iter(breakdown_keys),
         0..valid_bits_count,
     );
@@ -119,16 +121,19 @@ where
                     .await
                 }
             }),
-    )
-    .try_collect::<Vec<_>>() // TODO: delay collection further
-    .await?;
-
-    for increments_for_row in increments {
-        for (i, increment) in increments_for_row.iter().enumerate() {
-            sums[i] += increment;
-        }
-    }
-    Ok(sums)
+    );
+    let aggregate = increments
+        .try_fold(
+            vec![S::ZERO; max_breakdown_key as usize],
+            |mut acc, row| async move {
+                for (i, incr) in row.into_iter().enumerate() {
+                    acc[i] += &incr;
+                }
+                Ok(acc)
+            },
+        )
+        .await?;
+    Ok(aggregate)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -136,7 +141,6 @@ pub(crate) enum Step {
     ComputeEqualityChecks,
     CheckTimesCredit,
     ModConvBreakdownKeyBits,
-    UpgradeBits,
 }
 
 impl crate::protocol::step::Step for Step {}
@@ -147,29 +151,19 @@ impl AsRef<str> for Step {
             Self::ComputeEqualityChecks => "compute_equality_checks",
             Self::CheckTimesCredit => "check_times_credit",
             Self::ModConvBreakdownKeyBits => "mod_conv_breakdown_key_bits",
-            Self::UpgradeBits => "upgrade_breakdown_key_bits",
         }
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
-
     use super::aggregate_credit;
     use crate::{
-        aggregation_test_input,
-        ff::{Field, Fp32BitPrime, GaloisField, Gf2},
-        protocol::{
-            context::{Context, UpgradableContext, Validator},
-            modulus_conversion::convert_some_bits,
-            BreakdownKey, MatchKey,
-        },
-        secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, SharedValue,
-        },
-        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+        ff::{Field, Fp32BitPrime, Gf2},
+        protocol::context::UpgradableContext,
+        secret_sharing::BitDecomposed,
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
 
     #[tokio::test]
     pub async fn aggregate() {
@@ -211,15 +205,14 @@ mod tests {
                             |i| Gf2::try_from((u128::from(bk) >> i) & 1).unwrap(),
                         ),
                         // credit
-                        Fp32BitPrime::truncate_from(bk),
+                        Fp32BitPrime::truncate_from(credit),
                     )
                 }),
                 |ctx, shares| async move {
                     let (bk_shares, credit_shares): (Vec<_>, Vec<_>) = shares.into_iter().unzip();
                     let validator = ctx.validator::<Fp32BitPrime>();
-                    let u_ctx = validator.context();
                     let (_validator, output) = aggregate_credit(
-                        ctx.clone().validator(), // note: not upgrading any inputs, so semi-honest only.
+                        validator, // note: not upgrading any inputs, so semi-honest only.
                         bk_shares.into_iter(),
                         credit_shares.into_iter(),
                         MAX_BREAKDOWN_KEY,

@@ -175,13 +175,13 @@ impl<F: ExtendableField> ValidateMalicious<F> for [&[MaliciousReplicated<F>]; 3]
 
 impl<F: ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     fn validate(&self, r: F::ExtendedField) {
-        self.validate(r)
+        [&self[0][..], &self[1][..], &self[2][..]].validate(r);
     }
 }
 
 impl<F: ExtendableField> ValidateMalicious<F> for [BitDecomposed<MaliciousReplicated<F>>; 3] {
     fn validate(&self, r: F::ExtendedField) {
-        self.validate(r)
+        [&self[0][..], &self[1][..], &self[2][..]].validate(r);
     }
 }
 

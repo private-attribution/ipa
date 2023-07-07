@@ -45,7 +45,10 @@ where
         // This code is only used in test code, so that's probably OK.
         assert!(cfg!(test), "This code isn't ideal outside of tests");
         let Self { b_b, b_p, .. } = self;
-        let b_b = BitDecomposed::new(b_b.into_iter().map(|v| v.access_without_downgrade()));
+        let b_b = BitDecomposed::new(
+            b_b.into_iter()
+                .map(ThisCodeIsAuthorizedToDowngradeFromMalicious::access_without_downgrade),
+        );
         UnauthorizedDowngradeWrapper::new(Self::Target {
             b_b,
             b_p: b_p.access_without_downgrade(),
@@ -67,6 +70,11 @@ where
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
+///
+/// # Errors
+/// Many reasons, usually communications-related.
+/// # Panics
+/// Never, but the compiler can't see that.
 
 // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
 // Each bit has a 50% chance of being a 0 or 1, so there are

@@ -38,7 +38,6 @@ use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
-    ModulusConversionForMatchKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
     AfterConvertAllBits,
@@ -52,7 +51,6 @@ impl crate::protocol::step::Step for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ModulusConversionForMatchKeys => "mod_conv_match_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
             Self::AfterConvertAllBits => "after_convert_all_bits",
@@ -362,9 +360,6 @@ where
     // However, we immediately copy the complete input into separate vectors for different pieces
     // (MK, BK, credit), so streaming could still be beneficial.
 
-    let validator = sh_ctx.clone().validator::<F>();
-    let m_ctx = validator.context();
-
     let mk_shares: Vec<_> = input_rows.iter().map(|x| x.mk_shares.clone()).collect();
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
@@ -427,7 +422,6 @@ where
     .await?;
 
     secure_attribution(
-        sh_ctx,
         validator,
         binary_validator,
         arithmetically_shared_values,

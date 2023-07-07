@@ -5,7 +5,7 @@ use ipa::{
     helpers::GatewayConfig,
     protocol::{
         context::{Context, Validator},
-        modulus_conversion::{convert_some_bits, LocalBitConverter},
+        modulus_conversion::{convert_bits, LocalBitConverter},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
     },

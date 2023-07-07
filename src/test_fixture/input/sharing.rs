@@ -9,9 +9,7 @@ use crate::{
     },
     rand::Rng,
     report::{EventType, Report},
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
         ipa::TestRawDataRecord,
@@ -307,25 +305,6 @@ where
             .try_into()
             .unwrap()
     }
-}
-
-fn reconstruct_mod_converted_bits<F: Field, B: GaloisField>(input: [&[Replicated<F>]; 3]) -> B {
-    debug_assert!(
-        B::BITS as usize == input[0].len()
-            && input[0].len() == input[1].len()
-            && input[1].len() == input[2].len()
-    );
-    let mut result = 0;
-    for i in 0..B::BITS {
-        let bit = [
-            &input[0][i as usize],
-            &input[1][i as usize],
-            &input[2][i as usize],
-        ]
-        .reconstruct();
-        result += bit.as_u128() * (1 << i);
-    }
-    B::truncate_from(result)
 }
 
 impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>

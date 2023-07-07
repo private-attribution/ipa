@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, FieldType, Fp32BitPrime, GaloisField, Serializable},
+    ff::{FieldType, Fp32BitPrime, Serializable},
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
@@ -12,7 +12,6 @@ use crate::{
         step::{Gate, StepNarrow},
     },
     query::{runner::IpaQuery, state::RunningQuery},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing},
 };
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
@@ -45,9 +44,8 @@ where
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
         let mut r = vec![0u8; self.len() * T::Size::USIZE];
         for (i, row) in self.into_iter().enumerate() {
-            let offset = i * T::Size::USIZE;
             row.serialize(GenericArray::from_mut_slice(
-                &mut r[i..(i + T::Size::USIZE)],
+                &mut r[(i * T::Size::USIZE)..((i + 1) * T::Size::USIZE)],
             ));
         }
 

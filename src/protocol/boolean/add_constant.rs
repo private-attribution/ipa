@@ -230,23 +230,28 @@ mod tests {
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
+        println!("{a:?} + {b}:");
         let result = world
             .semi_honest(input.clone().into_iter(), |ctx, a_share| async move {
+                println!("helper {:?}: {a_share:?}", ctx.role());
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
             .reconstruct();
+        println!("  = (semi-honest) {result:?}");
 
         let m_result = world
             .upgraded_malicious(input.into_iter(), |ctx, a_share| async move {
+                println!("helper {:?}: {a_share:?}", ctx.role());
                 add_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
                     .await
                     .unwrap()
             })
             .await
             .reconstruct();
+        println!("  = (malicious) {result:?}");
 
         assert_eq!(result, m_result);
 
@@ -258,6 +263,7 @@ mod tests {
         F: PrimeField + ExtendableField,
         Standard: Distribution<F>,
     {
+        println!("{a:?} + {b}?{maybe:?}:");
         let result = world
             .semi_honest(
                 (into_bits(a), maybe),
@@ -275,6 +281,7 @@ mod tests {
             )
             .await
             .reconstruct();
+        println!("  = (semi-honest) {result:?}");
 
         let m_result = world
             .upgraded_malicious(
@@ -293,6 +300,7 @@ mod tests {
             )
             .await
             .reconstruct();
+        println!("  = (malicious) {result:?}");
 
         assert_eq!(result, m_result);
 

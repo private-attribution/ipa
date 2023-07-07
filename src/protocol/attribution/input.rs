@@ -1,24 +1,13 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, Serializable},
+    ff::Field,
     helpers::Role,
     protocol::{basics::Reshare, context::Context, step::Step, RecordId},
-    secret_sharing::{
-        replicated::{
-            malicious::{
-                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
-                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
-            },
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare},
-        },
-        BitDecomposed, Linear as LinearSecretSharing,
-    },
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use async_trait::async_trait;
-use futures::future::{try_join, try_join4};
-use generic_array::GenericArray;
+use futures::future::try_join4;
 use std::marker::PhantomData;
-use typenum::Unsigned;
 
 //
 // `apply_attribution_window` protocol
@@ -119,10 +108,6 @@ where
         ))
     }
 }
-
-// impl Reconstruct for AccumulateCreditInputRow<F, S> {
-//     fn reconstruct(&self) -> T {}
-// }
 
 pub type AccumulateCreditOutputRow<F, T> = CreditCappingInputRow<F, T>;
 

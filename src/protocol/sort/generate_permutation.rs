@@ -24,7 +24,7 @@ use crate::{
             },
             semi_honest::AdditiveShare as Replicated,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -170,7 +170,6 @@ mod tests {
         ff::{Field, Fp31, GaloisField},
         protocol::{
             context::{Context, SemiHonestContext, UpgradableContext, Validator},
-            modulus_conversion::{convert_some_bits, LocalBitConverter},
             sort::{
                 generate_permutation::shuffle_and_reveal_permutation,
                 generate_permutation_opt::generate_permutation_opt,
@@ -181,7 +180,7 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt};
+    use futures::stream::iter as stream_iter;
     use rand::seq::SliceRandom;
     use std::iter::zip;
 

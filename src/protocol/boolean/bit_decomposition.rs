@@ -7,7 +7,7 @@ use crate::{
             bitwise_less_than_prime::BitwiseLessThanPrime,
             random_bits_generator::RandomBitsGenerator,
         },
-        context::{Context, UpgradedContext},
+        context::UpgradedContext,
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,

@@ -168,11 +168,10 @@ mod tests {
             context::{Context, UpgradableContext, Validator},
             BreakdownKey, MatchKey, RecordId,
         },
-        rand::thread_rng,
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        rand::{thread_rng, Rng},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use rand::Rng;
     use std::num::NonZeroU32;
 
     async fn accumulate_credit_test(
@@ -371,34 +370,33 @@ mod tests {
         }
     }
 
-    // TODO- do we need this still?
-    // #[tokio::test]
-    // pub async fn reshare() {
-    //     let mut rng = thread_rng();
-    //     let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> = accumulation_test_input!(
-    //         {
-    //             is_trigger_report: rng.gen::<u8>(),
-    //             helper_bit: rng.gen::<u8>(),
-    //             active_bit: rng.gen::<u8>(),
-    //             credit: rng.gen::<u8>(),
-    //         };
-    //         (Fp31, MathKey, BreakdownKey)
-    //     );
+    #[tokio::test]
+    pub async fn reshare() {
+        let mut rng = thread_rng();
+        let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> = accumulation_test_input!(
+            {
+                is_trigger_report: rng.gen::<u8>(),
+                helper_bit: rng.gen::<u8>(),
+                active_bit: rng.gen::<u8>(),
+                credit: rng.gen::<u8>(),
+            };
+            (Fp31, MathKey, BreakdownKey)
+        );
 
-    //     let world = TestWorld::default();
-    //     for &role in Role::all() {
-    //         let new_shares = world
-    //             .semi_honest(
-    //                 secret,
-    //                 |ctx, share: AccumulateCreditInputRow<Fp31, Replicated<_>>| async move {
-    //                     share
-    //                         .reshare(ctx.set_total_records(1), RecordId::from(0), role)
-    //                         .await
-    //                         .unwrap()
-    //                 },
-    //             )
-    //             .await;
-    //         assert_eq!(secret, new_shares.reconstruct());
-    //     }
-    // }
+        let world = TestWorld::default();
+        for &role in Role::all() {
+            let new_shares = world
+                .semi_honest(
+                    secret,
+                    |ctx, share: AccumulateCreditInputRow<Fp31, Replicated<_>>| async move {
+                        share
+                            .reshare(ctx.set_total_records(1), RecordId::FIRST, role)
+                            .await
+                            .unwrap()
+                    },
+                )
+                .await;
+            assert_eq!(secret, new_shares.reconstruct());
+        }
+    }
 }

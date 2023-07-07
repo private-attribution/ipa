@@ -1,4 +1,4 @@
-use std::{iter::from_fn, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     error::Error,
@@ -6,17 +6,20 @@ use crate::{
     protocol::{
         basics::SecureMul,
         context::{prss::InstrumentedIndexedSharedRandomness, Context, UpgradedContext},
-        modulus_conversion::{convert_some_bits, BitConversionTriple, ToBitConversionTriples},
+        modulus_conversion::{
+            convert_bits, convert_some_bits, BitConversionTriple, ToBitConversionTriples,
+        },
         prss::SharedRandomness,
         RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed,
-        Linear as LinearSecretSharing, SharedValue,
+        Linear as LinearSecretSharing,
     },
 };
 use futures::stream::{iter as stream_iter, Stream, StreamExt};
 
+#[derive(Debug)]
 struct RawRandomBits {
     // TODO: use a const generic instead of a field, when generic_const_expr hits stable.
     count: u32,
@@ -29,10 +32,13 @@ impl RawRandomBits {
         prss: &InstrumentedIndexedSharedRandomness,
         record_id: RecordId,
     ) -> Self {
-        assert!(<F as SharedValue>::BITS <= u64::BITS);
+        // This avoids `F::BITS` as that can be larger than we need.
+        let count = u128::BITS - F::PRIME.into().leading_zeros();
+        assert!(count <= u64::BITS);
         let (left, right) = prss.generate_values(record_id);
+        #[allow(clippy::cast_possible_truncation)] // See above for the relevant assertion.
         Self {
-            count: <F as SharedValue>::BITS,
+            count,
             left: left as u64,
             right: right as u64,
         }
@@ -50,8 +56,13 @@ impl ToBitConversionTriples for RawRandomBits {
         role: crate::helpers::Role,
         i: u32,
     ) -> BitConversionTriple<Replicated<F>> {
-        debug_assert!(F::BITS >= self.count);
-        BitConversionTriple::new(role, (self.left >> i) == 1, (self.right >> i) == 1)
+        debug_assert!(u128::BITS - F::PRIME.into().leading_zeros() >= self.count);
+        assert!(i < self.count);
+        BitConversionTriple::new(
+            role,
+            ((self.left >> i) & 1) == 1,
+            ((self.right >> i) & 1) == 1,
+        )
     }
 }
 
@@ -71,19 +82,30 @@ impl<F: PrimeField, C: Context> Iterator for RawRandomBitIter<F, C> {
 }
 
 /// Produce a stream of random bits using the provided context.
+///
+/// # Panics
+/// If the provided context has an unspecified total record count.
+/// An indeterminate limit works, but setting a fixed value greatly helps performance.
 pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<BitDecomposed<C::Share>, Error>>
 where
     F: PrimeField,
     C: UpgradedContext<F>,
     C::Share: LinearSecretSharing<F> + SecureMul<C>,
 {
+    debug_assert!(ctx.total_records().is_specified());
     let iter = RawRandomBitIter::<F, C> {
         ctx: ctx.clone(),
         record_id: RecordId(0),
         _f: PhantomData,
     };
-    convert_some_bits(ctx, stream_iter(iter), 0..F::BITS)
+    let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
+    convert_bits(ctx, stream_iter(iter), bits)
 }
+
+/// # Errors
+/// If the conversion is unsuccessful (usually the result of communication errors).
+/// # Panics
+/// Never, but the compiler doesn't know that.
 
 // TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner)
 pub async fn one_random_bit<F, C>(
@@ -100,8 +122,16 @@ where
         record_id,
         _f: PhantomData,
     };
-    Box::pin(convert_some_bits(ctx, stream_iter(iter), 0..F::BITS))
-        .next()
-        .await
-        .unwrap()
+    let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
+    Box::pin(convert_some_bits(
+        ctx,
+        // For some reason, the input stream is polled 16 times, despite this function only calling "next()" once.
+        // That interacts poorly with PRSS, so cap the iterator.
+        stream_iter(iter.take(1)),
+        record_id,
+        bits,
+    ))
+    .next()
+    .await
+    .unwrap()
 }

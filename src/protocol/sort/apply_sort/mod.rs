@@ -60,7 +60,7 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, TryStreamExt};
+    use futures::stream::iter as stream_iter;
 
     #[tokio::test]
     pub async fn semi_honest() {

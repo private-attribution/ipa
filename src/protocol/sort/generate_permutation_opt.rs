@@ -6,7 +6,7 @@ use crate::{
             Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
             Validator,
         },
-        modulus_conversion::{convert_some_bits, BitConversionTriple, ToBitConversionTriples},
+        modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         sort::{
             compose::compose,
             generate_permutation::{shuffle_and_reveal_permutation, ShuffledPermutationWrapper},
@@ -103,12 +103,17 @@ where
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let mut malicious_validator = sh_ctx.clone().validator();
-    let mut m_ctx = malicious_validator.context();
     let sort_keys = sort_keys.collect::<Vec<_>>().await;
+    if sort_keys.is_empty() {
+        return Ok((malicious_validator, Vec::new()));
+    }
 
+    let mut m_ctx = malicious_validator.context();
     let chunk = 0..min(num_multi_bits, max_bits);
-    let key_chunk = convert_some_bits(
-        m_ctx.narrow(&ModulusConversion),
+    let key_chunk = convert_bits(
+        m_ctx
+            .narrow(&ModulusConversion)
+            .set_total_records(sort_keys.len()),
         stream_iter(sort_keys.iter().cloned()),
         chunk,
     )
@@ -137,8 +142,10 @@ where
         // and convert them to a Vec<MaliciousReplicated> after this step, as the re-shares will be cheaper for XorReplicated sharings
 
         let chunk = chunk_start..min(chunk_start + num_multi_bits, max_bits);
-        let key_chunk = convert_some_bits(
-            m_ctx.narrow(&ModulusConversion),
+        let key_chunk = convert_bits(
+            m_ctx
+                .narrow(&ModulusConversion)
+                .set_total_records(sort_keys.len()),
             stream_iter(sort_keys.iter().cloned()),
             chunk,
         )

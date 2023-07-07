@@ -4,7 +4,7 @@ use crate::{
     helpers::TotalRecords,
     protocol::{
         boolean::solved_bits::{solved_bits, RandomBitsShare},
-        context::{Context, UpgradedContext},
+        context::UpgradedContext,
         step::Step,
         BasicProtocols, RecordId,
     },
@@ -116,7 +116,7 @@ mod tests {
     pub async fn semi_honest() {
         let world = TestWorld::default();
         let contexts = world.contexts().map(|ctx| ctx.set_total_records(1));
-        let validators = contexts.map(|ctx| ctx.validator());
+        let validators = contexts.map(UpgradableContext::validator);
         let [c0, c1, c2] = validators.map(|v| v.context());
         let record_id = RecordId::from(0);
 
@@ -142,6 +142,7 @@ mod tests {
         /// Repeating that 20 times should make the odds of failure negligible.
         const OUTER: u32 = 20;
         const INNER: u32 = 100;
+
         let world = TestWorld::default();
 
         for _ in 0..OUTER {

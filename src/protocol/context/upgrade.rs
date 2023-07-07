@@ -1,6 +1,5 @@
 use crate::{
     error::Error,
-    exact::ExactSizeStream,
     ff::Field,
     protocol::{
         basics::ZeroPositions,
@@ -17,17 +16,8 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::{
-    future::{try_join, try_join3},
-    stream::Stream,
-};
-use pin_project::pin_project;
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-    pin::Pin,
-    task::{Context as TaskContext, Poll},
-};
+use futures::future::{try_join, try_join3};
+use std::marker::PhantomData;
 
 /// Special context type used for malicious upgrades.
 ///
@@ -399,10 +389,10 @@ where
     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, Replicated<F>, M>,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<M, Error> {
-        let ctx = if self.ctx.total_records().is_unspecified() {
-            self.ctx.set_total_records(1)
-        } else {
+        let ctx = if self.ctx.total_records().is_specified() {
             self.ctx
+        } else {
+            self.ctx.set_total_records(1)
         };
         UpgradeContext::new(ctx, RecordId::FIRST)
             .upgrade(input)

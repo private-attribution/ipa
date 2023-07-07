@@ -28,9 +28,9 @@ use crate::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,
         context::{Context, UpgradeContext, UpgradeToMalicious, UpgradedContext},
-        step::IpaProtocolStep,
         RecordId,
     },
+    repeat64str,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, Linear as LinearSecretSharing,
@@ -46,10 +46,11 @@ use std::{
     pin::Pin,
     task::{Context as TaskContext, Poll},
 };
-use typenum::Bit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
+    ConvertBit(u32),
+    Upgrade,
     Xor1,
     Xor2,
 }
@@ -58,13 +59,17 @@ impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
+        const MODULUS_CONVERSION: [&str; 64] = repeat64str!["mc"];
         match self {
+            Self::ConvertBit(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
+            Self::Upgrade => "upgrade",
             Self::Xor1 => "xor1",
             Self::Xor2 => "xor2",
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 
 impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
@@ -111,15 +116,16 @@ pub trait ToBitConversionTriples {
     /// Produce a `BitConversionTriple` for the given role and bit index.
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>>;
 
-    fn triple_range<F, I>(&self, role: Role, indices: I) -> Vec<BitConversionTriple<Replicated<F>>>
+    fn triple_range<F, I>(
+        &self,
+        role: Role,
+        indices: I,
+    ) -> BitDecomposed<BitConversionTriple<Replicated<F>>>
     where
         F: PrimeField,
         I: IntoIterator<Item = u32>,
     {
-        indices
-            .into_iter()
-            .map(|i| self.triple(role, i))
-            .collect::<Vec<_>>()
+        BitDecomposed::new(indices.into_iter().map(|i| self.triple(role, i)))
     }
 }
 
@@ -181,12 +187,14 @@ where
     V: ToBitConversionTriples,
     S: Stream<Item = V> + Send,
 {
-    type Item = Vec<BitConversionTriple<Replicated<F>>>;
+    type Item = BitDecomposed<BitConversionTriple<Replicated<F>>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         match this.input.as_mut().poll_next(cx) {
-            Poll::Ready(Some(input)) => Poll::Ready(Some(input.triple_range(self.role, self.bits))),
+            Poll::Ready(Some(input)) => {
+                Poll::Ready(Some(input.triple_range(*this.role, this.bits.clone())))
+            }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -245,8 +253,8 @@ where
 /// # Errors
 /// Propagates errors from convert shares
 /// # Panics
-/// Propagates panics from convert shares
-pub fn convert_some_bits<F, V, C, S, VS>(
+/// If the total record count on the context is unspecified.
+pub fn convert_bits<F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
     bit_range: Range<u32>,
@@ -260,22 +268,47 @@ where
     for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
+    convert_some_bits(ctx, binary_shares, RecordId::FIRST, bit_range)
+}
+
+pub(crate) fn convert_some_bits<F, V, C, S, VS>(
+    ctx: C,
+    binary_shares: VS,
+    first_record: RecordId,
+    bit_range: Range<u32>,
+) -> impl Stream<Item = Result<BitDecomposed<S>, Error>>
+where
+    F: PrimeField,
+    V: ToBitConversionTriples,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
+    VS: Stream<Item = V> + Unpin + Send,
+    for<'u> UpgradeContext<'u, C, F, RecordId>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
+{
+    debug_assert!(
+        ctx.total_records().is_specified(),
+        "unspecified record count for modulus conversion at {gate:?}",
+        gate = ctx.gate()
+    );
+
     let active = ctx.active_work();
     let locally_converted = LocalBitConverter::new(ctx.role(), binary_shares, bit_range);
 
     let stream = unfold(
-        (ctx, locally_converted, RecordId::FIRST),
+        (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
             let Some(triple) = locally_converted.next().await else { return None; };
             let converted = ctx.parallel_join(
-                zip(
-                    (0..).map(|i| ctx.narrow(&IpaProtocolStep::ModulusConversion(i))),
-                    triple,
-                )
-                .map(|(ctx, triple)| async move {
-                    let upgraded = ctx.upgrade_for(record_id, triple).await?;
-                    convert_bit(ctx, record_id, &upgraded).await
-                }),
+                zip((0..).map(|i| ctx.narrow(&Step::ConvertBit(i))), triple).map(
+                    |(ctx, triple)| async move {
+                        let upgraded = ctx
+                            .narrow(&Step::Upgrade)
+                            .upgrade_for(record_id, triple)
+                            .await?;
+                        convert_bit(ctx, record_id, &upgraded).await
+                    },
+                ),
             );
             Some((converted, (ctx, locally_converted, record_id + 1)))
         },
@@ -292,7 +325,7 @@ mod tests {
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            modulus_conversion::{convert_some_bits, BitConversionTriple, LocalBitConverter},
+            modulus_conversion::{convert_bits, BitConversionTriple, LocalBitConverter},
             MatchKey, RecordId,
         },
         rand::{thread_rng, Rng},
@@ -314,12 +347,18 @@ mod tests {
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let v = ctx.validator();
-                let bits = convert_some_bits(v.context(), once(ready(mk_share)), 0..1)
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .unwrap();
+                #[allow(clippy::range_plus_one)]
+                let bits = convert_bits(
+                    v.context().set_total_records(1),
+                    once(ready(mk_share)),
+                    BITNUM..(BITNUM + 1),
+                )
+                .try_collect::<Vec<_>>()
+                .await
+                .unwrap();
                 assert_eq!(bits.len(), 1);
-                bits[0][0]
+                assert_eq!(bits[0].len(), 1);
+                bits[0][0].clone()
             })
             .await;
         assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
@@ -335,12 +374,18 @@ mod tests {
         let result: [Replicated<Fp31>; 3] = world
             .malicious(match_key, |ctx, mk_share| async move {
                 let v = ctx.validator();
-                let m_bit = convert_some_bits(v.context(), once(ready(mk_share)), 0..1)
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .unwrap();
-                assert_eq!(m_bit.len(), 1);
-                v.validate(m_bit[0][0]).await.unwrap()
+                #[allow(clippy::range_plus_one)]
+                let m_bits = convert_bits(
+                    v.context().set_total_records(1),
+                    once(ready(mk_share)),
+                    BITNUM..(BITNUM + 1),
+                )
+                .try_collect::<Vec<_>>()
+                .await
+                .unwrap();
+                assert_eq!(m_bits.len(), 1);
+                assert_eq!(m_bits[0].len(), 1);
+                v.validate(m_bits[0][0].clone()).await.unwrap()
             })
             .await;
         assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
@@ -382,7 +427,6 @@ mod tests {
             t(Role::H3, 2, Direction::Left),
             t(Role::H3, 0, Direction::Right),
         ];
-        const BITNUM: u32 = 4;
 
         let mut rng = thread_rng();
         let world = TestWorld::default();
@@ -397,7 +441,7 @@ mod tests {
                     )
                     .collect::<Vec<_>>()
                     .await;
-                    let tweaked = tweak.flip_bit(ctx.role(), triples.remove(0).remove(0));
+                    let tweaked = tweak.flip_bit(ctx.role(), triples[0][0].clone());
 
                     let v = ctx.validator();
                     let m_triples = v.context().upgrade([tweaked]).await.unwrap();

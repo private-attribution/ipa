@@ -2,7 +2,7 @@ use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::{
-    ff::{GaloisField, PrimeField, Serializable},
+    ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{ipa::ipa, BreakdownKey, MatchKey},

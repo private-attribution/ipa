@@ -115,11 +115,10 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            ff::{Fp31, Fp32BitPrime, GaloisField},
+            ff::{Fp31, Fp32BitPrime},
             protocol::{
                 attribution::input::AccumulateCreditInputRow,
                 context::{Context, UpgradableContext, Validator},
-                modulus_conversion::convert_some_bits,
                 sort::{
                     apply_sort::shuffle::shuffle_shares,
                     shuffle::get_two_of_three_random_permutations,
@@ -129,14 +128,13 @@ mod tests {
             rand::{thread_rng, Rng},
             secret_sharing::{
                 replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-                BitDecomposed, SharedValue,
+                BitDecomposed,
             },
             test_fixture::{
                 bits_to_value, get_bits, input::GenericReportTestInput, Reconstruct, Runner,
                 TestWorld,
             },
         };
-        use futures::stream::{iter as stream_iter, TryStreamExt};
         use std::collections::HashSet;
 
         #[tokio::test]

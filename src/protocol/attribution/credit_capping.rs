@@ -194,16 +194,10 @@ where
         )
         .await?;
 
-    let output = input.iter().enumerate().map(move |(i, x)| {
-        let credit = if i < capped_credits.len() {
-            &capped_credits[i]
-        } else {
-            &uncapped_credits[i]
-        };
-        credit.clone()
-    });
-
-    Ok(output)
+    let capped_count = capped_credits.len();
+    Ok(capped_credits
+        .into_iter()
+        .chain(uncapped_credits.into_iter().skip(capped_count)))
 }
 
 async fn mask_source_credits<F, C, T>(
@@ -482,13 +476,11 @@ mod tests {
         protocol::{
             attribution::{credit_capping::credit_capping, input::CreditCappingInputRow},
             context::{UpgradableContext, Validator},
-            modulus_conversion::convert_some_bits,
             BreakdownKey, MatchKey,
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
 
     async fn run_credit_capping_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
@@ -536,7 +528,6 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
         let result: Vec<Fp32BitPrime> = result.reconstruct();
@@ -580,7 +571,6 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
         assert_eq!(result.reconstruct(), EXPECTED);
@@ -607,7 +597,6 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
         assert_eq!(result.reconstruct(), EXPECTED);

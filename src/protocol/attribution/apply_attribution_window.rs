@@ -211,14 +211,12 @@ mod tests {
                 compute_stop_bits,
                 input::{ApplyAttributionWindowInputRow, ApplyAttributionWindowOutputRow},
             },
-            context::{Context, UpgradableContext, Validator},
-            modulus_conversion::convert_some_bits,
+            context::{UpgradableContext, Validator},
             BreakdownKey, MatchKey,
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{iter as stream_iter, TryStreamExt};
     use std::{iter::zip, num::NonZeroU32};
 
     #[tokio::test]
