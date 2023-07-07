@@ -8,21 +8,25 @@ use ipa::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurity
 use std::{array, net::TcpListener, path::Path, process::Command};
 
 #[test]
+#[cfg(all(test, web_test))]
 fn http_network() {
     test_network(false);
 }
 
 #[test]
+#[cfg(all(test, web_test))]
 fn https_network() {
     test_network(true);
 }
 
 #[test]
+#[cfg(all(test, web_test))]
 fn http_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, false);
 }
 
 #[test]
+#[cfg(all(test, web_test))]
 fn https_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, true);
 }
@@ -32,6 +36,7 @@ fn https_semi_honest_ipa() {
 ///
 /// [`network`]: crate::test_network
 #[test]
+#[cfg(all(test, web_test))]
 fn keygen_confgen() {
     let dir = TempDir::new(false);
     let path = dir.path();
