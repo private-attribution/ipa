@@ -15,7 +15,6 @@ use std::{
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
 };
-
 use tempdir::TempDir;
 
 #[cfg(all(test, feature = "cli"))]
