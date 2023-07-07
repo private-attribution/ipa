@@ -34,9 +34,9 @@ use crate::{
 };
 use futures::{
     future::try_join,
-    stream::{iter as stream_iter, once as stream_once, StreamExt, TryStreamExt},
+    stream::{iter as stream_iter, TryStreamExt},
 };
-use std::iter::zip;
+use std::iter::{once as iter_once, zip};
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -91,11 +91,8 @@ where
     let convert_ctx = m_ctx
         .narrow(&AttributionStep::ConvertHelperBits)
         .set_total_records(validated_helper_bits_gf2.len());
-    let helper_bits = stream_once(async { Ok(S::ZERO) })
-        .chain(
-            convert_bits(convert_ctx, stream_iter(validated_helper_bits_gf2), 0..1)
-                .map_ok(|b| b.into_iter().next().unwrap()),
-        )
+    let helper_bits = convert_bits(convert_ctx, stream_iter(validated_helper_bits_gf2), 0..1)
+        .map_ok(|b| b.into_iter().next().unwrap())
         .try_collect::<Vec<_>>()
         .await?;
 
@@ -107,17 +104,20 @@ where
         .await?
         .collect::<Vec<_>>();
 
-    debug_assert_eq!(arithmetically_shared_values.len(), helper_bits.len());
-    let attribution_input_rows = zip(arithmetically_shared_values, helper_bits)
-        .map(|(arithmetic, hb)| {
-            ApplyAttributionWindowInputRow::new(
-                arithmetic.timestamp,
-                arithmetic.is_trigger_bit,
-                hb,
-                arithmetic.trigger_value,
-            )
-        })
-        .collect::<Vec<_>>();
+    debug_assert_eq!(arithmetically_shared_values.len(), helper_bits.len() + 1);
+    let attribution_input_rows = zip(
+        arithmetically_shared_values,
+        iter_once(S::ZERO).chain(helper_bits),
+    )
+    .map(|(arithmetic, hb)| {
+        ApplyAttributionWindowInputRow::new(
+            arithmetic.timestamp,
+            arithmetic.is_trigger_bit,
+            hb,
+            arithmetic.trigger_value,
+        )
+    })
+    .collect::<Vec<_>>();
 
     let windowed_reports = apply_attribution_window(
         m_ctx.narrow(&AttributionStep::ApplyAttributionWindow),
@@ -382,18 +382,19 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context,
 {
+    assert_eq!(is_trigger_bits.len(), helper_bits.len() + 1);
     let stop_bits_ctx = ctx
         .narrow(&Step::ComputeStopBits)
         .set_total_records(is_trigger_bits.len() - 1);
 
-    let futures = zip(is_trigger_bits, helper_bits).skip(1).enumerate().map(
+    let futures = zip(&is_trigger_bits[1..], helper_bits).enumerate().map(
         |(i, (is_trigger_bit, helper_bit))| {
             let c = stop_bits_ctx.clone();
             let record_id = RecordId::from(i);
             async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
         },
     );
-    Ok(ctx.try_join(futures).await?.into_iter())
+    Ok(iter_once(S::ZERO).chain(ctx.try_join(futures).await?))
 }
 
 async fn compute_helper_bits_gf2<C, S>(
