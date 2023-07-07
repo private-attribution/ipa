@@ -1,7 +1,11 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
 use crate::{
+    cli::IpaQueryResult,
     ff::{Field, PrimeField, Serializable},
-    helpers::{query::QueryInput, BodyStream},
+    helpers::{
+        query::{IpaQueryConfig, QueryInput, QuerySize},
+        BodyStream,
+    },
     hpke::PublicKeyRegistry,
     ipa_test_input,
     net::MpcHelperClient,
@@ -9,6 +13,7 @@ use crate::{
         attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey, MatchKey,
         QueryId,
     },
+    query::QueryStatus,
     report::{KeyIdentifier, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
@@ -17,7 +22,12 @@ use futures_util::future::try_join_all;
 use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::SeedableRng;
-use std::{iter::zip, time::Instant};
+use std::{
+    cmp::min,
+    iter::zip,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
@@ -27,8 +37,9 @@ pub async fn playbook_ipa<F, MK, BK, KR>(
     records: &[TestRawDataRecord],
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
+    query_config: IpaQueryConfig,
     encryption: Option<(KeyIdentifier, [&KR; 3])>,
-) -> Vec<u32>
+) -> IpaQueryResult
 where
     F: PrimeField + IntoShares<AdditiveShare<F>>,
     Standard: Distribution<F>,
@@ -40,23 +51,27 @@ where
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
     let query_size = records.len();
 
-    if let Some((key_id, key_registries)) = encryption {
-        const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
-        for buffer in &mut buffers {
-            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
-        }
+    if !query_config.plaintext_match_keys {
+        if let Some((key_id, key_registries)) = encryption {
+            const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
+            for buffer in &mut buffers {
+                buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
+            }
 
-        let mut rng = StdRng::from_entropy();
-        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
-        zip(&mut buffers, shares)
-            .zip(key_registries)
-            .for_each(|((buf, shares), key_registry)| {
-                for share in shares {
-                    share
-                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                        .unwrap();
-                }
-            });
+            let mut rng = StdRng::from_entropy();
+            let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
+            zip(&mut buffers, shares).zip(key_registries).for_each(
+                |((buf, shares), key_registry)| {
+                    for share in shares {
+                        share
+                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                            .unwrap();
+                    }
+                },
+            );
+        } else {
+            panic!("match key encryption was requested, but one or more helpers is missing a public key")
+        }
     } else {
         let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
@@ -100,6 +115,23 @@ where
     .await
     .unwrap();
 
+    let mut delay = Duration::from_millis(125);
+    loop {
+        if try_join_all(clients.iter().map(|client| client.query_status(query_id)))
+            .await
+            .unwrap()
+            .into_iter()
+            .all(|status| status == QueryStatus::Completed)
+        {
+            break;
+        }
+
+        sleep(delay).await;
+        delay = min(Duration::from_secs(5), delay * 2);
+        // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
+        // the status API so we can check whether the query is making progress.
+    }
+
     // wait until helpers have processed the query and get the results from them
     let results: [_; 3] = try_join_all(clients.iter().map(|client| client.query_results(query_id)))
         .await
@@ -113,10 +145,9 @@ where
                 .collect::<Vec<_>>()
         })
         .reconstruct();
-    tracing::info!(
-        "Running IPA for {query_size:?} records took {t:?}",
-        t = mpc_time.elapsed()
-    );
+
+    let lat = mpc_time.elapsed();
+    tracing::info!("Running IPA for {query_size:?} records took {t:?}", t = lat);
     let mut breakdowns = Vec::new();
     for row in results {
         let breakdown_key = usize::try_from(row.breakdown_key.as_u128()).unwrap();
@@ -129,5 +160,10 @@ where
         }
     }
 
-    breakdowns
+    IpaQueryResult {
+        input_size: QuerySize::try_from(query_size).unwrap(),
+        config: query_config,
+        latency: lat,
+        breakdowns,
+    }
 }

@@ -19,15 +19,17 @@ use ipa::{
 };
 
 use ipa::{cli::CsvSerializer, helpers::query::QuerySize};
-use rand::rngs::StdRng;
+use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
 use rand_core::SeedableRng;
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::Debug,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io,
     io::{stdout, Write},
-    path::PathBuf,
+    ops::Deref,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Parser)]
@@ -51,6 +53,10 @@ struct Args {
 
     #[clap(flatten)]
     input: CommandInput,
+
+    /// The destination file for generated records
+    #[arg(long)]
+    output_file: Option<PathBuf>,
 
     #[command(subcommand)]
     action: ReportCollectorCommand,
@@ -91,10 +97,6 @@ enum ReportCollectorCommand {
         #[clap(long, short = 's')]
         seed: Option<u64>,
 
-        /// The destination file for generated records
-        #[arg(long)]
-        output_file: Option<PathBuf>,
-
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
@@ -123,33 +125,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (clients, network) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
         ReportCollectorCommand::SemiHonestIpa(config) => {
-            // semi_honest_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::SemiHonest,
-                &config,
+                config,
                 &clients,
             )
-            .await
+            .await?
         }
         ReportCollectorCommand::MaliciousIpa(config) => {
-            // malicious_ipa(&args, &config, &make_clients().await).await
             ipa(
                 &args,
                 &network,
                 IpaSecurityModel::Malicious,
-                &config,
+                config,
                 &clients,
             )
-            .await
+            .await?
         }
         ReportCollectorCommand::GenIpaInputs {
             count,
             seed,
-            output_file,
             gen_args,
-        } => gen_inputs(count, seed, output_file, gen_args).unwrap(),
+        } => gen_inputs(count, seed, args.output_file, gen_args).unwrap(),
     };
 
     Ok(())
@@ -220,9 +219,9 @@ async fn ipa(
     args: &Args,
     network: &NetworkConfig,
     security_model: IpaSecurityModel,
-    ipa_query_config: &IpaQueryConfig,
+    ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
-) {
+) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
     match security_model {
@@ -258,29 +257,54 @@ async fn ipa(
         r
     };
 
-    // `key_registries` holds the owned registries. `match_key_encryption` has the key ID and
-    // registry references that we pass to playbook_ipa.
     let mut key_registries = KeyRegistries::default();
-    let match_key_encryption = if ipa_query_config.plaintext_match_keys {
-        None
-    } else {
-        match key_registries.init_from(network) {
-            mk_enc @ Some(_) => mk_enc,
-            None => panic!(
-                "match key encryption was requested, but one or more helpers is missing a public key"
-            ),
-        }
-    };
-
     let actual = playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
         &input_rows,
         &helper_clients,
         query_id,
-        match_key_encryption,
+        ipa_query_config,
+        key_registries.init_from(network),
     )
     .await;
 
     tracing::info!("{m:?}", m = ipa_query_config);
 
-    validate(expected, actual)
+    validate(&expected, &actual.breakdowns);
+
+    if let Some(ref path) = args.output_file {
+        // it will be sad to lose the results if file already exists.
+        let path = if Path::is_file(&path) {
+            let mut new_file_name = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(5)
+                .map(char::from)
+                .collect::<String>();
+            let file_name = path.file_stem().ok_or("not a file")?;
+
+            new_file_name.insert(0, '-');
+            new_file_name.insert_str(0, &file_name.to_string_lossy());
+            tracing::warn!(
+                "{} file exists, renaming to {:?}",
+                path.display(),
+                new_file_name
+            );
+
+            // it will not be 100% accurate until file_prefix API is stabilized
+            Cow::Owned(
+                path.with_file_name(&new_file_name)
+                    .with_extension(path.extension().unwrap_or("".as_ref())),
+            )
+        } else {
+            Cow::Borrowed(path)
+        };
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(path.deref())
+            .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
+
+        write!(file, "{}", serde_json::to_string_pretty(&actual)?)?;
+    }
+
+    Ok(())
 }

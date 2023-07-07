@@ -5,14 +5,12 @@ use crate::{
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
     protocol::{step::Step, QueryId},
-    query::ProtocolResult,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
 };
-use tokio::sync::oneshot;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize))]
@@ -194,55 +192,6 @@ pub struct QueryInput {
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "query_inputs[{:?}]", self.query_id)
-    }
-}
-
-pub enum QueryCommand {
-    Create(QueryConfig, oneshot::Sender<QueryId>),
-    Prepare(PrepareQuery, oneshot::Sender<()>),
-    Input(QueryInput, oneshot::Sender<()>),
-    Results(QueryId, oneshot::Sender<Box<dyn ProtocolResult>>),
-}
-
-impl Debug for QueryCommand {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "QueryCommand: {:?}", self.query_id())?;
-        match self {
-            QueryCommand::Create(config, _) => {
-                write!(f, "[{config:?}]")
-            }
-            QueryCommand::Prepare(prepare, _) => {
-                write!(f, "[{prepare:?}]")
-            }
-            QueryCommand::Input(input, _) => {
-                write!(f, "[{input:?}]")
-            }
-            QueryCommand::Results(query_id, _) => {
-                write!(f, "{query_id:?} [Results]")
-            }
-        }
-    }
-}
-
-impl QueryCommand {
-    #[must_use]
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Create(_, _) => "Query Create",
-            Self::Prepare(_, _) => "Query Prepare",
-            Self::Input(_, _) => "Query Input",
-            Self::Results(_, _) => "Query Results",
-        }
-    }
-
-    #[must_use]
-    pub fn query_id(&self) -> Option<QueryId> {
-        match self {
-            Self::Create(_, _) => None,
-            Self::Prepare(data, _) => Some(data.query_id),
-            Self::Input(data, _) => Some(data.query_id),
-            Self::Results(query_id, _) => Some(*query_id),
-        }
     }
 }
 

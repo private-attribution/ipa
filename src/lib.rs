@@ -87,3 +87,6 @@ compile_error!("feature \"in-memory-infra\" and feature \"real-world-infra\" can
 compile_error!(
     "feature \"compact-gate\" and feature \"descriptive-gate\" cannot be enabled at the same time"
 );
+
+#[cfg(all(not(feature = "compact-gate"), not(feature = "descriptive-gate")))]
+compile_error!("feature \"compact-gate\" or \"descriptive-gate\" must be enabled");
