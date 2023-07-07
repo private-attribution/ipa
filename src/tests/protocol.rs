@@ -18,10 +18,12 @@ const MAX_TRIGGER_VALUE: u32 = 5;
 const NUM_MULTI_BITS: u32 = 3;
 const MAX_MATCH_KEY: u128 = 3;
 
-/// The type of both the generated inputs and the reconstructed output of `ipa()`.
-type InputOutput = Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>;
+/// The type of the generated inputs.
+type Input = Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>;
+/// ... and the reconstructed output of `ipa()`.
+type Output = Vec<Fp32BitPrime>;
 
-fn inputs() -> InputOutput {
+fn inputs() -> Input {
     let mut rng = thread_rng();
     (0..BATCHSIZE)
         .map(|_| {
@@ -54,7 +56,7 @@ fn semi_honest() {
         move || {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
-                let result: InputOutput = world
+                let result: Output = world
                     .semi_honest(inputs().into_iter(), |ctx, input_rows| async move {
                         ipa(ctx, &input_rows, config()).await.unwrap()
                     })
@@ -73,7 +75,7 @@ fn malicious() {
         move || {
             shuttle::future::block_on(async {
                 let world = TestWorld::default();
-                let result: InputOutput = world
+                let result: Output = world
                     .malicious(inputs().into_iter(), |ctx, input_rows| async move {
                         ipa(ctx, &input_rows, config()).await.unwrap()
                     })
