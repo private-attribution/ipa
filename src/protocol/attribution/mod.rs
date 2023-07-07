@@ -382,7 +382,6 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context,
 {
-    assert_eq!(is_trigger_bits.len(), helper_bits.len() + 1);
     let stop_bits_ctx = ctx
         .narrow(&Step::ComputeStopBits)
         .set_total_records(is_trigger_bits.len() - 1);
