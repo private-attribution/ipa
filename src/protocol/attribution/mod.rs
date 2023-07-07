@@ -394,7 +394,7 @@ where
             async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
         },
     );
-    Ok(iter_once(S::ZERO).chain(ctx.try_join(futures).await?))
+    Ok(ctx.try_join(futures).await?.into_iter())
 }
 
 async fn compute_helper_bits_gf2<C, S>(
