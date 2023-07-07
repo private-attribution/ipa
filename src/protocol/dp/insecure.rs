@@ -64,6 +64,7 @@ impl Dp {
 pub struct DiscreteDp {
     rounded_normal_dist: RoundedBoxMuller,
 }
+
 impl DiscreteDp {
     /// ## Errors
     /// If epsilon or delta is negative or delta exceeds the maximum value allowed.
@@ -75,15 +76,23 @@ impl DiscreteDp {
         })
     }
 
-    fn apply<I, R>(&self, mut input: I, rng: &mut R)
-    where
-        R: RngCore + CryptoRng,
-        I: AsMut<[f64]>,
+    pub fn apply<I, R>(&self, mut input: I, rng: &mut R)
+        where
+            R: RngCore + CryptoRng,
+            I: AsMut<[i64]>,
     {
         for v in input.as_mut() {
-            let sample = self.rounded_normal_dist.sample(rng);
-            *v += sample;
+            let sample = self.rounded_normal_dist.sample(rng) as i64;
+            *v = v.saturating_add(sample);
         }
+    }
+
+    pub fn mean(&self) -> f64 {
+        self.rounded_normal_dist.mean()
+    }
+
+    pub fn std(&self) -> f64 {
+        self.rounded_normal_dist.std()
     }
 }
 
@@ -200,17 +209,17 @@ mod test {
         let delta: f64 = 1e-6;
         let cap = 1_u8;
 
+        #[allow(clippy::cast_precision_loss)]
         for epsilon in 1..11_u8 {
             let mut rng = thread_rng();
-            let mut sample = [0_f64; N];
+            let mut sample = [0; N];
             let dp = DiscreteDp::new(f64::from(epsilon), delta, f64::from(cap)).unwrap();
-            #[allow(clippy::cast_precision_loss)]
             let n = N as f64;
             dp.apply(&mut sample, &mut rng);
-            let sample_mean = sample.iter().sum::<f64>() / n;
+            let sample_mean = sample.iter().sum::<i64>() as f64 / n;
             let sample_variance = sample
                 .iter()
-                .map(|i| (i - sample_mean).powi(2))
+                .map(|&i| (i as f64 - sample_mean).powi(2))
                 .sum::<f64>()
                 / (n - 1.0);
 
@@ -220,7 +229,7 @@ mod test {
                 sample_variance,
                 dp.rounded_normal_dist.std().powi(2)
             );
-            assert!(sample_variance - dp.rounded_normal_dist.std().powi(2) < 1.0);
+            assert!(f64::abs(sample_variance - dp.rounded_normal_dist.std().powi(2)) < 1.0);
         }
     }
 }

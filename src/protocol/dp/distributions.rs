@@ -46,9 +46,12 @@ pub struct RoundedBoxMuller {
 }
 
 impl RoundedBoxMuller {
-    #[cfg(all(test, unit_test))]
     pub fn std(&self) -> f64 {
         self.inner.std
+    }
+
+    pub fn mean(&self) -> f64 {
+        self.inner.mean
     }
 }
 

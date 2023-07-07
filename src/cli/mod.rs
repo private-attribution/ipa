@@ -11,6 +11,7 @@ pub mod playbook;
 #[cfg(feature = "web-app")]
 mod test_setup;
 mod verbosity;
+pub mod noise;
 
 #[cfg(feature = "web-app")]
 pub use clientconf::{setup as client_config_setup, ConfGenArgs};
