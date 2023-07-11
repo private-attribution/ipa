@@ -39,7 +39,7 @@ pub struct NoisyOutput {
 }
 
 /// This exists to be able to use f64 as key inside a map. We don't have to deal with infinities or
-/// NaN values for epsilons so
+/// NaN values for epsilons, so we can treat them as raw bytes for this purpose.
 #[derive(Debug, Copy, Clone, PartialOrd)]
 pub struct EpsilonBits(f64);
 
