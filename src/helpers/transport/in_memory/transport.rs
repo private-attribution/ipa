@@ -57,22 +57,18 @@ pub enum Error {
 pub struct InMemoryTransport {
     identity: HelperIdentity,
     connections: HashMap<HelperIdentity, ConnectionTx>,
-    // It makes more sense to create multiple bools. Otherwise when multiple connections are
-    // concurrently active, they may wait on each other for the mutex lock and slow down.
-    connection_sending_status:  HashMap<HelperIdentity, Mutex<bool>>,
-    receiving_status:  Mutex<bool>,
+    // this mutex bool is to determine whether there are any recent activities.
+    idle_status:  Mutex<bool>,
     record_streams: StreamCollection<InMemoryStream>,
 }
 
 impl InMemoryTransport {
     #[must_use]
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
-        let connection_sending_status = connections.keys().cloned().map(|key| (key,Mutex::new(true))).collect();
         Self {
             identity,
             connections,
-            connection_sending_status,
-            receiving_status: Mutex::new(true),
+            idle_status: Mutex::new(true),
             record_streams: StreamCollection::default(),
         }
     }
@@ -139,8 +135,8 @@ impl InMemoryTransport {
         );
     }
 
-    fn get_channel(&self, dest: HelperIdentity) -> (ConnectionTx, &Mutex<bool>) {
-        (self.connections
+    fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx {
+        self.connections
             .get(&dest)
             .unwrap_or_else(|| {
                 panic!(
@@ -148,13 +144,7 @@ impl InMemoryTransport {
                     self.identity, dest
                 );
             })
-            .clone(),
-            self.connection_sending_status.get(&dest).unwrap_or_else(|| {
-                panic!(
-                    "Should have an idle status tracker for the active connection from {:?} to {:?}",
-                    self.identity, dest
-                );
-            }))
+            .clone()
     }
 
     /// Resets this transport, making it forget its state and be ready for processing another query.
@@ -188,7 +178,7 @@ impl Transport for Weak<InMemoryTransport> {
         Option<Gate>: From<S>,
     {
         let this = self.upgrade().unwrap();
-        let (channel, status) = this.get_channel(dest);
+        let channel = this.get_channel(dest);
         let addr = Addr::from_route(this.identity, route);
         let (ack_tx, ack_rx) = oneshot::channel();
 
@@ -198,8 +188,10 @@ impl Transport for Weak<InMemoryTransport> {
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
             })?;
-        if let Ok(mut status) = status.lock() {
-            *status = false;
+        {
+             if let Ok(mut status) = self.upgrade().unwrap().idle_status.lock() {
+                *status = false;
+            }
         }
         ack_rx
             .await
@@ -215,6 +207,11 @@ impl Transport for Weak<InMemoryTransport> {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
+        {
+             if let Ok(mut status) = self.upgrade().unwrap().idle_status.lock() {
+                *status = false;
+            }
+        }
         ReceiveRecords::new(
             (route.query_id(), from, route.gate()),
             self.upgrade().unwrap().record_streams.clone(),
@@ -224,32 +221,21 @@ impl Transport for Weak<InMemoryTransport> {
     // reset all connection idle status to be true
     fn reset_idel_status(&self){
         let this = self.upgrade().unwrap();
-        if let Ok(mut status) = this.receiving_status.lock() {
+        if let Ok(mut status) = this.idle_status.lock() {
             *status = true;
-         }
-        for (_, status) in this.connection_sending_status.iter() {
-            if let Ok(mut status) = status.lock() {
-              *status = true;
-            }
-      }
+         };
     }
 
     // check if all connections are idle
     fn check_all_idel(&self) -> bool {
         let this = self.upgrade().unwrap();
-        if let Ok(status) = this.receiving_status.lock() {
-            if !*status {
-                return false;
-            }
-        }
-        for (_, status) in this.connection_sending_status.iter() {
-        if let Ok(status) = status.lock() {
-            if !*status {
-                return false;
-            }
-        }
-      }
-      true
+        if let Ok(status) = this.idle_status.lock() {
+           *status
+        } else {
+            panic!("Can't get idle status.");
+        };
+        // actually the program will never reach here.
+        true
     }
 
 }
