@@ -185,6 +185,8 @@ impl Transport for Arc<HttpTransport> {
             self.record_streams.clone(),
         )
     }
+    fn reset_idel_status(&self){}
+    fn check_all_idel(&self) -> bool{false}
 }
 
 #[cfg(all(test, web_test))]

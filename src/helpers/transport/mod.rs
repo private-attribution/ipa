@@ -164,4 +164,8 @@ pub trait Transport: Clone + Send + Sync + 'static {
     fn clone_ref(&self) -> Self {
         <Self as Clone>::clone(self)
     }
+
+    fn check_all_idel(&self) -> bool;
+    fn reset_idel_status(&self)->();
+
 }

@@ -204,6 +204,9 @@ impl Transport for Weak<InMemoryTransport> {
             self.upgrade().unwrap().record_streams.clone(),
         )
     }
+
+    fn reset_idel_status(&self){}
+    fn check_all_idel(&self) -> bool{false}
 }
 
 /// Convenience struct to support heterogeneous in-memory streams
