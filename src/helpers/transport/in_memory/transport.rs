@@ -29,6 +29,7 @@ use std::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+use std::sync::Mutex;
 
 type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
 type ConnectionTx = Sender<Packet>;
@@ -56,15 +57,22 @@ pub enum Error {
 pub struct InMemoryTransport {
     identity: HelperIdentity,
     connections: HashMap<HelperIdentity, ConnectionTx>,
+    // It makes more sense to create multiple bools. Otherwise when multiple connections are
+    // concurrently active, they may wait on each other for the mutex lock and slow down.
+    connection_sending_status:  HashMap<HelperIdentity, Mutex<bool>>,
+    receiving_status:  Mutex<bool>,
     record_streams: StreamCollection<InMemoryStream>,
 }
 
 impl InMemoryTransport {
     #[must_use]
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
+        let connection_sending_status = connections.keys().cloned().map(|key| (key,Mutex::new(true))).collect();
         Self {
             identity,
             connections,
+            connection_sending_status,
+            receiving_status: Mutex::new(true),
             record_streams: StreamCollection::default(),
         }
     }
@@ -131,8 +139,8 @@ impl InMemoryTransport {
         );
     }
 
-    fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx {
-        self.connections
+    fn get_channel(&self, dest: HelperIdentity) -> (ConnectionTx, &Mutex<bool>) {
+        (self.connections
             .get(&dest)
             .unwrap_or_else(|| {
                 panic!(
@@ -140,7 +148,13 @@ impl InMemoryTransport {
                     self.identity, dest
                 );
             })
-            .clone()
+            .clone(),
+            self.connection_sending_status.get(&dest).unwrap_or_else(|| {
+                panic!(
+                    "Should have an idle status tracker for the active connection from {:?} to {:?}",
+                    self.identity, dest
+                );
+            }))
     }
 
     /// Resets this transport, making it forget its state and be ready for processing another query.
@@ -174,7 +188,7 @@ impl Transport for Weak<InMemoryTransport> {
         Option<Gate>: From<S>,
     {
         let this = self.upgrade().unwrap();
-        let channel = this.get_channel(dest);
+        let (channel, status) = this.get_channel(dest);
         let addr = Addr::from_route(this.identity, route);
         let (ack_tx, ack_rx) = oneshot::channel();
 
@@ -184,7 +198,9 @@ impl Transport for Weak<InMemoryTransport> {
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
             })?;
-
+        if let Ok(mut status) = status.lock() {
+            *status = false;
+        }
         ack_rx
             .await
             .map_err(|_recv_error| Error::Rejected {
@@ -205,8 +221,37 @@ impl Transport for Weak<InMemoryTransport> {
         )
     }
 
-    fn reset_idel_status(&self){}
-    fn check_all_idel(&self) -> bool{false}
+    // reset all connection idle status to be true
+    fn reset_idel_status(&self){
+        let this = self.upgrade().unwrap();
+        if let Ok(mut status) = this.receiving_status.lock() {
+            *status = true;
+         }
+        for (_, status) in this.connection_sending_status.iter() {
+            if let Ok(mut status) = status.lock() {
+              *status = true;
+            }
+      }
+    }
+
+    // check if all connections are idle
+    fn check_all_idel(&self) -> bool {
+        let this = self.upgrade().unwrap();
+        if let Ok(status) = this.receiving_status.lock() {
+            if !*status {
+                return false;
+            }
+        }
+        for (_, status) in this.connection_sending_status.iter() {
+        if let Ok(status) = status.lock() {
+            if !*status {
+                return false;
+            }
+        }
+      }
+      true
+    }
+
 }
 
 /// Convenience struct to support heterogeneous in-memory streams
