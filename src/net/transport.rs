@@ -19,7 +19,7 @@ use std::{
     borrow::Borrow,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, sync::Mutex,
 };
 
 type LogHttpErrors = LogErrors<BodyStream, Bytes, BoxError>;
@@ -32,6 +32,7 @@ pub struct HttpTransport {
     // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
     // only allow one query at a time.
     record_streams: StreamCollection<LogHttpErrors>,
+    idle_status: Mutex<bool>
 }
 
 impl HttpTransport {
@@ -58,6 +59,7 @@ impl HttpTransport {
             callbacks,
             clients,
             record_streams: StreamCollection::default(),
+            idle_status: Mutex::new(true),
         })
     }
 
@@ -147,6 +149,11 @@ impl Transport for Arc<HttpTransport> {
         let route_id = route.resource_identifier();
         match route_id {
             RouteId::Records => {
+                {
+                    if let Ok(mut status) = self.idle_status.lock() {
+                    *status = false;
+                    }
+                }
                 // TODO(600): These fallible extractions aren't really necessary.
                 let query_id = <Option<QueryId>>::from(route.query_id())
                     .expect("query_id required when sending records");
@@ -166,6 +173,11 @@ impl Transport for Arc<HttpTransport> {
                 Ok(())
             }
             RouteId::PrepareQuery => {
+                {
+                    if let Ok(mut status) = self.idle_status.lock() {
+                    *status = false;
+                    }
+                }
                 let req = serde_json::from_str(route.extra().borrow()).unwrap();
                 self.clients[dest].prepare_query(req).await
             }
@@ -180,13 +192,33 @@ impl Transport for Arc<HttpTransport> {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
+        {
+             if let Ok(mut status) = self.idle_status.lock() {
+                *status = false;
+            }
+        }
         ReceiveRecords::new(
             (route.query_id(), from, route.gate()),
             self.record_streams.clone(),
         )
     }
-    fn reset_idel_status(&self){}
-    fn check_all_idel(&self) -> bool{false}
+    // reset all connection idle status to be true
+    fn reset_idel_status(&self){
+        if let Ok(mut status) = self.idle_status.lock() {
+            *status = true;
+         };
+    }
+
+    // check if all connections are idle
+    fn check_all_idel(&self) -> bool {
+        if let Ok(status) = self.idle_status.lock() {
+           *status
+        } else {
+            panic!("Can't get idle status.");
+        };
+        // actually the program will never reach here.
+        true
+    }
 }
 
 #[cfg(all(test, web_test))]
