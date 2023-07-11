@@ -18,7 +18,14 @@ use ipa::{
     },
 };
 
-use ipa::{cli::CsvSerializer, helpers::query::QuerySize};
+use comfy_table::{Cell, Table};
+use ipa::{
+    cli::{
+        noise::{apply, ApplyDpArgs},
+        CsvSerializer, IpaQueryResult,
+    },
+    helpers::query::QuerySize,
+};
 use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
 use rand_core::SeedableRng;
 use std::{
@@ -54,8 +61,8 @@ struct Args {
     #[clap(flatten)]
     input: CommandInput,
 
-    /// The destination file for generated records
-    #[arg(long)]
+    /// The destination file for output.
+    #[arg(long, value_name = "FILE")]
     output_file: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -100,6 +107,8 @@ enum ReportCollectorCommand {
         #[clap(flatten)]
         gen_args: EventGeneratorConfig,
     },
+    /// Apply differential privacy noise to IPA inputs
+    ApplyDpNoise(ApplyDpArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -148,7 +157,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             count,
             seed,
             gen_args,
-        } => gen_inputs(count, seed, args.output_file, gen_args).unwrap(),
+        } => gen_inputs(count, seed, args.output_file, gen_args)?,
+        ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
     };
 
     Ok(())
@@ -304,6 +314,53 @@ async fn ipa(
             .map_err(|e| format!("Failed to create output file {}: {e}", path.display()))?;
 
         write!(file, "{}", serde_json::to_string_pretty(&actual)?)?;
+    }
+
+    Ok(())
+}
+
+fn apply_dp_noise(args: &Args, dp_args: &ApplyDpArgs) -> Result<(), Box<dyn Error>> {
+    let IpaQueryResult { breakdowns, .. } =
+        serde_json::from_slice(&InputSource::from(&args.input).to_vec()?)?;
+
+    let output = apply(&breakdowns, &dp_args);
+    let mut table = Table::new();
+    let header = std::iter::once("Epsilon".to_string())
+        .chain(std::iter::once("Variance".to_string()))
+        .chain(std::iter::once("Mean".to_string()))
+        .chain((0..breakdowns.len()).map(|i| format!("{}", i + 1)))
+        .collect::<Vec<_>>();
+    table.set_header(header);
+
+    // original values
+    table.add_row(
+        std::iter::repeat("-".to_string())
+            .take(3)
+            .chain(breakdowns.iter().map(ToString::to_string)),
+    );
+
+    // reverse because smaller epsilon means more noise and I print the original values
+    // in the first row.
+    for epsilon in output.keys().rev() {
+        let noised_values = output.get(epsilon).unwrap();
+        let mut row = vec![
+            Cell::new(format!("{:.3}", epsilon)),
+            Cell::new(format!("{:.3}", noised_values.std)),
+            Cell::new(format!("{:.3}", noised_values.mean)),
+        ];
+
+        for agg in noised_values.breakdowns.iter() {
+            row.push(Cell::new(format!("{}", agg)));
+        }
+
+        table.add_row(row);
+    }
+
+    println!("{}", table);
+
+    if let Some(file) = &args.output_file {
+        let mut file = File::create(file)?;
+        serde_json::to_writer_pretty(&mut file, &output)?;
     }
 
     Ok(())
