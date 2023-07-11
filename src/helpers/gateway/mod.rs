@@ -3,6 +3,10 @@ mod send;
 mod transport;
 
 pub use send::SendingEnd;
+use std::sync::mpsc::{TryRecvError, Sender};
+use std::sync::{Mutex, mpsc};
+use std::{thread, sync::Arc};
+use std::time::Duration;
 
 use crate::{
     helpers::{
@@ -39,9 +43,10 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 /// [`Gateway`]: crate::helpers::Gateway
 pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
-    transport: RoleResolvingTransport<T>,
+    transport: Arc<Mutex<RoleResolvingTransport<T>>>,
     senders: GatewaySenders,
     receivers: GatewayReceivers<T>,
+    tx: Mutex<Sender<()>>
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -59,22 +64,47 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        Self {
-            config,
-            transport: RoleResolvingTransport {
+        let transport: Arc<Mutex<RoleResolvingTransport<T>>>=Arc::new(Mutex::new(RoleResolvingTransport {
                 query_id,
                 roles,
                 inner: transport,
                 config,
-            },
+            }));
+        let transport_clone = Arc::clone(&transport);
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move|| {
+            // Perform some periodic work in the background
+            loop {
+                thread::sleep(Duration::from_secs(1));
+                let transport = transport_clone.lock().unwrap();
+                if transport.inner.check_all_idel() {
+                    //TODO: print something
+                }
+                else {
+                    transport.inner.reset_idel_status();
+                }
+                match rx.try_recv()
+                {
+                    Ok(_) | Err(TryRecvError::Disconnected) => {
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                }
+            }
+        });
+        Self {
+            config,
+            transport: transport,
             senders: GatewaySenders::default(),
             receivers: GatewayReceivers::default(),
+            tx: Mutex::new(tx)
         }
     }
 
     #[must_use]
     pub fn role(&self) -> Role {
-        self.transport.role()
+        self.transport.lock().unwrap().role()
     }
 
     #[must_use]
@@ -94,7 +124,7 @@ impl<T: Transport> Gateway<T> {
         if let Some(stream) = maybe_stream {
             tokio::spawn({
                 let channel_id = channel_id.clone();
-                let transport = self.transport.clone();
+                let transport = self.transport.lock().unwrap().clone();
                 async move {
                     // TODO(651): In the HTTP case we probably need more robust error handling here.
                     transport
@@ -113,8 +143,14 @@ impl<T: Transport> Gateway<T> {
         ReceivingEndBase::new(
             channel_id.clone(),
             self.receivers
-                .get_or_create(channel_id, || self.transport.receive(channel_id)),
+                .get_or_create(channel_id, || self.transport.lock().unwrap().receive(channel_id)),
         )
+    }
+}
+
+impl<T: Transport> Drop for Gateway<T> {
+    fn drop(&mut self) {
+       let _ = self.tx.lock().unwrap().send(());
     }
 }
 
