@@ -154,7 +154,7 @@ impl MpcHelperClient {
                 let builder = builder.with_root_certificates(cert_store);
                 match identity {
                     ClientIdentity::Certificate((cert_chain, pk)) => builder
-                        .with_single_cert(cert_chain, pk)
+                        .with_client_auth_cert(cert_chain, pk)
                         .expect("Can setup client authentication with certificate"),
                     ClientIdentity::Helper(_) => {
                         error!("header-passed identity ignored for HTTPS client");
