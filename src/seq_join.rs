@@ -219,7 +219,7 @@ where
 {
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
     use crate::seq_join::{seq_join, seq_try_join_all};
     use futures::{

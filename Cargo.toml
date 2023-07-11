@@ -174,8 +174,8 @@ required-features = ["enable-benches"]
 
 [[test]]
 name = "helper_networks"
-required-features = ["cli", "web-app", "real-world-infra", "test-fixture"]
+required-features = ["cli", "web-app", "real-world-infra", "test-fixture", "descriptive-gate"]
 
 [[test]]
 name = "compact_gate"
-required-features = ["enable-benches", "compact-gate"]
+required-features = ["cli", "web-app", "real-world-infra", "test-fixture", "compact-gate"]

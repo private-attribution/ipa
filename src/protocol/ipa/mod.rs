@@ -482,40 +482,27 @@ where
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, unit_test))]
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
-    use super::{ipa, IPAInputRow};
+    use super::ipa;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField},
         helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
-        secret_sharing::IntoShares,
-        telemetry::{
-            metrics::{
-                BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
-            },
-            stats::Metrics,
-        },
+        rand::{thread_rng, Rng},
+        test_executor::{run, run_with},
         test_fixture::{
             input::GenericReportTestInput,
             ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
-            EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld, TestWorldConfig,
+            logging, EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld,
+            TestWorldConfig,
         },
     };
-    use generic_array::GenericArray;
-    use proptest::{
-        proptest,
-        test_runner::{RngAlgorithm, TestRng},
-    };
-    use rand::{rngs::StdRng, thread_rng, Rng};
-    use rand_core::SeedableRng;
     use std::num::NonZeroU32;
-    use typenum::Unsigned;
 
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    pub async fn semi_honest() {
+    #[test]
+    fn semi_honest() {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -530,9 +517,10 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
+        run(|| async {
+            let world = TestWorld::default();
 
-        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
+            let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -541,44 +529,46 @@ pub mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    async fn malicious() {
+    #[test]
+    fn malicious() {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
+        run(|| async {
+            let world = TestWorld::default();
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -587,35 +577,36 @@ pub mod tests {
                 { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, _, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, _, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    async fn semi_honest_with_attribution_window() {
+    #[test]
+    fn semi_honest_with_attribution_window() {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[
             [0, 0],
@@ -631,9 +622,10 @@ pub mod tests {
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
+        run(|| async {
+            let world = TestWorld::default();
 
-        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
+            let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
@@ -642,50 +634,52 @@ pub mod tests {
                 { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::new(
+                            PER_USER_CAP,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    async fn malicious_with_attribution_window() {
+    #[test]
+    fn malicious_with_attribution_window() {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
+        run_with::<_, _, 10>(|| async {
+            let world = TestWorld::default();
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
@@ -694,48 +688,50 @@ pub mod tests {
                 { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .malicious(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, _, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .malicious(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, _, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::new(
+                            PER_USER_CAP,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    async fn cap_of_one() {
+    #[test]
+    fn cap_of_one() {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
+        run_with::<_, _, 10>(|| async {
+            let world = TestWorld::default();
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
@@ -753,73 +749,72 @@ pub mod tests {
                 { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
                 { timestamp: 0, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
                 { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
-
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
 
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                )
+            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
+                .reconstruct();
 
-        assert_eq!(EXPECTED.len(), result.len());
+            assert_eq!(EXPECTED.len(), result.len());
 
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
-            );
-        }
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    async fn cap_of_one_with_attribution_window() {
+    #[test]
+    fn cap_of_one_with_attribution_window() {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 1], [4, 0], [5, 0], [6, 1]];
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::default();
-
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        run_with::<_, _, 10>(|| async {
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
                 { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
@@ -839,102 +834,122 @@ pub mod tests {
                 { timestamp: 17, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will NOT be attributed to D because it exceeds the attribution window (time_delta=4)
             ];
             (Fp31, MatchKey, BreakdownKey)
-        );
-
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
             );
-        }
 
-        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::new(
-                        PER_USER_CAP,
-                        MAX_BREAKDOWN_KEY,
-                        ATTRIBUTION_WINDOW_SECONDS,
-                        NUM_MULTI_BITS,
-                    ),
-                )
+            let world = TestWorld::default();
+            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::new(
+                            PER_USER_CAP,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
+                .reconstruct();
 
-        assert_eq!(EXPECTED.len(), result.len());
+            assert_eq!(EXPECTED.len(), result.len());
 
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
-            );
-        }
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+
+            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::new(
+                            PER_USER_CAP,
+                            MAX_BREAKDOWN_KEY,
+                            ATTRIBUTION_WINDOW_SECONDS,
+                            NUM_MULTI_BITS,
+                        ),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            assert_eq!(EXPECTED.len(), result.len());
+
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
+        });
     }
 
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    pub async fn random_ipa_check() {
+    #[test]
+    fn random_semihonest_check() {
+        run_with::<_, _, 10>(|| async {
+            random_ipa_check(IpaSecurityModel::SemiHonest).await;
+        });
+    }
+
+    #[test]
+    fn random_malicious_check() {
+        run_with::<_, _, 4>(|| async {
+            random_ipa_check(IpaSecurityModel::Malicious).await;
+        });
+    }
+
+    async fn random_ipa_check(security: IpaSecurityModel) {
         const MAX_BREAKDOWN_KEY: u32 = 32;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: u64 = 8;
+        const NUM_USERS: u32 = 8;
         const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
+        logging::setup();
 
-        let random_seed = thread_rng().gen();
-        println!("Using random seed: {random_seed}");
-        let rng = StdRng::seed_from_u64(random_seed);
+        // shuttle does not like when it is more than 5 - too many steps for its scheduler
+        let max_events = if cfg!(feature = "shuttle") {
+            match security {
+                IpaSecurityModel::SemiHonest => 5,
+                IpaSecurityModel::Malicious => 3,
+            }
+        } else {
+            NUM_USERS * MAX_RECORDS_PER_USER
+        };
         let raw_data = EventGenerator::with_config(
-            rng,
+            rand::thread_rng(),
             EventGeneratorConfig::new(
-                NUM_USERS,
+                u64::from(NUM_USERS),
                 MAX_TRIGGER_VALUE,
                 MAX_BREAKDOWN_KEY,
                 MAX_RECORDS_PER_USER,
             ),
         )
-        .take(usize::try_from(NUM_USERS * u64::from(MAX_RECORDS_PER_USER)).unwrap())
+        .take(usize::try_from(max_events).unwrap())
         .collect::<Vec<_>>();
 
-        let config = TestWorldConfig {
-            gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
-            ..Default::default()
-        };
-        let world = TestWorld::new_with(config);
-
         for per_user_cap in [1, 3] {
+            let config = TestWorldConfig {
+                gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
+                ..Default::default()
+            };
+            let world = TestWorld::new_with(config);
             let expected_results =
                 ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
 
@@ -949,110 +964,138 @@ pub mod tests {
                     num_multi_bits: NUM_MULTI_BITS,
                     plaintext_match_keys: true,
                 },
-                IpaSecurityModel::SemiHonest,
+                security,
             )
             .await;
         }
     }
 
     /// Test for the "wrapping-add" attack (issue #520).
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    pub async fn random_wrapping_add_attack() {
+    #[test]
+    fn random_wrapping_add_attack() {
         const PER_USER_CAP: u32 = 15;
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const RECORD_COUNT: usize = 8;
 
-        let random_seed = thread_rng().gen();
-        println!("Using random seed: {random_seed}");
-        let mut rng = StdRng::seed_from_u64(random_seed);
-        let mut records = Vec::with_capacity(RECORD_COUNT * 2);
+        run(|| async {
+            let mut rng = thread_rng();
+            let mut records = Vec::with_capacity(RECORD_COUNT * 2);
 
-        // Generate 8 pairs of (source event, trigger event) tuple, each having a random trigger_value between [4, 31).
-        // This ensures there's at least one wrap around at user-level, and catch if the contribution ever exceeds the cap.
-        for _ in 0..RECORD_COUNT {
-            let mut record = ipa_test_input!(
+            // Generate 8 pairs of (source event, trigger event) tuple, each having a random trigger_value between [4, 31).
+            // This ensures there's at least one wrap around at user-level, and catch if the contribution ever exceeds the cap.
+            for _ in 0..RECORD_COUNT {
+                let mut record = ipa_test_input!(
                 [
                     { timestamp: 0, match_key: 11111, is_trigger_report: 0, breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY), trigger_value: 0 },
                     { timestamp: 0, match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
                 ];
                 (Fp31, MatchKey, BreakdownKey)
+                );
+
+                records.append(&mut record);
+            }
+            let world = TestWorld::default();
+            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+
+            let trigger_values = result
+                .into_iter()
+                .map(|x| x.trigger_value.as_u128())
+                .collect::<Vec<_>>();
+            assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
+            println!("actual results: {trigger_values:#?}");
+
+            // Check that
+            //   * the contribution never exceeds the cap.
+            //   * the sum of all contributions = cap.
+            assert!(trigger_values
+                .iter()
+                .all(|v| *v <= u128::from(PER_USER_CAP)));
+            assert_eq!(
+                u128::from(PER_USER_CAP),
+                trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
             );
-            records.append(&mut record);
+        });
+    }
+
+    #[cfg(all(test, unit_test))]
+    mod serialization {
+        use crate::{
+            ff::{Field, Fp31, PrimeField, Serializable},
+            ipa_test_input,
+            protocol::{
+                ipa::{tests::Fp32BitPrime, IPAInputRow},
+                BreakdownKey, MatchKey,
+            },
+            secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+            test_fixture::input::GenericReportTestInput,
+        };
+        use generic_array::GenericArray;
+        use proptest::{
+            proptest,
+            test_runner::{RngAlgorithm, TestRng},
+        };
+        use rand::distributions::{Distribution, Standard};
+        use typenum::Unsigned;
+
+        fn serde_internal<F>(
+            timestamp: u128,
+            match_key: u64,
+            trigger_bit: u128,
+            breakdown_key: u128,
+            trigger_value: u128,
+            seed: u128,
+        ) where
+            F: Field + PrimeField + IntoShares<AdditiveShare<F>>,
+            AdditiveShare<F>: Serializable,
+            Standard: Distribution<F>,
+            IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
+        {
+            // xorshift requires 16 byte seed and that's why it is picked here
+            let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
+            let reports: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = ipa_test_input!(
+                [
+                    { timestamp: timestamp, match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
+                ];
+                (F, MatchKey, BreakdownKey)
+            );
+            let [a, b, ..]: [IPAInputRow<F, MatchKey, BreakdownKey>; 3] =
+                reports[0].share_with(&mut rng);
+
+            let mut buf = vec![
+                    0u8;
+                    2 * <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE
+                ];
+            a.serialize(GenericArray::from_mut_slice(
+                &mut buf[..<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
+            ));
+            b.serialize(GenericArray::from_mut_slice(
+                &mut buf[<IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
+            ));
+
+            assert_eq!(
+                vec![a, b],
+                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
+            );
         }
 
-        let world = TestWorld::default();
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        let trigger_values = result
-            .into_iter()
-            .map(|x| x.trigger_value.as_u128())
-            .collect::<Vec<_>>();
-        assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
-        println!("actual results: {trigger_values:#?}");
-
-        // Check that
-        //   * the contribution never exceeds the cap.
-        //   * the sum of all contributions = cap.
-        assert!(trigger_values
-            .iter()
-            .all(|v| *v <= u128::from(PER_USER_CAP)));
-        assert_eq!(
-            u128::from(PER_USER_CAP),
-            trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
-        );
-    }
-
-    fn serde_internal(
-        timestamp: u128,
-        match_key: u64,
-        trigger_bit: u128,
-        breakdown_key: u128,
-        trigger_value: u128,
-        seed: u128,
-    ) {
-        // xorshift requires 16 byte seed and that's why it is picked here
-        let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
-        let reports: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: timestamp, match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
-            ];
-            (Fp31, MatchKey, BreakdownKey)
-        );
-        let [a, b, ..]: [IPAInputRow<Fp31, MatchKey, BreakdownKey>; 3] =
-            reports[0].share_with(&mut rng);
-
-        let mut buf =
-            vec![0u8; 2 * <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
-        a.serialize(GenericArray::from_mut_slice(
-            &mut buf[..<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
-        ));
-        b.serialize(GenericArray::from_mut_slice(
-            &mut buf[<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
-        ));
-
-        assert_eq!(
-            vec![a, b],
-            IPAInputRow::<Fp31, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
-        );
-    }
-
-    proptest! {
-        #[test]
-        fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
-            serde_internal(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        proptest! {
+            #[test]
+            fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
+                serde_internal::<Fp31>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
+                serde_internal::<Fp32BitPrime>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
+            }
         }
     }
 
@@ -1062,9 +1105,18 @@ pub mod tests {
     ///
     /// It is possible to increase the number too if there is a good reason for it. This is a
     /// "catch all" type of test to make sure we don't miss an accidental regression.
+    #[cfg(all(test, unit_test))]
     mod baselines {
         use super::*;
-        use crate::test_fixture::ipa::IpaSecurityModel::{Malicious, SemiHonest};
+        use crate::{
+            telemetry::{
+                metrics::{
+                    BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
+                },
+                stats::Metrics,
+            },
+            test_fixture::ipa::IpaSecurityModel::{Malicious, SemiHonest},
+        };
 
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 600;
