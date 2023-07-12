@@ -26,9 +26,10 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("An error occurred while receiving data from {source:?}")]
+    #[error("An error occurred while receiving data from {source:?}/{step}")]
     ReceiveError {
         source: Role,
+        step: String,
         #[source]
         inner: BoxError,
     },
@@ -61,16 +62,6 @@ impl Error {
     ) -> Error {
         Self::SendError {
             channel,
-            inner: inner.into(),
-        }
-    }
-
-    pub fn receive_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        source: Role,
-        inner: E,
-    ) -> Error {
-        Self::ReceiveError {
-            source,
             inner: inner.into(),
         }
     }

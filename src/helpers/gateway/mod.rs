@@ -111,6 +111,7 @@ impl<T: Transport> Gateway<T> {
     #[must_use]
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
         ReceivingEndBase::new(
+            channel_id.clone(),
             self.receivers
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
