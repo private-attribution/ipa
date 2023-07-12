@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 
 /// Receiving end end of the gateway channel.
 pub struct ReceivingEnd<T: Transport, M: Message> {
+    channel_id: ChannelId,
     unordered_rx: UR<T>,
     _phantom: PhantomData<M>,
 }
@@ -23,8 +24,9 @@ pub(super) type UR<T> = UnorderedReceiver<
 >;
 
 impl<T: Transport, M: Message> ReceivingEnd<T, M> {
-    pub(super) fn new(rx: UR<T>) -> Self {
+    pub(super) fn new(channel_id: ChannelId, rx: UR<T>) -> Self {
         Self {
+            channel_id,
             unordered_rx: rx,
             _phantom: PhantomData,
         }
@@ -40,9 +42,14 @@ impl<T: Transport, M: Message> ReceivingEnd<T, M> {
     /// This will panic if message size does not fit into 8 bytes and it somehow got serialized
     /// and sent to this helper.
     pub async fn receive(&self, record_id: RecordId) -> Result<M, Error> {
-        // TODO(651): proper error handling
-        let v = self.unordered_rx.recv::<M, _>(record_id).await?;
-        Ok(v)
+        self.unordered_rx
+            .recv::<M, _>(record_id)
+            .await
+            .map_err(|e| Error::ReceiveError {
+                source: self.channel_id.role,
+                step: self.channel_id.gate.to_string(),
+                inner: Box::new(e),
+            })
     }
 }
 
