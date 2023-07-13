@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, collections::{HashSet, HashMap}, sync::Mutex,
 };
 use typenum::Unsigned;
 
@@ -36,6 +36,7 @@ pub(super) struct GatewaySender {
     channel_id: ChannelId,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
+    pending_records: Mutex<HashSet<usize>>,
 }
 
 pub(super) struct GatewaySendStream {
@@ -48,6 +49,7 @@ impl GatewaySender {
             channel_id,
             ordering_tx: tx,
             total_records,
+            pending_records: Mutex::new(HashSet::new())
         }
     }
 
@@ -69,11 +71,12 @@ impl GatewaySender {
         // TODO: make OrderingSender::send fallible
         // TODO: test channel close
         let i = usize::from(record_id);
+        self.pending_records.lock().unwrap().insert(i);
         self.ordering_tx.send(i, msg).await;
+        self.pending_records.lock().unwrap().remove(&i);
         if self.total_records.is_last(record_id) {
             self.ordering_tx.close(i + 1).await;
         }
-
         Ok(())
     }
 
@@ -82,6 +85,9 @@ impl GatewaySender {
     }
     fn reset_idle(&self) {
         self.ordering_tx.reset_idle();
+    }
+    fn get_pending_records(&self)->String {
+        self.pending_records.lock().unwrap().iter().map(|item| item.to_string()).collect::<Vec<String>>().join(", ")
     }
 }
 
@@ -180,8 +186,14 @@ impl GatewaySenders {
     }
     pub fn reset_idle(&self) {
         for entry in self.inner.iter() {
-        entry.value().reset_idle()
+        entry.value().reset_idle();
        }
+    }
+
+    pub fn get_all_pending_records(&self) -> HashMap<ChannelId, String> {
+        self.inner.iter()
+        .map(|entry| (entry.key().clone(), entry.value().get_pending_records()))
+        .collect()
     }
 }
 

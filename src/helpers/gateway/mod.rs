@@ -73,6 +73,7 @@ impl<T: Transport> Gateway<T> {
                 let receivers = receivers_clone.lock().unwrap();
                 if senders.is_idle() && receivers.is_idle(){
                     //TODO: print something
+                    println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders.get_all_pending_records());
                 }
                 else {
                     senders.reset_idle();
@@ -244,6 +245,8 @@ mod tests {
         // sent (same batch or different does not matter here)
         let spawned = tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
+            // channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)).await.unwrap();
+            // channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)).await.unwrap();
             try_join(
                 channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
                 channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)),
