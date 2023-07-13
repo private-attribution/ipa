@@ -72,4 +72,17 @@ impl<T: Transport> GatewayReceivers<T> {
             stream
         }
     }
+    pub fn is_idle(&self) -> bool {
+        for entry in self.inner.iter() {
+        if !entry.value().is_idle() {
+            return false;
+        }
+       }
+       true
+    }
+        pub fn reset_idle(&self) {
+        for entry in self.inner.iter() {
+            entry.value().reset_idle()
+       }
+    }
 }
