@@ -331,12 +331,12 @@ impl HyperClientConfigurator for HttpClientConfigurator {
 impl HttpClientConfigurator {
     #[must_use]
     pub fn http1() -> Self {
-        Self::Http1(Http1Configurator::default())
+        Self::Http1(Http1Configurator)
     }
 
     #[must_use]
     pub fn http2() -> Self {
-        Self::Http2(Http2Configurator::default())
+        Self::Http2(Http2Configurator)
     }
 }
 
