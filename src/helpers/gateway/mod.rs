@@ -17,7 +17,7 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize};
+use std::{fmt::Debug, num::NonZeroUsize, sync::{Mutex, mpsc::{Sender, self, TryRecvError}, Arc}, time::Duration, thread};
 
 /// Alias for the currently configured transport.
 ///
@@ -40,8 +40,9 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
-    senders: GatewaySenders,
+    senders: Arc<Mutex<GatewaySenders>>,
     receivers: GatewayReceivers<T>,
+    idle_tracking_stop: Mutex<Sender<()>>
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -59,6 +60,29 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let senders = Arc::new(Mutex::new(GatewaySenders::default()));
+        let senders_clone = Arc::clone(&senders);
+        thread::spawn(move|| {
+            // Perform some periodic work in the background
+            loop {
+                thread::sleep(Duration::from_secs(1));
+                let senders = senders_clone.lock().unwrap();
+                if senders.is_idle() {
+                    //TODO: print something
+                }
+                else {
+                    senders.reset_idle();
+                }
+                match rx.try_recv()
+                {
+                    Ok(_) | Err(TryRecvError::Disconnected) => {
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                }
+            }
+        });
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -67,8 +91,9 @@ impl<T: Transport> Gateway<T> {
                 inner: transport,
                 config,
             },
-            senders: GatewaySenders::default(),
+            senders,
             receivers: GatewayReceivers::default(),
+            idle_tracking_stop: Mutex::new(tx),
         }
     }
 
@@ -89,7 +114,7 @@ impl<T: Transport> Gateway<T> {
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
         let (tx, maybe_stream) =
-            self.senders
+            self.senders.lock().unwrap()
                 .get_or_create::<M>(channel_id, self.config.active_work(), total_records);
         if let Some(stream) = maybe_stream {
             tokio::spawn({
@@ -115,6 +140,12 @@ impl<T: Transport> Gateway<T> {
             self.receivers
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
+    }
+}
+
+impl<T: Transport> Drop for Gateway<T> {
+    fn drop(&mut self) {
+       let _ = self.idle_tracking_stop.lock().unwrap().send(());
     }
 }
 
