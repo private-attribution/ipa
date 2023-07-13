@@ -41,8 +41,8 @@ pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
     senders: Arc<Mutex<GatewaySenders>>,
-    receivers: GatewayReceivers<T>,
-    idle_tracking_stop: Mutex<Sender<()>>
+    receivers: Arc<Mutex<GatewayReceivers<T>>>,
+    idle_tracking_stop: Mutex<Sender<()>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -63,16 +63,20 @@ impl<T: Transport> Gateway<T> {
         let (tx, rx) = mpsc::channel();
         let senders = Arc::new(Mutex::new(GatewaySenders::default()));
         let senders_clone = Arc::clone(&senders);
+        let receivers = Arc::new(Mutex::new( GatewayReceivers::default()));
+        let receivers_clone = Arc::clone(&receivers);
         thread::spawn(move|| {
             // Perform some periodic work in the background
             loop {
                 thread::sleep(Duration::from_secs(1));
                 let senders = senders_clone.lock().unwrap();
-                if senders.is_idle() {
+                let receivers = receivers_clone.lock().unwrap();
+                if senders.is_idle() && receivers.is_idle(){
                     //TODO: print something
                 }
                 else {
                     senders.reset_idle();
+                    receivers.reset_idle();
                 }
                 match rx.try_recv()
                 {
@@ -92,7 +96,7 @@ impl<T: Transport> Gateway<T> {
                 config,
             },
             senders,
-            receivers: GatewayReceivers::default(),
+            receivers,
             idle_tracking_stop: Mutex::new(tx),
         }
     }
@@ -137,7 +141,7 @@ impl<T: Transport> Gateway<T> {
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
         ReceivingEndBase::new(
             channel_id.clone(),
-            self.receivers
+            self.receivers.lock().unwrap()
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
     }
