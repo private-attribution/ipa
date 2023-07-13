@@ -76,6 +76,13 @@ impl GatewaySender {
 
         Ok(())
     }
+
+    fn is_idle(&self) -> bool {
+        self.ordering_tx.is_idle()
+    }
+    fn reset_idle(&self) {
+        self.ordering_tx.reset_idle();
+    }
 }
 
 impl<M: Message> SendingEnd<M> {
@@ -160,6 +167,21 @@ impl GatewaySenders {
             };
             (sender, Some(stream))
         }
+    }
+
+
+    pub fn is_idle(&self) -> bool {
+       for entry in self.inner.iter() {
+        if !entry.value().is_idle() {
+            return false;
+        }
+       }
+       true
+    }
+    pub fn reset_idle(&self) {
+        for entry in self.inner.iter() {
+        entry.value().reset_idle()
+       }
     }
 }
 
