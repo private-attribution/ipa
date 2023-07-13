@@ -40,6 +40,8 @@ struct State {
     write_ready: Option<Waker>,
     /// Another entity to wake when the buffer is read from.
     stream_ready: Option<Waker>,
+    /// record whether the sender is idle recently
+    idle: bool,
 }
 
 impl State {
@@ -51,6 +53,7 @@ impl State {
             closed: false,
             write_ready: None,
             stream_ready: None,
+            idle: true
         }
     }
 
@@ -97,7 +100,7 @@ impl State {
         if self.written > 0 && (self.written + self.spare.get() >= self.buf.len() || self.closed) {
             let v = self.buf[..self.written].to_vec();
             self.written = 0;
-
+            self.idle = false;
             Self::wake(&mut self.write_ready);
             Poll::Ready(v)
         } else {
@@ -110,6 +113,13 @@ impl State {
         debug_assert!(!self.closed);
         self.closed = true;
         Self::wake(&mut self.stream_ready);
+    }
+    fn is_idle(&self) -> bool {
+        self.idle
+    }
+
+    fn reset_idle(&mut self) {
+        self.idle = true;
     }
 }
 
@@ -237,7 +247,7 @@ impl OrderingSender {
         }
     }
 
-    /// Send a message, `m`, at the index `i`.  
+    /// Send a message, `m`, at the index `i`.
     /// This method blocks until all previous messages are sent and until sufficient
     /// space becomes available in the sender's buffer.
     ///
@@ -327,6 +337,17 @@ impl OrderingSender {
     pub(crate) fn as_rc_stream(self: Arc<Self>) -> OrderedStream<Arc<Self>> {
         OrderedStream { sender: self }
     }
+
+    pub fn is_idle(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        state.is_idle()
+    }
+
+    pub fn reset_idle(&self) {
+         let mut state = self.state.lock().unwrap();
+         state.reset_idle();
+    }
+
 }
 
 /// A future for writing item `i` into an `OrderingSender`.
