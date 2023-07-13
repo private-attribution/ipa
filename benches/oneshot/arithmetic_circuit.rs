@@ -7,11 +7,12 @@ pub struct CircuitArgs {
     #[arg(
         short,
         long,
-        help = "width of the circuit, defines how many operations can proceed in parallel"
+        help = "width of the circuit, defines how many operations can proceed in parallel",
+        default_value_t = 10
     )]
     pub width: u32,
 
-    #[arg(short, long, help = "depth of the circuit")]
+    #[arg(short, long, help = "depth of the circuit", default_value_t = 10)]
     pub depth: u8,
 
     /// Cargo passes the bench argument
