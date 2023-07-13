@@ -73,7 +73,7 @@ impl Spare {
         self.buf.extend_from_slice(v);
     }
 
-    /// Extend the buffer with new data.  
+    /// Extend the buffer with new data.
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
@@ -143,6 +143,8 @@ where
     /// end-to-end back pressure for tasks that do not involve sending at all.
     overflow_wakers: Vec<Waker>,
     _marker: PhantomData<C>,
+
+    idle: bool
 }
 
 impl<S, C> OperatingState<S, C>
@@ -187,6 +189,7 @@ where
     /// Wake the waker from the next future, if the next receiver has been polled.
     fn wake_next(&mut self) {
         self.next += 1;
+        self.idle = false;
         let index = self.next % self.wakers.len();
         if let Some(w) = self.wakers[index].take() {
             w.wake();
@@ -226,6 +229,13 @@ where
             }
         }
     }
+
+    fn is_idle(&self) -> bool {
+        self.idle
+    }
+    fn reset_idle(&mut self) {
+        self.idle = true;
+    }
 }
 
 /// Take an ordered stream of bytes and make messages from that stream
@@ -264,6 +274,7 @@ where
                 wakers,
                 overflow_wakers: Vec::new(),
                 _marker: PhantomData,
+                idle: true
             })),
         }
     }
@@ -281,6 +292,14 @@ where
             receiver: Arc::clone(&self.inner),
             _marker: PhantomData,
         }
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.inner.lock().unwrap().is_idle()
+    }
+
+    pub fn reset_idle(&self) {
+        self.inner.lock().unwrap().reset_idle();
     }
 }
 
