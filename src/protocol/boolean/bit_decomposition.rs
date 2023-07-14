@@ -64,18 +64,19 @@ impl BitDecomposition {
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
-        let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
-        let two_exp_el = u128::pow(2, el.try_into().unwrap());
+        // let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
+        let el = u128::BITS - F::PRIME.into().leading_zeros();
+        let two_exp_el = u128::pow(2, el);
         let f_int: u128 = two_exp_el + c.into() - F::PRIME.into();
 
         // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
-        let mut g_B = Vec::with_capacity(el + 1);
+        let mut g_bin = Vec::with_capacity(usize::try_from(el).unwrap());
         for bit_index in 0..el {
             let f_i: u128 = (f_int >> bit_index) & 1;
             let c_i: u128 = (c.into() >> bit_index) & 1;
             let f_i_minus_c_i: u128 = f_i - c_i;
             let g_prime: F = q_p.clone().into() * f_i_minus_c_i;
-            g_B.push(g_prime + c_i.into())
+            g_bin.push(g_prime + c_i.into())
         }
 
         // Step 5. Compute BitwiseSum([r]_B, [g]_B)
