@@ -17,7 +17,8 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize, sync::{Mutex, mpsc::{Sender, self, TryRecvError}, Arc}, time::Duration, thread};
+use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration, thread};
+
 
 /// Alias for the currently configured transport.
 ///
@@ -42,7 +43,7 @@ pub struct Gateway<T: Transport = TransportImpl> {
     transport: RoleResolvingTransport<T>,
     senders: Arc<GatewaySenders>,
     receivers: Arc<GatewayReceivers<T>>,
-    idle_tracking_stop: Mutex<Sender<()>>,
+    idle_tracking_handle: tokio::task::JoinHandle<()>
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -60,28 +61,20 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        let (tx, rx) = mpsc::channel();
         let senders = Arc::new(GatewaySenders::default());
         let senders_clone = senders.clone();
         let receivers = Arc::new(GatewayReceivers::default());
         let receivers_clone = receivers.clone();
-        thread::spawn(move|| {
+        let handle: tokio::task::JoinHandle<()> = tokio::task::spawn(async move {
             // Perform some periodic work in the background
             loop {
-                thread::sleep(Duration::from_secs(1));
-                if senders_clone.check_idle_and_reset() && receivers_clone.check_idle_and_reset(){
-                    //TODO: print something
-                    println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders_clone.get_all_pending_records());
-                }
-                match rx.try_recv()
-                {
-                    Ok(_) | Err(TryRecvError::Disconnected) => {
-                        break;
+                    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
+                    if senders_clone.check_idle_and_reset() && receivers_clone.check_idle_and_reset(){
+                        //TODO: print something
+                        println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders_clone.get_all_pending_records());
                     }
-                    Err(TryRecvError::Empty) => {}
-                }
-            }
-        });
+            }}
+        );
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -92,7 +85,7 @@ impl<T: Transport> Gateway<T> {
             },
             senders,
             receivers,
-            idle_tracking_stop: Mutex::new(tx),
+            idle_tracking_handle: handle,
         }
     }
 
@@ -144,7 +137,7 @@ impl<T: Transport> Gateway<T> {
 
 impl<T: Transport> Drop for Gateway<T> {
     fn drop(&mut self) {
-       let _ = self.idle_tracking_stop.lock().unwrap().send(());
+        self.idle_tracking_handle.abort();
     }
 }
 
