@@ -43,7 +43,7 @@ pub struct Gateway<T: Transport = TransportImpl> {
     transport: RoleResolvingTransport<T>,
     senders: Arc<GatewaySenders>,
     receivers: Arc<GatewayReceivers<T>>,
-    idle_tracking_handle: tokio::task::JoinHandle<()>
+    idle_tracking_handle: Option<tokio::task::JoinHandle<()>>
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -61,20 +61,9 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        let senders = Arc::new(GatewaySenders::default());
-        let senders_clone = senders.clone();
+   let senders = Arc::new(GatewaySenders::default());
         let receivers = Arc::new(GatewayReceivers::default());
-        let receivers_clone = receivers.clone();
-        let handle: tokio::task::JoinHandle<()> = tokio::task::spawn(async move {
-            // Perform some periodic work in the background
-            loop {
-                    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
-                    if senders_clone.check_idle_and_reset() && receivers_clone.check_idle_and_reset(){
-                        //TODO: print something
-                        println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders_clone.get_all_pending_records());
-                    }
-            }}
-        );
+        let handle = Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers));
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -133,11 +122,31 @@ impl<T: Transport> Gateway<T> {
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
     }
+
+    fn create_idle_tracker(senders: Arc<GatewaySenders>, receivers: Arc<GatewayReceivers<T>>) -> Option<tokio::task::JoinHandle<()>> {
+        if !cfg!(debug_assertions) {
+            return None;
+        }
+        Some(tokio::task::spawn(async move {
+            // Perform some periodic work in the background
+            loop {
+                    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
+                    if senders.check_idle_and_reset() && receivers.check_idle_and_reset(){
+                        //TODO: print something
+                        println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders.get_all_pending_records());
+                    }
+            }}
+        ))
+    }
 }
 
 impl<T: Transport> Drop for Gateway<T> {
     fn drop(&mut self) {
-        self.idle_tracking_handle.abort();
+        if cfg!(debug_assertions) {
+            if let Some(handle) = self.idle_tracking_handle.take() {
+                handle.abort();
+            }
+         }
     }
 }
 
