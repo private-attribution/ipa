@@ -40,8 +40,8 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
-    senders: Arc<Mutex<GatewaySenders>>,
-    receivers: Arc<Mutex<GatewayReceivers<T>>>,
+    senders: Arc<GatewaySenders>,
+    receivers: Arc<GatewayReceivers<T>>,
     idle_tracking_stop: Mutex<Sender<()>>,
 }
 
@@ -61,19 +61,17 @@ impl<T: Transport> Gateway<T> {
         transport: T,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
-        let senders = Arc::new(Mutex::new(GatewaySenders::default()));
-        let senders_clone = Arc::clone(&senders);
-        let receivers = Arc::new(Mutex::new( GatewayReceivers::default()));
-        let receivers_clone = Arc::clone(&receivers);
+        let senders = Arc::new(GatewaySenders::default());
+        let senders_clone = senders.clone();
+        let receivers = Arc::new(GatewayReceivers::default());
+        let receivers_clone = receivers.clone();
         thread::spawn(move|| {
             // Perform some periodic work in the background
             loop {
                 thread::sleep(Duration::from_secs(1));
-                let senders = senders_clone.lock().unwrap();
-                let receivers = receivers_clone.lock().unwrap();
-                if senders.check_idle_and_reset() && receivers.check_idle_and_reset(){
+                if senders_clone.check_idle_and_reset() && receivers_clone.check_idle_and_reset(){
                     //TODO: print something
-                    println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders.get_all_pending_records());
+                    println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders_clone.get_all_pending_records());
                 }
                 match rx.try_recv()
                 {
@@ -115,7 +113,7 @@ impl<T: Transport> Gateway<T> {
         total_records: TotalRecords,
     ) -> SendingEnd<M> {
         let (tx, maybe_stream) =
-            self.senders.lock().unwrap()
+            self.senders
                 .get_or_create::<M>(channel_id, self.config.active_work(), total_records);
         if let Some(stream) = maybe_stream {
             tokio::spawn({
@@ -138,7 +136,7 @@ impl<T: Transport> Gateway<T> {
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
         ReceivingEndBase::new(
             channel_id.clone(),
-            self.receivers.lock().unwrap()
+            self.receivers
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
     }

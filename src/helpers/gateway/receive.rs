@@ -14,6 +14,7 @@ pub struct ReceivingEnd<T: Transport, M: Message> {
 }
 
 /// Receiving channels, indexed by (role, step).
+#[derive(Clone)]
 pub(super) struct GatewayReceivers<T: Transport> {
     inner: DashMap<ChannelId, UR<T>>,
 }
