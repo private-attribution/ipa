@@ -1,24 +1,25 @@
 use super::{
     add_constant::{add_constant, maybe_add_constant_mod2l},
     bitwise_less_than_prime::BitwiseLessThanPrime,
+    comparison::bitwise_less_than_constant,
     random_bits_generator::RandomBitsGenerator,
     RandomBits,
 };
 use crate::{
     error::Error,
     ff::PrimeField,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 
-/// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
+/// This is an implementation of "5. Simplified Bit-Decomposition Protocol" from T. Nishide and K. Ohta
 ///
 /// It takes an input `[a] ∈ F_p` and outputs its bitwise additive share
 /// `[a]_B = ([a]_0,...,[a]_l-1)` where `[a]_i ∈ F_p`.
 ///
-/// 3. Bit-Decomposition
-/// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
-/// I. Damgård et al.
+/// 5. Simplified Bit-Decomposition Protocol
+/// "Multiparty Computation for Interval, Equality, and Comparison without Bit-Decomposition Protocol"
+/// Takashi Nishide and Kazuo Ohta
 pub struct BitDecomposition {}
 
 impl BitDecomposition {
@@ -38,40 +39,73 @@ impl BitDecomposition {
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
         C: Context + RandomBits<F, Share = S>,
     {
-        // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
-
-        // Step 2. Generate random bitwise shares
+        // Step 1. Generate random bitwise shares [r]_B and linear share [r]_p
         let r = rbg.generate(record_id).await?;
 
-        // Step 3, 4. Reveal c = [a - b]_p
+        // Step 2: Reveal c = [a - r]_p
         let c = (a_p.clone() - &r.b_p)
             .reveal(ctx.narrow(&Step::RevealAMinusB), record_id)
             .await?;
 
-        // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
-        //
-        // `BitwiseSum` outputs one more bit than its input, so [d]_B is (el + 1)-bit long.
-        let d_b = add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
+        // Step 2.1: Edge case, if r is coincidentally a bit decomposition of [a]_p, we're done.
+        if c == F::ZERO {
+            return Ok(r.b_b);
+        }
 
-        // Step 6. q = d >=? p (note: the paper uses p <? d, which is incorrect)
-        let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
-            ctx.narrow(&Step::IsPLessThanD),
+        // Step 3. Compute [q]_p = 1 - [r <_B p - c ]_p. q is 1 iff r + c >= p in the integers.
+        let p_minus_c = F::PRIME - c;
+        let q_p = bitwise_less_than_constant(
+            ctx.narrow(&Step::IsRLessThanPMinusC),
             record_id,
-            &d_b,
+            &r.b_b,
+            p_minus_c.into(),
         )
         .await?;
 
-        // Step 7. a bitwise scalar value `f_B = bits(2^el - p)`
-        let el = u128::BITS - F::PRIME.into().leading_zeros();
-        let x = (1 << el) - F::PRIME.into();
+        // Step 4 has a lot going on. We'd going to break it down into substeps.
+        // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
+        let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
+        let two_exp_el = u128::pow(2, el.try_into().unwrap());
+        let f_int: u128 = two_exp_el + c.into() - F::PRIME.into();
 
-        // Step 8, 9. [g_i] = [q] * f_i
-        // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(el+1))
-        // Step 11. [a]_B = ([h]_0,...[h]_(el-1))
-        let a_b =
-            maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
+        // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
+        let mut g_B = Vec::with_capacity(el + 1);
+        for bit_index in 0..el {
+            let f_i: u128 = (f_int >> bit_index) & 1;
+            let c_i: u128 = (c.into() >> bit_index) & 1;
+            let f_i_minus_c_i: u128 = f_i - c_i;
+            let g_prime: F = q_p.clone().into() * f_i_minus_c_i;
+            g_B.push(g_prime + c_i.into())
+        }
 
-        Ok(a_b)
+        // Step 5. Compute BitwiseSum([r]_B, [g]_B)
+        // todo
+        // Ok(h);
+
+        // // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
+        // //
+        // // `BitwiseSum` outputs one more bit than its input, so [d]_B is (el + 1)-bit long.
+        // let d_b = add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
+
+        // // Step 6. q = d >=? p (note: the paper uses p <? d, which is incorrect)
+        // let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
+        //     ctx.narrow(&Step::IsPLessThanD),
+        //     record_id,
+        //     &d_b,
+        // )
+        // .await?;
+
+        // // Step 7. a bitwise scalar value `f_B = bits(2^el - p)`
+        // let el = u128::BITS - F::PRIME.into().leading_zeros();
+        // let x = (1 << el) - F::PRIME.into();
+
+        // // Step 8, 9. [g_i] = [q] * f_i
+        // // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(el+1))
+        // // Step 11. [a]_B = ([h]_0,...[h]_(el-1))
+        // let a_b =
+        //     maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
+
+        // Ok(a_b)
     }
 }
 
