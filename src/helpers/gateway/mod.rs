@@ -71,13 +71,9 @@ impl<T: Transport> Gateway<T> {
                 thread::sleep(Duration::from_secs(1));
                 let senders = senders_clone.lock().unwrap();
                 let receivers = receivers_clone.lock().unwrap();
-                if senders.is_idle() && receivers.is_idle(){
+                if senders.check_idle_and_reset() && receivers.check_idle_and_reset(){
                     //TODO: print something
                     println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders.get_all_pending_records());
-                }
-                else {
-                    senders.reset_idle();
-                    receivers.reset_idle();
                 }
                 match rx.try_recv()
                 {

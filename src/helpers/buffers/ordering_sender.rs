@@ -114,13 +114,12 @@ impl State {
         self.closed = true;
         Self::wake(&mut self.stream_ready);
     }
-    fn is_idle(&self) -> bool {
-        self.idle
+    fn check_idle_and_reset(&mut self) -> bool {
+        let rst = self.idle;
+        self.idle = true;
+        rst
     }
 
-    fn reset_idle(&mut self) {
-        self.idle = true;
-    }
 }
 
 /// An saved waker for a given index.
@@ -338,15 +337,11 @@ impl OrderingSender {
         OrderedStream { sender: self }
     }
 
-    pub fn is_idle(&self) -> bool {
-        let state = self.state.lock().unwrap();
-        state.is_idle()
+    pub fn check_idle_and_reset(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        state.check_idle_and_reset()
     }
 
-    pub fn reset_idle(&self) {
-         let mut state = self.state.lock().unwrap();
-         state.reset_idle();
-    }
 
 }
 

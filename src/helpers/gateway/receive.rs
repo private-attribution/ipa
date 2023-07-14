@@ -72,17 +72,11 @@ impl<T: Transport> GatewayReceivers<T> {
             stream
         }
     }
-    pub fn is_idle(&self) -> bool {
+    pub fn check_idle_and_reset(&self) -> bool {
+        let mut rst = true;
         for entry in self.inner.iter() {
-        if !entry.value().is_idle() {
-            return false;
-        }
+            rst &= entry.value().check_idle_and_reset();
        }
-       true
-    }
-        pub fn reset_idle(&self) {
-        for entry in self.inner.iter() {
-            entry.value().reset_idle()
-       }
+       rst
     }
 }

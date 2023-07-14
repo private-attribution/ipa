@@ -80,11 +80,8 @@ impl GatewaySender {
         Ok(())
     }
 
-    fn is_idle(&self) -> bool {
-        self.ordering_tx.is_idle()
-    }
-    fn reset_idle(&self) {
-        self.ordering_tx.reset_idle();
+    fn check_idle_and_reset(&self) -> bool {
+        self.ordering_tx.check_idle_and_reset()
     }
     fn get_pending_records(&self)->String {
         self.pending_records.lock().unwrap().iter().map(|item| item.to_string()).collect::<Vec<String>>().join(", ")
@@ -176,18 +173,12 @@ impl GatewaySenders {
     }
 
 
-    pub fn is_idle(&self) -> bool {
-       for entry in self.inner.iter() {
-        if !entry.value().is_idle() {
-            return false;
-        }
-       }
-       true
-    }
-    pub fn reset_idle(&self) {
+    pub fn check_idle_and_reset(&self) -> bool {
+        let mut rst = true;
         for entry in self.inner.iter() {
-        entry.value().reset_idle();
-       }
+            rst &= entry.value().check_idle_and_reset();
+         }
+       rst
     }
 
     pub fn get_all_pending_records(&self) -> HashMap<ChannelId, String> {

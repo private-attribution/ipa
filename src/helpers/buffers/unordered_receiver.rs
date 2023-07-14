@@ -230,11 +230,10 @@ where
         }
     }
 
-    fn is_idle(&self) -> bool {
-        self.idle
-    }
-    fn reset_idle(&mut self) {
+    fn check_idle_and_reset(&mut self) -> bool {
+        let rst = self.idle;
         self.idle = true;
+        rst
     }
 }
 
@@ -294,12 +293,8 @@ where
         }
     }
 
-    pub fn is_idle(&self) -> bool {
-        self.inner.lock().unwrap().is_idle()
-    }
-
-    pub fn reset_idle(&self) {
-        self.inner.lock().unwrap().reset_idle();
+    pub fn check_idle_and_reset(&self) -> bool {
+        self.inner.lock().unwrap().check_idle_and_reset()
     }
 }
 
