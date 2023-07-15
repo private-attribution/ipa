@@ -61,7 +61,7 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-   let senders = Arc::new(GatewaySenders::default());
+        let senders = Arc::new(GatewaySenders::default());
         let receivers = Arc::new(GatewayReceivers::default());
         let handle = Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers));
         Self {
@@ -133,7 +133,8 @@ impl<T: Transport> Gateway<T> {
                     let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                     if senders.check_idle_and_reset() && receivers.check_idle_and_reset(){
                         //TODO: print something
-                        println!("{:?}: idle Pending messages: {:?}", thread::current().id(), senders.get_all_pending_records());
+                        println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), senders.get_all_pending_records());
+                        println!("{:?}: Idle: waiting to receive messages: \n{:?}.", thread::current().id(), receivers.get_waiting_messages().unwrap());
                     }
             }}
         ))

@@ -4,7 +4,7 @@ use crate::{
 };
 use dashmap::DashMap;
 use futures::Stream;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, collections::HashMap};
 
 /// Receiving end end of the gateway channel.
 pub struct ReceivingEnd<T: Transport, M: Message> {
@@ -16,7 +16,7 @@ pub struct ReceivingEnd<T: Transport, M: Message> {
 /// Receiving channels, indexed by (role, step).
 #[derive(Clone)]
 pub(super) struct GatewayReceivers<T: Transport> {
-    inner: DashMap<ChannelId, UR<T>>,
+    pub inner: DashMap<ChannelId, UR<T>>,
 }
 
 pub(super) type UR<T> = UnorderedReceiver<
@@ -43,6 +43,11 @@ impl<T: Transport, M: Message> ReceivingEnd<T, M> {
     /// This will panic if message size does not fit into 8 bytes and it somehow got serialized
     /// and sent to this helper.
     pub async fn receive(&self, record_id: RecordId) -> Result<M, Error> {
+        let i = record_id.into();
+
+        if cfg!(debug_assertions){
+            self.unordered_rx.register_waiting_message(i);
+        }
         self.unordered_rx
             .recv::<M, _>(record_id)
             .await
@@ -79,5 +84,15 @@ impl<T: Transport> GatewayReceivers<T> {
             rst &= entry.value().check_idle_and_reset();
        }
        rst
+    }
+    pub fn get_waiting_messages(&self) -> Option<HashMap<ChannelId, Vec<usize>>> {
+        if cfg!(debug_assertions){
+            Some(self.inner.iter().map(|entry|{
+            let (channel_id, rec) = entry.pair();
+            (channel_id.clone(), rec.get_waiting_messages())
+        }).collect())
+        } else {
+            None
+        }
     }
 }

@@ -3,6 +3,7 @@ use crate::{
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
+use dashmap::DashSet;
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
 use std::{
@@ -38,7 +39,7 @@ where
         let this = self.as_ref();
         let mut recv = this.receiver.lock().unwrap();
         if recv.is_next(this.i) {
-            recv.poll_next(cx)
+            recv.poll_next(this.i,cx)
         } else {
             recv.add_waker(this.i, cx.waker().clone());
             Poll::Pending
@@ -144,7 +145,8 @@ where
     overflow_wakers: Vec<Waker>,
     _marker: PhantomData<C>,
 
-    idle: bool
+    idle: bool,
+    messages_waiting_for_receive: Arc<DashSet<usize>>,
 }
 
 impl<S, C> OperatingState<S, C>
@@ -204,9 +206,12 @@ where
 
     /// Poll for the next record.  This should only be invoked when
     /// the future for the next message is polled.
-    fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
+    fn poll_next<M: Message>(&mut self, i:usize, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
         if let Some(m) = self.spare.read() {
             self.wake_next();
+            if cfg!(debug_assertions){
+                self.register_receiving_message(&i);
+            }
             return Poll::Ready(Ok(m));
         }
 
@@ -218,6 +223,9 @@ where
                 Poll::Ready(Some(b)) => {
                     if let Some(m) = self.spare.extend(b.as_ref()) {
                         self.wake_next();
+                        if cfg!(debug_assertions){
+                            self.register_receiving_message(&i);
+                        }
                         return Poll::Ready(Ok(m));
                     }
                 }
@@ -234,6 +242,18 @@ where
         let rst = self.idle;
         self.idle = true;
         rst
+    }
+
+    fn register_waiting_message(&self, i: usize) {
+        self.messages_waiting_for_receive.insert(i);
+    }
+
+    fn register_receiving_message(&self,i: &usize) {
+        self.messages_waiting_for_receive.remove(i);
+    }
+
+    fn get_waiting_messages(&self) ->Vec<usize> {
+        self.messages_waiting_for_receive.iter().map(|value| *value).collect()
     }
 }
 
@@ -273,8 +293,9 @@ where
                 wakers,
                 overflow_wakers: Vec::new(),
                 _marker: PhantomData,
-                idle: true
-            })),
+                idle: true,
+                messages_waiting_for_receive: Arc::new(DashSet::new())
+            }))
         }
     }
 
@@ -295,6 +316,20 @@ where
 
     pub fn check_idle_and_reset(&self) -> bool {
         self.inner.lock().unwrap().check_idle_and_reset()
+    }
+
+    pub fn register_waiting_message(&self, i: usize) {
+           self.inner.lock().unwrap().register_waiting_message(i);
+    }
+
+    pub fn register_receiving_message(&self,i: &usize) {
+        if cfg!(debug_assertions){
+           self.inner.lock().unwrap().register_receiving_message(i);
+        }
+    }
+
+    pub fn get_waiting_messages(&self) ->Vec<usize> {
+        self.inner.lock().unwrap().get_waiting_messages()
     }
 }
 
