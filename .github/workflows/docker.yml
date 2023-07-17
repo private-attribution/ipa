@@ -34,5 +34,5 @@ jobs:
         context: .
         file: ./docker/ci/helper.Dockerfile
         push: true
-        tags: ghcr.io/${{ github.actor }}/ipa-helper:latest
+        tags: ghcr.io/${{ github.repository }}/ipa-helper:latest
         platforms: linux/amd64

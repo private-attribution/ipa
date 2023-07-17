@@ -1,12 +1,14 @@
-use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
-use metrics::{KeyName, Label, SharedString};
-use metrics_util::{
-    debugging::{DebugValue, Snapshot},
-    CompositeKey, MetricKind,
-};
 use std::{
     collections::{hash_map::Iter, HashMap},
     fmt::Debug,
+};
+
+use metrics::{KeyName, Label, SharedString};
+
+use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
+use metrics_util::{
+    debugging::{DebugValue, Snapshot},
+    CompositeKey, MetricKind,
 };
 
 /// Simple counter stats

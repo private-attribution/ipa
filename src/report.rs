@@ -384,7 +384,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unit_test))]
 mod test {
     use crate::ff::{Fp32BitPrime, Gf40Bit, Gf8Bit};
 

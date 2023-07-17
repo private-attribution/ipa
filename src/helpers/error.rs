@@ -21,14 +21,15 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("An error occurred while sending data to unknown helper")]
+    #[error("An error occurred while sending data to unknown helper: {inner}")]
     PollSendError {
         #[source]
         inner: BoxError,
     },
-    #[error("An error occurred while receiving data from {source:?}")]
+    #[error("An error occurred while receiving data from {source:?}/{step}: {inner}")]
     ReceiveError {
         source: Role,
+        step: String,
         #[source]
         inner: BoxError,
     },
@@ -37,7 +38,7 @@ pub enum Error {
         // TODO(mt): add more fields, like step and role.
         record_id: RecordId,
     },
-    #[error("An error occurred while serializing or deserializing data for {record_id:?} and step {step}")]
+    #[error("An error occurred while serializing or deserializing data for {record_id:?} and step {step}: {inner}")]
     SerializationError {
         record_id: RecordId,
         step: String,
@@ -61,16 +62,6 @@ impl Error {
     ) -> Error {
         Self::SendError {
             channel,
-            inner: inner.into(),
-        }
-    }
-
-    pub fn receive_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        source: Role,
-        inner: E,
-    ) -> Error {
-        Self::ReceiveError {
-            source,
             inner: inner.into(),
         }
     }

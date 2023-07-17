@@ -1,10 +1,62 @@
-use std::process::Command;
+// integration tests in this file are run with `--features="enable-bench compact-gate"` which causes
+// some pub functions in `common` to be compiled, and rust complains about dead code.
+#[allow(dead_code)]
+mod common;
+
+use common::test_ipa_with_config;
+use ipa::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
+use std::num::NonZeroU32;
+
+fn test_compact_gate<I: TryInto<NonZeroU32>>(
+    mode: IpaSecurityModel,
+    per_user_credit_cap: u32,
+    attribution_window_seconds: I,
+) {
+    let config = IpaQueryConfig {
+        per_user_credit_cap,
+        attribution_window_seconds: attribution_window_seconds.try_into().ok(),
+        ..Default::default()
+    };
+
+    test_ipa_with_config(mode, false, config);
+}
 
 #[test]
-fn compact_gate() {
-    let test_script = env!("CARGO_MANIFEST_DIR").to_string() + "/scripts/test_compact_gate.py";
-    let mut command = Command::new(test_script);
-    command
-        .status()
-        .expect("Failed to run test_compact_gate.py");
+fn compact_gate_cap_1_no_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 1, 0);
+}
+
+#[test]
+fn compact_gate_cap_1_no_window_malicious() {
+    test_compact_gate(IpaSecurityModel::Malicious, 1, 0);
+}
+
+#[test]
+fn compact_gate_cap_1_with_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 1, 86400);
+}
+
+#[test]
+fn compact_gate_cap_1_with_window_malicious() {
+    test_compact_gate(IpaSecurityModel::Malicious, 1, 86400);
+}
+
+#[test]
+fn compact_gate_cap_10_no_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 10, 0);
+}
+
+#[test]
+fn compact_gate_cap_10_no_window_malicious() {
+    test_compact_gate(IpaSecurityModel::Malicious, 10, 0);
+}
+
+#[test]
+fn compact_gate_cap_10_with_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 10, 86400);
+}
+
+#[test]
+fn compact_gate_cap_10_with_window_malicious() {
+    test_compact_gate(IpaSecurityModel::Malicious, 10, 86400);
 }

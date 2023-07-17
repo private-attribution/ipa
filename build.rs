@@ -7,6 +7,6 @@ fn main() {
     // https://docs.rs/tectonic_cfg_support/latest/tectonic_cfg_support/struct.TargetConfiguration.html
     cfg_aliases! {
         unit_test: { all(not(feature = "shuttle"), not(feature = "compact-gate"), feature = "in-memory-infra") },
-        web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
+        web_test: { all(not(feature = "shuttle"), not(feature = "compact-gate"), feature = "real-world-infra") },
     }
 }

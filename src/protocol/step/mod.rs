@@ -1,11 +1,13 @@
 #[cfg(feature = "compact-gate")]
 mod compact;
+#[cfg(feature = "descriptive-gate")]
 mod descriptive;
 
 use std::fmt::Debug;
 
 #[cfg(feature = "compact-gate")]
 pub use compact::Compact;
+#[cfg(feature = "descriptive-gate")]
 pub use descriptive::Descriptive;
 
 #[cfg(feature = "descriptive-gate")]

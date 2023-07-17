@@ -109,4 +109,4 @@ jobs:
         run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate"
 
       - name: Run compact gate tests
-        run: cargo test --no-default-features --features "enable-benches compact-gate"
+        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"

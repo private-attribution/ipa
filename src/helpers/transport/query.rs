@@ -249,7 +249,7 @@ impl Default for IpaQueryConfig {
     fn default() -> Self {
         Self {
             per_user_credit_cap: 3,
-            max_breakdown_key: 64,
+            max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
             plaintext_match_keys: false,
