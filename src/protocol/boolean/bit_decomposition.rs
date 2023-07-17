@@ -1,6 +1,7 @@
 use super::{
-    add_constant::{add_constant, maybe_add_constant_mod2l},
-    bitwise_less_than_prime::BitwiseLessThanPrime,
+    // remove these
+    // add_constant::{add_constant, maybe_add_constant_mod2l},
+    // bitwise_less_than_prime::BitwiseLessThanPrime,
     comparison::bitwise_less_than_constant,
     random_bits_generator::RandomBitsGenerator,
     RandomBits,
@@ -43,7 +44,7 @@ impl BitDecomposition {
         let r = rbg.generate(record_id).await?;
 
         // Step 2: Reveal c = [a - r]_p
-        let c = (a_p.clone() - &r.b_p)
+        let c: F = (a_p.clone() - &r.b_p)
             .reveal(ctx.narrow(&Step::RevealAMinusB), record_id)
             .await?;
 
@@ -53,7 +54,7 @@ impl BitDecomposition {
         }
 
         // Step 3. Compute [q]_p = 1 - [r <_B p - c ]_p. q is 1 iff r + c >= p in the integers.
-        let p_minus_c = F::PRIME - c;
+        let p_minus_c: u128 = F::PRIME.into() - c.as_u128();
         let q_p = bitwise_less_than_constant(
             ctx.narrow(&Step::IsRLessThanPMinusC),
             record_id,
@@ -67,55 +68,142 @@ impl BitDecomposition {
         // let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
         let el = u128::BITS - F::PRIME.into().leading_zeros();
         let two_exp_el = u128::pow(2, el);
-        let f_int: u128 = two_exp_el + c.into() - F::PRIME.into();
+        let _f_int: u128 = two_exp_el + c.as_u128() - F::PRIME.into();
+        debug_assert!(_f_int < u64::max_value().into());
+        let f_int: u64 = _f_int as u64;
 
         // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
-        let mut g_bin = Vec::with_capacity(usize::try_from(el).unwrap());
+        let mut g_bin: Vec<G> = Vec::with_capacity(usize::try_from(el).unwrap());
         for bit_index in 0..el {
-            let f_i: u128 = (f_int >> bit_index) & 1;
-            let c_i: u128 = (c.into() >> bit_index) & 1;
-            let f_i_minus_c_i: u128 = f_i - c_i;
-            let g_prime: F = q_p.clone().into() * f_i_minus_c_i;
-            g_bin.push(g_prime + c_i.into())
+            // these are single bits, so let's make them bools
+            let f_i: bool = (f_int >> bit_index) & 1 == 1;
+            let c_i: bool = (c.as_u128() >> bit_index) & 1 == 1;
+            // g_i can either be c_i (known to be either 0, 1), or either [q]_p, ¬[q]_p
+            // using an enum here because we're going to do something cleaver in bitwise add
+            let g_i: G = match (f_i, c_i) {
+                // Case where f_i - c_i == 0
+                (false, false) | (true, true) => match c_i {
+                    true => G::One,
+                    false => G::Zero,
+                },
+                // Case where f_i - c_i = 1
+                (true, false) => G::Q,
+                // Case where f_i - c_i = -1
+                (false, true) => G::NotQ,
+                // this is what g_i should actually be here, so we can use this down the road
+                // let g_i_foo = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
+            };
+            g_bin.push(g_i);
+            // let f_i_minus_c_i: u64 = f_i - c_i;
+            // let g_prime: S = q_p.clone().into() * f_i_minus_c_i;
+            // // c_i ∈ {0, 1}, so F::truncate_from will work
+            // debug_assert!(c_i <= 1_u128);
+            // g_bin.push(S::share_known_value(&ctx, F::truncate_from(c_i)) + &g_prime);
         }
 
         // Step 5. Compute BitwiseSum([r]_B, [g]_B)
-        // todo
-        // Ok(h);
+        let mut h: Vec<S> = Vec::with_capacity(usize::try_from(el).unwrap());
+        let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
+        let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_bin[0] {
+            G::Zero => (S::ZERO, r.b_b[0].clone(), true),
+            G::One => (r.b_b[0].clone(), S::share_known_value(&ctx, F::ONE), false),
+            G::Q => (
+                q_p.multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
+                    .await?,
+                q_p.clone() + &r.b_b[0],
+                false,
+            ),
+            G::NotQ => (
+                one_minus_q_p
+                    .clone()
+                    .multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
+                    .await?,
+                one_minus_q_p.clone() + &r.b_b[0],
+                false,
+            ),
+        };
+        h.push(result_bit);
 
-        // // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
-        // //
-        // // `BitwiseSum` outputs one more bit than its input, so [d]_B is (el + 1)-bit long.
-        // let d_b = add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
+        for (bit_index, bit) in r.b_b.iter().enumerate().skip(1) {
+            let mult_result = if last_carry_known_to_be_zero {
+                // TODO: this makes me sad
+                S::ZERO
+                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                    .await?;
 
-        // // Step 6. q = d >=? p (note: the paper uses p <? d, which is incorrect)
-        // let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
-        //     ctx.narrow(&Step::IsPLessThanD),
-        //     record_id,
-        //     &d_b,
-        // )
-        // .await?;
+                S::ZERO
+            } else {
+                last_carry
+                    .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
+                    .await?
+            };
+            let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
+            let next_carry = match &g_bin[bit_index] {
+                G::Zero => mult_result,
+                G::One => {
+                    last_carry_known_to_be_zero = false;
+                    last_carry_or_bit
+                }
+                G::Q => {
+                    last_carry_known_to_be_zero = false;
+                    q_p.multiply(
+                        &last_carry_or_bit,
+                        // hack since we have two bit steps
+                        ctx.narrow(&BitOpStep::from(usize::try_from(el).unwrap() + bit_index)),
+                        record_id,
+                    )
+                    .await?
+                }
+                G::NotQ => {
+                    last_carry_known_to_be_zero = false;
+                    one_minus_q_p
+                        .clone()
+                        .multiply(
+                            &last_carry_or_bit,
+                            // hack since we have two bit steps
+                            ctx.narrow(&BitOpStep::from(usize::try_from(el).unwrap() + bit_index)),
+                            record_id,
+                        )
+                        .await?
+                }
+            };
+            // Each bit of the result can be computed very simply. It's just:
+            // the current bit of `g` + the current bit of `r` + the carry from the previous bit `-2*next_carry`
 
-        // // Step 7. a bitwise scalar value `f_B = bits(2^el - p)`
-        // let el = u128::BITS - F::PRIME.into().leading_zeros();
-        // let x = (1 << el) - F::PRIME.into();
+            let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry;
+            let result_bit = match &g_bin[bit_index] {
+                G::Zero => constant_value,
+                G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
+                G::Q => q_p.clone() + &constant_value,
+                G::NotQ => one_minus_q_p.clone() + &constant_value,
+            };
+            h.push(result_bit);
 
-        // // Step 8, 9. [g_i] = [q] * f_i
-        // // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(el+1))
-        // // Step 11. [a]_B = ([h]_0,...[h]_(el-1))
-        // let a_b =
-        //     maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
-
-        // Ok(a_b)
+            last_carry = next_carry;
+        }
+        // Step 6. h = a + 2^el, so we need all but the most significant bit of h,
+        //thus we omit the final h.push(last_carry).
+        Ok(h)
     }
+}
+
+#[derive(Debug, PartialEq)]
+enum G {
+    Zero,
+    One,
+    Q,
+    NotQ,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
     RevealAMinusB,
-    AddBtoC,
-    IsPLessThanD,
-    AddDtoG,
+    IsRLessThanPMinusC,
+    AddGtoR,
+    // todo remove these
+    // AddBtoC,
+    // IsPLessThanD,
+    // AddDtoG,
 }
 
 impl crate::protocol::step::Step for Step {}
@@ -124,9 +212,12 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::RevealAMinusB => "reveal_a_minus_b",
-            Self::AddBtoC => "add_b_to_c",
-            Self::IsPLessThanD => "is_p_less_than_d",
-            Self::AddDtoG => "add_d_to_g",
+            Self::IsRLessThanPMinusC => "is_r_less_than_p_minus_c",
+            Self::AddGtoR => "add_g_to_r",
+            // todo remove these
+            // Self::AddBtoC => "add_b_to_c",
+            // Self::IsPLessThanD => "is_p_less_than_d",
+            // Self::AddDtoG => "add_d_to_g",
         }
     }
 }
