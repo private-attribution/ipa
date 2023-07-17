@@ -9,8 +9,6 @@ edition = "2021"
 default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info", "descriptive-gate"]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
-protocol-perf-testing = ["no-prss"]
-no-prss = []
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
