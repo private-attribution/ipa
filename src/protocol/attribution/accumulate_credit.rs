@@ -156,19 +156,15 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         accumulation_test_input,
-        ff::{Field, Fp31, Fp32BitPrime},
-        helpers::Role,
+        ff::Fp32BitPrime,
         protocol::{
             attribution::{
-                accumulate_credit::accumulate_credit,
-                compute_stop_bits,
-                input::{AccumulateCreditInputRow, AccumulateCreditOutputRow},
+                accumulate_credit::accumulate_credit, compute_stop_bits,
+                input::AccumulateCreditInputRow,
             },
-            basics::Reshare,
-            context::{Context, UpgradableContext, Validator},
-            BreakdownKey, MatchKey, RecordId,
+            context::{UpgradableContext, Validator},
+            BreakdownKey, MatchKey,
         },
-        rand::{thread_rng, Rng},
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
@@ -178,31 +174,36 @@ mod tests {
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
         cap: u32,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> [Vec<AccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] {
-        let world = TestWorld::default();
+    ) -> Vec<Fp32BitPrime> {
+        type InputType = Vec<AccumulateCreditInputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>;
+        TestWorld::default()
+            .semi_honest(input.into_iter(), |ctx, input: InputType| async move {
+                let validator = &ctx.validator::<Fp32BitPrime>();
+                let ctx = validator.context(); // Ignore the validator for this test.
 
-        world
-            .semi_honest(
-                input.into_iter(),
-                |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>| async move {
-                    let validator = &ctx.validator::<Fp32BitPrime>();
-                    let ctx = validator.context(); // Ignore the validator for this test.
+                let (itb, hb): (Vec<_>, Vec<_>) = input
+                    .iter()
+                    .map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone()))
+                    .unzip();
+                // Note that computing stop bits requires that the first helper bit be skipped.
+                let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb[1..])
+                    .await
+                    .unwrap()
+                    .collect::<Vec<_>>();
 
-                    let (itb, hb): (Vec<_>, Vec<_>) = input
-                        .iter()
-                        .map(|x| (x.is_trigger_report.clone(), x.helper_bit.clone()))
-                        .unzip();
-                    let stop_bits = compute_stop_bits(ctx.clone(), &itb, &hb)
-                        .await
-                        .unwrap()
-                        .collect::<Vec<_>>();
-
-                    accumulate_credit(ctx, &input, &stop_bits, cap, attribution_window_seconds)
-                        .await
-                        .unwrap()
-                },
-            )
+                accumulate_credit(ctx, &input, &stop_bits, cap, attribution_window_seconds)
+                    .await
+                    .unwrap()
+            })
             .await
+            // We only need the trigger values.
+            .map(|share| {
+                share
+                    .into_iter()
+                    .map(|r| r.trigger_value)
+                    .collect::<Vec<_>>()
+            })
+            .reconstruct()
     }
 
     // If the cap > 1, the protocol proceeds with the normal binary-tree prefix-sum thing.
@@ -212,52 +213,36 @@ mod tests {
             0, 0, 19, 19, 9, 7, 6, 1, 0, 0, 0, 10, 15, 15, 12, 0, 10, 10, 4, 6, 6,
         ];
         const PER_USER_CAP: u32 = 3; // can be anything but 1
-        const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = None; // no attribution window = all reports are valid
+        const ATTRIBUTION_WINDOW: Option<NonZeroU32> = None; // no attribution window = all reports are valid
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
             [
-                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 },
-                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 },
-                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 10 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 2 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 1 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 5 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 1 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 0, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 0, credit: 0 },
-                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 0, active_bit: 1, credit: 10 },
-                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 3 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 12 },
-                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 },
-                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 6 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 4 },
-                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 6 },
+                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 }, // 0
+                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 }, // 0
+                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 }, // 19
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 10 }, // 19
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 2 }, // 9
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 1 }, // 7
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 5 }, // 6
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 1 }, // 1
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 0, credit: 0 }, // 0
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 0, credit: 0 }, // 0
+                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 }, // 0
+                { is_trigger_report: 1, helper_bit: 0, active_bit: 1, credit: 10 }, // 10
+                { is_trigger_report: 0, helper_bit: 0, active_bit: 1, credit: 0 }, // 0 (!) or 15?
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 3 }, // 15
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 12 }, // 12
+                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 }, // 0
+                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 }, // 10
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 6 }, // 10
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 4 }, // 4
+                { is_trigger_report: 0, helper_bit: 1, active_bit: 1, credit: 0 }, // 6
+                { is_trigger_report: 1, helper_bit: 1, active_bit: 1, credit: 6 }, // 6
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
-
-        let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW_SECONDS).await;
-
-        assert_eq!(result[0].len(), input_len);
-        assert_eq!(result[1].len(), input_len);
-        assert_eq!(result[2].len(), input_len);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].trigger_value,
-                &result[1][i].trigger_value,
-                &result[2][i].trigger_value,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
+        let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW).await;
+        assert_eq!(result, EXPECTED);
     }
 
     /// If the cap = 1 and attribution_window_seconds = 0, then the expected result is the same as
@@ -295,24 +280,8 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
-
         let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW_SECONDS).await;
-
-        assert_eq!(result[0].len(), input_len - 1);
-        assert_eq!(result[1].len(), input_len - 1);
-        assert_eq!(result[2].len(), input_len - 1);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].trigger_value,
-                &result[1][i].trigger_value,
-                &result[2][i].trigger_value,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
+        assert_eq!(result, EXPECTED);
     }
 
     /// If the cap = 1 and attribution_window_seconds > 0, then the expected result is the same as
@@ -350,53 +319,7 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
-
         let result = accumulate_credit_test(input, PER_USER_CAP, ATTRIBUTION_WINDOW_SECONDS).await;
-
-        assert_eq!(result[0].len(), input_len - 1);
-        assert_eq!(result[1].len(), input_len - 1);
-        assert_eq!(result[2].len(), input_len - 1);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].trigger_value,
-                &result[1][i].trigger_value,
-                &result[2][i].trigger_value,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
-    }
-
-    #[tokio::test]
-    pub async fn reshare() {
-        let mut rng = thread_rng();
-        let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> = accumulation_test_input!(
-            {
-                is_trigger_report: rng.gen::<u8>(),
-                helper_bit: rng.gen::<u8>(),
-                active_bit: rng.gen::<u8>(),
-                credit: rng.gen::<u8>(),
-            };
-            (Fp31, MathKey, BreakdownKey)
-        );
-
-        let world = TestWorld::default();
-        for &role in Role::all() {
-            let new_shares = world
-                .semi_honest(
-                    secret,
-                    |ctx, share: AccumulateCreditInputRow<Fp31, Replicated<_>>| async move {
-                        share
-                            .reshare(ctx.set_total_records(1), RecordId::FIRST, role)
-                            .await
-                            .unwrap()
-                    },
-                )
-                .await;
-            assert_eq!(secret, new_shares.reconstruct());
-        }
+        assert_eq!(result, EXPECTED);
     }
 }

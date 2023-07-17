@@ -194,6 +194,9 @@ where
         )
         .await?;
 
+    // Because the capping process produces fewer rows than the full list,
+    // we use the uncapped values for the remainder.
+    // This is safe because these rows cannot exceed the cap.
     let capped_count = capped_credits.len();
     Ok(capped_credits
         .into_iter()

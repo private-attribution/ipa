@@ -125,7 +125,7 @@ where
     let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
     Box::pin(convert_some_bits(
         ctx,
-        // For some reason, the input stream is polled 16 times, despite this function only calling "next()" once.
+        // TODO: For some reason, the input stream is polled 16 times, despite this function only calling "next()" once.
         // That interacts poorly with PRSS, so cap the iterator.
         stream_iter(iter.take(1)),
         record_id,

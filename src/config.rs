@@ -331,18 +331,18 @@ impl HyperClientConfigurator for HttpClientConfigurator {
 impl HttpClientConfigurator {
     #[must_use]
     pub fn http1() -> Self {
-        Self::Http1(Http1Configurator::default())
+        Self::Http1(Http1Configurator)
     }
 
     #[must_use]
     pub fn http2() -> Self {
-        Self::Http2(Http2Configurator::default())
+        Self::Http2(Http2Configurator)
     }
 }
 
 /// Clients will initiate connections using HTTP/1.1 but can upgrade to use HTTP/2 if server
 /// suggests it.
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Http1Configurator;
 
 impl HyperClientConfigurator for Http1Configurator {
@@ -362,7 +362,7 @@ impl Debug for Http1Configurator {
 
 /// Clients will use HTTP/2 exclusively. This will make client requests fail if server does not
 /// support HTTP/2.
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Http2Configurator;
 
 impl HyperClientConfigurator for Http2Configurator {

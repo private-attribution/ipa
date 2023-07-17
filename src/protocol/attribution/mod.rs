@@ -92,7 +92,7 @@ where
         .narrow(&AttributionStep::ConvertHelperBits)
         .set_total_records(validated_helper_bits_gf2.len());
     let helper_bits = convert_bits(convert_ctx, stream_iter(validated_helper_bits_gf2), 0..1)
-        .map_ok(|b| b.into_iter().next().unwrap())
+        .map_ok(|b| b.into_iter().next().unwrap()) // TODO: simplify single-bit conversion
         .try_collect::<Vec<_>>()
         .await?;
 
@@ -104,6 +104,8 @@ where
         .await?
         .collect::<Vec<_>>();
 
+    // Semantically, `helper_bit` indicates if the preceding row has the same value of `match_key`.
+    // For the first row, this cannot be the case as there is no preceding row, so we just provide a zero.
     debug_assert_eq!(arithmetically_shared_values.len(), helper_bits.len() + 1);
     let attribution_input_rows = zip(
         arithmetically_shared_values,
@@ -371,7 +373,14 @@ where
     Ok(())
 }
 
-// TODO: someone document what this is really doing
+/// Stop Bits are boolean values (1 or 0) and indicate if values should continue to accumulate, or not.
+/// In the case of attribution, multiple trigger reports might all be attributed to a single source
+/// report in the case that there is a source report followed by multiple trigger reports, all having
+/// the same value of match key.
+///
+/// Stop bits are the AND (i.e., multiply) of "is trigger bit" and "helper bit" from the same row.
+/// Note, the `helper_bits` provided here skip the first row as that value is known already.
+/// The output of the function also skips this first row.
 async fn compute_stop_bits<F, S, C>(
     ctx: C,
     is_trigger_bits: &[S],
@@ -386,6 +395,8 @@ where
         .narrow(&Step::ComputeStopBits)
         .set_total_records(is_trigger_bits.len() - 1);
 
+    // Note that the helper bits provided to this function skip the first row,
+    // so this functions starts from the second row of trigger bits.
     let futures = zip(&is_trigger_bits[1..], helper_bits).enumerate().map(
         |(i, (is_trigger_bit, helper_bit))| {
             let c = stop_bits_ctx.clone();

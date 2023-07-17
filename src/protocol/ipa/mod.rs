@@ -890,12 +890,13 @@ pub mod tests {
         assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
         println!("actual results: {trigger_values:#?}");
 
-        // Check that
-        //   * the contribution never exceeds the cap.
-        //   * the sum of all contributions = cap.
+        // Check that the contribution never exceeds the cap.
+
         assert!(trigger_values
             .iter()
             .all(|v| v.as_u128() <= u128::from(PER_USER_CAP)));
+        // Check that the sum of all contributions = cap.
+        // The setup ensures that trigger values are always more than the per user cap.
         assert_eq!(
             u128::from(PER_USER_CAP),
             trigger_values
