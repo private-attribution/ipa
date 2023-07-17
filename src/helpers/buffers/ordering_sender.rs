@@ -342,6 +342,10 @@ impl OrderingSender {
         state.check_idle_and_reset()
     }
 
+    pub fn get_status(&self) ->(usize /*next*/,usize/* current written */, usize /* total buffer size */) {
+        let state = self.state.lock().unwrap();
+        (self.next.load(Acquire), state.written, state.buf.len())
+    }
 
 }
 

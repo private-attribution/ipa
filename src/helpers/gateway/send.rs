@@ -1,4 +1,4 @@
-use crate::sync::Arc;
+use crate::{sync::Arc, ff::Serializable};
 use dashmap::DashMap;
 use futures::Stream;
 use std::{
@@ -36,6 +36,8 @@ pub(super) struct GatewaySender {
     channel_id: ChannelId,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
+
+    message_size: usize,
     pending_records: Mutex<HashSet<usize>>,
 }
 
@@ -44,12 +46,13 @@ pub(super) struct GatewaySendStream {
 }
 
 impl GatewaySender {
-    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
+    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords, message_size: usize) -> Self {
         Self {
             channel_id,
             ordering_tx: tx,
             total_records,
-            pending_records: Mutex::new(HashSet::new())
+            pending_records: Mutex::new(HashSet::new()),
+            message_size,
         }
     }
 
@@ -83,8 +86,29 @@ impl GatewaySender {
     fn check_idle_and_reset(&self) -> bool {
         self.ordering_tx.check_idle_and_reset()
     }
-    fn get_pending_records(&self)->String {
-        self.pending_records.lock().unwrap().iter().map(|item| item.to_string()).collect::<Vec<String>>().join(", ")
+
+    fn get_missing_records(&self,)->String {
+        let pending_records = self.pending_records.lock().unwrap();
+        let last_pending_message = pending_records.iter().cloned().max();
+        if let None = last_pending_message {
+            return "No missing records.".to_owned();
+        }
+        let last_pending_message = last_pending_message.unwrap();
+        let (next, current_write, buf_size) = self.ordering_tx.get_status();
+        let chunk_head = next - current_write/self.message_size;
+        let chunk_size = buf_size / self.message_size;
+        let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
+        let mut response = String::new();
+        for i in 0..chunk_count {
+            let mut chunk_response = format!("The next {}-th chunk, missing: ", i);
+            for j in (chunk_head + i* chunk_size).. (chunk_head + (i+1)* chunk_size) {
+                if !pending_records.contains(&j) {
+                    chunk_response += &format!("{}, ", j);
+                }
+            }
+            response = response + &chunk_response + "if not closed early.\n";
+        }
+        response
     }
 }
 
@@ -158,6 +182,7 @@ impl GatewaySenders {
                 channel_id.clone(),
                 OrderingSender::new(write_size, SPARE.unwrap()),
                 total_records,
+                <M as Serializable>::Size::to_usize()
             ));
             if senders
                 .insert(channel_id.clone(), Arc::clone(&sender))
@@ -181,9 +206,9 @@ impl GatewaySenders {
        rst
     }
 
-    pub fn get_all_pending_records(&self) -> HashMap<ChannelId, String> {
+    pub fn get_all_missing_records(&self) -> HashMap<ChannelId, String> {
         self.inner.iter()
-        .map(|entry| (entry.key().clone(), entry.value().get_pending_records()))
+        .map(|entry| (entry.key().clone(), entry.value().get_missing_records()))
         .collect()
     }
 }
