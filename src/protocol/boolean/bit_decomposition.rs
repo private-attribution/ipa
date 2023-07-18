@@ -66,7 +66,6 @@ impl BitDecomposition {
             p_minus_c,
         )
         .await?;
-        let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p;
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
@@ -78,92 +77,125 @@ impl BitDecomposition {
         let el_usize = el as usize;
 
         // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
-        let mut g_b = GBIterator::new(&f_int, &c_int);
+        let g_b = GBIterator::new(&f_int, &c_int);
 
         // and Step 5. Compute BitwiseSum([r]_B, [g]_B])
         let mut h: Vec<S> = Vec::with_capacity(el_usize);
-        let Some(g_0) = g_b.next() else { todo!() };
-        let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_0 {
-            G::Zero => (S::ZERO, r.b_b[0].clone(), true),
-            G::One => (r.b_b[0].clone(), S::share_known_value(&ctx, F::ONE), false),
-            G::Q => (
-                q_p.multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
-                    .await?,
-                q_p.clone() + &r.b_b[0],
-                false,
-            ),
-            G::NotQ => (
-                one_minus_q_p
-                    .clone()
-                    .multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
-                    .await?,
-                one_minus_q_p.clone() + &r.b_b[0],
-                false,
-            ),
+        // let Some(g_0) = g_b.next() else { todo!() };
+        // let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_0 {
+        //     G::Zero => (S::ZERO, r.b_b[0].clone(), true),
+        //     G::One => (r.b_b[0].clone(), S::share_known_value(&ctx, F::ONE), false),
+        //     G::Q => (
+        //         q_p.multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
+        //             .await?,
+        //         q_p.clone() + &r.b_b[0],
+        //         false,
+        //     ),
+        //     G::NotQ => (
+        //         one_minus_q_p
+        //             .clone()
+        //             .multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
+        //             .await?,
+        //         one_minus_q_p.clone() + &r.b_b[0],
+        //         false,
+        //     ),
+        // };
+
+        // h.push(result_bit);
+        let mut last_carry_known_to_be_zero = true;
+        let mut last_carry = S::ZERO;
+        for (bit_index, (bit, g_i)) in r.b_b.iter().zip(g_b).enumerate() {
+            let (result_bit, new_last_carry, new_last_carry_known_to_be_zero) =
+                Self::compute_bit_addition(
+                    ctx.narrow(&Step::AddGtoR),
+                    record_id,
+                    bit,
+                    g_i,
+                    &last_carry,
+                    last_carry_known_to_be_zero,
+                    bit_index,
+                    &q_p,
+                    el_usize,
+                )
+                .await?;
+            h.push(result_bit);
+            last_carry = new_last_carry;
+            last_carry_known_to_be_zero = new_last_carry_known_to_be_zero;
+        }
+        // Step 6. h = a + 2^el, so we need all but the most significant bit of h,
+        //thus we omit the final h.push(last_carry).
+        Ok(h)
+    }
+
+    async fn compute_bit_addition<F, S, C>(
+        ctx: C,
+        record_id: RecordId,
+        bit: &S,
+        g_i: G,
+        last_carry: &S,
+        last_carry_known_to_be_zero: bool,
+        bit_index: usize,
+        q_p: &S,
+        el_usize: usize,
+    ) -> Result<(S, S, bool), Error>
+    where
+        F: PrimeField,
+        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+        C: Context + RandomBits<F, Share = S>,
+    {
+        let mut new_last_carry_known_to_be_zero = last_carry_known_to_be_zero;
+        let mult_result = if last_carry_known_to_be_zero {
+            // TODO: this makes me sad
+            S::ZERO
+                .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                .await?;
+
+            S::ZERO
+        } else {
+            last_carry
+                .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
+                .await?
         };
-
-        h.push(result_bit);
-
-        for (bit_index, (bit, g_i)) in r.b_b.iter().zip(g_b).enumerate().skip(1) {
-            let mult_result = if last_carry_known_to_be_zero {
-                // TODO: this makes me sad
-                S::ZERO
-                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
-                    .await?;
-
-                S::ZERO
-            } else {
-                last_carry
-                    .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
-                    .await?
-            };
-            let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
-            let next_carry = match g_i {
-                G::Zero => mult_result,
-                G::One => {
-                    last_carry_known_to_be_zero = false;
-                    last_carry_or_bit
-                }
-                G::Q => {
-                    last_carry_known_to_be_zero = false;
-                    q_p.multiply(
+        let last_carry_or_bit = -mult_result.clone() + last_carry + bit;
+        let next_carry = match g_i {
+            G::Zero => mult_result,
+            G::One => {
+                new_last_carry_known_to_be_zero = false;
+                last_carry_or_bit
+            }
+            G::Q => {
+                new_last_carry_known_to_be_zero = false;
+                q_p.multiply(
+                    &last_carry_or_bit,
+                    // hack since we have two bit steps
+                    ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
+                    record_id,
+                )
+                .await?
+            }
+            G::NotQ => {
+                new_last_carry_known_to_be_zero = false;
+                (S::share_known_value(&ctx, F::ONE) - q_p)
+                    .multiply(
                         &last_carry_or_bit,
                         // hack since we have two bit steps
                         ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
                         record_id,
                     )
                     .await?
-                }
-                G::NotQ => {
-                    last_carry_known_to_be_zero = false;
-                    one_minus_q_p
-                        .clone()
-                        .multiply(
-                            &last_carry_or_bit,
-                            // hack since we have two bit steps
-                            ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
-                            record_id,
-                        )
-                        .await?
-                }
-            };
-            // Each bit of the result can be computed very simply. It's just:
-            // the current bit of `g` + the current bit of `r` + the carry from the previous bit `-2*next_carry`
+            }
+        };
+        // Each bit of the result can be computed very simply. It's just:
+        // the current bit of `g` + the current bit of `r` + the carry from the previous bit `-2*next_carry`
 
-            let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry;
-            let result_bit = match g_i {
-                G::Zero => constant_value,
-                G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
-                G::Q => q_p.clone() + &constant_value,
-                G::NotQ => one_minus_q_p.clone() + &constant_value,
-            };
-            h.push(result_bit);
-
-            last_carry = next_carry;
-        }
-        // Step 6. h = a + 2^el, so we need all but the most significant bit of h,
-        //thus we omit the final h.push(last_carry).
-        Ok(h)
+        let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + last_carry;
+        let result_bit = match g_i {
+            G::Zero => constant_value,
+            G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
+            G::Q => q_p.clone() + &constant_value,
+            G::NotQ => (S::share_known_value(&ctx, F::ONE) - q_p) + &constant_value,
+        };
+        Ok((result_bit, next_carry, new_last_carry_known_to_be_zero))
     }
 }
 
