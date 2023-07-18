@@ -81,27 +81,7 @@ impl BitDecomposition {
 
         // and Step 5. Compute BitwiseSum([r]_B, [g]_B])
         let mut h: Vec<S> = Vec::with_capacity(el_usize);
-        // let Some(g_0) = g_b.next() else { todo!() };
-        // let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_0 {
-        //     G::Zero => (S::ZERO, r.b_b[0].clone(), true),
-        //     G::One => (r.b_b[0].clone(), S::share_known_value(&ctx, F::ONE), false),
-        //     G::Q => (
-        //         q_p.multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
-        //             .await?,
-        //         q_p.clone() + &r.b_b[0],
-        //         false,
-        //     ),
-        //     G::NotQ => (
-        //         one_minus_q_p
-        //             .clone()
-        //             .multiply(&r.b_b[0], ctx.narrow(&Step::AddGtoR), record_id)
-        //             .await?,
-        //         one_minus_q_p.clone() + &r.b_b[0],
-        //         false,
-        //     ),
-        // };
 
-        // h.push(result_bit);
         let mut last_carry_known_to_be_zero = true;
         let mut last_carry = S::ZERO;
         for (bit_index, (bit, g_i)) in r.b_b.iter().zip(g_b).enumerate() {
@@ -115,7 +95,6 @@ impl BitDecomposition {
                     last_carry_known_to_be_zero,
                     bit_index,
                     &q_p,
-                    el_usize,
                 )
                 .await?;
             h.push(result_bit);
@@ -136,13 +115,13 @@ impl BitDecomposition {
         last_carry_known_to_be_zero: bool,
         bit_index: usize,
         q_p: &S,
-        el_usize: usize,
     ) -> Result<(S, S, bool), Error>
     where
         F: PrimeField,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
         C: Context + RandomBits<F, Share = S>,
     {
+        let el_usize = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
         let mut new_last_carry_known_to_be_zero = last_carry_known_to_be_zero;
         let mult_result = if last_carry_known_to_be_zero {
             // TODO: this makes me sad
