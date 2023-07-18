@@ -10,7 +10,7 @@ use std::{
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender,buffers::SenderStatus, ChannelId, Error, Message, Role, TotalRecords},
+    helpers::{buffers::OrderingSender,buffers::SenderStatus, buffers::GatherWaitingMessage, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
@@ -39,6 +39,9 @@ pub(super) struct GatewaySender {
 
     message_size: usize,
     pending_records: Mutex<HashSet<usize>>,
+}
+
+impl GatherWaitingMessage for GatewaySender {
 }
 
 pub(super) struct GatewaySendStream {
@@ -100,15 +103,15 @@ impl GatewaySender {
         let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
         let mut response = String::new();
         for i in 0..chunk_count {
-            let chunk_response_head = format!("The next {}-th chunk, missing: ", i);
-            let mut chunk_response = String::new();
-            for j in (chunk_head + i* chunk_size).. (chunk_head + (i+1)* chunk_size) {
+            let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
+            let mut chunk_response = Vec::new();
+            for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
                 if !pending_records.contains(&j) {
-                    chunk_response += &format!("{}, ", j);
+                    chunk_response.push(j);
                 }
             }
             if chunk_response.len() > 0 {
-                response = response + &chunk_response_head + &chunk_response + "if not closed early.\n";
+                response = response + &chunk_response_head + &self.compress_numbers(&chunk_response) + " if not closed early.\n";
             }
         }
         response

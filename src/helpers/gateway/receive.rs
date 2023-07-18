@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
+    helpers::{buffers::UnorderedReceiver, buffers::GatherWaitingMessage, ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
 use dashmap::DashMap;
@@ -62,6 +62,9 @@ impl<T: Transport> Default for GatewayReceivers<T> {
     }
 }
 
+impl<T: Transport> GatherWaitingMessage for GatewayReceivers<T> {
+}
+
 impl<T: Transport> GatewayReceivers<T> {
     pub fn get_or_create<F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
         let receivers = &self.inner;
@@ -80,12 +83,12 @@ impl<T: Transport> GatewayReceivers<T> {
        }
        rst
     }
-    pub fn get_waiting_messages(&self) -> HashMap<ChannelId, Vec<usize>> {
+    pub fn get_waiting_messages(&self) -> HashMap<ChannelId, String> {
           self.inner.iter().filter_map(|entry|{
             let (channel_id, rec) = entry.pair();
             let message = rec.get_waiting_messages();
             if !message.is_empty(){
-                Some((channel_id.clone(), message))
+                Some((channel_id.clone(), self.compress_numbers(&message)))
             } else {
                 None
             }
