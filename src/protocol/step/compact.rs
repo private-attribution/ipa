@@ -1,5 +1,3 @@
-extern crate ipa_macros;
-
 use super::{Step, StepNarrow};
 use ipa_macros::Gate;
 use std::fmt::{Debug, Display, Formatter};

@@ -59,7 +59,7 @@ impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
-        const BIT: [&str; 64] = repeat64str!["bit"];
+        const BIT: [&str; 64] = repeat64str!["mc"];
         match self {
             Self::ConvertBit(i) => BIT[usize::try_from(*i).unwrap()],
             Self::Upgrade => "upgrade",
