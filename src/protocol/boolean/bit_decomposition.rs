@@ -29,6 +29,9 @@ impl BitDecomposition {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
+    ///
+    /// ## Panics
+    /// Panics if g is empty, needs to be refactored.
     pub async fn execute<F, S, C>(
         ctx: C,
         record_id: RecordId,
@@ -52,6 +55,7 @@ impl BitDecomposition {
         if c == F::ZERO {
             return Ok(r.b_b);
         }
+        let c_int: u128 = c.as_u128();
 
         // Step 3. Compute [q]_p = 1 - [r <_B p - c ]_p. q is 1 iff r + c >= p in the integers.
         let p_minus_c: u128 = F::PRIME.into() - c.as_u128();
@@ -59,52 +63,27 @@ impl BitDecomposition {
             ctx.narrow(&Step::IsRLessThanPMinusC),
             record_id,
             &r.b_b,
-            p_minus_c.into(),
+            p_minus_c,
         )
         .await?;
+        let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p;
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
         // let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
         let el = u128::BITS - F::PRIME.into().leading_zeros();
         let two_exp_el = u128::pow(2, el);
-        let _f_int: u128 = two_exp_el + c.as_u128() - F::PRIME.into();
-        debug_assert!(_f_int < u64::max_value().into());
-        let f_int: u64 = _f_int as u64;
+        let f_int: u128 = two_exp_el + c.as_u128() - F::PRIME.into();
+        debug_assert!(el <= 64);
+        let el_usize = el as usize;
 
         // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
-        let mut g_bin: Vec<G> = Vec::with_capacity(usize::try_from(el).unwrap());
-        for bit_index in 0..el {
-            // these are single bits, so let's make them bools
-            let f_i: bool = (f_int >> bit_index) & 1 == 1;
-            let c_i: bool = (c.as_u128() >> bit_index) & 1 == 1;
-            // g_i can either be c_i (known to be either 0, 1), or either [q]_p, ¬[q]_p
-            // using an enum here because we're going to do something cleaver in bitwise add
-            let g_i: G = match (f_i, c_i) {
-                // Case where f_i - c_i == 0
-                (false, false) | (true, true) => match c_i {
-                    true => G::One,
-                    false => G::Zero,
-                },
-                // Case where f_i - c_i = 1
-                (true, false) => G::Q,
-                // Case where f_i - c_i = -1
-                (false, true) => G::NotQ,
-                // this is what g_i should actually be here, so we can use this down the road
-                // let g_i_foo = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
-            };
-            g_bin.push(g_i);
-            // let f_i_minus_c_i: u64 = f_i - c_i;
-            // let g_prime: S = q_p.clone().into() * f_i_minus_c_i;
-            // // c_i ∈ {0, 1}, so F::truncate_from will work
-            // debug_assert!(c_i <= 1_u128);
-            // g_bin.push(S::share_known_value(&ctx, F::truncate_from(c_i)) + &g_prime);
-        }
+        let mut g_b = GBIterator::new(&f_int, &c_int);
 
-        // Step 5. Compute BitwiseSum([r]_B, [g]_B)
-        let mut h: Vec<S> = Vec::with_capacity(usize::try_from(el).unwrap());
-        let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
-        let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_bin[0] {
+        // and Step 5. Compute BitwiseSum([r]_B, [g]_B])
+        let mut h: Vec<S> = Vec::with_capacity(el_usize);
+        let Some(g_0) = g_b.next() else { todo!() };
+        let (mut last_carry, result_bit, mut last_carry_known_to_be_zero) = match g_0 {
             G::Zero => (S::ZERO, r.b_b[0].clone(), true),
             G::One => (r.b_b[0].clone(), S::share_known_value(&ctx, F::ONE), false),
             G::Q => (
@@ -122,9 +101,10 @@ impl BitDecomposition {
                 false,
             ),
         };
+
         h.push(result_bit);
 
-        for (bit_index, bit) in r.b_b.iter().enumerate().skip(1) {
+        for (bit_index, (bit, g_i)) in r.b_b.iter().zip(g_b).enumerate().skip(1) {
             let mult_result = if last_carry_known_to_be_zero {
                 // TODO: this makes me sad
                 S::ZERO
@@ -138,7 +118,7 @@ impl BitDecomposition {
                     .await?
             };
             let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
-            let next_carry = match &g_bin[bit_index] {
+            let next_carry = match g_i {
                 G::Zero => mult_result,
                 G::One => {
                     last_carry_known_to_be_zero = false;
@@ -149,7 +129,7 @@ impl BitDecomposition {
                     q_p.multiply(
                         &last_carry_or_bit,
                         // hack since we have two bit steps
-                        ctx.narrow(&BitOpStep::from(usize::try_from(el).unwrap() + bit_index)),
+                        ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
                         record_id,
                     )
                     .await?
@@ -161,7 +141,7 @@ impl BitDecomposition {
                         .multiply(
                             &last_carry_or_bit,
                             // hack since we have two bit steps
-                            ctx.narrow(&BitOpStep::from(usize::try_from(el).unwrap() + bit_index)),
+                            ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
                             record_id,
                         )
                         .await?
@@ -171,7 +151,7 @@ impl BitDecomposition {
             // the current bit of `g` + the current bit of `r` + the carry from the previous bit `-2*next_carry`
 
             let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry;
-            let result_bit = match &g_bin[bit_index] {
+            let result_bit = match g_i {
                 G::Zero => constant_value,
                 G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
                 G::Q => q_p.clone() + &constant_value,
@@ -184,6 +164,48 @@ impl BitDecomposition {
         // Step 6. h = a + 2^el, so we need all but the most significant bit of h,
         //thus we omit the final h.push(last_carry).
         Ok(h)
+    }
+}
+
+struct GBIterator<'a> {
+    f: &'a u128,
+    c: &'a u128,
+    bit_index: usize,
+}
+
+impl<'a> GBIterator<'a> {
+    fn new(f: &'a u128, c: &'a u128) -> Self {
+        GBIterator { f, c, bit_index: 0 }
+    }
+}
+
+impl<'a> Iterator for GBIterator<'a> {
+    type Item = G;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bit_index < 128 {
+            // g_i can either be c_i (known to be either 0, 1), or either [q]_p, ¬[q]_p
+            // using an enum here because we're going to do something cleaver in bitwise add
+            let f_i: bool = (self.f >> self.bit_index) & 1 == 1;
+            let c_i: bool = (self.c >> self.bit_index) & 1 == 1;
+            self.bit_index += 1;
+            match (f_i, c_i) {
+                // Case where f_i - c_i == 0
+                (false, false) | (true, true) => {
+                    if c_i {
+                        return Some(G::One);
+                    }
+                    return Some(G::Zero);
+                }
+                // Case where f_i - c_i = 1
+                (true, false) => return Some(G::Q),
+                // Case where f_i - c_i = -1
+                (false, true) => return Some(G::NotQ),
+                // this is what g_i should actually be here, so we can use this down the road
+                // let g_i_foo = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
+            }
+        }
+        None
     }
 }
 
@@ -224,7 +246,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::BitDecomposition;
+    use super::{BitDecomposition, GBIterator, G};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
@@ -353,5 +375,38 @@ mod tests {
             u128::from(Fp32BitPrime::PRIME - 1),
             bits_to_value(&bit_decomposition(&world, c(Fp32BitPrime::PRIME - 1)).await)
         );
+    }
+
+    #[tokio::test]
+    pub async fn g_b_iterator() {
+        // f: 0...0101 = 5
+        // c: 0...0011 = 3
+        let f: u128 = 5;
+        let c: u128 = 3;
+        let g_b = GBIterator::new(&f, &c);
+        for (bit_index, g_i) in g_b.enumerate().take(4) {
+            match bit_index {
+                // (f_i - c_i) [q]_p + c_i
+                0 => {
+                    // f_i = 1, c_i = 1
+                    assert_eq!(g_i, G::One)
+                }
+                1 => {
+                    // f_i = 0, c_i = 1
+                    assert_eq!(g_i, G::NotQ)
+                }
+                2 => {
+                    // f_i = 1, c_i = 0
+                    assert_eq!(g_i, G::Q)
+                }
+                3 => {
+                    // f_i = 0, c_i = 0
+                    assert_eq!(g_i, G::Zero)
+                }
+                _ => {
+                    assert!(false)
+                }
+            }
+        }
     }
 }
