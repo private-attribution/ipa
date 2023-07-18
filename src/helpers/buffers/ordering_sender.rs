@@ -208,6 +208,12 @@ impl Waiting {
     }
 }
 
+pub struct SenderStatus{
+    pub next:usize,
+    pub current_written: usize,
+    pub buf_size: usize,
+}
+
 /// An `OrderingSender` accepts messages for sending in any order, but
 /// ensures that they are serialized based on an index.
 ///
@@ -342,9 +348,13 @@ impl OrderingSender {
         state.check_idle_and_reset()
     }
 
-    pub fn get_status(&self) ->(usize /*next*/,usize/* current written */, usize /* total buffer size */) {
+    pub fn get_status(&self) ->SenderStatus {
         let state = self.state.lock().unwrap();
-        (self.next.load(Acquire), state.written, state.buf.len())
+        SenderStatus{
+            next: self.next.load(Acquire),
+            current_written: state.written,
+            buf_size: state.buf.len()
+        }
     }
 
 }

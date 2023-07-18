@@ -10,7 +10,7 @@ use std::{
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
+    helpers::{buffers::OrderingSender,buffers::SenderStatus, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
@@ -94,8 +94,8 @@ impl GatewaySender {
             return "No missing records.".to_owned();
         }
         let last_pending_message = last_pending_message.unwrap();
-        let (next, current_write, buf_size) = self.ordering_tx.get_status();
-        let chunk_head = next - current_write/self.message_size;
+        let SenderStatus {next, current_written , buf_size} = self.ordering_tx.get_status();
+        let chunk_head = next - current_written/self.message_size;
         let chunk_size = buf_size / self.message_size;
         let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
         let mut response = String::new();
