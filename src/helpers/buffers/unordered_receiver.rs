@@ -209,7 +209,8 @@ where
     fn poll_next<M: Message>(&mut self, i:usize, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
         if let Some(m) = self.spare.read() {
             self.wake_next();
-            if cfg!(debug_assertions){
+            #[cfg(debug_assertions)]
+            {
                 self.register_receiving_message(&i);
             }
             return Poll::Ready(Ok(m));
@@ -223,7 +224,8 @@ where
                 Poll::Ready(Some(b)) => {
                     if let Some(m) = self.spare.extend(b.as_ref()) {
                         self.wake_next();
-                        if cfg!(debug_assertions){
+                        #[cfg(debug_assertions)]
+                        {
                             self.register_receiving_message(&i);
                         }
                         return Poll::Ready(Ok(m));
@@ -323,7 +325,7 @@ where
     }
 
     pub fn register_receiving_message(&self,i: &usize) {
-        if cfg!(debug_assertions){
+        #[cfg(debug_assertions)]{
            self.inner.lock().unwrap().register_receiving_message(i);
         }
     }

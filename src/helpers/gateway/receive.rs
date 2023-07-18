@@ -45,7 +45,8 @@ impl<T: Transport, M: Message> ReceivingEnd<T, M> {
     pub async fn receive(&self, record_id: RecordId) -> Result<M, Error> {
         let i = record_id.into();
 
-        if cfg!(debug_assertions){
+        #[cfg(debug_assertions)]
+        {
             self.unordered_rx.register_waiting_message(i);
         }
         self.unordered_rx
@@ -85,14 +86,10 @@ impl<T: Transport> GatewayReceivers<T> {
        }
        rst
     }
-    pub fn get_waiting_messages(&self) -> Option<HashMap<ChannelId, Vec<usize>>> {
-        if cfg!(debug_assertions){
-            Some(self.inner.iter().map(|entry|{
+    pub fn get_waiting_messages(&self) -> HashMap<ChannelId, Vec<usize>> {
+          self.inner.iter().map(|entry|{
             let (channel_id, rec) = entry.pair();
             (channel_id.clone(), rec.get_waiting_messages())
-        }).collect())
-        } else {
-            None
-        }
+        }).collect()
     }
 }

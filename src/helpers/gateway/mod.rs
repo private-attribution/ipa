@@ -63,7 +63,11 @@ impl<T: Transport> Gateway<T> {
     ) -> Self {
         let senders = Arc::new(GatewaySenders::default());
         let receivers = Arc::new(GatewayReceivers::default());
-        let handle = Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers));
+        let mut handle :Option<tokio::task::JoinHandle<()>> = None;
+        #[cfg(debug_assertions)]
+        {
+           handle = Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers));
+        }
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -124,30 +128,28 @@ impl<T: Transport> Gateway<T> {
     }
 
     fn create_idle_tracker(senders: Arc<GatewaySenders>, receivers: Arc<GatewayReceivers<T>>) -> Option<tokio::task::JoinHandle<()>> {
-        if !cfg!(debug_assertions) {
-            return None;
-        }
         Some(tokio::task::spawn(async move {
             // Perform some periodic work in the background
             loop {
-                    let _ = tokio::time::sleep(Duration::from_secs(5)).await;
-                    if senders.check_idle_and_reset() && receivers.check_idle_and_reset(){
-                        //TODO: print something
-                        println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), senders.get_all_missing_records());
-                        println!("{:?}: Idle: waiting to receive messages: \n{:?}.", thread::current().id(), receivers.get_waiting_messages().unwrap());
-                    }
-            }}
-        ))
-    }
+                let _ = tokio::time::sleep(Duration::from_secs(5)).await;
+                if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
+                    // TODO: print something
+                    println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), senders.get_all_missing_records());
+                    println!("{:?}: Idle: waiting to receive messages:\n{:?}.", thread::current().id(), receivers.get_waiting_messages());
+                }
+            }
+        }))
+}
 }
 
 impl<T: Transport> Drop for Gateway<T> {
     fn drop(&mut self) {
-        if cfg!(debug_assertions) {
+        #[cfg(debug_assertions)]
+        {
             if let Some(handle) = self.idle_tracking_handle.take() {
                 handle.abort();
             }
-         }
+        }
     }
 }
 
