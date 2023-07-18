@@ -87,9 +87,15 @@ impl<T: Transport> GatewayReceivers<T> {
        rst
     }
     pub fn get_waiting_messages(&self) -> HashMap<ChannelId, Vec<usize>> {
-          self.inner.iter().map(|entry|{
+          self.inner.iter().filter_map(|entry|{
             let (channel_id, rec) = entry.pair();
-            (channel_id.clone(), rec.get_waiting_messages())
+            let message = rec.get_waiting_messages();
+            if !message.is_empty(){
+                Some((channel_id.clone(), message))
+            } else {
+                None
+            }
+
         }).collect()
     }
 }

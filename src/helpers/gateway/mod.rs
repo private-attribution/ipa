@@ -134,9 +134,16 @@ impl<T: Transport> Gateway<T> {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
                     // TODO: print something
-                    println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), senders.get_all_missing_records());
-                    println!("{:?}: Idle: waiting to receive messages:\n{:?}.", thread::current().id(), receivers.get_waiting_messages());
+                    let sender_message =senders.get_all_missing_records();
+                    if !sender_message.is_empty() {
+                        println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), sender_message);
+                    }
+                    let receiver_message = receivers.get_waiting_messages();
+                    if!receiver_message.is_empty() {
+                        println!("{:?}: Idle: waiting to receive messages:\n{:?}.", thread::current().id(), receiver_message);
+                    }
                 }
+
             }
         }))
 }

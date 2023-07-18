@@ -91,7 +91,7 @@ impl GatewaySender {
         let pending_records = self.pending_records.lock().unwrap();
         let last_pending_message = pending_records.iter().cloned().max();
         if let None = last_pending_message {
-            return "No missing records.".to_owned();
+           return String::new();
         }
         let last_pending_message = last_pending_message.unwrap();
         let SenderStatus {next, current_written , buf_size} = self.ordering_tx.get_status();
@@ -100,13 +100,16 @@ impl GatewaySender {
         let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
         let mut response = String::new();
         for i in 0..chunk_count {
-            let mut chunk_response = format!("The next {}-th chunk, missing: ", i);
+            let chunk_response_head = format!("The next {}-th chunk, missing: ", i);
+            let mut chunk_response = String::new();
             for j in (chunk_head + i* chunk_size).. (chunk_head + (i+1)* chunk_size) {
                 if !pending_records.contains(&j) {
                     chunk_response += &format!("{}, ", j);
                 }
             }
-            response = response + &chunk_response + "if not closed early.\n";
+            if chunk_response.len() > 0 {
+                response = response + &chunk_response_head + &chunk_response + "if not closed early.\n";
+            }
         }
         response
     }
@@ -208,7 +211,16 @@ impl GatewaySenders {
 
     pub fn get_all_missing_records(&self) -> HashMap<ChannelId, String> {
         self.inner.iter()
-        .map(|entry| (entry.key().clone(), entry.value().get_missing_records()))
+        .filter_map(|entry|
+            {
+                let message = entry.value().get_missing_records();
+                if message.is_empty() {
+                    None
+                } else {
+                    Some((entry.key().clone(), message))
+                }
+            }
+        )
         .collect()
     }
 }
