@@ -59,14 +59,14 @@ impl BitDecomposition {
 
         // Step 3. Compute [q]_p = 1 - [r_B < p - c ]_p. q is 1 iff r + c >= p in the integers.
         let p_minus_c: u128 = F::PRIME.into() - c.as_u128();
-        let one_minus_q_p = bitwise_less_than_constant(
-            ctx.narrow(&Step::IsRLessThanPMinusC),
-            record_id,
-            &r.b_b,
-            p_minus_c,
-        )
-        .await?;
-        let q_p = S::share_known_value(&ctx, F::ONE) - &one_minus_q_p;
+        let q_p = S::share_known_value(&ctx, F::ONE)
+            - &bitwise_less_than_constant(
+                ctx.narrow(&Step::IsRLessThanPMinusC),
+                record_id,
+                &r.b_b,
+                p_minus_c,
+            )
+            .await?;
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
