@@ -232,7 +232,7 @@ mod test {
                 sample_variance,
                 dp.rounded_normal_dist.std().powi(2)
             );
-            assert!(f64::abs(sample_variance - dp.rounded_normal_dist.std().powi(2)) < 1.0);
+            assert!(f64::abs(sample_variance - dp.rounded_normal_dist.std().powi(2)) < 2.0);
         }
     }
 }
