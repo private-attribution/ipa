@@ -74,55 +74,41 @@ impl BitDecomposition {
         let two_exp_el = u128::pow(2, el);
         let f_int: u128 = two_exp_el + c.as_u128() - F::PRIME.into();
         debug_assert!(el <= 64);
-        let el_usize = el as usize;
 
         // Step 4.2. Compute [g]_B = (f_i - c_i) [q]_p + c_i
-        let g_b = GBIterator::new(&f_int, &c_int);
+        let g_b = GBIterator::new(f_int, c_int);
 
         // and Step 5. Compute BitwiseSum([r]_B, [g]_B])
-        let mut h: Vec<S> = Vec::with_capacity(el_usize);
+        let mut h: Vec<S> =
+            compute_bit_addition(ctx.narrow(&Step::AddGtoR), record_id, r.b_b, g_b, &q_p).await?;
 
-        let mut last_carry_known_to_be_zero = true;
-        let mut last_carry = S::ZERO;
-        for (bit_index, (bit, g_i)) in r.b_b.iter().zip(g_b).enumerate() {
-            let (result_bit, new_last_carry, new_last_carry_known_to_be_zero) =
-                Self::compute_bit_addition(
-                    ctx.narrow(&Step::AddGtoR),
-                    record_id,
-                    bit,
-                    g_i,
-                    &last_carry,
-                    last_carry_known_to_be_zero,
-                    bit_index,
-                    &q_p,
-                )
-                .await?;
-            h.push(result_bit);
-            last_carry = new_last_carry;
-            last_carry_known_to_be_zero = new_last_carry_known_to_be_zero;
-        }
         // Step 6. h = a + 2^el, so we need all but the most significant bit of h,
-        //thus we omit the final h.push(last_carry).
+        // so we need to drop the last bit. we could just not push the last value
+        // in compute_bit_addition, but if we do that, it might as well not be a
+        // different function...
+        h.remove(h.len() - 1);
         Ok(h)
     }
+}
 
-    async fn compute_bit_addition<F, S, C>(
-        ctx: C,
-        record_id: RecordId,
-        bit: &S,
-        g_i: G,
-        last_carry: &S,
-        last_carry_known_to_be_zero: bool,
-        bit_index: usize,
-        q_p: &S,
-    ) -> Result<(S, S, bool), Error>
-    where
-        F: PrimeField,
-        S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-        C: Context + RandomBits<F, Share = S>,
-    {
-        let el_usize = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
-        let mut new_last_carry_known_to_be_zero = last_carry_known_to_be_zero;
+async fn compute_bit_addition<'a, F, S, C>(
+    ctx: C,
+    record_id: RecordId,
+    r_b: Vec<S>,
+    g_b: GBIterator,
+    q_p: &S,
+) -> Result<Vec<S>, Error>
+where
+    F: PrimeField,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context + RandomBits<F, Share = S>,
+{
+    let el_usize = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
+    let mut h: Vec<S> = Vec::with_capacity(el_usize + 1);
+    let mut last_carry_known_to_be_zero = true;
+    let mut last_carry = S::ZERO;
+
+    for (bit_index, (bit, g_i)) in r_b.iter().zip(g_b).enumerate() {
         let mult_result = if last_carry_known_to_be_zero {
             // TODO: this makes me sad
             S::ZERO
@@ -135,15 +121,15 @@ impl BitDecomposition {
                 .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
                 .await?
         };
-        let last_carry_or_bit = -mult_result.clone() + last_carry + bit;
+        let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
         let next_carry = match g_i {
             G::Zero => mult_result,
             G::One => {
-                new_last_carry_known_to_be_zero = false;
+                last_carry_known_to_be_zero = false;
                 last_carry_or_bit
             }
             G::Q => {
-                new_last_carry_known_to_be_zero = false;
+                last_carry_known_to_be_zero = false;
                 q_p.multiply(
                     &last_carry_or_bit,
                     // hack since we have two bit steps
@@ -153,7 +139,7 @@ impl BitDecomposition {
                 .await?
             }
             G::NotQ => {
-                new_last_carry_known_to_be_zero = false;
+                last_carry_known_to_be_zero = false;
                 (S::share_known_value(&ctx, F::ONE) - q_p)
                     .multiply(
                         &last_carry_or_bit,
@@ -167,30 +153,33 @@ impl BitDecomposition {
         // Each bit of the result can be computed very simply. It's just:
         // the current bit of `g` + the current bit of `r` + the carry from the previous bit `-2*next_carry`
 
-        let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + last_carry;
+        let constant_value = -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry;
         let result_bit = match g_i {
             G::Zero => constant_value,
             G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
             G::Q => q_p.clone() + &constant_value,
             G::NotQ => (S::share_known_value(&ctx, F::ONE) - q_p) + &constant_value,
         };
-        Ok((result_bit, next_carry, new_last_carry_known_to_be_zero))
+        h.push(result_bit);
+        last_carry = next_carry;
     }
+    h.push(last_carry);
+    Ok(h)
 }
 
-struct GBIterator<'a> {
-    f: &'a u128,
-    c: &'a u128,
+struct GBIterator {
+    f: u128,
+    c: u128,
     bit_index: usize,
 }
 
-impl<'a> GBIterator<'a> {
-    fn new(f: &'a u128, c: &'a u128) -> Self {
+impl GBIterator {
+    fn new(f: u128, c: u128) -> Self {
         GBIterator { f, c, bit_index: 0 }
     }
 }
 
-impl<'a> Iterator for GBIterator<'a> {
+impl Iterator for GBIterator {
     type Item = G;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -335,7 +324,7 @@ mod tests {
         // c: 0...0011 = 3
         let f: u128 = 5;
         let c: u128 = 3;
-        let g_b = GBIterator::new(&f, &c);
+        let g_b = GBIterator::new(f, c);
         for (bit_index, g_i) in g_b.enumerate().take(4) {
             match bit_index {
                 // (f_i - c_i) [q]_p + c_i
