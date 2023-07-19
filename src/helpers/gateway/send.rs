@@ -10,7 +10,7 @@ use std::{
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender,buffers::SenderStatus, buffers::GatherWaitingMessage, ChannelId, Error, Message, Role, TotalRecords},
+    helpers::{buffers::OrderingSender,buffers::SenderStatus, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
@@ -35,11 +35,7 @@ pub(super) struct GatewaySenders {
 pub(super) struct GatewaySender {
     channel_id: ChannelId,
     ordering_tx: OrderingSender,
-    total_records: TotalRecords,
-    message_size: usize,
-}
-
-impl GatherWaitingMessage for GatewaySender {
+    total_records: TotalRecords
 }
 
 pub(super) struct GatewaySendStream {
@@ -47,12 +43,11 @@ pub(super) struct GatewaySendStream {
 }
 
 impl GatewaySender {
-    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords, message_size: usize) -> Self {
+    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
         Self {
             channel_id,
             ordering_tx: tx,
-            total_records,
-            message_size,
+            total_records
         }
     }
 
@@ -85,31 +80,32 @@ impl GatewaySender {
         self.ordering_tx.check_idle_and_reset()
     }
 
-    fn get_missing_records(&self,)->String {
-        let waiting_messages = self.ordering_tx.get_waiting_messages();
-        let last_pending_message = waiting_messages.iter().cloned().max();
-        if let None = last_pending_message {
-           return String::new();
-        }
-        let last_pending_message = last_pending_message.unwrap();
-        let SenderStatus {next, current_written , buf_size} = self.ordering_tx.get_status();
-        let chunk_head = next - current_written/self.message_size;
-        let chunk_size = buf_size / self.message_size;
-        let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
-        let mut response = String::new();
-        for i in 0..chunk_count {
-            let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
-            let mut chunk_response = Vec::new();
-            for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
-                if !waiting_messages.contains(&j) {
-                    chunk_response.push(j);
-                }
-            }
-            if chunk_response.len() > 0 {
-                response = response + &chunk_response_head + &self.compress_numbers(&chunk_response) + " if not closed early.\n";
-            }
-        }
-        response
+    fn get_missing_records(&self,)->(SenderStatus, Vec<usize>) {
+        (self.ordering_tx.get_status(), self.ordering_tx.get_waiting_messages())
+        // let waiting_messages = self.ordering_tx.get_waiting_messages();
+        // let last_pending_message = waiting_messages.iter().cloned().max();
+        // if let None = last_pending_message {
+        //    return String::new();
+        // }
+        // let last_pending_message = last_pending_message.unwrap();
+        // let SenderStatus {next, current_written , buf_size} = self.ordering_tx.get_status();
+        // let chunk_head = next - current_written/self.message_size;
+        // let chunk_size = buf_size / self.message_size;
+        // let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
+        // let mut response = String::new();
+        // for i in 0..chunk_count {
+        //     let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
+        //     let mut chunk_response = Vec::new();
+        //     for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
+        //         if !waiting_messages.contains(&j) {
+        //             chunk_response.push(j);
+        //         }
+        //     }
+        //     if chunk_response.len() > 0 {
+        //         response = response + &chunk_response_head + &self.compress_numbers(&chunk_response) + " if not closed early.\n";
+        //     }
+        // }
+        // response
     }
 }
 
@@ -181,9 +177,8 @@ impl GatewaySenders {
 
             let sender = Arc::new(GatewaySender::new(
                 channel_id.clone(),
-                OrderingSender::new(write_size, SPARE.unwrap()),
-                total_records,
-                <M as Serializable>::Size::to_usize()
+                OrderingSender::new(write_size, SPARE.unwrap(), <M as Serializable>::Size::to_usize()),
+                total_records
             ));
             if senders
                 .insert(channel_id.clone(), Arc::clone(&sender))
@@ -207,15 +202,15 @@ impl GatewaySenders {
        rst
     }
 
-    pub fn get_all_missing_records(&self) -> HashMap<ChannelId, String> {
+    pub fn get_all_missing_records(&self) -> HashMap<ChannelId, (SenderStatus, Vec<usize>)> {
         self.inner.iter()
         .filter_map(|entry|
             {
-                let message = entry.value().get_missing_records();
-                if message.is_empty() {
+                let mising_messages = entry.value().get_missing_records();
+                if mising_messages.1.is_empty() {
                     None
                 } else {
-                    Some((entry.key().clone(), message))
+                    Some((entry.key().clone(), mising_messages))
                 }
             }
         )

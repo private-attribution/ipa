@@ -230,6 +230,7 @@ pub struct SenderStatus{
     pub next:usize,
     pub current_written: usize,
     pub buf_size: usize,
+    pub message_size: usize,
 }
 
 /// An `OrderingSender` accepts messages for sending in any order, but
@@ -257,16 +258,18 @@ pub struct OrderingSender {
     next: AtomicUsize,
     state: Mutex<State>,
     waiting: Waiting,
+    message_size:usize
 }
 
 impl OrderingSender {
     /// Make an `OrderingSender` with a capacity of `capacity` (in bytes).
     #[must_use]
-    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize) -> Self {
+    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize, message_size:usize) -> Self {
         Self {
             next: AtomicUsize::new(0),
             state: Mutex::new(State::new(write_size, spare)),
             waiting: Waiting::default(),
+            message_size
         }
     }
 
@@ -371,7 +374,8 @@ impl OrderingSender {
         SenderStatus{
             next: self.next.load(Acquire),
             current_written: state.written,
-            buf_size: state.buf.len()
+            buf_size: state.buf.len(),
+            message_size: self.message_size
         }
     }
 
@@ -467,6 +471,7 @@ mod test {
         Arc::new(OrderingSender::new(
             NonZeroUsize::new(6).unwrap(),
             NonZeroUsize::new(5).unwrap(),
+            4
         ))
     }
 
