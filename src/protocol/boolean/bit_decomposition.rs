@@ -110,9 +110,21 @@ where
     let mut last_carry = S::ZERO;
     let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - q_p;
 
+    // an easier way to do this would simply be to have the g_b iterator
+    // directly return either one of
+    //    (q_p, one_minus_q_p, S::share_known_value(&ctx, F::ONE), or S::ZERO)
+    // We have to "fake" multiplications so that there is a fixed number known
+    // at compile time, so changing the g_b iterator wouldn't change the number
+    // of multipliations.
+    // It's unclear if the "fake" multiplications offer any benefit as is
+    // or if they could be elimated in the future. If they can, we should
+    // keep this structure, despite the addtional complexity, so that we can
+    // benefit from it when they are elimiated. If not, we should simpliy further
+    // and refactor with g_b directly returning a share S.
+
     for (bit_index, (bit, g_i)) in r_b.iter().zip(g_b).enumerate() {
         let mult_result = if last_carry_known_to_be_zero {
-            // TODO: this makes me sad
+            // fake multiplication so that there is a fixed number of them
             S::ZERO
                 .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
                 .await?;
@@ -125,8 +137,19 @@ where
         };
         let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
         let next_carry = match g_i {
-            G::Zero => mult_result,
+            G::Zero => {
+                // fake multiplication so that there is a fixed number of them
+                S::ZERO
+                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                    .await?;
+                mult_result
+            }
             G::One => {
+                // fake multiplication so that there is a fixed number of them
+                S::ZERO
+                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                    .await?;
+
                 last_carry_known_to_be_zero = false;
                 last_carry_or_bit
             }
