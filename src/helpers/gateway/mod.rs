@@ -1,6 +1,7 @@
 mod receive;
 mod send;
 mod transport;
+use itertools::Itertools;
 
 pub use send::SendingEnd;
 
@@ -169,7 +170,7 @@ impl<T: Transport> Gateway<T> {
                             (entry.0, response)
                         }).collect();
                     if !sender_message.is_empty() {
-                        tracing::warn!("Idle: waiting to send messages: {:?}", sender_message);
+                        tracing::warn!("Idle: waiting to send messages:\n{:?}", sender_message);
                     }
                     let receiver_waiting_message = receivers.get_waiting_messages();
                     let receiver_message : HashMap<&ChannelId, String> = receiver_waiting_message.iter().map(|entry| {
@@ -186,47 +187,25 @@ impl<T: Transport> Gateway<T> {
 }
 
   fn compress_numbers(numbers: &[usize]) -> String {
-        let mut result = String::new();
-
         if numbers.is_empty() {
-            return result;
+            return String::new();
         }
-
-        let mut start = numbers[0];
-        let mut prev = numbers[0];
-
-        result.push_str(&start.to_string());
-
-        for &num in numbers.iter().skip(1) {
-            if num == prev + 1 {
-                prev = num;
-                continue;
+        let compressed_ranges = numbers
+        .iter()
+        .enumerate()
+        .group_by(|&(i, &num)| num - i)
+        .into_iter()
+        .map(|(_, group)| {
+            let range: Vec<usize> = group.map(|(_, &num)| num).collect();
+            if range.len() >= 3 {
+                format!("{} .. {}", range[0], range.last().unwrap())
+            } else {
+                range.iter().map(|&num| num.to_string()).join(", ")
             }
+        })
+        .collect::<Vec<String>>();
 
-            if prev - start >= 2 {
-                result.push_str(" .. ");
-                result.push_str(&prev.to_string());
-            } else if prev != start {
-                result.push_str(", ");
-                result.push_str(&prev.to_string());
-            }
-
-            result.push_str(", ");
-            result.push_str(&num.to_string());
-
-            start = num;
-            prev = num;
-        }
-
-        if prev - start >= 2 {
-            result.push_str(" .. ");
-            result.push_str(&prev.to_string());
-        } else if prev != start {
-            result.push_str(", ");
-            result.push_str(&prev.to_string());
-        }
-
-        result
+    compressed_ranges.join(", ")
     }
 }
 
