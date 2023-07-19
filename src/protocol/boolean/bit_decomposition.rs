@@ -57,15 +57,16 @@ impl BitDecomposition {
         }
         let c_int: u128 = c.as_u128();
 
-        // Step 3. Compute [q]_p = 1 - [r <_B p - c ]_p. q is 1 iff r + c >= p in the integers.
+        // Step 3. Compute [q]_p = 1 - [r_B < p - c ]_p. q is 1 iff r + c >= p in the integers.
         let p_minus_c: u128 = F::PRIME.into() - c.as_u128();
-        let q_p = bitwise_less_than_constant(
+        let one_minus_q_p = bitwise_less_than_constant(
             ctx.narrow(&Step::IsRLessThanPMinusC),
             record_id,
             &r.b_b,
             p_minus_c,
         )
         .await?;
+        let q_p = S::share_known_value(&ctx, F::ONE) - &one_minus_q_p;
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
@@ -107,6 +108,7 @@ where
     let mut h: Vec<S> = Vec::with_capacity(el_usize + 1);
     let mut last_carry_known_to_be_zero = true;
     let mut last_carry = S::ZERO;
+    let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p;
 
     for (bit_index, (bit, g_i)) in r_b.iter().zip(g_b).enumerate() {
         let mult_result = if last_carry_known_to_be_zero {
@@ -140,7 +142,7 @@ where
             }
             G::NotQ => {
                 last_carry_known_to_be_zero = false;
-                (S::share_known_value(&ctx, F::ONE) - q_p)
+                one_minus_q_p
                     .multiply(
                         &last_carry_or_bit,
                         // hack since we have two bit steps
@@ -158,7 +160,7 @@ where
             G::Zero => constant_value,
             G::One => S::share_known_value(&ctx, F::ONE) + &constant_value,
             G::Q => q_p.clone() + &constant_value,
-            G::NotQ => (S::share_known_value(&ctx, F::ONE) - q_p) + &constant_value,
+            G::NotQ => constant_value + &one_minus_q_p,
         };
         h.push(result_bit);
         last_carry = next_carry;
@@ -312,7 +314,7 @@ mod tests {
         }
     }
 
-    async fn bit_addition<F, S, C>(
+    async fn bit_addition<F>(
         world: &TestWorld,
         r: u32,
         g_b: GBIterator,
