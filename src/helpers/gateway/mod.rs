@@ -38,11 +38,23 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 /// used to avoid carrying `T` over.
 ///
 /// [`Gateway`]: crate::helpers::Gateway
+
+#[cfg(debug_assertions)]
+type SenderType = Arc<GatewaySenders>;
+#[cfg(debug_assertions)]
+type ReceiverType<T> = Arc<GatewayReceivers<T>>;
+
+#[cfg(not(debug_assertions))]
+type SenderType = Arc<GatewaySenders>;
+#[cfg(not(debug_assertions))]
+type ReceiverType<T> = Arc<GatewayReceivers<T>>;
+
+
 pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
-    senders: Arc<GatewaySenders>,
-    receivers: Arc<GatewayReceivers<T>>,
+    senders: SenderType,
+    receivers: ReceiverType<T>,
     idle_tracking_handle: Option<tokio::task::JoinHandle<()>>
 }
 
@@ -63,11 +75,8 @@ impl<T: Transport> Gateway<T> {
     ) -> Self {
         let senders = Arc::new(GatewaySenders::default());
         let receivers = Arc::new(GatewayReceivers::default());
-        let mut handle :Option<tokio::task::JoinHandle<()>> = None;
-        #[cfg(debug_assertions)]
-        {
-           handle = Some(Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers)));
-        }
+        let handle = if cfg!(debug_assertions) { Some(Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers))) } else { None };
+
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -250,14 +259,14 @@ mod tests {
         // sent (same batch or different does not matter here)
         let spawned = tokio::spawn(async move {
             let channel = sender_ctx.send_channel(Role::H2);
-            // channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)).await.unwrap();
-            // channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)).await.unwrap();
-            try_join(
-                channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
-                channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)),
-            )
-            .await
-            .unwrap();
+            channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)).await.unwrap();
+            channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)).await.unwrap();
+            // try_join(
+            //     channel.send(RecordId::from(1), Fp31::truncate_from(1_u128)),
+            //     channel.send(RecordId::from(0), Fp31::truncate_from(0_u128)),
+            // )
+            // .await
+            // .unwrap();
         });
 
         let recv_channel = recv_ctx.recv_channel::<Fp31>(Role::H1);
