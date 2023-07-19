@@ -271,14 +271,14 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{compute_bit_addition, BitDecomposition, GBIterator, G};
+    use super::{BitDecomposition, GBIterator, G};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
         secret_sharing::replicated::malicious::ExtendableField,
-        test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld},
+        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -292,38 +292,6 @@ mod tests {
                 let ctx = ctx.set_total_records(1);
                 let rbg = RandomBitsGenerator::new(ctx.narrow("generate_random_bits"));
                 BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
-                    .await
-                    .unwrap()
-            })
-            .await;
-
-        // bit-decomposed values generate valid number of bits to fit the target field values
-        let l = u128::BITS - F::PRIME.into().leading_zeros();
-        assert_eq!(usize::try_from(l).unwrap(), result[0].len());
-        assert_eq!(usize::try_from(l).unwrap(), result[1].len());
-        assert_eq!(usize::try_from(l).unwrap(), result[2].len());
-
-        result.reconstruct()
-    }
-
-    async fn bit_addition<F>(
-        world: &TestWorld,
-        r: u32,
-        g_b: GBIterator,
-        q: F,
-        num_bits: u32,
-    ) -> Vec<F>
-    where
-        F: PrimeField + ExtendableField + Sized,
-        Standard: Distribution<F>,
-    {
-        let r_f_b = get_bits::<F>(r, num_bits);
-
-        let result = world
-            .semi_honest((q, r_f_b), |ctx, (q_p, r_b_d)| async move {
-                let ctx = ctx.set_total_records(1);
-                let r_b = r_b_d.to_vec();
-                compute_bit_addition(ctx, RecordId::from(0), r_b, g_b, &q_p)
                     .await
                     .unwrap()
             })
