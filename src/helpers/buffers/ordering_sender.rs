@@ -174,6 +174,14 @@ impl WaitingShard {
             self.wakers.pop_front().unwrap().w.wake();
         }
     }
+
+    fn get_waiting_messages(&self) -> Vec<usize> {
+        let mut result = Vec::new();
+         for j in (0..self.wakers.len()).rev() {
+           result.push(self.wakers[j].i);
+        }
+        result
+    }
 }
 
 /// A collection of wakers that are indexed by the send index (`i`).
@@ -206,6 +214,16 @@ impl Waiting {
     fn wake(&self, i: usize) {
         self.shard(i).wake(i);
     }
+
+    fn get_waiting_messages(&self) -> Vec<usize> {
+        let mut waiting_messages = self.shards[0].lock().unwrap().get_waiting_messages();
+        for i in 1..self.shards.len() {
+            waiting_messages.extend(self.shards[i].lock().unwrap().get_waiting_messages());
+        }
+    waiting_messages.sort();
+    waiting_messages
+    }
+
 }
 
 pub struct SenderStatus{
@@ -355,6 +373,10 @@ impl OrderingSender {
             current_written: state.written,
             buf_size: state.buf.len()
         }
+    }
+
+    pub fn get_waiting_messages(&self) -> Vec<usize> {
+        self.waiting.get_waiting_messages()
     }
 
 }

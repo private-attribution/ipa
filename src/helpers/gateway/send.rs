@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll}, collections::{HashSet, HashMap}, sync::Mutex,
+    task::{Context, Poll}, collections::HashMap,
 };
 use typenum::Unsigned;
 
@@ -36,9 +36,7 @@ pub(super) struct GatewaySender {
     channel_id: ChannelId,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
-
     message_size: usize,
-    pending_records: Mutex<HashSet<usize>>,
 }
 
 impl GatherWaitingMessage for GatewaySender {
@@ -54,7 +52,6 @@ impl GatewaySender {
             channel_id,
             ordering_tx: tx,
             total_records,
-            pending_records: Mutex::new(HashSet::new()),
             message_size,
         }
     }
@@ -77,9 +74,7 @@ impl GatewaySender {
         // TODO: make OrderingSender::send fallible
         // TODO: test channel close
         let i = usize::from(record_id);
-        self.pending_records.lock().unwrap().insert(i);
         self.ordering_tx.send(i, msg).await;
-        self.pending_records.lock().unwrap().remove(&i);
         if self.total_records.is_last(record_id) {
             self.ordering_tx.close(i + 1).await;
         }
@@ -91,8 +86,8 @@ impl GatewaySender {
     }
 
     fn get_missing_records(&self,)->String {
-        let pending_records = self.pending_records.lock().unwrap();
-        let last_pending_message = pending_records.iter().cloned().max();
+        let waiting_messages = self.ordering_tx.get_waiting_messages();
+        let last_pending_message = waiting_messages.iter().cloned().max();
         if let None = last_pending_message {
            return String::new();
         }
@@ -106,7 +101,7 @@ impl GatewaySender {
             let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
             let mut chunk_response = Vec::new();
             for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
-                if !pending_records.contains(&j) {
+                if !waiting_messages.contains(&j) {
                     chunk_response.push(j);
                 }
             }
