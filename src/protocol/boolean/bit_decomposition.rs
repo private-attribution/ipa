@@ -246,7 +246,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{BitDecomposition, GBIterator, G};
+    use super::{compute_bit_addition, BitDecomposition, GBIterator, G};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
@@ -259,7 +259,7 @@ mod tests {
             },
             stats::Metrics,
         },
-        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
     use bitvec::macros::internal::funty::Fundamental;
     use rand::{distributions::Standard, prelude::Distribution, Rng};
@@ -310,6 +310,38 @@ mod tests {
                 seq_prss: snapshot.get_counter(SEQUENTIAL_PRSS_GENERATED),
             }
         }
+    }
+
+    async fn bit_addition<F, S, C>(
+        world: &TestWorld,
+        r: u32,
+        g_b: GBIterator,
+        q: F,
+        num_bits: u32,
+    ) -> Vec<F>
+    where
+        F: PrimeField + ExtendableField + Sized,
+        Standard: Distribution<F>,
+    {
+        let r_f_b = get_bits::<F>(r, num_bits);
+
+        let result = world
+            .semi_honest((q, r_f_b), |ctx, (q_p, r_b_d)| async move {
+                let ctx = ctx.set_total_records(1);
+                let r_b = r_b_d.to_vec();
+                compute_bit_addition(ctx, RecordId::from(0), r_b, g_b, &q_p)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        // bit-decomposed values generate valid number of bits to fit the target field values
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
+        assert_eq!(usize::try_from(l).unwrap(), result[0].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[1].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[2].len());
+
+        result.reconstruct()
     }
 
     // 0.8 secs * 5 cases = 4 secs
