@@ -30,10 +30,16 @@ regarding how to participate in the project.
 
 ### Installation
 
-First, clone this repo. Assuming you have the [GitHub CLI](https://cli.github.com/manual/installation) installed,
+First, clone this repo. If you have the [GitHub CLI](https://cli.github.com/manual/installation) installed:
 
 ```
 gh repo clone private-attribution/ipa && cd ipa
+```
+
+or just with Git:
+
+```
+git clone https://github.com/private-attribution/ipa && cd ipa
 ```
 
 Check to make sure you have a recent version of Rust with
@@ -85,15 +91,12 @@ cargo bench --bench oneshot_arithmetic --no-default-features --features="enable-
 ```
 You can adjust the width and depth of the gates at the expense of a longer benchmarking run.
 
-(NOTE: this currently hangs for anything other than `--width 1` for at least 42 minutes.)
-
 **Other**:
 ```
 cargo bench --bench criterion_arithmetic --no-default-features --features="enable-benches descriptive-gate"
 ```
-(NOTE: this currently hangs after "Warming up for 3.0000 s". for at least 6 minutes.)
 
 ```
 cargo bench --bench iai_arithmetic --no-default-features --features="enable-benches descriptive-gate"
 ```
-(NOTE: this currently fails with error: `Unexpected error while launching valgrind. Error: No such file or directory (os error 2)`.)
+(NOTE: This benchmark only works on Linux. If you are on macOS, an error is expected.)
