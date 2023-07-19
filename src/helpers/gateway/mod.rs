@@ -17,7 +17,7 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration, thread};
+use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration};
 
 
 /// Alias for the currently configured transport.
@@ -66,7 +66,7 @@ impl<T: Transport> Gateway<T> {
         let mut handle :Option<tokio::task::JoinHandle<()>> = None;
         #[cfg(debug_assertions)]
         {
-           handle = Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers));
+           handle = Some(Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers)));
         }
         Self {
             config,
@@ -127,8 +127,8 @@ impl<T: Transport> Gateway<T> {
         )
     }
 
-    fn create_idle_tracker(senders: Arc<GatewaySenders>, receivers: Arc<GatewayReceivers<T>>) -> Option<tokio::task::JoinHandle<()>> {
-        Some(tokio::task::spawn(async move {
+    fn create_idle_tracker(senders: Arc<GatewaySenders>, receivers: Arc<GatewayReceivers<T>>) -> tokio::task::JoinHandle<()> {
+        tokio::task::spawn(async move {
             // Perform some periodic work in the background
             loop {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
@@ -136,26 +136,25 @@ impl<T: Transport> Gateway<T> {
                     // TODO: print something
                     let sender_message =senders.get_all_missing_records();
                     if !sender_message.is_empty() {
-                        println!("{:?}: Idle: waiting to send messages: {:?}", thread::current().id(), sender_message);
+                        tracing::warn!("Idle: waiting to send messages: {:?}", sender_message);
                     }
                     let receiver_message = receivers.get_waiting_messages();
                     if!receiver_message.is_empty() {
-                        println!("{:?}: Idle: waiting to receive messages:\n{:?}.", thread::current().id(), receiver_message);
+                        tracing::warn!("Idle: waiting to receive messages:\n{:?}.", receiver_message);
                     }
                 }
 
             }
-        }))
+        })
 }
 }
 
+
+#[cfg(debug_assertions)]
 impl<T: Transport> Drop for Gateway<T> {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
-        {
-            if let Some(handle) = self.idle_tracking_handle.take() {
-                handle.abort();
-            }
+        if let Some(handle) = self.idle_tracking_handle.take() {
+            handle.abort();
         }
     }
 }
