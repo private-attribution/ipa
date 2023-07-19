@@ -108,7 +108,7 @@ where
     let mut h: Vec<S> = Vec::with_capacity(el_usize + 1);
     let mut last_carry_known_to_be_zero = true;
     let mut last_carry = S::ZERO;
-    let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - &q_p;
+    let one_minus_q_p = S::share_known_value(&ctx, F::ONE) - q_p;
 
     for (bit_index, (bit, g_i)) in r_b.iter().zip(g_b).enumerate() {
         let mult_result = if last_carry_known_to_be_zero {
@@ -423,22 +423,22 @@ mod tests {
                 // (f_i - c_i) [q]_p + c_i
                 0 => {
                     // f_i = 1, c_i = 1
-                    assert_eq!(g_i, G::One)
+                    assert_eq!(g_i, G::One);
                 }
                 1 => {
                     // f_i = 0, c_i = 1
-                    assert_eq!(g_i, G::NotQ)
+                    assert_eq!(g_i, G::NotQ);
                 }
                 2 => {
                     // f_i = 1, c_i = 0
-                    assert_eq!(g_i, G::Q)
+                    assert_eq!(g_i, G::Q);
                 }
                 3 => {
                     // f_i = 0, c_i = 0
-                    assert_eq!(g_i, G::Zero)
+                    assert_eq!(g_i, G::Zero);
                 }
                 _ => {
-                    assert!(false)
+                    unreachable!()
                 }
             }
         }
