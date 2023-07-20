@@ -48,9 +48,9 @@ type SenderType = Arc<GatewaySenders>;
 type ReceiverType<T> = Arc<GatewayReceivers<T>>;
 
 #[cfg(not(debug_assertions))]
-type SenderType = Arc<GatewaySenders>;
+type SenderType = GatewaySenders;
 #[cfg(not(debug_assertions))]
-type ReceiverType<T> = Arc<GatewayReceivers<T>>;
+type ReceiverType<T> = GatewayReceivers<T>;
 
 
 pub struct Gateway<T: Transport = TransportImpl> {
@@ -76,9 +76,13 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        let senders = Arc::new(GatewaySenders::default());
-        let receivers = Arc::new(GatewayReceivers::default());
-        let handle = if cfg!(debug_assertions) { Some(Self::create_idle_tracker(Arc::clone(&senders), Arc::clone(&receivers))) } else { None };
+        let (senders, maybe_senders_clone) = Self::get_default_senders();
+        let (receivers, maybe_receivers_clone) = Self::get_default_receivers();
+        let handle = if cfg!(debug_assertions) {
+             Some(Self::create_idle_tracker(maybe_senders_clone.unwrap(), maybe_receivers_clone.unwrap()))
+            } else {
+                None
+            };
 
         Self {
             config,
@@ -97,6 +101,28 @@ impl<T: Transport> Gateway<T> {
     #[must_use]
     pub fn role(&self) -> Role {
         self.transport.role()
+    }
+
+    fn get_default_senders()->  (SenderType, Option<Arc<GatewaySenders>>) {
+        #[cfg(debug_assertions)]
+        {
+            let default_senders = Arc::new(GatewaySenders::default());
+            let clone =  Arc::clone(&default_senders);
+            return (default_senders, Some(clone));
+        }
+        #[cfg(not(debug_assertions))]
+        return (GatewaySenders::default(), None);
+    }
+
+    fn get_default_receivers()->  (ReceiverType<T>, Option<Arc<GatewayReceivers<T>>>) {
+        #[cfg(debug_assertions)]
+        {
+            let default_receivers = Arc::new(GatewayReceivers::default());
+            let clone =  Arc::clone(&default_receivers);
+            return (default_receivers, Some(clone));
+        }
+        #[cfg(not(debug_assertions))]
+        return (GatewayReceivers::default(), None);
     }
 
     #[must_use]
