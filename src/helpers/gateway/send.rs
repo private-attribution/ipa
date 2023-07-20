@@ -82,30 +82,6 @@ impl GatewaySender {
 
     fn get_missing_records(&self,)->(SenderStatus, Vec<usize>) {
         (self.ordering_tx.get_status(), self.ordering_tx.get_waiting_messages())
-        // let waiting_messages = self.ordering_tx.get_waiting_messages();
-        // let last_pending_message = waiting_messages.iter().cloned().max();
-        // if let None = last_pending_message {
-        //    return String::new();
-        // }
-        // let last_pending_message = last_pending_message.unwrap();
-        // let SenderStatus {next, current_written , buf_size} = self.ordering_tx.get_status();
-        // let chunk_head = next - current_written/self.message_size;
-        // let chunk_size = buf_size / self.message_size;
-        // let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
-        // let mut response = String::new();
-        // for i in 0..chunk_count {
-        //     let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
-        //     let mut chunk_response = Vec::new();
-        //     for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
-        //         if !waiting_messages.contains(&j) {
-        //             chunk_response.push(j);
-        //         }
-        //     }
-        //     if chunk_response.len() > 0 {
-        //         response = response + &chunk_response_head + &self.compress_numbers(&chunk_response) + " if not closed early.\n";
-        //     }
-        // }
-        // response
     }
 }
 
