@@ -81,6 +81,7 @@ impl State {
             M::Size::USIZE,
             self.spare.get()
         );
+        self.idle = false;
         let b = &mut self.buf[self.written..];
         if M::Size::USIZE <= b.len() {
             self.written += M::Size::USIZE;
@@ -100,7 +101,6 @@ impl State {
         if self.written > 0 && (self.written + self.spare.get() >= self.buf.len() || self.closed) {
             let v = self.buf[..self.written].to_vec();
             self.written = 0;
-            self.idle = false;
             Self::wake(&mut self.write_ready);
             Poll::Ready(v)
         } else {
