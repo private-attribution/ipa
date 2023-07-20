@@ -11,7 +11,7 @@ use std::{
     mem::take,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll}, ops::{Deref, DerefMut},
 };
 use typenum::Unsigned;
 
@@ -23,7 +23,7 @@ where
     M: Message,
 {
     i: usize,
-    receiver: Arc<Mutex<OperatingState<S, C>>>,
+    receiver: Arc<Mutex<IdleTrackOperatingState<S, C>>>,
     _marker: PhantomData<M>,
 }
 
@@ -144,8 +144,6 @@ where
     /// end-to-end back pressure for tasks that do not involve sending at all.
     overflow_wakers: Vec<Waker>,
     _marker: PhantomData<C>,
-
-    idle: bool,
 }
 
 impl<S, C> OperatingState<S, C>
@@ -190,7 +188,6 @@ where
     /// Wake the waker from the next future, if the next receiver has been polled.
     fn wake_next(&mut self) {
         self.next += 1;
-        self.idle = false;
         let index = self.next % self.wakers.len();
         if let Some(w) = self.wakers[index].take() {
             w.wake();
@@ -231,12 +228,6 @@ where
         }
     }
 
-    fn check_idle_and_reset(&mut self) -> bool {
-        let rst = self.idle;
-        self.idle = true;
-        rst
-    }
-
     fn get_waiting_messages(&self) ->Vec<usize> {
         let mut response = vec![self.next];
         for i in self.next + 1 ..self.next + self.wakers.len()+1 as usize {
@@ -248,6 +239,43 @@ where
     }
 }
 
+
+struct IdleTrackOperatingState<S, C>
+where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>, {
+        state: OperatingState<S, C>,
+        current_next: usize,
+    }
+
+impl<S, C> IdleTrackOperatingState<S, C> where
+    S: Stream<Item = C> + Send,
+    C: AsRef<[u8]>, {
+
+    fn check_idle_and_reset(&mut self) -> bool {
+        let rst = self.current_next == self.state.next;
+        self.current_next = self.state.next;
+        rst
+    }
+}
+
+impl<S, C> Deref for IdleTrackOperatingState<S, C> where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>, {
+    type Target = OperatingState<S, C>;
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl<S, C> DerefMut for IdleTrackOperatingState<S, C> where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>, {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
 /// Take an ordered stream of bytes and make messages from that stream
 /// available in any order.
 pub struct UnorderedReceiver<S, C>
@@ -255,7 +283,7 @@ where
     S: Stream<Item = C>,
     C: AsRef<[u8]>,
 {
-    inner: Arc<Mutex<OperatingState<S, C>>>,
+    inner: Arc<Mutex<IdleTrackOperatingState<S, C>>>,
 }
 
 #[allow(dead_code)]
@@ -277,15 +305,16 @@ where
         assert!(capacity.get() > 1, "a capacity of 1 is too small");
         let wakers = vec![None; capacity.get()];
         Self {
-            inner: Arc::new(Mutex::new(OperatingState {
+            inner: Arc::new(Mutex::new(IdleTrackOperatingState{
+                state:OperatingState {
                 stream,
                 next: 0,
                 spare: Spare::default(),
                 wakers,
                 overflow_wakers: Vec::new(),
-                _marker: PhantomData,
-                idle: true,
-            }))
+                _marker: PhantomData
+            },
+        current_next: 0,}))
         }
     }
 

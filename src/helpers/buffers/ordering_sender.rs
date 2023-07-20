@@ -20,7 +20,7 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{Context, Poll}, ops::{Deref, DerefMut},
 };
 use typenum::Unsigned;
 
@@ -40,8 +40,6 @@ struct State {
     write_ready: Option<Waker>,
     /// Another entity to wake when the buffer is read from.
     stream_ready: Option<Waker>,
-    /// record whether the sender is idle recently
-    idle: bool,
 }
 
 impl State {
@@ -52,8 +50,7 @@ impl State {
             written: 0,
             closed: false,
             write_ready: None,
-            stream_ready: None,
-            idle: true
+            stream_ready: None
         }
     }
 
@@ -81,7 +78,6 @@ impl State {
             M::Size::USIZE,
             self.spare.get()
         );
-        self.idle = false;
         let b = &mut self.buf[self.written..];
         if M::Size::USIZE <= b.len() {
             self.written += M::Size::USIZE;
@@ -114,13 +110,46 @@ impl State {
         self.closed = true;
         Self::wake(&mut self.stream_ready);
     }
+
+}
+
+struct IdleTrackState{
+    state: State,
+    idle: bool,
+}
+
+impl IdleTrackState {
+   fn new(capacity: NonZeroUsize, spare: NonZeroUsize)->Self {
+       IdleTrackState{
+        state:State::new(capacity, spare),
+        idle: true,
+       }
+    }
+    fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
+        self.idle = false;
+        self.state.write(m, cx)
+    }
     fn check_idle_and_reset(&mut self) -> bool {
         let rst = self.idle;
         self.idle = true;
         rst
     }
-
 }
+
+impl Deref for IdleTrackState {
+    type Target = State;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl DerefMut for IdleTrackState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+       &mut self.state
+    }
+}
+
 
 /// An saved waker for a given index.
 struct WakerItem {
@@ -256,7 +285,7 @@ pub struct SenderStatus{
 /// [`close`]: OrderingSender::close
 pub struct OrderingSender {
     next: AtomicUsize,
-    state: Mutex<State>,
+    state: Mutex<IdleTrackState>,
     waiting: Waiting,
     message_size:usize
 }
@@ -267,7 +296,7 @@ impl OrderingSender {
     pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize, message_size:usize) -> Self {
         Self {
             next: AtomicUsize::new(0),
-            state: Mutex::new(State::new(write_size, spare)),
+            state: Mutex::new(IdleTrackState::new(write_size, spare)),
             waiting: Waiting::default(),
             message_size
         }
@@ -306,7 +335,7 @@ impl OrderingSender {
     /// Perform the next `send` or `close` operation.
     fn next_op<F>(&self, i: usize, cx: &Context<'_>, f: F) -> Poll<()>
     where
-        F: FnOnce(&mut MutexGuard<'_, State>) -> Poll<()>,
+        F: FnOnce(&mut MutexGuard<'_, IdleTrackState>) -> Poll<()>,
     {
         // This load here is on the hot path.
         // Don't acquire the state mutex unless this test passes.
