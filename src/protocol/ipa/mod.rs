@@ -33,9 +33,8 @@ use futures::{
     stream::iter as stream_iter,
 };
 use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::{iter::zip, marker::PhantomData, ops::Add};
-use strum::AsRefStr;
 use typenum::Unsigned;
 
 #[step]

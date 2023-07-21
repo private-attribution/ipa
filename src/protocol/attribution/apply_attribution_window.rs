@@ -12,12 +12,11 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::{
     iter::{repeat, zip},
     num::NonZeroU32,
 };
-use strum::AsRefStr;
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to

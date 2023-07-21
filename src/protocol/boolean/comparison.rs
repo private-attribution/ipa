@@ -10,8 +10,7 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::{step, Step};
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //

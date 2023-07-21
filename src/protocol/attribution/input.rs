@@ -7,9 +7,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::future::try_join4;
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::marker::PhantomData;
-use strum::AsRefStr;
 
 //
 // `apply_attribution_window` protocol
@@ -135,8 +134,8 @@ impl<F: Field, T: LinearSecretSharing<F>> CreditCappingInputRow<F, T> {
     }
 }
 
-#[step]
-pub enum AttributionResharableStep {
+#[step(obsolete)]
+pub(crate) enum AttributionResharableStep {
     IsTriggerReport,
     HelperBit,
     TriggerValue,

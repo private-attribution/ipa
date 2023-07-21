@@ -20,13 +20,12 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::future::try_join;
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::{
     any::type_name,
     fmt::{Debug, Formatter},
     marker::PhantomData,
 };
-use strum::AsRefStr;
 
 #[async_trait]
 pub trait Validator<B: UpgradableContext, F: ExtendableField> {

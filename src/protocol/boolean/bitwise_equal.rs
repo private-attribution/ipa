@@ -8,9 +8,8 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::iter::zip;
-use strum::AsRefStr;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
 ///
@@ -108,7 +107,7 @@ where
     .await
 }
 
-#[step]
+#[step(obsolete)]
 pub(crate) enum Step {
     XorAllTheBits,
 }

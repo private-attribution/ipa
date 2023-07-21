@@ -10,9 +10,8 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join;
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::cmp::Ordering;
-use strum::AsRefStr;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///

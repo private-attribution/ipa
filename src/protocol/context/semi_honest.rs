@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use crate::{
     error::Error,
     helpers::{Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
@@ -19,6 +17,8 @@ use crate::{
     },
     seq_join::SeqJoin,
 };
+use async_trait::async_trait;
+use ipa_macros::{step, Step};
 use std::{
     any::type_name,
     fmt::{Debug, Formatter},
@@ -185,16 +185,14 @@ impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
     }
 }
 
-// This is a dummy step that is used to narrow (but never executed) the semi-honest context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct UpgradeStep;
-
-impl Step for UpgradeStep {}
-
-impl AsRef<str> for UpgradeStep {
-    fn as_ref(&self) -> &str {
-        "upgrade_semi-honest"
-    }
+// This is a dummy step that is used to narrow (but never executed) the semi-honest
+// context. Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
+// `UpgradeToMalicious::upgrade()` narrows but these will end up in
+// `UpgradedContext::upgrade_one()` or `UpgradedContext::upgrade_sparse()` which both
+// return Ok() and never trigger communications.
+#[step]
+pub(crate) enum UpgradeStep {
+    UpgradeSemiHonest,
 }
 
 #[async_trait]
@@ -224,7 +222,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
+        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), NoRecord)
             .upgrade(input)
             .await
     }
@@ -234,7 +232,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
+        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), record_id)
             .upgrade(input)
             .await
     }

@@ -8,9 +8,8 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::num::NonZeroU32;
-use strum::AsRefStr;
 
 ///
 /// When `PER_USER_CAP` is set to one, this function is called

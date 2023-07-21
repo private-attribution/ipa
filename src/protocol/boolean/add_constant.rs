@@ -4,6 +4,7 @@ use crate::{
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::{step, Step};
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -194,19 +195,9 @@ where
     Ok(output)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step(obsolete)]
 pub(crate) enum Step {
     CarryXorBitTimesMaybe,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::CarryXorBitTimesMaybe => "carry_xor_bit_times_maybe",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

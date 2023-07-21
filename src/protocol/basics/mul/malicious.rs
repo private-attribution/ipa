@@ -12,9 +12,8 @@ use crate::{
     },
 };
 use futures::future::try_join;
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::fmt::Debug;
-use strum::AsRefStr;
 
 #[step]
 pub(crate) enum Step {

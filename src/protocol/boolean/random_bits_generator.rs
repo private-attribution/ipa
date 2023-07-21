@@ -5,11 +5,11 @@ use crate::{
     protocol::{
         boolean::solved_bits::{solved_bits, RandomBitsShare},
         context::UpgradedContext,
-        step::Step,
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::{step, Step};
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, Ordering},
@@ -32,15 +32,10 @@ pub struct RandomBitsGenerator<F, C, S> {
 /// Special context that is used when values generated using the standard method are larger
 /// than the prime for the field. It is grossly inefficient to use, because communications
 /// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
-pub(crate) struct FallbackStep;
-
-impl AsRef<str> for FallbackStep {
-    fn as_ref(&self) -> &str {
-        "fallback"
-    }
+#[step]
+pub(crate) enum FallbackStep {
+    Fallback,
 }
-
-impl Step for FallbackStep {}
 
 impl<F, C, S> RandomBitsGenerator<F, C, S>
 where
@@ -51,7 +46,7 @@ where
     #[must_use]
     pub fn new(ctx: C) -> Self {
         let fallback_ctx = ctx
-            .narrow(&FallbackStep)
+            .narrow(&FallbackStep::Fallback)
             .set_total_records(TotalRecords::Indeterminate);
         Self {
             ctx,

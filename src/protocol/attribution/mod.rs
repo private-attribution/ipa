@@ -22,7 +22,6 @@ use crate::{
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{
             malicious::{DowngradeMalicious, ExtendableField},
@@ -36,9 +35,8 @@ use futures::{
     future::try_join,
     stream::{iter as stream_iter, TryStreamExt},
 };
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::iter::{once as iter_once, zip};
-use strum::AsRefStr;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -433,19 +431,14 @@ pub(in crate::protocol) enum Step {
     ComputeStopBits,
 }
 
-pub(crate) struct InteractionPatternStep(usize);
-
-impl crate::protocol::step::Step for InteractionPatternStep {}
-
-impl AsRef<str> for InteractionPatternStep {
-    fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 64] = repeat64str!["depth"];
-        DEPTH[self.0]
-    }
+#[step]
+pub(crate) enum InteractionPatternStep {
+    #[dynamic]
+    Depth(usize),
 }
 
 impl From<usize> for InteractionPatternStep {
     fn from(v: usize) -> Self {
-        Self(v)
+        Self::Depth(v)
     }
 }

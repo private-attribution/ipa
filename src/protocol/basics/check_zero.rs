@@ -9,8 +9,7 @@ use crate::{
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::{step, Step};
 
 #[step]
 pub(crate) enum Step {

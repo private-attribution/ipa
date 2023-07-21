@@ -12,8 +12,7 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::{step, Step};
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -79,7 +78,7 @@ impl BitDecomposition {
     }
 }
 
-#[step]
+#[step(obsolete)]
 pub(crate) enum Step {
     RevealAMinusB,
     AddBtoC,

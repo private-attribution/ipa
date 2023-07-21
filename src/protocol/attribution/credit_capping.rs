@@ -15,9 +15,8 @@ use futures::{
     stream::{iter, once},
     StreamExt, TryStreamExt,
 };
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::iter::{repeat, zip};
-use strum::AsRefStr;
 
 /// User-level credit capping protocol.
 ///

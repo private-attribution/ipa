@@ -9,7 +9,6 @@ use crate::{
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         BitDecomposed, Linear as LinearSecretSharing,
@@ -17,9 +16,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::marker::PhantomData;
-use strum::AsRefStr;
 
 /// Special context type used for malicious upgrades.
 ///
@@ -163,19 +161,10 @@ where
     }
 }
 
+#[step]
 pub(crate) enum Upgrade2DVectors {
-    V(usize),
-}
-impl Step for Upgrade2DVectors {}
-
-impl AsRef<str> for Upgrade2DVectors {
-    fn as_ref(&self) -> &str {
-        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
-
-        match self {
-            Self::V(i) => COLUMN[*i],
-        }
-    }
+    #[dynamic]
+    Upgrade2d(usize),
 }
 
 #[async_trait]
@@ -219,7 +208,7 @@ where
         BitDecomposed::try_from(
             self.ctx
                 .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
-                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
+                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::Upgrade2d(i)), record_id)
                         .upgrade(share)
                         .await
                 }))

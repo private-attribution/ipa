@@ -17,9 +17,8 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use ipa_macros::step;
+use ipa_macros::{step, Step};
 use std::marker::PhantomData;
-use strum::AsRefStr;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>

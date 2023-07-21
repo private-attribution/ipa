@@ -7,9 +7,7 @@ use crate::{
     },
 };
 use futures_util::future::try_join4;
-
 use rand_core::{CryptoRng, RngCore};
-
 use x25519_dalek::PublicKey;
 
 pub struct PrssExchangeStep;
