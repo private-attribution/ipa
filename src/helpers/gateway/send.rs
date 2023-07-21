@@ -27,7 +27,7 @@ pub struct SendingEnd<M: Message> {
 }
 
 /// Sending channels, indexed by (role, step).
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub(super) struct GatewaySenders {
     inner: DashMap<ChannelId, Arc<GatewaySender>>,
 }
