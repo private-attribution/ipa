@@ -18,7 +18,7 @@ pub struct ReceivingEnd<T: Transport, M: Message> {
 
 /// Receiving channels, indexed by (role, step).
 pub(super) struct GatewayReceivers<T: Transport> {
-    pub inner: DashMap<ChannelId, UR<T>>,
+    inner: DashMap<ChannelId, UR<T>>,
 }
 
 pub(super) type UR<T> = UnorderedReceiver<
