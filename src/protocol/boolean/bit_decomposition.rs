@@ -211,6 +211,7 @@ where
     Ok(h)
 }
 
+#[derive(Copy, Clone)]
 struct GBIterator {
     f: u128,
     c: u128,
@@ -444,7 +445,6 @@ mod tests {
             tracing::warn!("Baseline for Bit Decomposition has improved! Expected {expected:?}, got {actual:?}. \
             Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
         }
-        println!("{:?}", actual);
     }
 
     // This test takes more than 15 secs... I'm disabling it for now until
