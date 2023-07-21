@@ -9,7 +9,8 @@ use super::{
 use crate::{
     error::Error,
     ff::PrimeField,
-    protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId},
+    repeat64str,
     secret_sharing::Linear as LinearSecretSharing,
 };
 
@@ -52,9 +53,10 @@ impl BitDecomposition {
             .await?;
 
         // Step 2.1: Edge case, if r is coincidentally a bit decomposition of [a]_p, we're done.
-        if c == F::ZERO {
-            return Ok(r.b_b);
-        }
+        //  actually don't want this because it would be a different than expected number of multiplications.
+        // if c == F::ZERO {
+        //     return Ok(r.b_b);
+        // }
         let c_int: u128 = c.as_u128();
 
         // Step 3. Compute [q]_p = 1 - [r_B < p - c ]_p. q is 1 iff r + c >= p in the integers.
@@ -126,13 +128,21 @@ where
         let mult_result = if last_carry_known_to_be_zero {
             // fake multiplication so that there is a fixed number of them
             S::ZERO
-                .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                .multiply(
+                    &S::ZERO,
+                    ctx.narrow(&BitAdditionStep::MultiplyStep(bit_index)),
+                    record_id,
+                ) // this is stupid
                 .await?;
 
             S::ZERO
         } else {
             last_carry
-                .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
+                .multiply(
+                    bit,
+                    ctx.narrow(&BitAdditionStep::MultiplyStep(bit_index)),
+                    record_id,
+                )
                 .await?
         };
         let last_carry_or_bit = -mult_result.clone() + &last_carry + bit;
@@ -140,14 +150,22 @@ where
             G::Zero => {
                 // fake multiplication so that there is a fixed number of them
                 S::ZERO
-                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                    .multiply(
+                        &S::ZERO,
+                        ctx.narrow(&BitAdditionStep::CarryStep(bit_index)),
+                        record_id,
+                    ) // this is stupid
                     .await?;
                 mult_result
             }
             G::One => {
                 // fake multiplication so that there is a fixed number of them
                 S::ZERO
-                    .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                    .multiply(
+                        &S::ZERO,
+                        ctx.narrow(&BitAdditionStep::CarryStep(bit_index)),
+                        record_id,
+                    ) // this is stupid
                     .await?;
 
                 last_carry_known_to_be_zero = false;
@@ -158,7 +176,7 @@ where
                 q_p.multiply(
                     &last_carry_or_bit,
                     // hack since we have two bit steps
-                    ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
+                    ctx.narrow(&BitAdditionStep::CarryStep(bit_index)),
                     record_id,
                 )
                 .await?
@@ -169,7 +187,7 @@ where
                     .multiply(
                         &last_carry_or_bit,
                         // hack since we have two bit steps
-                        ctx.narrow(&BitOpStep::from(el_usize + bit_index)),
+                        ctx.narrow(&BitAdditionStep::CarryStep(bit_index)),
                         record_id,
                     )
                     .await?
@@ -247,10 +265,6 @@ pub(crate) enum Step {
     RevealAMinusB,
     IsRLessThanPMinusC,
     AddGtoR,
-    // todo remove these
-    // AddBtoC,
-    // IsPLessThanD,
-    // AddDtoG,
 }
 
 impl crate::protocol::step::Step for Step {}
@@ -261,10 +275,29 @@ impl AsRef<str> for Step {
             Self::RevealAMinusB => "reveal_a_minus_b",
             Self::IsRLessThanPMinusC => "is_r_less_than_p_minus_c",
             Self::AddGtoR => "add_g_to_r",
-            // todo remove these
-            // Self::AddBtoC => "add_b_to_c",
-            // Self::IsPLessThanD => "is_p_less_than_d",
-            // Self::AddDtoG => "add_d_to_g",
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum BitAdditionStep {
+    MultiplyStep(usize),
+    CarryStep(usize),
+}
+
+impl crate::protocol::step::Step for BitAdditionStep {}
+
+impl AsRef<str> for BitAdditionStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            BitAdditionStep::MultiplyStep(v) => {
+                const BIT_OP: [&str; 64] = repeat64str!["multiply_bit"];
+                BIT_OP[*v]
+            }
+            BitAdditionStep::CarryStep(v) => {
+                const BIT_OP: [&str; 64] = repeat64str!["carry_bit"];
+                BIT_OP[*v]
+            }
         }
     }
 }
