@@ -183,9 +183,9 @@ mod tests {
         let world = TestWorld::new_with(test_config);
         let c = Fp31::truncate_from;
         let expected = PerfMetrics {
-            records_sent: 1620,
-            bytes_sent: 1620,
-            indexed_prss: 1890,
+            records_sent: 1560,
+            bytes_sent: 1560,
+            indexed_prss: 1830,
             seq_prss: 0,
         };
         for _ in 0..20 {
