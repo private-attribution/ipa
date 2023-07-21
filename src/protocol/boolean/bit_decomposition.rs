@@ -94,17 +94,18 @@ impl BitDecomposition {
     }
 }
 
-async fn compute_bit_addition<'a, F, S, C>(
+async fn compute_bit_addition<'a, F, S, C, I>(
     ctx: C,
     record_id: RecordId,
     r_b: Vec<S>,
-    g_b: GBIterator,
+    g_b: I,
     q_p: &S,
 ) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
+    I: Iterator<Item = G>,
 {
     let el_usize = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
     let mut h: Vec<S> = Vec::with_capacity(el_usize + 1);
@@ -252,7 +253,7 @@ impl Iterator for GBIterator {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum G {
     Zero,
     One,
@@ -373,7 +374,7 @@ mod tests {
     async fn bit_addition<F>(
         world: &TestWorld,
         r: u32,
-        g_b: GBIterator,
+        g_b_vec: Vec<G>,
         q: F,
         num_bits: u32,
     ) -> Vec<F>
@@ -384,12 +385,15 @@ mod tests {
         let r_f_b = get_bits::<F>(r, num_bits);
 
         let result = world
-            .semi_honest((q, r_f_b), |ctx, (q_p, r_b_d)| async move {
-                let ctx = ctx.set_total_records(1);
-                let r_b = r_b_d.to_vec();
-                compute_bit_addition(ctx, RecordId::from(0), r_b, g_b, &q_p)
-                    .await
-                    .unwrap()
+            .semi_honest((q, r_f_b), |ctx, (q_p, r_b_d)| {
+                let g_b = &g_b_vec;
+                async move {
+                    let ctx = ctx.set_total_records(1);
+                    let r_b = r_b_d.to_vec();
+                    compute_bit_addition(ctx, RecordId::from(0), r_b, g_b.iter().copied(), &q_p)
+                        .await
+                        .unwrap()
+                }
             })
             .await;
 
