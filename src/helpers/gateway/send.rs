@@ -38,8 +38,8 @@ pub(super) struct GatewaySenders {
     inner: DashMap<ChannelId, Arc<GatewaySender>>,
 }
 
- #[cfg(debug_assertions)]
-use crate::helpers::buffers::ordering_sender::IdleTrackOrderingSender;
+#[cfg(debug_assertions)]
+use crate::helpers::buffers::IdleTrackOrderingSender;
 #[cfg(debug_assertions)]
 type OrderingSenderType = IdleTrackOrderingSender;
 
@@ -48,7 +48,6 @@ use crate::helpers::buffers::OrderingSender;
 
 #[cfg(not(debug_assertions))]
 type OrderingSenderType = OrderingSender;
-
 
 pub(super) struct GatewaySender {
     channel_id: ChannelId,

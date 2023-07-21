@@ -77,7 +77,7 @@ impl<T: Transport> Gateway<T> {
     ) -> Self {
         let (senders, _maybe_senders_clone) = Self::get_default_senders();
         let (receivers, _maybe_receivers_clone) = Self::get_default_receivers();
-         #[cfg(debug_assertions)]
+        #[cfg(debug_assertions)]
         let handle = if cfg!(debug_assertions) {
             Some(Self::create_idle_tracker(
                 _maybe_senders_clone.unwrap(),
@@ -97,7 +97,7 @@ impl<T: Transport> Gateway<T> {
             },
             senders,
             receivers,
-             #[cfg(debug_assertions)]
+            #[cfg(debug_assertions)]
             idle_tracking_handle: handle,
         }
     }

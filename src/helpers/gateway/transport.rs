@@ -1,11 +1,22 @@
 use crate::{
     helpers::{
-        buffers::UnorderedReceiver,
         gateway::{receive::UR, send::GatewaySendStream},
         ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
     },
     protocol::QueryId,
 };
+
+#[cfg(debug_assertions)]
+use crate::helpers::buffers::IdleTrackUnorderedReceiver;
+
+#[cfg(not(debug_assertions))]
+use crate::helpers::buffers::UnorderedReceiver;
+
+#[cfg(debug_assertions)]
+type ReceiverType<S, C> = IdleTrackUnorderedReceiver<S, C>;
+
+#[cfg(not(debug_assertions))]
+type ReceiverType<S, C> = UnorderedReceiver<S, C>;
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
@@ -49,7 +60,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
             "can't receive message from itself"
         );
 
-        UnorderedReceiver::new(
+        ReceiverType::new(
             Box::pin(
                 self.inner
                     .receive(peer, (self.query_id, channel_id.gate.clone())),

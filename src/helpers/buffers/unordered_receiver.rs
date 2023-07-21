@@ -16,6 +16,7 @@ use std::{
 
 use typenum::Unsigned;
 
+#[cfg(debug_assertions)]
 use crate::helpers::buffers::LoggingRanges;
 
 #[cfg(debug_assertions)]
@@ -256,16 +257,6 @@ where
             }
         }
     }
-
-    fn get_waiting_messages(&self) -> LoggingRanges {
-        let mut response = vec![self.next];
-        for i in self.next + 1..self.next + self.wakers.len() + 1_usize {
-            if self.wakers[i % self.wakers.len()].is_some() {
-                response.push(i);
-            }
-        }
-        LoggingRanges::from(&response)
-    }
 }
 
 #[cfg(debug_assertions)]
@@ -301,6 +292,16 @@ where
         let rst = self.current_next == self.state.next;
         self.current_next = self.state.next;
         rst
+    }
+    #[cfg(debug_assertions)]
+    fn get_waiting_messages(&self) -> LoggingRanges {
+        let mut response = vec![self.next];
+        for i in self.next + 1..self.next + self.wakers.len() + 1_usize {
+            if self.wakers[i % self.wakers.len()].is_some() {
+                response.push(i);
+            }
+        }
+        LoggingRanges::from(&response)
     }
 }
 
@@ -381,17 +382,6 @@ where
             _marker: PhantomData,
         }
     }
-
-    pub fn check_idle_and_reset(&self) -> bool {
-        #[cfg(not(debug_assertions))]
-        return false;
-        #[cfg(debug_assertions)]
-        self.inner.lock().unwrap().check_idle_and_reset()
-    }
-
-    pub fn get_waiting_messages(&self) -> LoggingRanges {
-        self.inner.lock().unwrap().get_waiting_messages()
-    }
 }
 
 impl<S, C> Clone for UnorderedReceiver<S, C>
@@ -403,6 +393,67 @@ where
         Self {
             inner: Arc::clone(&self.inner),
         }
+    }
+}
+
+pub struct IdleTrackUnorderedReceiver<S, C>(UnorderedReceiver<S, C>)
+where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>;
+
+#[cfg(debug_assertions)]
+impl<S, C> IdleTrackUnorderedReceiver<S, C>
+where
+    S: Stream<Item = C> + Send,
+    C: AsRef<[u8]>,
+{
+    pub fn new(stream: Pin<Box<S>>, capacity: NonZeroUsize) -> Self {
+        Self(UnorderedReceiver::new(stream, capacity))
+    }
+
+    pub fn check_idle_and_reset(&self) -> bool {
+        #[cfg(not(debug_assertions))]
+        return false;
+        #[cfg(debug_assertions)]
+        self.0.inner.lock().unwrap().check_idle_and_reset()
+    }
+
+    pub fn get_waiting_messages(&self) -> LoggingRanges {
+        self.0.inner.lock().unwrap().get_waiting_messages()
+    }
+}
+
+#[cfg(debug_assertions)]
+impl<S, C> Deref for IdleTrackUnorderedReceiver<S, C>
+where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>,
+{
+    type Target = UnorderedReceiver<S, C>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(debug_assertions)]
+impl<S, C> DerefMut for IdleTrackUnorderedReceiver<S, C>
+where
+    S: Stream<Item = C>,
+    C: AsRef<[u8]>,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<S, C> Clone for IdleTrackUnorderedReceiver<S, C>
+where
+    S: Stream<Item = C> + Send,
+    C: AsRef<[u8]>,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 

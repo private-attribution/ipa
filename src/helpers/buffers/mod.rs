@@ -2,11 +2,12 @@ mod ordering_mpsc;
 pub(crate) mod ordering_sender;
 mod unordered_receiver;
 
+#[cfg(debug_assertions)]
 use std::{fmt, ops::Range};
 
 pub use ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender};
-pub use ordering_sender::{OrderedStream, OrderingSender};
-pub use unordered_receiver::UnorderedReceiver;
+pub use ordering_sender::{IdleTrackOrderingSender, OrderedStream, OrderingSender};
+pub use unordered_receiver::{IdleTrackUnorderedReceiver, UnorderedReceiver};
 
 #[cfg(debug_assertions)]
 use itertools::Itertools;
@@ -44,8 +45,10 @@ mod waiting {
     }
 }
 
+#[cfg(debug_assertions)]
 pub struct LoggingRanges(Vec<Range<usize>>);
 
+#[cfg(debug_assertions)]
 impl LoggingRanges {
     pub fn from(numbers: &[usize]) -> Self {
         if numbers.is_empty() {
@@ -75,6 +78,7 @@ impl LoggingRanges {
     }
 }
 
+#[cfg(debug_assertions)]
 impl fmt::Debug for LoggingRanges {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Collect the formatted ranges into a vector of strings

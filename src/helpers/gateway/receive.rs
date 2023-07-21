@@ -1,19 +1,22 @@
 use crate::{
-    helpers::{
-        buffers::{UnorderedReceiver},
-        ChannelId, Error, Message, Transport,
-    },
+    helpers::{ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
 use dashmap::DashMap;
 use futures::Stream;
-use std::{marker::PhantomData};
+use std::marker::PhantomData;
 
 #[cfg(debug_assertions)]
 use crate::helpers::buffers::LoggingRanges;
 
 #[cfg(debug_assertions)]
 use std::collections::HashMap;
+
+#[cfg(debug_assertions)]
+use crate::helpers::buffers::IdleTrackUnorderedReceiver;
+
+#[cfg(not(debug_assertions))]
+use crate::helpers::buffers::UnorderedReceiver;
 
 /// Receiving end end of the gateway channel.
 pub struct ReceivingEnd<T: Transport, M: Message> {
@@ -27,6 +30,13 @@ pub(super) struct GatewayReceivers<T: Transport> {
     inner: DashMap<ChannelId, UR<T>>,
 }
 
+#[cfg(debug_assertions)]
+pub(super) type UR<T> = IdleTrackUnorderedReceiver<
+    <T as Transport>::RecordsStream,
+    <<T as Transport>::RecordsStream as Stream>::Item,
+>;
+
+#[cfg(not(debug_assertions))]
 pub(super) type UR<T> = UnorderedReceiver<
     <T as Transport>::RecordsStream,
     <<T as Transport>::RecordsStream as Stream>::Item,
