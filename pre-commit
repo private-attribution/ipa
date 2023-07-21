@@ -102,3 +102,4 @@ check "Sort benchmark" \
 
 check "ipa-macros tests" \
     pushd ipa-macros && cargo test --features="trybuild" && popd
+    
