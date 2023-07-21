@@ -18,7 +18,7 @@ ARG IDENTITY
 ARG HOSTNAME
 ARG SOURCES_DIR
 
-RUN apt-get update && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder ${SOURCES_DIR}/target/release/helper $HELPER_BIN_PATH
 
 # generate certificate/private key for TLS
