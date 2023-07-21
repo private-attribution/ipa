@@ -79,7 +79,7 @@ pub(crate) mod task {
     pub use tokio::task::{JoinError, JoinHandle};
 }
 
-#[cfg(all(feature = "shuttle", test))]
+#[cfg(all(test, feature = "shuttle"))]
 pub(crate) mod test_executor {
     use std::future::Future;
 
@@ -97,6 +97,14 @@ pub(crate) mod test_executor {
         Fut: Future<Output = ()>,
     {
         shuttle::check_random(move || shuttle::future::block_on(f()), ITER);
+    }
+
+    pub fn spawn<F>(f: F) -> shuttle::future::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        shuttle::future::spawn(f)
     }
 }
 
@@ -122,6 +130,14 @@ pub(crate) mod test_executor {
             .build()
             .unwrap()
             .block_on(f());
+    }
+
+    pub fn spawn<F>(f: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        tokio::spawn(f)
     }
 }
 

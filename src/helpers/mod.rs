@@ -7,6 +7,7 @@ mod buffers;
 mod error;
 mod gateway;
 pub(crate) mod prss_protocol;
+mod spsc;
 mod transport;
 
 pub use error::{Error, Result};
