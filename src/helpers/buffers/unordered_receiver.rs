@@ -16,6 +16,8 @@ use std::{
 
 use typenum::Unsigned;
 
+use crate::helpers::buffers::LoggingRanges;
+
 #[cfg(debug_assertions)]
 use std::ops::{Deref, DerefMut};
 
@@ -249,14 +251,14 @@ where
         }
     }
 
-    fn get_waiting_messages(&self) ->Vec<usize> {
+    fn get_waiting_messages(&self) ->LoggingRanges {
         let mut response = vec![self.next];
         for i in self.next + 1 ..self.next + self.wakers.len()+1 as usize {
             if let Some(_) = self.wakers[i % self.wakers.len()] {
                 response.push(i);
             }
         }
-        response
+        LoggingRanges::from(&response)
     }
 }
 
@@ -362,7 +364,7 @@ where
         self.inner.lock().unwrap().check_idle_and_reset()
     }
 
-    pub fn get_waiting_messages(&self) ->Vec<usize> {
+    pub fn get_waiting_messages(&self) -> LoggingRanges {
         self.inner.lock().unwrap().get_waiting_messages()
     }
 }

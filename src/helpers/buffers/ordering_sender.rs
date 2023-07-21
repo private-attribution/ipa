@@ -24,6 +24,8 @@ use std::{
 };
 use typenum::Unsigned;
 
+use crate::helpers::buffers::LoggingRanges;
+
 #[cfg(debug_assertions)]
 use std::ops::{Deref, DerefMut};
 
@@ -270,13 +272,6 @@ impl Waiting {
 
 }
 
-pub struct SenderStatus{
-    pub next:usize,
-    pub current_written: usize,
-    pub buf_size: usize,
-    pub message_size: usize,
-}
-
 /// An `OrderingSender` accepts messages for sending in any order, but
 /// ensures that they are serialized based on an index.
 ///
@@ -415,18 +410,30 @@ impl OrderingSender {
         self.state.lock().unwrap().check_idle_and_reset()
     }
 
-    pub fn get_status(&self) ->SenderStatus {
-        let state = self.state.lock().unwrap();
-        SenderStatus{
-            next: self.next.load(Acquire),
-            current_written: state.written,
-            buf_size: state.buf.len(),
-            message_size: self.message_size
+    pub fn get_missing_messages(&self) -> Vec<LoggingRanges> {
+        let waiting_messages = self.waiting.get_waiting_messages();
+        if waiting_messages.is_empty() {
+            return vec![];
+        } else {
+            let last_pending_message = waiting_messages.iter().cloned().max().unwrap();
+            let next = self.next.load(Acquire);
+            let state = self.state.lock().unwrap();
+            let chunk_head =  next - state.written / self.message_size;
+            let chunk_size = state.buf.len() / self.message_size;
+            let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
+            let mut responses = Vec::new();
+            for i in 0..chunk_count {
+                let mut chunk_response = Vec::new();
+                for j in (chunk_head + i * chunk_size).. chunk_head + (i + 1)* chunk_size {
+                    if ! waiting_messages.contains(&j) {
+                        chunk_response.push(j);
+                    }
+                }
+                responses.push(LoggingRanges::from(&chunk_response));
+            }
+            responses
         }
-    }
 
-    pub fn get_waiting_messages(&self) -> Vec<usize> {
-        self.waiting.get_waiting_messages()
     }
 
 }

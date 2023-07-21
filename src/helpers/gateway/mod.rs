@@ -1,7 +1,6 @@
 mod receive;
 mod send;
 mod transport;
-use itertools::Itertools;
 
 pub use send::SendingEnd;
 
@@ -18,9 +17,8 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration, collections::HashMap};
+use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration};
 
-use super::buffers::SenderStatus;
 
 
 /// Alias for the currently configured transport.
@@ -171,68 +169,19 @@ impl<T: Transport> Gateway<T> {
             loop {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
-                    let sender_missing_records =senders.get_all_missing_records();
-                    let sender_message : HashMap<&ChannelId, String> = sender_missing_records.iter().map(|entry|{
-                        let (SenderStatus {next, current_written , buf_size, message_size},missing_records) = entry.1;
-                        let last_pending_message = missing_records.iter().cloned().max();
-                            let last_pending_message = last_pending_message.unwrap();
-                            let chunk_head = next - current_written / message_size;
-                            let chunk_size = buf_size / message_size;
-                            let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
-                            let mut response = String::new();
-                            for i in 0..chunk_count {
-                                let chunk_response_head = format!("The next, {}-th chunk, missing: ", i);
-                                let mut chunk_response = Vec::new();
-                                for j in (chunk_head + i * chunk_size).. chunk_head + (i+1)* chunk_size {
-                                    if ! missing_records.contains(&j) {
-                                        chunk_response.push(j);
-                                    }
-                                }
-                                if chunk_response.len() > 0 {
-                                    response = response + &chunk_response_head + &Self::compress_numbers(&chunk_response) + " if not closed early.\n";
-                                }
-                            }
-
-                            (entry.0, response)
-                        }).collect();
-                    if !sender_message.is_empty() {
-                        tracing::warn!("Idle: waiting to send messages:\n{:?}", sender_message);
+                    let sender_missing_records =senders.get_all_missing_messages();
+                    if !sender_missing_records.is_empty() {
+                        tracing::warn!("Idle: waiting to send messages:\n{:?}", sender_missing_records);
                     }
                     let receiver_waiting_message = receivers.get_waiting_messages();
-                    let receiver_message : HashMap<&ChannelId, String> = receiver_waiting_message.iter().map(|entry| {
-                    (entry.0, Self::compress_numbers(entry.1))}).collect();
-
-                    if!receiver_message.is_empty() {
-                        tracing::warn!("Idle: waiting to receive messages:\n{:?}.", receiver_message);
+                    if!receiver_waiting_message.is_empty() {
+                        tracing::warn!("Idle: waiting to receive messages:\n{:?}.", receiver_waiting_message);
                     }
                 }
-
-
                 }
         })
 }
 
-  fn compress_numbers(numbers: &[usize]) -> String {
-        if numbers.is_empty() {
-            return String::new();
-        }
-        let compressed_ranges = numbers
-        .iter()
-        .enumerate()
-        .group_by(|&(i, &num)| num - i)
-        .into_iter()
-        .map(|(_, group)| {
-            let range: Vec<usize> = group.map(|(_, &num)| num).collect();
-            if range.len() >= 3 {
-                format!("{} .. {}", range[0], range.last().unwrap())
-            } else {
-                range.iter().map(|&num| num.to_string()).join(", ")
-            }
-        })
-        .collect::<Vec<String>>();
-
-    compressed_ranges.join(", ")
-    }
 }
 
 

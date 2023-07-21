@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
+    helpers::{buffers::{UnorderedReceiver, LoggingRanges}, ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
 use dashmap::DashMap;
@@ -80,7 +80,7 @@ impl<T: Transport> GatewayReceivers<T> {
        }
        rst
     }
-    pub fn get_waiting_messages(&self) -> HashMap<ChannelId, Vec<usize>> {
+    pub fn get_waiting_messages(&self) -> HashMap<ChannelId, LoggingRanges> {
           self.inner.iter().filter_map(|entry|{
             let (channel_id, rec) = entry.pair();
             let message = rec.get_waiting_messages();

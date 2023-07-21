@@ -1,4 +1,4 @@
-use crate::{sync::Arc, ff::Serializable};
+use crate::{sync::Arc, ff::Serializable, helpers::buffers::LoggingRanges};
 use dashmap::DashMap;
 use futures::Stream;
 use std::{
@@ -10,7 +10,7 @@ use std::{
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender,buffers::SenderStatus, ChannelId, Error, Message, Role, TotalRecords},
+    helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
     telemetry::{
         labels::{ROLE, STEP},
@@ -80,8 +80,8 @@ impl GatewaySender {
         self.ordering_tx.check_idle_and_reset()
     }
 
-    fn get_missing_records(&self,)->(SenderStatus, Vec<usize>) {
-        (self.ordering_tx.get_status(), self.ordering_tx.get_waiting_messages())
+    fn get_missing_messages(&self,)->Vec<LoggingRanges> {
+       self.ordering_tx.get_missing_messages()
     }
 }
 
@@ -178,12 +178,12 @@ impl GatewaySenders {
        rst
     }
 
-    pub fn get_all_missing_records(&self) -> HashMap<ChannelId, (SenderStatus, Vec<usize>)> {
+    pub fn get_all_missing_messages(&self) -> HashMap<ChannelId,  Vec<LoggingRanges>> {
         self.inner.iter()
         .filter_map(|entry|
             {
-                let mising_messages = entry.value().get_missing_records();
-                if mising_messages.1.is_empty() {
+                let mising_messages = entry.value().get_missing_messages();
+                if mising_messages.is_empty() {
                     None
                 } else {
                     Some((entry.key().clone(), mising_messages))
