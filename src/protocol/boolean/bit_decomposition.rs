@@ -72,7 +72,6 @@ impl BitDecomposition {
 
         // Step 4 has a lot going on. We'd going to break it down into substeps.
         // Step 4.1. Make a bitwise scalar value of f = 2^el + c - p.
-        // let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
         let el = u128::BITS - F::PRIME.into().leading_zeros();
         let two_exp_el = u128::pow(2, el);
         let f_int: u128 = two_exp_el + c.as_u128() - F::PRIME.into();
@@ -246,8 +245,6 @@ impl Iterator for GBIterator {
                 (true, false) => return Some(G::Q),
                 // Case where f_i - c_i = -1
                 (false, true) => return Some(G::NotQ),
-                // this is what g_i should actually be here, so we can use this down the road
-                // let g_i_foo = S::share_known_value(&ctx, F::ONE) - &q_p.clone();
             }
         }
         None
