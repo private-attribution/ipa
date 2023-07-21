@@ -49,7 +49,7 @@ pub struct LoggingRanges(Vec<Range<usize>>);
 impl LoggingRanges {
     pub fn from(numbers: &[usize]) -> Self {
         if numbers.is_empty() {
-            Self(Vec::new());
+            return Self(Vec::new());
         }
         #[cfg(not(debug_assertions))]
         return Self(Vec::new());

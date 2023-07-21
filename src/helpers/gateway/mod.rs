@@ -55,6 +55,7 @@ pub struct Gateway<T: Transport = TransportImpl> {
     transport: RoleResolvingTransport<T>,
     senders: SenderType,
     receivers: ReceiverType<T>,
+    #[cfg(debug_assertions)]
     idle_tracking_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -74,12 +75,13 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        let (senders, maybe_senders_clone) = Self::get_default_senders();
-        let (receivers, maybe_receivers_clone) = Self::get_default_receivers();
+        let (senders, _maybe_senders_clone) = Self::get_default_senders();
+        let (receivers, _maybe_receivers_clone) = Self::get_default_receivers();
+         #[cfg(debug_assertions)]
         let handle = if cfg!(debug_assertions) {
             Some(Self::create_idle_tracker(
-                maybe_senders_clone.unwrap(),
-                maybe_receivers_clone.unwrap(),
+                _maybe_senders_clone.unwrap(),
+                _maybe_receivers_clone.unwrap(),
             ))
         } else {
             None
@@ -95,6 +97,7 @@ impl<T: Transport> Gateway<T> {
             },
             senders,
             receivers,
+             #[cfg(debug_assertions)]
             idle_tracking_handle: handle,
         }
     }
@@ -166,6 +169,7 @@ impl<T: Transport> Gateway<T> {
         )
     }
 
+    #[cfg(debug_assertions)]
     fn create_idle_tracker(
         senders: Arc<GatewaySenders>,
         receivers: Arc<GatewayReceivers<T>>,

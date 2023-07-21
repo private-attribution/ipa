@@ -1,13 +1,17 @@
 use crate::{
-    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
+    helpers::{
+        buffers::{UnorderedReceiver},
+        ChannelId, Error, Message, Transport,
+    },
     protocol::RecordId,
 };
 use dashmap::DashMap;
 use futures::Stream;
-use std::marker::PhantomData;
+use std::{marker::PhantomData};
 
 #[cfg(debug_assertions)]
 use crate::helpers::buffers::LoggingRanges;
+
 #[cfg(debug_assertions)]
 use std::collections::HashMap;
 
