@@ -182,12 +182,26 @@ mod tests {
         let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
         let world = TestWorld::new_with(test_config);
         let c = Fp31::truncate_from;
+        let expected = PerfMetrics {
+            records_sent: 1620,
+            bytes_sent: 1620,
+            indexed_prss: 1890,
+            seq_prss: 0,
+        };
         for _ in 0..20 {
             let max = Fp31::PRIME.as_u32();
             let x = rand::thread_rng().gen_range(0..=max - 1) as u128;
             assert_eq!(x, bits_to_value(&bit_decomposition(&world, c(x)).await));
         }
         let actual = PerfMetrics::from_snapshot(&world.metrics_snapshot());
+        assert!(
+            expected >= actual,
+            "Bit Decomposition performance has degraded. Expected: {expected:?} >= {actual:?}"
+        );
+        if expected > actual {
+            tracing::warn!("Baseline for Bit Decomposition has improved! Expected {expected:?}, got {actual:?}. \
+            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+        }
         println!("{:?}", actual);
     }
 
