@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, Serializable},
     helpers::Role,
-    protocol::{basics::Reshare, context::Context, step::Step, RecordId},
+    protocol::{basics::Reshare, context::Context, RecordId},
     secret_sharing::{
         replicated::{
             malicious::{
@@ -17,7 +17,9 @@ use crate::{
 use async_trait::async_trait;
 use futures::future::{try_join, try_join4};
 use generic_array::GenericArray;
+use ipa_macros::step;
 use std::marker::PhantomData;
+use strum::AsRefStr;
 use typenum::Unsigned;
 
 //
@@ -333,27 +335,11 @@ where
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AttributionResharableStep {
+#[step]
+pub(crate) enum AttributionResharableStep {
     IsTriggerReport,
     HelperBit,
     BreakdownKey,
     TriggerValue,
-    AggregationBit,
     ActiveBit,
-}
-
-impl Step for AttributionResharableStep {}
-
-impl AsRef<str> for AttributionResharableStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::IsTriggerReport => "is_trigger_report",
-            Self::HelperBit => "helper_bit",
-            Self::BreakdownKey => "breakdown_key",
-            Self::TriggerValue => "trigger_value",
-            Self::AggregationBit => "aggregation_bit",
-            Self::ActiveBit => "active_bit",
-        }
-    }
 }

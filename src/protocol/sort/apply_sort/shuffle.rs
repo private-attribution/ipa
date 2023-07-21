@@ -7,7 +7,7 @@ use crate::{
         sort::{
             apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
-            ShuffleStep::{self, Step1, Step2, Step3},
+            ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
         },
         NoRecord, RecordId,
     },
@@ -88,7 +88,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await?;
     let input = shuffle_once(
@@ -96,7 +96,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_once(
@@ -104,7 +104,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await
 }

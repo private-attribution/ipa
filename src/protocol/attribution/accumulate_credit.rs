@@ -8,7 +8,9 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::step;
 use std::num::NonZeroU32;
+use strum::AsRefStr;
 
 ///
 /// When `PER_USER_CAP` is set to one, this function is called
@@ -143,19 +145,9 @@ where
     Ok(output)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     ActiveBitTimesStopBit,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ActiveBitTimesStopBit => "active_bit_times_stop_bit",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

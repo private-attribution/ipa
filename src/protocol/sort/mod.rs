@@ -20,12 +20,13 @@ use crate::{
     repeat64str,
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
+use ipa_macros::step;
 use std::fmt::Debug;
+use strum::AsRefStr;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum SortStep {
+pub(crate) enum SortStep {
     BitPermutationStep,
-    ApplyInv,
     ComposeStep,
     ShuffleRevealPermutation,
     SortKeys,
@@ -39,7 +40,6 @@ impl AsRef<str> for SortStep {
         const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
         match self {
             Self::BitPermutationStep => "bit_permute",
-            Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
@@ -48,104 +48,34 @@ impl AsRef<str> for SortStep {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum ShuffleStep {
-    Step1,
-    Step2,
-    Step3,
+#[step]
+pub(crate) enum ShuffleStep {
+    Shuffle1,
+    Shuffle2,
+    Shuffle3,
 }
 
-impl Step for ShuffleStep {}
-
-impl AsRef<str> for ShuffleStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Step1 => "shuffle1",
-            Self::Step2 => "shuffle2",
-            Self::Step3 => "shuffle3",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ApplyInvStep {
+#[step]
+pub(crate) enum ApplyInvStep {
     ShuffleInputs,
 }
 
-impl Step for ApplyInvStep {}
-
-impl AsRef<str> for ApplyInvStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ShuffleInputs => "shuffle_inputs",
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ComposeStep {
+#[step]
+pub(crate) enum ComposeStep {
     UnshuffleRho,
 }
 
-impl Step for ComposeStep {}
-
-impl AsRef<str> for ComposeStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::UnshuffleRho => "unshuffle_rho",
-        }
-    }
+#[step]
+pub(crate) enum ShuffleRevealPermutationStep {
+    Generate,
+    Reveal,
+    Shuffle,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ShuffleRevealStep {
-    GeneratePermutation,
-    RevealPermutation,
-    ShufflePermutation,
-}
-
-impl Step for ShuffleRevealStep {}
-
-impl AsRef<str> for ShuffleRevealStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::GeneratePermutation => "generate_permutation",
-            Self::RevealPermutation => "reveal_permutation",
-            Self::ShufflePermutation => "shuffle_permutation",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum ReshareStep {
+#[step]
+pub(crate) enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,
-}
-
-impl Step for ReshareStep {}
-
-impl AsRef<str> for ReshareStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::RandomnessForValidation => "randomness_for_validation",
-            Self::ReshareRx => "reshare_rx",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum MultiBitPermutationStep {
-    MultiplyAcrossBits,
-}
-
-impl Step for MultiBitPermutationStep {}
-
-impl AsRef<str> for MultiBitPermutationStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::MultiplyAcrossBits => "multiply_across_bits",
-        }
-    }
 }
 
 ///

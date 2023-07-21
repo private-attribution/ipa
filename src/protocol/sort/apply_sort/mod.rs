@@ -54,7 +54,6 @@ mod tests {
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
             },
-            step::IpaProtocolStep::SortPreAccumulation,
             BreakdownKey, MatchKey,
         },
         rand::{thread_rng, Rng},
@@ -111,7 +110,7 @@ mod tests {
                     .await
                     .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
-                        ctx.narrow(&SortPreAccumulation),
+                        ctx.narrow("sort_pre_accumulation"),
                         converted_shares.iter(),
                     )
                     .await

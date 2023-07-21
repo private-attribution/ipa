@@ -10,6 +10,8 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::step;
+use strum::AsRefStr;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -75,25 +77,12 @@ impl BitDecomposition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     RevealAMinusB,
     AddBtoC,
     IsPLessThanD,
     AddDtoG,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::RevealAMinusB => "reveal_a_minus_b",
-            Self::AddBtoC => "add_b_to_c",
-            Self::IsPLessThanD => "is_p_less_than_d",
-            Self::AddDtoG => "add_d_to_g",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

@@ -12,23 +12,14 @@ use crate::{
     },
 };
 use futures::future::try_join;
+use ipa_macros::step;
 use std::fmt::Debug;
+use strum::AsRefStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::DuplicateMultiply => "duplicate_multiply",
-            Self::RandomnessForValidation => "randomness_for_validation",
-        }
-    }
 }
 
 ///

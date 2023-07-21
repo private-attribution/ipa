@@ -28,10 +28,12 @@ use crate::{
 use async_trait::async_trait;
 use futures_util::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
+use ipa_macros::step;
 use std::{iter::zip, marker::PhantomData, ops::Add};
+use strum::AsRefStr;
 use typenum::Unsigned;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     ModulusConversionForMatchKeys,
     GenSortPermutationFromMatchKeys,
@@ -42,42 +44,13 @@ pub(crate) enum Step {
     BinaryValidator,
 }
 
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ModulusConversionForMatchKeys => "mod_conv_match_key",
-            Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
-            Self::ApplySortPermutation => "apply_sort_permutation",
-            Self::AfterConvertAllBits => "after_convert_all_bits",
-            Self::UpgradeMatchKeyBits => "upgrade_match_key_bits",
-            Self::UpgradeBreakdownKeyBits => "upgrade_breakdown_key_bits",
-            Self::BinaryValidator => "binary_validator",
-        }
-    }
-}
-
-pub enum IPAInputRowResharableStep {
+#[step]
+pub(crate) enum IPAInputRowResharableStep {
     Timestamp,
     MatchKeyShares,
     TriggerBit,
     BreakdownKey,
     TriggerValue,
-}
-
-impl crate::protocol::step::Step for IPAInputRowResharableStep {}
-
-impl AsRef<str> for IPAInputRowResharableStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Timestamp => "timestamp",
-            Self::MatchKeyShares => "match_key_shares",
-            Self::TriggerBit => "is_trigger_bit",
-            Self::BreakdownKey => "breakdown_key",
-            Self::TriggerValue => "trigger_value",
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -1235,7 +1208,7 @@ pub mod tests {
                     records_sent: 14_421,
                     bytes_sent: 47_100,
                     indexed_prss: 19_137,
-                    seq_prss: 1124,
+                    seq_prss: 1118,
                 },
             )
             .await;
@@ -1250,7 +1223,7 @@ pub mod tests {
                     records_sent: 21_774,
                     bytes_sent: 76_512,
                     indexed_prss: 28_170,
-                    seq_prss: 1124,
+                    seq_prss: 1118,
                 },
             )
             .await;
@@ -1265,7 +1238,7 @@ pub mod tests {
                     records_sent: 36_090,
                     bytes_sent: 133_776,
                     indexed_prss: 74_046,
-                    seq_prss: 1098,
+                    seq_prss: 1132,
                 },
             )
             .await;
@@ -1280,7 +1253,7 @@ pub mod tests {
                     records_sent: 54_828,
                     bytes_sent: 208_728,
                     indexed_prss: 111_393,
-                    seq_prss: 1098,
+                    seq_prss: 1132,
                 },
             )
             .await;

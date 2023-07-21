@@ -94,15 +94,10 @@ impl From<usize> for BitOpStep {
 
 /// Set of steps that define the IPA protocol.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum IpaProtocolStep {
-    /// Convert from XOR shares to Replicated shares
-    ConvertShares,
+pub(crate) enum IpaProtocolStep {
     ModulusConversion(u32),
     /// Sort shares by the match key
     Sort(usize),
-    /// Perform attribution.
-    Attribution,
-    SortPreAccumulation,
 }
 
 impl Step for IpaProtocolStep {}
@@ -113,11 +108,8 @@ impl AsRef<str> for IpaProtocolStep {
         const SORT: [&str; 64] = repeat64str!["sort"];
 
         match self {
-            Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[*i],
             Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
-            Self::Attribution => "attribution",
-            Self::SortPreAccumulation => "sort_pre_accumulation",
         }
     }
 }
