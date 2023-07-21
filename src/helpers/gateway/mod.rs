@@ -17,9 +17,7 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize, sync::{Arc}, time::Duration};
-
-
+use std::{fmt::Debug, num::NonZeroUsize, sync::Arc, time::Duration};
 
 /// Alias for the currently configured transport.
 ///
@@ -50,13 +48,12 @@ type SenderType = GatewaySenders;
 #[cfg(not(debug_assertions))]
 type ReceiverType<T> = GatewayReceivers<T>;
 
-
 pub struct Gateway<T: Transport = TransportImpl> {
     config: GatewayConfig,
     transport: RoleResolvingTransport<T>,
     senders: SenderType,
     receivers: ReceiverType<T>,
-    idle_tracking_handle: Option<tokio::task::JoinHandle<()>>
+    idle_tracking_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,10 +74,13 @@ impl<T: Transport> Gateway<T> {
         let (senders, maybe_senders_clone) = Self::get_default_senders();
         let (receivers, maybe_receivers_clone) = Self::get_default_receivers();
         let handle = if cfg!(debug_assertions) {
-             Some(Self::create_idle_tracker(maybe_senders_clone.unwrap(), maybe_receivers_clone.unwrap()))
-            } else {
-                None
-            };
+            Some(Self::create_idle_tracker(
+                maybe_senders_clone.unwrap(),
+                maybe_receivers_clone.unwrap(),
+            ))
+        } else {
+            None
+        };
 
         Self {
             config,
@@ -101,22 +101,22 @@ impl<T: Transport> Gateway<T> {
         self.transport.role()
     }
 
-    fn get_default_senders()->  (SenderType, Option<Arc<GatewaySenders>>) {
+    fn get_default_senders() -> (SenderType, Option<Arc<GatewaySenders>>) {
         #[cfg(debug_assertions)]
         {
             let default_senders = Arc::new(GatewaySenders::default());
-            let clone =  Arc::clone(&default_senders);
+            let clone = Arc::clone(&default_senders);
             return (default_senders, Some(clone));
         }
         #[cfg(not(debug_assertions))]
         return (GatewaySenders::default(), None);
     }
 
-    fn get_default_receivers()->  (ReceiverType<T>, Option<Arc<GatewayReceivers<T>>>) {
+    fn get_default_receivers() -> (ReceiverType<T>, Option<Arc<GatewayReceivers<T>>>) {
         #[cfg(debug_assertions)]
         {
             let default_receivers = Arc::new(GatewayReceivers::default());
-            let clone =  Arc::clone(&default_receivers);
+            let clone = Arc::clone(&default_receivers);
             return (default_receivers, Some(clone));
         }
         #[cfg(not(debug_assertions))]
@@ -163,27 +163,34 @@ impl<T: Transport> Gateway<T> {
         )
     }
 
-    fn create_idle_tracker(senders: Arc<GatewaySenders>, receivers: Arc<GatewayReceivers<T>>) -> tokio::task::JoinHandle<()> {
+    fn create_idle_tracker(
+        senders: Arc<GatewaySenders>,
+        receivers: Arc<GatewayReceivers<T>>,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn(async move {
             // Perform some periodic work in the background
             loop {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
-                    let sender_missing_records =senders.get_all_missing_messages();
+                    let sender_missing_records = senders.get_all_missing_messages();
                     if !sender_missing_records.is_empty() {
-                        tracing::warn!("Idle: waiting to send messages:\n{:?}", sender_missing_records);
+                        tracing::warn!(
+                            "Idle: waiting to send messages:\n{:?}",
+                            sender_missing_records
+                        );
                     }
                     let receiver_waiting_message = receivers.get_waiting_messages();
-                    if!receiver_waiting_message.is_empty() {
-                        tracing::warn!("Idle: waiting to receive messages:\n{:?}.", receiver_waiting_message);
+                    if !receiver_waiting_message.is_empty() {
+                        tracing::warn!(
+                            "Idle: waiting to receive messages:\n{:?}.",
+                            receiver_waiting_message
+                        );
                     }
                 }
-                }
+            }
         })
+    }
 }
-
-}
-
 
 #[cfg(debug_assertions)]
 impl<T: Transport> Drop for Gateway<T> {

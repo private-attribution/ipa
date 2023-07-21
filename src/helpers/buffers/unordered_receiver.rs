@@ -163,9 +163,15 @@ where
     S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
 {
-    fn new(stream: Pin<Box<S>>, next: usize,spare: Spare,wakers: Vec<Option<Waker>>,overflow_wakers: Vec<Waker>,
-    _marker: PhantomData<C>)->Self {
-        Self{
+    fn new(
+        stream: Pin<Box<S>>,
+        next: usize,
+        spare: Spare,
+        wakers: Vec<Option<Waker>>,
+        overflow_wakers: Vec<Waker>,
+        _marker: PhantomData<C>,
+    ) -> Self {
+        Self {
             stream,
             next,
             spare,
@@ -251,9 +257,9 @@ where
         }
     }
 
-    fn get_waiting_messages(&self) ->LoggingRanges {
+    fn get_waiting_messages(&self) -> LoggingRanges {
         let mut response = vec![self.next];
-        for i in self.next + 1 ..self.next + self.wakers.len()+1 as usize {
+        for i in self.next + 1..self.next + self.wakers.len() + 1 as usize {
             if let Some(_) = self.wakers[i % self.wakers.len()] {
                 response.push(i);
             }
@@ -266,18 +272,27 @@ where
 struct IdleTrackOperatingState<S, C>
 where
     S: Stream<Item = C>,
-    C: AsRef<[u8]>, {
-        state: OperatingState<S, C>,
-        current_next: usize,
-    }
+    C: AsRef<[u8]>,
+{
+    state: OperatingState<S, C>,
+    current_next: usize,
+}
 
 #[cfg(debug_assertions)]
-impl<S, C> IdleTrackOperatingState<S, C> where
+impl<S, C> IdleTrackOperatingState<S, C>
+where
     S: Stream<Item = C> + Send,
-    C: AsRef<[u8]>, {
-     fn new(stream: Pin<Box<S>>, next: usize,spare: Spare,wakers: Vec<Option<Waker>>,overflow_wakers: Vec<Waker>,
-    _marker: PhantomData<C>)->Self {
-        Self{
+    C: AsRef<[u8]>,
+{
+    fn new(
+        stream: Pin<Box<S>>,
+        next: usize,
+        spare: Spare,
+        wakers: Vec<Option<Waker>>,
+        overflow_wakers: Vec<Waker>,
+        _marker: PhantomData<C>,
+    ) -> Self {
+        Self {
             state: OperatingState::new(stream, next, spare, wakers, overflow_wakers, _marker),
             current_next: next,
         }
@@ -290,9 +305,11 @@ impl<S, C> IdleTrackOperatingState<S, C> where
 }
 
 #[cfg(debug_assertions)]
-impl<S, C> Deref for IdleTrackOperatingState<S, C> where
+impl<S, C> Deref for IdleTrackOperatingState<S, C>
+where
     S: Stream<Item = C>,
-    C: AsRef<[u8]>, {
+    C: AsRef<[u8]>,
+{
     type Target = OperatingState<S, C>;
     fn deref(&self) -> &Self::Target {
         &self.state
@@ -300,9 +317,11 @@ impl<S, C> Deref for IdleTrackOperatingState<S, C> where
 }
 
 #[cfg(debug_assertions)]
-impl<S, C> DerefMut for IdleTrackOperatingState<S, C> where
+impl<S, C> DerefMut for IdleTrackOperatingState<S, C>
+where
     S: Stream<Item = C>,
-    C: AsRef<[u8]>, {
+    C: AsRef<[u8]>,
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.state
     }
@@ -337,8 +356,14 @@ where
         assert!(capacity.get() > 1, "a capacity of 1 is too small");
         let wakers = vec![None; capacity.get()];
         Self {
-            inner: Arc::new(Mutex::new(StateType::new(stream,0,Spare::default(), wakers, Vec::new(), PhantomData
-                )))
+            inner: Arc::new(Mutex::new(StateType::new(
+                stream,
+                0,
+                Spare::default(),
+                wakers,
+                Vec::new(),
+                PhantomData,
+            ))),
         }
     }
 

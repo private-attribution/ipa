@@ -575,7 +575,7 @@ mod tests {
         let tx = Arc::new(OrderingSender::new(
             NonZeroUsize::new(2).unwrap(),
             NonZeroUsize::new(2).unwrap(),
-            4
+            4,
         ));
         let rx = Arc::clone(&tx).as_rc_stream();
         let network = InMemoryNetwork::default();

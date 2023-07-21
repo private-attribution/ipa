@@ -1,11 +1,12 @@
-use crate::{sync::Arc, ff::Serializable, helpers::buffers::LoggingRanges};
+use crate::{ff::Serializable, helpers::buffers::LoggingRanges, sync::Arc};
 use dashmap::DashMap;
 use futures::Stream;
 use std::{
+    collections::HashMap,
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll}, collections::HashMap,
+    task::{Context, Poll},
 };
 use typenum::Unsigned;
 
@@ -35,7 +36,7 @@ pub(super) struct GatewaySenders {
 pub(super) struct GatewaySender {
     channel_id: ChannelId,
     ordering_tx: OrderingSender,
-    total_records: TotalRecords
+    total_records: TotalRecords,
 }
 
 pub(super) struct GatewaySendStream {
@@ -47,7 +48,7 @@ impl GatewaySender {
         Self {
             channel_id,
             ordering_tx: tx,
-            total_records
+            total_records,
         }
     }
 
@@ -80,8 +81,8 @@ impl GatewaySender {
         self.ordering_tx.check_idle_and_reset()
     }
 
-    fn get_missing_messages(&self,)->Vec<LoggingRanges> {
-       self.ordering_tx.get_missing_messages()
+    fn get_missing_messages(&self) -> Vec<LoggingRanges> {
+        self.ordering_tx.get_missing_messages()
     }
 }
 
@@ -153,8 +154,12 @@ impl GatewaySenders {
 
             let sender = Arc::new(GatewaySender::new(
                 channel_id.clone(),
-                OrderingSender::new(write_size, SPARE.unwrap(), <M as Serializable>::Size::to_usize()),
-                total_records
+                OrderingSender::new(
+                    write_size,
+                    SPARE.unwrap(),
+                    <M as Serializable>::Size::to_usize(),
+                ),
+                total_records,
             ));
             if senders
                 .insert(channel_id.clone(), Arc::clone(&sender))
@@ -169,28 +174,26 @@ impl GatewaySenders {
         }
     }
 
-
     pub fn check_idle_and_reset(&self) -> bool {
         let mut rst = true;
         for entry in self.inner.iter() {
             rst &= entry.value().check_idle_and_reset();
-         }
-       rst
+        }
+        rst
     }
 
-    pub fn get_all_missing_messages(&self) -> HashMap<ChannelId,  Vec<LoggingRanges>> {
-        self.inner.iter()
-        .filter_map(|entry|
-            {
+    pub fn get_all_missing_messages(&self) -> HashMap<ChannelId, Vec<LoggingRanges>> {
+        self.inner
+            .iter()
+            .filter_map(|entry| {
                 let mising_messages = entry.value().get_missing_messages();
                 if mising_messages.is_empty() {
                     None
                 } else {
                     Some((entry.key().clone(), mising_messages))
                 }
-            }
-        )
-        .collect()
+            })
+            .collect()
     }
 }
 

@@ -29,13 +29,11 @@ use crate::helpers::buffers::LoggingRanges;
 #[cfg(debug_assertions)]
 use std::ops::{Deref, DerefMut};
 
-
 #[cfg(debug_assertions)]
 type StateType = IdleTrackState;
 
 #[cfg(not(debug_assertions))]
 type StateType = State;
-
 
 /// The operating state for an `OrderingSender`.
 struct State {
@@ -63,7 +61,7 @@ impl State {
             written: 0,
             closed: false,
             write_ready: None,
-            stream_ready: None
+            stream_ready: None,
         }
     }
 
@@ -123,22 +121,21 @@ impl State {
         self.closed = true;
         Self::wake(&mut self.stream_ready);
     }
-
 }
 
 #[cfg(debug_assertions)]
-struct IdleTrackState{
+struct IdleTrackState {
     state: State,
     idle: bool,
 }
 
 #[cfg(debug_assertions)]
 impl IdleTrackState {
-   fn new(capacity: NonZeroUsize, spare: NonZeroUsize)->Self {
-       IdleTrackState{
-        state:State::new(capacity, spare),
-        idle: true,
-       }
+    fn new(capacity: NonZeroUsize, spare: NonZeroUsize) -> Self {
+        IdleTrackState {
+            state: State::new(capacity, spare),
+            idle: true,
+        }
     }
     fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
         self.idle = false;
@@ -163,10 +160,9 @@ impl Deref for IdleTrackState {
 #[cfg(debug_assertions)]
 impl DerefMut for IdleTrackState {
     fn deref_mut(&mut self) -> &mut Self::Target {
-       &mut self.state
+        &mut self.state
     }
 }
-
 
 /// An saved waker for a given index.
 struct WakerItem {
@@ -223,8 +219,8 @@ impl WaitingShard {
 
     fn get_waiting_messages(&self) -> Vec<usize> {
         let mut result = Vec::new();
-         for j in (0..self.wakers.len()).rev() {
-           result.push(self.wakers[j].i);
+        for j in (0..self.wakers.len()).rev() {
+            result.push(self.wakers[j].i);
         }
         result
     }
@@ -266,10 +262,9 @@ impl Waiting {
         for i in 1..self.shards.len() {
             waiting_messages.extend(self.shards[i].lock().unwrap().get_waiting_messages());
         }
-    waiting_messages.sort();
-    waiting_messages
+        waiting_messages.sort();
+        waiting_messages
     }
-
 }
 
 /// An `OrderingSender` accepts messages for sending in any order, but
@@ -297,18 +292,18 @@ pub struct OrderingSender {
     next: AtomicUsize,
     state: Mutex<StateType>,
     waiting: Waiting,
-    message_size:usize
+    message_size: usize,
 }
 
 impl OrderingSender {
     /// Make an `OrderingSender` with a capacity of `capacity` (in bytes).
     #[must_use]
-    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize, message_size:usize) -> Self {
+    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize, message_size: usize) -> Self {
         Self {
             next: AtomicUsize::new(0),
             state: Mutex::new(StateType::new(write_size, spare)),
             waiting: Waiting::default(),
-            message_size
+            message_size,
         }
     }
 
@@ -418,14 +413,14 @@ impl OrderingSender {
             let last_pending_message = waiting_messages.iter().cloned().max().unwrap();
             let next = self.next.load(Acquire);
             let state = self.state.lock().unwrap();
-            let chunk_head =  next - state.written / self.message_size;
+            let chunk_head = next - state.written / self.message_size;
             let chunk_size = state.buf.len() / self.message_size;
             let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
             let mut responses = Vec::new();
             for i in 0..chunk_count {
                 let mut chunk_response = Vec::new();
-                for j in (chunk_head + i * chunk_size).. chunk_head + (i + 1)* chunk_size {
-                    if ! waiting_messages.contains(&j) {
+                for j in (chunk_head + i * chunk_size)..chunk_head + (i + 1) * chunk_size {
+                    if !waiting_messages.contains(&j) {
                         chunk_response.push(j);
                     }
                 }
@@ -433,9 +428,7 @@ impl OrderingSender {
             }
             responses
         }
-
     }
-
 }
 
 /// A future for writing item `i` into an `OrderingSender`.
@@ -524,7 +517,7 @@ mod test {
         Arc::new(OrderingSender::new(
             NonZeroUsize::new(6).unwrap(),
             NonZeroUsize::new(5).unwrap(),
-            4
+            4,
         ))
     }
 
