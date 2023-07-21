@@ -11,9 +11,19 @@ use std::{
     mem::take,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll}, ops::{Deref, DerefMut},
+    task::{Context, Poll},
 };
+
 use typenum::Unsigned;
+
+#[cfg(debug_assertions)]
+use std::ops::{Deref, DerefMut};
+
+#[cfg(debug_assertions)]
+type StateType<S, C> = IdleTrackOperatingState<S, C>;
+
+#[cfg(not(debug_assertions))]
+type StateType<S, C> = OperatingState<S, C>;
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
@@ -23,7 +33,7 @@ where
     M: Message,
 {
     i: usize,
-    receiver: Arc<Mutex<IdleTrackOperatingState<S, C>>>,
+    receiver: Arc<Mutex<StateType<S, C>>>,
     _marker: PhantomData<M>,
 }
 
@@ -151,6 +161,17 @@ where
     S: Stream<Item = C> + Send,
     C: AsRef<[u8]>,
 {
+    fn new(stream: Pin<Box<S>>, next: usize,spare: Spare,wakers: Vec<Option<Waker>>,overflow_wakers: Vec<Waker>,
+    _marker: PhantomData<C>)->Self {
+        Self{
+            stream,
+            next,
+            spare,
+            wakers,
+            overflow_wakers,
+            _marker,
+        }
+    }
     /// Determine whether `i` is the next record that we expect to receive.
     fn is_next(&self, i: usize) -> bool {
         i == self.next
@@ -239,7 +260,7 @@ where
     }
 }
 
-
+#[cfg(debug_assertions)]
 struct IdleTrackOperatingState<S, C>
 where
     S: Stream<Item = C>,
@@ -248,10 +269,17 @@ where
         current_next: usize,
     }
 
+#[cfg(debug_assertions)]
 impl<S, C> IdleTrackOperatingState<S, C> where
     S: Stream<Item = C> + Send,
     C: AsRef<[u8]>, {
-
+     fn new(stream: Pin<Box<S>>, next: usize,spare: Spare,wakers: Vec<Option<Waker>>,overflow_wakers: Vec<Waker>,
+    _marker: PhantomData<C>)->Self {
+        Self{
+            state: OperatingState::new(stream, next, spare, wakers, overflow_wakers, _marker),
+            current_next: next,
+        }
+    }
     fn check_idle_and_reset(&mut self) -> bool {
         let rst = self.current_next == self.state.next;
         self.current_next = self.state.next;
@@ -259,6 +287,7 @@ impl<S, C> IdleTrackOperatingState<S, C> where
     }
 }
 
+#[cfg(debug_assertions)]
 impl<S, C> Deref for IdleTrackOperatingState<S, C> where
     S: Stream<Item = C>,
     C: AsRef<[u8]>, {
@@ -268,6 +297,7 @@ impl<S, C> Deref for IdleTrackOperatingState<S, C> where
     }
 }
 
+#[cfg(debug_assertions)]
 impl<S, C> DerefMut for IdleTrackOperatingState<S, C> where
     S: Stream<Item = C>,
     C: AsRef<[u8]>, {
@@ -283,7 +313,7 @@ where
     S: Stream<Item = C>,
     C: AsRef<[u8]>,
 {
-    inner: Arc<Mutex<IdleTrackOperatingState<S, C>>>,
+    inner: Arc<Mutex<StateType<S, C>>>,
 }
 
 #[allow(dead_code)]
@@ -305,16 +335,8 @@ where
         assert!(capacity.get() > 1, "a capacity of 1 is too small");
         let wakers = vec![None; capacity.get()];
         Self {
-            inner: Arc::new(Mutex::new(IdleTrackOperatingState{
-                state:OperatingState {
-                stream,
-                next: 0,
-                spare: Spare::default(),
-                wakers,
-                overflow_wakers: Vec::new(),
-                _marker: PhantomData
-            },
-        current_next: 0,}))
+            inner: Arc::new(Mutex::new(StateType::new(stream,0,Spare::default(), wakers, Vec::new(), PhantomData
+                )))
         }
     }
 
@@ -334,6 +356,9 @@ where
     }
 
     pub fn check_idle_and_reset(&self) -> bool {
+        #[cfg(not(debug_assertions))]
+        return false;
+        #[cfg(debug_assertions)]
         self.inner.lock().unwrap().check_idle_and_reset()
     }
 

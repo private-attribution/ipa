@@ -20,9 +20,20 @@ use std::{
     num::NonZeroUsize,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll}, ops::{Deref, DerefMut},
+    task::{Context, Poll},
 };
 use typenum::Unsigned;
+
+#[cfg(debug_assertions)]
+use std::ops::{Deref, DerefMut};
+
+
+#[cfg(debug_assertions)]
+type StateType = IdleTrackState;
+
+#[cfg(not(debug_assertions))]
+type StateType = State;
+
 
 /// The operating state for an `OrderingSender`.
 struct State {
@@ -113,11 +124,13 @@ impl State {
 
 }
 
+#[cfg(debug_assertions)]
 struct IdleTrackState{
     state: State,
     idle: bool,
 }
 
+#[cfg(debug_assertions)]
 impl IdleTrackState {
    fn new(capacity: NonZeroUsize, spare: NonZeroUsize)->Self {
        IdleTrackState{
@@ -136,6 +149,7 @@ impl IdleTrackState {
     }
 }
 
+#[cfg(debug_assertions)]
 impl Deref for IdleTrackState {
     type Target = State;
 
@@ -144,6 +158,7 @@ impl Deref for IdleTrackState {
     }
 }
 
+#[cfg(debug_assertions)]
 impl DerefMut for IdleTrackState {
     fn deref_mut(&mut self) -> &mut Self::Target {
        &mut self.state
@@ -285,7 +300,7 @@ pub struct SenderStatus{
 /// [`close`]: OrderingSender::close
 pub struct OrderingSender {
     next: AtomicUsize,
-    state: Mutex<IdleTrackState>,
+    state: Mutex<StateType>,
     waiting: Waiting,
     message_size:usize
 }
@@ -296,7 +311,7 @@ impl OrderingSender {
     pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize, message_size:usize) -> Self {
         Self {
             next: AtomicUsize::new(0),
-            state: Mutex::new(IdleTrackState::new(write_size, spare)),
+            state: Mutex::new(StateType::new(write_size, spare)),
             waiting: Waiting::default(),
             message_size
         }
@@ -335,7 +350,7 @@ impl OrderingSender {
     /// Perform the next `send` or `close` operation.
     fn next_op<F>(&self, i: usize, cx: &Context<'_>, f: F) -> Poll<()>
     where
-        F: FnOnce(&mut MutexGuard<'_, IdleTrackState>) -> Poll<()>,
+        F: FnOnce(&mut MutexGuard<'_, StateType>) -> Poll<()>,
     {
         // This load here is on the hot path.
         // Don't acquire the state mutex unless this test passes.
@@ -394,8 +409,10 @@ impl OrderingSender {
     }
 
     pub fn check_idle_and_reset(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
-        state.check_idle_and_reset()
+        #[cfg(not(debug_assertions))]
+        return false;
+        #[cfg(debug_assertions)]
+        self.state.lock().unwrap().check_idle_and_reset()
     }
 
     pub fn get_status(&self) ->SenderStatus {
