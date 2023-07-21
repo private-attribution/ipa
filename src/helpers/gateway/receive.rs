@@ -1,13 +1,15 @@
 use crate::{
-    helpers::{
-        buffers::{LoggingRanges, UnorderedReceiver},
-        ChannelId, Error, Message, Transport,
-    },
+    helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
 use dashmap::DashMap;
 use futures::Stream;
-use std::{collections::HashMap, marker::PhantomData};
+use std::marker::PhantomData;
+
+#[cfg(debug_assertions)]
+use crate::helpers::buffers::LoggingRanges;
+#[cfg(debug_assertions)]
+use std::collections::HashMap;
 
 /// Receiving end end of the gateway channel.
 pub struct ReceivingEnd<T: Transport, M: Message> {
@@ -75,6 +77,7 @@ impl<T: Transport> GatewayReceivers<T> {
             stream
         }
     }
+    #[cfg(debug_assertions)]
     pub fn check_idle_and_reset(&self) -> bool {
         let mut rst = true;
         for entry in self.inner.iter() {
@@ -82,16 +85,17 @@ impl<T: Transport> GatewayReceivers<T> {
         }
         rst
     }
+    #[cfg(debug_assertions)]
     pub fn get_waiting_messages(&self) -> HashMap<ChannelId, LoggingRanges> {
         self.inner
             .iter()
             .filter_map(|entry| {
                 let (channel_id, rec) = entry.pair();
                 let message = rec.get_waiting_messages();
-                if !message.is_empty() {
-                    Some((channel_id.clone(), message))
-                } else {
+                if message.is_empty() {
                     None
+                } else {
+                    Some((channel_id.clone(), message))
                 }
             })
             .collect()

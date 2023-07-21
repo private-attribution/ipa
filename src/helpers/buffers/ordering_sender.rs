@@ -262,7 +262,7 @@ impl Waiting {
         for i in 1..self.shards.len() {
             waiting_messages.extend(self.shards[i].lock().unwrap().get_waiting_messages());
         }
-        waiting_messages.sort();
+        waiting_messages.sort_unstable();
         waiting_messages
     }
 }
@@ -398,6 +398,8 @@ impl OrderingSender {
         OrderedStream { sender: self }
     }
 
+    /// Check whether there are any recent activities since last check
+    /// # panics if the state mutex can't be locked due to errors.
     pub fn check_idle_and_reset(&self) -> bool {
         #[cfg(not(debug_assertions))]
         return false;
@@ -405,29 +407,30 @@ impl OrderingSender {
         self.state.lock().unwrap().check_idle_and_reset()
     }
 
+    /// Get the missing messages that blocks sending.
+    /// # panics if the state mutex can't be locked due to errors.
     pub fn get_missing_messages(&self) -> Vec<LoggingRanges> {
         let waiting_messages = self.waiting.get_waiting_messages();
         if waiting_messages.is_empty() {
             return vec![];
-        } else {
-            let last_pending_message = waiting_messages.iter().cloned().max().unwrap();
-            let next = self.next.load(Acquire);
-            let state = self.state.lock().unwrap();
-            let chunk_head = next - state.written / self.message_size;
-            let chunk_size = state.buf.len() / self.message_size;
-            let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
-            let mut responses = Vec::new();
-            for i in 0..chunk_count {
-                let mut chunk_response = Vec::new();
-                for j in (chunk_head + i * chunk_size)..chunk_head + (i + 1) * chunk_size {
-                    if !waiting_messages.contains(&j) {
-                        chunk_response.push(j);
-                    }
-                }
-                responses.push(LoggingRanges::from(&chunk_response));
-            }
-            responses
         }
+        let last_pending_message = waiting_messages.iter().copied().max().unwrap();
+        let next = self.next.load(Acquire);
+        let state = self.state.lock().unwrap();
+        let chunk_head = next - state.written / self.message_size;
+        let chunk_size = state.buf.len() / self.message_size;
+        let chunk_count = (last_pending_message - chunk_head + chunk_size - 1) / chunk_size;
+        let mut responses = Vec::new();
+        for i in 0..chunk_count {
+            let mut chunk_response = Vec::new();
+            for j in (chunk_head + i * chunk_size)..chunk_head + (i + 1) * chunk_size {
+                if !waiting_messages.contains(&j) {
+                    chunk_response.push(j);
+                }
+            }
+            responses.push(LoggingRanges::from(&chunk_response));
+        }
+        responses
     }
 }
 

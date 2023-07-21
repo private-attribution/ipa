@@ -17,7 +17,7 @@ use crate::{
 };
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{fmt::Debug, num::NonZeroUsize, sync::Arc};
 
 /// Alias for the currently configured transport.
 ///
@@ -37,6 +37,8 @@ pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 /// used to avoid carrying `T` over.
 ///
 /// [`Gateway`]: crate::helpers::Gateway
+#[cfg(debug_assertions)]
+use std::time::Duration;
 
 #[cfg(debug_assertions)]
 type SenderType = Arc<GatewaySenders>;
@@ -64,6 +66,7 @@ pub struct GatewayConfig {
 }
 
 impl<T: Transport> Gateway<T> {
+    /// # panic panic may happen if maybe_sender_clone/maybe_receivers_clone are None in debug mode due to errors
     #[must_use]
     pub fn new(
         query_id: QueryId,
@@ -106,7 +109,7 @@ impl<T: Transport> Gateway<T> {
         {
             let default_senders = Arc::new(GatewaySenders::default());
             let clone = Arc::clone(&default_senders);
-            return (default_senders, Some(clone));
+            (default_senders, Some(clone))
         }
         #[cfg(not(debug_assertions))]
         return (GatewaySenders::default(), None);
@@ -117,7 +120,7 @@ impl<T: Transport> Gateway<T> {
         {
             let default_receivers = Arc::new(GatewayReceivers::default());
             let clone = Arc::clone(&default_receivers);
-            return (default_receivers, Some(clone));
+            (default_receivers, Some(clone))
         }
         #[cfg(not(debug_assertions))]
         return (GatewayReceivers::default(), None);
@@ -169,6 +172,7 @@ impl<T: Transport> Gateway<T> {
     ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn(async move {
             // Perform some periodic work in the background
+            #[cfg(debug_assertions)]
             loop {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {

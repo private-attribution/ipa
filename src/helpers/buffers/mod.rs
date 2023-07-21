@@ -49,27 +49,27 @@ pub struct LoggingRanges(Vec<Range<usize>>);
 impl LoggingRanges {
     pub fn from(numbers: &[usize]) -> Self {
         if numbers.is_empty() {
-            return Self(Vec::new());
-        } else {
-            #[cfg(not(debug_assertions))]
-            return Self(Vec::new());
-
-            #[cfg(debug_assertions)]
-            Self(
-                numbers
-                    .iter()
-                    .enumerate()
-                    .group_by(|&(i, &num)| num - i)
-                    .into_iter()
-                    .map(|(_, group)| {
-                        let range: Vec<usize> = group.map(|(_, &num)| num).collect();
-                        range[0]..range[range.len() - 1] + 1
-                    })
-                    .collect::<Vec<Range<usize>>>(),
-            )
+            Self(Vec::new());
         }
+        #[cfg(not(debug_assertions))]
+        return Self(Vec::new());
+
+        #[cfg(debug_assertions)]
+        Self(
+            numbers
+                .iter()
+                .enumerate()
+                .group_by(|&(i, &num)| num - i)
+                .into_iter()
+                .map(|(_, group)| {
+                    let range: Vec<usize> = group.map(|(_, &num)| num).collect();
+                    range[0]..(range[range.len() - 1] + 1)
+                })
+                .collect::<Vec<Range<usize>>>(),
+        )
     }
 
+    #[cfg(debug_assertions)]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

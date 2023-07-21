@@ -169,7 +169,7 @@ where
         spare: Spare,
         wakers: Vec<Option<Waker>>,
         overflow_wakers: Vec<Waker>,
-        _marker: PhantomData<C>,
+        marker: PhantomData<C>,
     ) -> Self {
         Self {
             stream,
@@ -177,7 +177,7 @@ where
             spare,
             wakers,
             overflow_wakers,
-            _marker,
+            _marker: marker,
         }
     }
     /// Determine whether `i` is the next record that we expect to receive.
@@ -259,8 +259,8 @@ where
 
     fn get_waiting_messages(&self) -> LoggingRanges {
         let mut response = vec![self.next];
-        for i in self.next + 1..self.next + self.wakers.len() + 1 as usize {
-            if let Some(_) = self.wakers[i % self.wakers.len()] {
+        for i in self.next + 1..self.next + self.wakers.len() + 1_usize {
+            if self.wakers[i % self.wakers.len()].is_some() {
                 response.push(i);
             }
         }
@@ -290,10 +290,10 @@ where
         spare: Spare,
         wakers: Vec<Option<Waker>>,
         overflow_wakers: Vec<Waker>,
-        _marker: PhantomData<C>,
+        marker: PhantomData<C>,
     ) -> Self {
         Self {
-            state: OperatingState::new(stream, next, spare, wakers, overflow_wakers, _marker),
+            state: OperatingState::new(stream, next, spare, wakers, overflow_wakers, marker),
             current_next: next,
         }
     }
