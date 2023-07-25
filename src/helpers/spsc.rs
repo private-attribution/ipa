@@ -2,6 +2,7 @@ use futures::{task::AtomicWaker, Stream};
 use std::{
     future::Future,
     iter::repeat_with,
+    mem,
     num::NonZeroUsize,
     pin::Pin,
     sync::{
@@ -38,15 +39,10 @@ impl<T> Queue<T> {
         f(head, tail)
     }
 
-    /// Writes a new value at `index` mod buffer size and returns the previous value.
-    fn write(&self, index: usize, value: T) -> Option<T> {
-        self.buf[self.clamp(index)].lock().unwrap().replace(value)
-    }
-
-    /// Takes the value stored at `index` mod size out and places `None` in that cell.
-    /// This method has no effect if the value wasn't set before.
-    fn take(&self, index: usize) -> Option<T> {
-        self.buf[self.clamp(index)].lock().unwrap().take()
+    /// Takes the value stored at `index` mod size out and places `value` in that cell.
+    fn take(&self, index: usize, value: Option<T>) -> Option<T> {
+        let mut cell = self.buf[self.clamp(index)].lock().unwrap();
+        mem::replace(&mut cell, value)
     }
 
     /// Closes this queue, making it unavailable for new writes. Queue can still be drained after
@@ -116,8 +112,7 @@ impl<T: Send + Unpin> Future for Push<'_, T> {
                 // when buffer is full, this will wait until reader moves the head.
                 Poll::Pending
             } else {
-                let value = self.value.take().expect("value hasn't been moved yet");
-                let prev = state.write(tail, value);
+                let prev = state.take(tail, self.value.take());
                 debug_assert!(prev.is_none());
 
                 // update the tail pointer and notify the reader (order is important).
@@ -159,7 +154,7 @@ impl<T: Send> Stream for Receiver<T> {
                 // Take the value out, update the head pointer and notify the writer, in this order.
                 // This operation is less expensive than writer update because it wakes up the
                 // writer task iff there is an active push waiting.
-                let item = state.take(head);
+                let item = state.take(head, None);
                 debug_assert!(item.is_some());
 
                 state.head.store(head.wrapping_add(1), Ordering::Release);
