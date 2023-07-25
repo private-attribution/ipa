@@ -152,8 +152,8 @@ impl<T: Send> Stream for Receiver<T> {
                 }
             } else {
                 // Take the value out, update the head pointer and notify the writer, in this order.
-                // This operation is less expensive than writer update because it wakes up the
-                // writer task iff there is an active push waiting.
+                // This operation is less expensive than the writer update because it wakes up the
+                // writer task iff there is an active wait to push a new element into the queue.
                 let item = state.take(head, None);
                 debug_assert!(item.is_some());
 
@@ -191,7 +191,9 @@ impl<T> Drop for Receiver<T> {
 /// API to push several items at a time per single reader wake.
 ///
 /// Sender and receiver may over-communicate the updates in contention which happens
-/// when the capacity is small. See `contention` test for more details.
+/// when the capacity is small. See `contention` test for more details. Pushing data to the channel
+/// is generally more expensive in terms of task wakeups than reading it. See [`Receiver`] docs for
+/// more details.
 ///
 /// [`push`]: Sender::push
 /// [`Sender`]: Sender
