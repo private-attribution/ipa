@@ -1,4 +1,4 @@
-use futures::Stream;
+use futures::{task::AtomicWaker, Stream};
 use std::{
     future::Future,
     iter::repeat_with,
@@ -7,11 +7,14 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 /// FIFO queue that backs spsc channel. Uses the ring buffer and two pointers to last element written
 /// and read.
+///
+/// *Note*: It does not use Atomic CAS operations to update the head and tail pointers, so there
+/// will be dragons if there is more than one writer.
 struct Queue<T> {
     /// Pointer to the next write slot. If `head` == `tail`, queue is considered empty.
     head: AtomicUsize,
@@ -20,9 +23,9 @@ struct Queue<T> {
     /// Ring buffer.
     buf: Box<[Mutex<Option<T>>]>,
     /// A task to wake when there is a next element to read from the queue.
-    read_waker: Mutex<Option<Waker>>,
+    read_waker: AtomicWaker,
     /// A task to wake when there is at least one slot available in the queue to write.
-    write_waker: Mutex<Option<Waker>>,
+    write_waker: AtomicWaker,
     /// Indicates that queue is closed.
     closed: AtomicBool,
 }
@@ -45,10 +48,7 @@ impl<T> Queue<T> {
     /// Takes the value stored at `index` mod size out and places `None` in that cell.
     /// This method has no effect if the value wasn't set before.
     fn take(&self, index: usize) -> Option<T> {
-        self.buf[index % self.buf.len()]
-            .lock()
-            .unwrap()
-            .take()
+        self.buf[index % self.buf.len()].lock().unwrap().take()
     }
 
     /// Closes this queue, making it unavailable for new writes. Queue can still be drained after
@@ -72,7 +72,7 @@ struct Sender<T> {
 }
 
 #[allow(dead_code)]
-impl <T: Send> Sender<T> {
+impl<T: Send> Sender<T> {
     fn push(&self, value: T) -> Push<'_, T> {
         Push {
             value: Some(value),
@@ -87,6 +87,47 @@ impl<T> Drop for Sender<T> {
     }
 }
 
+/// Future for [`push`] method.
+///
+/// [`push`]: Sender::push
+#[must_use = "futures do nothing unless polled"]
+pub struct Push<'a, T> {
+    value: Option<T>,
+    sender: &'a Sender<T>,
+}
+
+impl<T: Send + Unpin> Future for Push<'_, T> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        assert!(!self.sender.state.is_closed(), "Channel is closed");
+        let state = &self.sender.state;
+
+        // there is only one writer task, so it is ok to replace the waker here.
+        // the waker must be registered before checking the head to guarantee consistency.
+        state.write_waker.register(cx.waker());
+
+        let v = state.queue_op(|head, tail| {
+            if tail.wrapping_sub(head) == state.buf.len() {
+                // when buffer is full, this will wait until reader moves the head.
+                Poll::Pending
+            } else {
+                let value = self.value.take().expect("value hasn't been moved yet");
+                let prev = state.write(tail, value);
+                debug_assert!(prev.is_none());
+
+                // update the tail pointer and notify the reader (order is important).
+                state.tail.store(tail.wrapping_add(1), Ordering::Release);
+                state.read_waker.wake();
+
+                Poll::Ready(())
+            }
+        });
+
+        v
+    }
+}
+
 /// Receiving end of the spsc channel. Items can be taken out of it using the standard [`Stream`]
 /// API.
 ///
@@ -98,28 +139,32 @@ struct Receiver<T> {
     state: Arc<Queue<T>>,
 }
 
-impl <T: Send> Stream for Receiver<T> {
+impl<T: Send> Stream for Receiver<T> {
     type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let state = &self.state;
+        state.read_waker.register(cx.waker());
+
         let v = state.queue_op(|head, tail| {
             if head == tail {
                 if state.is_closed() {
                     Poll::Ready(None)
                 } else {
-                    save_waker(&state.read_waker, cx.waker());
                     Poll::Pending
                 }
             } else {
+                // Take the value out, update the head pointer and notify the writer, in this order.
+                // This operation is less expensive than writer update because it wakes up the
+                // writer task iff there is an active push waiting.
                 let item = state.take(head);
                 debug_assert!(item.is_some());
 
                 state.head.store(head.wrapping_add(1), Ordering::Release);
+                state.write_waker.wake();
                 Poll::Ready(item)
             }
         });
-        wake(&state.write_waker);
 
         v
     }
@@ -162,8 +207,8 @@ fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
             .take(capacity)
             .collect::<Vec<_>>()
             .into_boxed_slice(),
-        read_waker: Mutex::new(None),
-        write_waker: Mutex::new(None),
+        read_waker: AtomicWaker::default(),
+        write_waker: AtomicWaker::default(),
         closed: AtomicBool::new(false),
     });
 
@@ -173,54 +218,6 @@ fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
         },
         Receiver { state },
     )
-}
-
-/// Future for [`push`] method.
-///
-/// [`push`]: Sender::push
-#[must_use = "futures do nothing unless polled"]
-pub struct Push<'a, T> {
-    value: Option<T>,
-    sender: &'a Sender<T>,
-}
-
-impl<T: Send + Unpin> Future for Push<'_, T> {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        assert!(!self.sender.state.is_closed(), "Channel is closed");
-        let state = &self.sender.state;
-        let value = &mut self.value;
-
-        let v = state.queue_op(|head, tail| {
-            if tail.wrapping_sub(head) == state.buf.len() {
-                // buffer is full, we have no capacity to write
-                save_waker(&state.write_waker, cx.waker());
-                Poll::Pending
-            } else {
-                let value = value.take().expect("value hasn't been moved yet");
-                let prev = state.write(tail, value);
-                debug_assert!(prev.is_none());
-
-                state.tail.store(tail.wrapping_add(1), Ordering::Release);
-                Poll::Ready(())
-            }
-        });
-
-        wake(&self.sender.state.read_waker);
-
-        v
-    }
-}
-
-fn wake(cell: &Mutex<Option<Waker>>) {
-    if let Some(waker) = cell.lock().unwrap().take() {
-        waker.wake();
-    }
-}
-
-fn save_waker(cell: &Mutex<Option<Waker>>, waker: &Waker) {
-    *cell.lock().unwrap() = Some(waker.clone());
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
