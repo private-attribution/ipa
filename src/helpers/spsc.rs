@@ -2,6 +2,7 @@ use futures::{task::AtomicWaker, Stream};
 use std::{
     future::Future,
     iter::repeat_with,
+    num::NonZeroUsize,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -39,16 +40,13 @@ impl<T> Queue<T> {
 
     /// Writes a new value at `index` mod buffer size and returns the previous value.
     fn write(&self, index: usize, value: T) -> Option<T> {
-        self.buf[index % self.buf.len()]
-            .lock()
-            .unwrap()
-            .replace(value)
+        self.buf[self.clamp(index)].lock().unwrap().replace(value)
     }
 
     /// Takes the value stored at `index` mod size out and places `None` in that cell.
     /// This method has no effect if the value wasn't set before.
     fn take(&self, index: usize) -> Option<T> {
-        self.buf[index % self.buf.len()].lock().unwrap().take()
+        self.buf[self.clamp(index)].lock().unwrap().take()
     }
 
     /// Closes this queue, making it unavailable for new writes. Queue can still be drained after
@@ -60,6 +58,12 @@ impl<T> Queue<T> {
     /// Checks whether this queue is closed.
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
+    }
+
+    /// clamps the `index` value to be within the range `[0..capacity)`
+    #[inline]
+    fn clamp(&self, index: usize) -> usize {
+        index & (self.buf.len() - 1)
     }
 }
 
@@ -84,6 +88,7 @@ impl<T: Send> Sender<T> {
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         self.state.close();
+        self.state.read_waker.wake();
     }
 }
 
@@ -100,14 +105,13 @@ impl<T: Send + Unpin> Future for Push<'_, T> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        assert!(!self.sender.state.is_closed(), "Channel is closed");
         let state = &self.sender.state;
-
         // there is only one writer task, so it is ok to replace the waker here.
-        // the waker must be registered before checking the head to guarantee consistency.
+        // the waker must be registered before checking the head and close to guarantee consistency.
         state.write_waker.register(cx.waker());
+        assert!(!self.sender.state.is_closed(), "Channel is closed");
 
-        let v = state.queue_op(|head, tail| {
+        state.queue_op(|head, tail| {
             if tail.wrapping_sub(head) == state.buf.len() {
                 // when buffer is full, this will wait until reader moves the head.
                 Poll::Pending
@@ -122,9 +126,7 @@ impl<T: Send + Unpin> Future for Push<'_, T> {
 
                 Poll::Ready(())
             }
-        });
-
-        v
+        })
     }
 }
 
@@ -146,7 +148,7 @@ impl<T: Send> Stream for Receiver<T> {
         let state = &self.state;
         state.read_waker.register(cx.waker());
 
-        let v = state.queue_op(|head, tail| {
+        state.queue_op(|head, tail| {
             if head == tail {
                 if state.is_closed() {
                     Poll::Ready(None)
@@ -164,15 +166,14 @@ impl<T: Send> Stream for Receiver<T> {
                 state.write_waker.wake();
                 Poll::Ready(item)
             }
-        });
-
-        v
+        })
     }
 }
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         self.state.close();
+        self.state.write_waker.wake();
     }
 }
 
@@ -180,6 +181,8 @@ impl<T> Drop for Receiver<T> {
 /// its sending and receiving ends. Up to `capacity` elements can be added to this channel without
 /// waiting by using [`push`]. The receiving end is a stream that takes these elements out in FIFO
 /// order.
+///
+/// The capacity must be a power of two, otherwise you will get a panic.
 ///
 /// If channel is full, [`push`] waits until at least one element is taken out by polling
 /// the receiver. Channel is closed automatically when either [`Sender`] or [`Receiver`] is dropped.
@@ -199,7 +202,14 @@ impl<T> Drop for Receiver<T> {
 /// [`Sender`]: Sender
 /// [`Receiver`]: Receiver
 #[allow(dead_code)]
-fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+fn channel<T>(capacity: NonZeroUsize) -> (Sender<T>, Receiver<T>) {
+    let capacity = capacity.get();
+    assert_eq!(
+        0,
+        capacity & (capacity - 1),
+        "Channel capacity {capacity} must be a power of two"
+    );
+
     let state = Arc::new(Queue {
         head: AtomicUsize::new(0),
         tail: AtomicUsize::new(0),
@@ -234,16 +244,27 @@ mod tests {
     use rand::Rng;
     use std::pin::pin;
 
+    fn make_channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+        channel(capacity.try_into().unwrap())
+    }
+
+    #[test]
+    #[should_panic(expected = "must be a power of two")]
+    fn power_of_two() {
+        let _ = make_channel::<u32>(100);
+    }
+
     #[test]
     fn sender_fills_buffer() {
         run(|| async {
-            let (tx, _rx) = channel::<u32>(100);
+            let capacity = 1_usize << 7;
+            let (tx, _rx) = make_channel(capacity);
 
-            for i in 0..100 {
+            for i in 0..capacity {
                 tx.push(i).await;
             }
 
-            let mut f = pin!(tx.push(100));
+            let mut f = pin!(tx.push(capacity));
             assert_eq!(None, poll_immediate(&mut f).await);
         });
     }
@@ -251,7 +272,7 @@ mod tests {
     #[test]
     fn receiver_unblocks_sender() {
         run(|| async {
-            let (tx, mut rx) = channel(1);
+            let (tx, mut rx) = make_channel(1);
 
             let send_handle = spawn(async move {
                 tx.push(1).await;
@@ -266,7 +287,7 @@ mod tests {
     #[test]
     fn sender_unblocks_receiver() {
         run(|| async {
-            let (tx, mut rx) = channel(1);
+            let (tx, mut rx) = make_channel(1);
 
             let recv_handle = spawn(async move { rx.next().await });
 
@@ -282,7 +303,7 @@ mod tests {
         use std::panic;
 
         run(|| async {
-            let (tx, rx) = channel(1);
+            let (tx, rx) = make_channel(1);
             tx.push(1).await;
             let send_handle = spawn(async move {
                 tx.push(2).await;
@@ -296,8 +317,8 @@ mod tests {
     #[test]
     fn random() {
         run(|| async {
-            let fwd_capacity = thread_rng().gen_range(1..=100);
-            let (fwd_tx, mut fwd_rx) = channel(fwd_capacity);
+            let fwd_capacity = thread_rng().gen_range(1usize..=15);
+            let (fwd_tx, mut fwd_rx) = make_channel(1 << fwd_capacity);
 
             let a_handle = spawn(async move {
                 let iterations = thread_rng().gen_range(fwd_capacity..=5 * fwd_capacity);
@@ -327,7 +348,7 @@ mod tests {
     #[test]
     fn contention() {
         run(|| async {
-            let (tx, mut rx) = channel(1);
+            let (tx, mut rx) = make_channel(1);
             // writer throughput is 2x compared to reader.
             // this causes head and tail pointers to be read/written by two threads often at
             // the same time. Without excessive wakes, this test will stall.
