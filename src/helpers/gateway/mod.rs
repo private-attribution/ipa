@@ -176,7 +176,6 @@ impl<T: Transport> Gateway<T> {
     ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn(async move {
             // Perform some periodic work in the background
-            #[cfg(debug_assertions)]
             loop {
                 let _ = tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
