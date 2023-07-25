@@ -239,10 +239,10 @@ mod tests {
     };
     use futures_util::{
         future::{poll_immediate, try_join},
-        StreamExt,
+        FutureExt, StreamExt,
     };
     use rand::Rng;
-    use std::pin::pin;
+    use std::{panic::AssertUnwindSafe, pin::pin};
 
     fn make_channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
         channel(capacity.try_into().unwrap())
@@ -289,28 +289,35 @@ mod tests {
         run(|| async {
             let (tx, mut rx) = make_channel(1);
 
-            let recv_handle = spawn(async move { rx.next().await });
+            let recv_handle = spawn(async move {
+                let mut sum = 0;
+                while let Some(x) = rx.next().await {
+                    sum += x;
+                }
+
+                sum
+            });
 
             tx.push(1).await;
-            assert_eq!(Some(1), recv_handle.await.unwrap());
+            drop(tx);
+            assert_eq!(1, recv_handle.await.unwrap());
         });
     }
 
     #[test]
-    #[should_panic(expected = "Channel is closed")]
-    #[cfg(not(feature = "shuttle"))]
     fn dropping_receiver_unblocks_sender() {
-        use std::panic;
-
         run(|| async {
             let (tx, rx) = make_channel(1);
             tx.push(1).await;
             let send_handle = spawn(async move {
-                tx.push(2).await;
+                AssertUnwindSafe(tx.push(2))
+                    .catch_unwind()
+                    .await
+                    .unwrap_err()
             });
 
             drop(rx);
-            panic::resume_unwind(send_handle.await.unwrap_err().into_panic());
+            let _ = send_handle.await.unwrap();
         });
     }
 
