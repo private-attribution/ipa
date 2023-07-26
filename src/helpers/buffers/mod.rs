@@ -3,7 +3,7 @@ pub(crate) mod ordering_sender;
 mod unordered_receiver;
 
 #[cfg(debug_assertions)]
-use std::{fmt, ops::Range};
+use std::{fmt, ops::RangeInclusive};
 
 pub use ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender};
 pub use ordering_sender::{IdleTrackOrderingSender, OrderedStream, OrderingSender};
@@ -46,7 +46,7 @@ mod waiting {
 }
 
 #[cfg(debug_assertions)]
-pub struct LoggingRanges(Vec<Range<usize>>);
+pub struct LoggingRanges(Vec<RangeInclusive<usize>>);
 
 #[cfg(debug_assertions)]
 impl LoggingRanges {
@@ -66,9 +66,9 @@ impl LoggingRanges {
                 .into_iter()
                 .map(|(_, group)| {
                     let range: Vec<usize> = group.map(|(_, &num)| num).collect();
-                    range[0]..(range[range.len() - 1] + 1)
+                    range[0]..=range[range.len() - 1]
                 })
-                .collect::<Vec<Range<usize>>>(),
+                .collect::<Vec<RangeInclusive<usize>>>(),
         )
     }
 
@@ -85,11 +85,11 @@ impl fmt::Debug for LoggingRanges {
         let formatted_ranges: Vec<String> = self
             .0
             .iter()
-            .map(|range| match (range.end - range.start).cmp(&2) {
-                std::cmp::Ordering::Less => format!("{}", range.start),
-                std::cmp::Ordering::Equal => format!("[{}, {}] ", range.start, range.end - 1),
+            .map(|range| match (range.end() - range.start()).cmp(&1) {
+                std::cmp::Ordering::Less => format!("{}", range.start()),
+                std::cmp::Ordering::Equal => format!("[{}, {}] ", range.start(), range.end()),
                 std::cmp::Ordering::Greater => {
-                    format!("[{}, ..., {}] ", range.start, range.end - 1)
+                    format!("[{}, ..., {}] ", range.start(), range.end())
                 }
             })
             .collect();

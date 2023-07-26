@@ -420,7 +420,7 @@ impl IdleTrackOrderingSender {
         if waiting_messages.is_empty() {
             return vec![];
         }
-        let last_pending_message = waiting_messages.iter().cloned().max().unwrap();
+        let last_pending_message = waiting_messages.iter().copied().max().unwrap();
         let next = self.0.next.load(Acquire);
         let state = self.0.state.lock().unwrap();
         let chunk_head = next - state.written / self.0.message_size;

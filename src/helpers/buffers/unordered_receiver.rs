@@ -296,7 +296,7 @@ where
     #[cfg(debug_assertions)]
     fn get_waiting_messages(&self) -> LoggingRanges {
         let mut response = vec![self.next];
-        for i in self.next + 1..self.next + self.wakers.len() + 1_usize {
+        for i in (self.next + 1)..=(self.next + self.wakers.len()) {
             if self.wakers[i % self.wakers.len()].is_some() {
                 response.push(i);
             }

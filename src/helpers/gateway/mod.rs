@@ -15,8 +15,16 @@ use crate::{
     },
     protocol::QueryId,
 };
+
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+
+#[cfg(all(feature = "shuttle", test, debug_assertions))]
+type JoinHandle = shuttle::future::JoinHandle<()>;
+
+#[cfg(all(not(all(feature = "shuttle", test)), debug_assertions))]
+type JoinHandle = tokio::task::JoinHandle<()>;
+
 use std::{fmt::Debug, num::NonZeroUsize, sync::Arc};
 
 /// Alias for the currently configured transport.
@@ -56,7 +64,7 @@ pub struct Gateway<T: Transport = TransportImpl> {
     senders: SenderType,
     receivers: ReceiverType<T>,
     #[cfg(debug_assertions)]
-    idle_tracking_handle: Option<tokio::task::JoinHandle<()>>,
+    idle_tracking_handle: Option<JoinHandle>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,7 +75,9 @@ pub struct GatewayConfig {
 }
 
 impl<T: Transport> Gateway<T> {
-    /// # panic panic may happen if maybe_sender_clone/maybe_receivers_clone are None in debug mode due to errors
+    /// Create a new gateway.
+    /// ## Panics
+    /// panic may happen if `maybe_sender_clone/maybe_receivers_clone` are None in debug mode due to errors
     #[must_use]
     pub fn new(
         query_id: QueryId,
@@ -75,13 +85,13 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
-        let (senders, _maybe_senders_clone) = Self::get_default_senders();
-        let (receivers, _maybe_receivers_clone) = Self::get_default_receivers();
+        let (senders, maybe_senders_clone) = Self::get_default_senders();
+        let (receivers, maybe_receivers_clone) = Self::get_default_receivers();
         #[cfg(debug_assertions)]
         let handle = if cfg!(debug_assertions) {
             Some(Self::create_idle_tracker(
-                _maybe_senders_clone.unwrap(),
-                _maybe_receivers_clone.unwrap(),
+                maybe_senders_clone.unwrap(),
+                maybe_receivers_clone.unwrap(),
             ))
         } else {
             None
@@ -173,11 +183,11 @@ impl<T: Transport> Gateway<T> {
     fn create_idle_tracker(
         senders: Arc<GatewaySenders>,
         receivers: Arc<GatewayReceivers<T>>,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::task::spawn(async move {
+    ) -> JoinHandle {
+        tokio::spawn(async move {
             // Perform some periodic work in the background
             loop {
-                let _ = tokio::time::sleep(Duration::from_secs(5)).await;
+                let _ = ::tokio::time::sleep(Duration::from_secs(5)).await;
                 if senders.check_idle_and_reset() && receivers.check_idle_and_reset() {
                     let sender_missing_records = senders.get_all_missing_messages();
                     if !sender_missing_records.is_empty() {
