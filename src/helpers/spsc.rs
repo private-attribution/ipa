@@ -67,13 +67,13 @@ impl<T> Queue<T> {
 /// Dropping the sender will wake the receiver and close the stream.
 ///
 /// [`push`]: Sender::push
-struct Sender<T> {
+pub struct Sender<T> {
     state: Arc<Queue<T>>,
 }
 
 #[allow(dead_code)]
 impl<T: Send> Sender<T> {
-    fn push(&self, value: T) -> Push<'_, T> {
+    pub fn push(&self, value: T) -> Push<'_, T> {
         Push {
             value: Some(value),
             sender: self,
@@ -132,7 +132,7 @@ impl<T: Send + Unpin> Future for Push<'_, T> {
 /// is chosen because it suits the IPA use-case where downstream tasks live longer than upstream.
 ///
 /// [`Stream`]: Stream
-struct Receiver<T> {
+pub struct Receiver<T> {
     state: Arc<Queue<T>>,
 }
 
@@ -159,6 +159,10 @@ impl<T: Send> Stream for Receiver<T> {
 
                 state.head.store(head.wrapping_add(1), Ordering::Release);
                 state.write_waker.wake();
+
+                // there is no reason to wake this task. It is more expensive that I want it to be
+                // (atomic update), but less costly than routing the waker through the executor.
+                drop(state.read_waker.take());
                 Poll::Ready(item)
             }
         })
@@ -195,11 +199,14 @@ impl<T> Drop for Receiver<T> {
 /// is generally more expensive in terms of task wakeups than reading it. See [`Receiver`] docs for
 /// more details.
 ///
+/// ### Panics
+/// If capacity is not a power of two, this function will panic.
+///
 /// [`push`]: Sender::push
 /// [`Sender`]: Sender
 /// [`Receiver`]: Receiver
-#[allow(dead_code)]
-fn channel<T>(capacity: NonZeroUsize) -> (Sender<T>, Receiver<T>) {
+#[must_use]
+pub fn channel<T>(capacity: NonZeroUsize) -> (Sender<T>, Receiver<T>) {
     let capacity = capacity.get();
     assert_eq!(
         0,
