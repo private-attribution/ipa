@@ -85,8 +85,14 @@ impl<T: Transport> Gateway<T> {
         roles: RoleAssignment,
         transport: T,
     ) -> Self {
+        #[cfg(debug_assertions)]
         let (senders, maybe_senders_clone) = Self::get_default_senders();
+        #[cfg(not(debug_assertions))]
+        let (senders, _) = Self::get_default_senders();
+        #[cfg(debug_assertions)]
         let (receivers, maybe_receivers_clone) = Self::get_default_receivers();
+        #[cfg(not(debug_assertions))]
+        let (receivers, _) = Self::get_default_receivers();
         #[cfg(debug_assertions)]
         let handle = if cfg!(debug_assertions) {
             Some(Self::create_idle_tracker(
