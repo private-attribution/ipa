@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
 };
-use futures_util::future::{join, try_join};
+use futures_util::future::try_join;
 use std::num::NonZeroUsize;
 use tokio_stream::StreamExt;
 
