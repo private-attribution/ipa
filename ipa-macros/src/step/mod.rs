@@ -2,8 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 
-/// Generate a state transition graph and the corresponding `StepNarrow` implementations for the
-/// IPA protocol.
+/// Add strum::AsRefStr and step::Step trait derives to the annotated enum.
 pub fn expand(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as syn::Item);
     let step_enum = match item {
