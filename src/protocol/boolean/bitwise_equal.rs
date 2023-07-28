@@ -8,7 +8,9 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::step;
 use std::iter::zip;
+use strum::AsRefStr;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
 ///
@@ -83,7 +85,7 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     debug_assert!(a.len() == b.len());
-    let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XORAllTheBits), record_id, a, b).await?;
+    let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XorAllTheBits), record_id, a, b).await?;
     all_zeroes(ctx, record_id, &xored_bits).await
 }
 
@@ -106,19 +108,9 @@ where
     .await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
-    XORAllTheBits,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::XORAllTheBits => "xor_all_the_bits",
-        }
-    }
+    XorAllTheBits,
 }
 
 #[cfg(all(test, unit_test))]

@@ -22,7 +22,7 @@ use crate::{
         ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs},
         modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         sort::generate_permutation::ShuffledPermutationWrapper,
-        step, BasicProtocols, RecordId,
+        BasicProtocols, RecordId,
     },
     repeat64str,
     secret_sharing::{
@@ -35,7 +35,9 @@ use crate::{
     seq_join::assert_send,
 };
 use futures::future::try_join;
+use ipa_macros::step;
 use std::iter::{empty, once, zip};
+use strum::AsRefStr;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -138,23 +140,11 @@ where
     validator.validate(output).await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AttributionStep {
+#[step]
+pub(crate) enum AttributionStep {
     ApplyAttributionWindow,
     AccumulateCredit,
     PerformUserCapping,
-}
-
-impl step::Step for AttributionStep {}
-
-impl AsRef<str> for AttributionStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ApplyAttributionWindow => "apply_attribution_window",
-            Self::AccumulateCredit => "accumulate_credit",
-            Self::PerformUserCapping => "user_capping",
-        }
-    }
 }
 
 ///
@@ -428,7 +418,7 @@ async fn mod_conv_helper_bits<C: Context, F: Field>(
         .await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 #[allow(clippy::enum_variant_names)]
 pub(in crate::protocol) enum Step {
     CurrentStopBitTimesSuccessorCredit,
@@ -437,23 +427,6 @@ pub(in crate::protocol) enum Step {
     ComputeHelperBits,
     ComputeStopBits,
     ModConvHelperBits,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::CurrentStopBitTimesSuccessorCredit => "current_stop_bit_times_successor_credit",
-            Self::CurrentStopBitTimesSuccessorStopBit => {
-                "current_stop_bit_times_successor_stop_bit"
-            }
-            Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
-            Self::ComputeHelperBits => "compute_helper_bits",
-            Self::ComputeStopBits => "compute_stop_bits",
-            Self::ModConvHelperBits => "mod_conv_helper_bits",
-        }
-    }
 }
 
 pub(crate) struct InteractionPatternStep(usize);

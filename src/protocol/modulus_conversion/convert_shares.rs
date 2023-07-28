@@ -36,23 +36,14 @@ use crate::{
     },
     seq_join::assert_send,
 };
+use ipa_macros::step;
 use std::iter::{repeat, zip};
+use strum::AsRefStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     Xor1,
     Xor2,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Xor1 => "xor1",
-            Self::Xor2 => "xor2",
-        }
-    }
 }
 
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);

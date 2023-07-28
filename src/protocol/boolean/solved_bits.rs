@@ -15,7 +15,9 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use ipa_macros::step;
 use std::marker::PhantomData;
+use strum::AsRefStr;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
@@ -135,23 +137,11 @@ where
     Ok(true)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     RandomBits,
     IsPLessThanB,
     RevealC,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::RandomBits => "random_bits",
-            Self::IsPLessThanB => "is_p_less_than_b",
-            Self::RevealC => "reveal_c",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

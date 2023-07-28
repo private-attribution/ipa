@@ -10,7 +10,9 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join;
+use ipa_macros::step;
 use std::cmp::Ordering;
+use strum::AsRefStr;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
@@ -188,7 +190,7 @@ impl BitwiseLessThanPrime {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,
@@ -196,21 +198,6 @@ pub(crate) enum Step {
     CheckIfAllOnes,
     CheckLeastSignificantBits,
     AllOnesAndFinalBits,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::CheckTrimmed => "check_trimmed",
-            Self::CheckIfAnyOnes => "check_if_any_ones",
-            Self::LeadingOnesOrRest => "leading_ones_or_rest",
-            Self::CheckIfAllOnes => "check_if_all_ones",
-            Self::CheckLeastSignificantBits => "check_least_significant_bits",
-            Self::AllOnesAndFinalBits => "final_step",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

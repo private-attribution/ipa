@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     apply::{apply, apply_inv},
-    ShuffleStep::{self, Step1, Step2, Step3},
+    ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
 };
 
 #[derive(Debug)]
@@ -50,9 +50,9 @@ pub fn get_two_of_three_random_permutations<R: Rng>(
 
 pub(super) fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
     match which_step {
-        Step1 => Role::H1,
-        Step2 => Role::H2,
-        Step3 => Role::H3,
+        Shuffle1 => Role::H1,
+        Shuffle2 => Role::H2,
+        Shuffle3 => Role::H3,
     }
 }
 
@@ -109,7 +109,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await?;
     let input = shuffle_or_unshuffle_once(
@@ -117,7 +117,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_or_unshuffle_once(
@@ -125,7 +125,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await
 }
@@ -144,7 +144,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await?;
     let input = shuffle_or_unshuffle_once(
@@ -152,7 +152,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_or_unshuffle_once(
@@ -160,7 +160,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await
 }

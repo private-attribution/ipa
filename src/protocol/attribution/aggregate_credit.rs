@@ -1,3 +1,5 @@
+extern crate ipa_macros;
+
 use crate::{
     error::Error,
     ff::{GaloisField, Gf2, PrimeField, Serializable},
@@ -18,6 +20,8 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
+use ipa_macros::step;
+use strum::AsRefStr;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
@@ -86,7 +90,7 @@ where
         .narrow(&Step::ModConvBreakdownKeyBits)
         .set_total_records(capped_credits.len());
     let upgrade_context = ctx
-        .narrow(&Step::UpgradeBits)
+        .narrow(&Step::UpgradeBreakdownKeyBits)
         .set_total_records(capped_credits.len());
 
     let increments = ctx
@@ -171,25 +175,12 @@ where
         .collect())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     ComputeEqualityChecks,
     CheckTimesCredit,
     ModConvBreakdownKeyBits,
-    UpgradeBits,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ComputeEqualityChecks => "compute_equality_checks",
-            Self::CheckTimesCredit => "check_times_credit",
-            Self::ModConvBreakdownKeyBits => "mod_conv_breakdown_key_bits",
-            Self::UpgradeBits => "upgrade_breakdown_key_bits",
-        }
-    }
+    UpgradeBreakdownKeyBits,
 }
 
 #[cfg(all(test, unit_test))]

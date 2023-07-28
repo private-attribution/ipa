@@ -17,7 +17,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
+use ipa_macros::step;
 use std::marker::PhantomData;
+use strum::AsRefStr;
 
 /// Special context type used for malicious upgrades.
 ///
@@ -92,22 +94,11 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
+#[step]
 pub(crate) enum UpgradeTripleStep {
-    V0,
-    V1,
-    V2,
-}
-
-impl Step for UpgradeTripleStep {}
-
-impl AsRef<str> for UpgradeTripleStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::V0 => "upgrade_bit_triple0",
-            Self::V1 => "upgrade_bit_triple1",
-            Self::V2 => "upgrade_bit_triple2",
-        }
-    }
+    UpgradeBitTriple0,
+    UpgradeBitTriple1,
+    UpgradeBitTriple2,
 }
 
 #[async_trait]
@@ -124,21 +115,15 @@ where
     ) -> Result<BitConversionTriple<C::Share>, Error> {
         let [v0, v1, v2] = input.0;
         let (t0, t1, t2) = try_join3(
-            self.ctx.narrow(&UpgradeTripleStep::V0).upgrade_one(
-                self.record_binding,
-                v0,
-                ZeroPositions::Pvzz,
-            ),
-            self.ctx.narrow(&UpgradeTripleStep::V1).upgrade_one(
-                self.record_binding,
-                v1,
-                ZeroPositions::Pzvz,
-            ),
-            self.ctx.narrow(&UpgradeTripleStep::V2).upgrade_one(
-                self.record_binding,
-                v2,
-                ZeroPositions::Pzzv,
-            ),
+            self.ctx
+                .narrow(&UpgradeTripleStep::UpgradeBitTriple0)
+                .upgrade_one(self.record_binding, v0, ZeroPositions::Pvzz),
+            self.ctx
+                .narrow(&UpgradeTripleStep::UpgradeBitTriple1)
+                .upgrade_one(self.record_binding, v1, ZeroPositions::Pzvz),
+            self.ctx
+                .narrow(&UpgradeTripleStep::UpgradeBitTriple2)
+                .upgrade_one(self.record_binding, v2, ZeroPositions::Pzzv),
         )
         .await?;
         Ok(BitConversionTriple([t0, t1, t2]))
@@ -274,22 +259,11 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
+#[step]
 pub(crate) enum UpgradeModConvStep {
-    V1,
-    V2,
-    V3,
-}
-
-impl Step for UpgradeModConvStep {}
-
-impl AsRef<str> for UpgradeModConvStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::V1 => "upgrade_mod_conv1",
-            Self::V2 => "upgrade_mod_conv2",
-            Self::V3 => "upgrade_mod_conv3",
-        }
-    }
+    UpgradeModConv1,
+    UpgradeModConv2,
+    UpgradeModConv3,
 }
 
 #[async_trait]
@@ -309,21 +283,23 @@ where
         input: ArithmeticallySharedIPAInputs<F, Replicated<F>>,
     ) -> Result<ArithmeticallySharedIPAInputs<F, C::Share>, Error> {
         let (is_trigger_bit, trigger_value, timestamp) = try_join3(
-            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
-                self.record_binding,
-                input.is_trigger_bit,
-                ZeroPositions::Pvvv,
-            ),
-            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
-                self.record_binding,
-                input.trigger_value,
-                ZeroPositions::Pvvv,
-            ),
-            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
-                self.record_binding,
-                input.timestamp,
-                ZeroPositions::Pvvv,
-            ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv1)
+                .upgrade_one(
+                    self.record_binding,
+                    input.is_trigger_bit,
+                    ZeroPositions::Pvvv,
+                ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv2)
+                .upgrade_one(
+                    self.record_binding,
+                    input.trigger_value,
+                    ZeroPositions::Pvvv,
+                ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv3)
+                .upgrade_one(self.record_binding, input.timestamp, ZeroPositions::Pvvv),
         )
         .await?;
 
@@ -352,21 +328,23 @@ where
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, C::Share>, Error> {
         let (is_trigger_bit, trigger_value, timestamp) = try_join3(
-            self.ctx.narrow(&UpgradeModConvStep::V1).upgrade_one(
-                self.record_binding,
-                input.is_trigger_bit,
-                ZeroPositions::Pvvv,
-            ),
-            self.ctx.narrow(&UpgradeModConvStep::V2).upgrade_one(
-                self.record_binding,
-                input.trigger_value,
-                ZeroPositions::Pvvv,
-            ),
-            self.ctx.narrow(&UpgradeModConvStep::V3).upgrade_one(
-                self.record_binding,
-                input.timestamp,
-                ZeroPositions::Pvvv,
-            ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv1)
+                .upgrade_one(
+                    self.record_binding,
+                    input.is_trigger_bit,
+                    ZeroPositions::Pvvv,
+                ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv2)
+                .upgrade_one(
+                    self.record_binding,
+                    input.trigger_value,
+                    ZeroPositions::Pvvv,
+                ),
+            self.ctx
+                .narrow(&UpgradeModConvStep::UpgradeModConv3)
+                .upgrade_one(self.record_binding, input.timestamp, ZeroPositions::Pvvv),
         )
         .await?;
 

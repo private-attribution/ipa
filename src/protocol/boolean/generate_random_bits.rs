@@ -23,6 +23,8 @@ use crate::{
     seq_join::SeqJoin,
 };
 use async_trait::async_trait;
+use ipa_macros::step;
+use strum::AsRefStr;
 
 #[async_trait]
 pub trait RandomBits<V: SharedValue> {
@@ -76,21 +78,10 @@ where
     .await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     ConvertShares,
     UpgradeBitTriples,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ConvertShares => "convert_shares",
-            Self::UpgradeBitTriples => "upgrade_bit_triples",
-        }
-    }
 }
 
 #[async_trait]

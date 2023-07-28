@@ -42,3 +42,10 @@ pub fn static_reverse_state_map(state: u16) -> &'static str {
         _ => unreachable!("static_reverse_state_map should not be called"),
     }
 }
+
+pub fn static_deserialize_state_map(s: &str) -> u16 {
+    match s {
+        "root" => 0,
+        _ => unreachable!("static_deserialize_state_map should not be called"),
+    }
+}
