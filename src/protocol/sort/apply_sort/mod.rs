@@ -17,7 +17,7 @@ use crate::{
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
-#[tracing::instrument(name = "apply_sort", skip_all, fields(gate = %ctx.gate()))]
+#[tracing::instrument(name = "apply_sort", skip_all, fields(gate = %ctx.gate().as_ref()))]
 pub async fn apply_sort_permutation<C, I>(
     ctx: C,
     input: Vec<I>,
@@ -53,7 +53,6 @@ mod tests {
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
             },
-            step::IpaProtocolStep::SortPreAccumulation,
             BreakdownKey, MatchKey,
         },
         rand::{thread_rng, Rng},
@@ -102,7 +101,7 @@ mod tests {
                     let ctx = ctx.narrow("apply_sort");
                     let sort_permutation =
                         generate_permutation_and_reveal_shuffled::<Fp32BitPrime, _, _, _>(
-                            ctx.narrow(&SortPreAccumulation),
+                            ctx.narrow("convert_all_bits"),
                             stream_iter(mk_shares),
                             NUM_MULTI_BITS,
                             MatchKey::BITS,

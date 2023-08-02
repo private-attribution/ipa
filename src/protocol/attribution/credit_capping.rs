@@ -15,7 +15,9 @@ use futures::{
     stream::{iter, once},
     StreamExt, TryStreamExt,
 };
+use ipa_macros::step;
 use std::iter::{repeat, zip};
+use strum::AsRefStr;
 
 /// User-level credit capping protocol.
 ///
@@ -438,7 +440,7 @@ where
         .await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     MaskSourceCredits,
     ReportLevelCapping,
@@ -450,25 +452,6 @@ pub(crate) enum Step {
     IfNextEventHasSameMatchKeyOrElse,
     PrefixOrTimesHelperBit,
     PrefixOrCompareBits,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::MaskSourceCredits => "mask_source_credits",
-            Self::ReportLevelCapping => "report_level_capping",
-            Self::IfReportCreditExceedsCapOrElse => "if_report_credit_exceeds_cap_or_else",
-            Self::RandomBitsForComparison => "random_bits_for_comparison",
-            Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
-            Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
-            Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
-            Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
-            Self::PrefixOrTimesHelperBit => "prefix_or_times_helper_bit",
-            Self::PrefixOrCompareBits => "prefix_or_compare_bits",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

@@ -2,12 +2,14 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{basics::Reshare, context::Context, step::Step, RecordId},
+    protocol::{basics::Reshare, context::Context, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 use async_trait::async_trait;
 use futures::future::try_join4;
+use ipa_macros::step;
 use std::marker::PhantomData;
+use strum::AsRefStr;
 
 //
 // `apply_attribution_window` protocol
@@ -133,25 +135,10 @@ impl<F: Field, T: LinearSecretSharing<F>> CreditCappingInputRow<F, T> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[step]
 pub enum AttributionResharableStep {
     IsTriggerReport,
     HelperBit,
     TriggerValue,
-    AggregationBit,
     ActiveBit,
-}
-
-impl Step for AttributionResharableStep {}
-
-impl AsRef<str> for AttributionResharableStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::IsTriggerReport => "is_trigger_report",
-            Self::HelperBit => "helper_bit",
-            Self::TriggerValue => "trigger_value",
-            Self::AggregationBit => "aggregation_bit",
-            Self::ActiveBit => "active_bit",
-        }
-    }
 }

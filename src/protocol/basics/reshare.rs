@@ -169,6 +169,7 @@ impl<S, C: Context> Reshare<C, NoRecord> for Vec<S>
 where
     S: Reshare<C, RecordId> + Send + Sync,
 {
+    #[tracing::instrument(name = "reshare", skip_all, fields(to = ?to_helper))]
     async fn reshare<'fut>(
         &self,
         ctx: C,

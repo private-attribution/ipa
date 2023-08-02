@@ -10,6 +10,8 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use ipa_macros::step;
+use strum::AsRefStr;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //
@@ -141,25 +143,12 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
     RBounds { r_lo, r_hi, invert }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum GreaterThanConstantStep {
     Reveal,
     CompareLo,
     CompareHi,
     And,
-}
-
-impl crate::protocol::step::Step for GreaterThanConstantStep {}
-
-impl AsRef<str> for GreaterThanConstantStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Reveal => "reveal",
-            Self::CompareLo => "compare_lo",
-            Self::CompareHi => "compare_hi",
-            Self::And => "and",
-        }
-    }
 }
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
@@ -299,21 +288,10 @@ where
     Ok(first_diff_bit)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     PrefixOr,
     DotProduct,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::PrefixOr => "prefix_or",
-            Self::DotProduct => "dot_product",
-        }
-    }
 }
 
 #[cfg(all(test, unit_test))]

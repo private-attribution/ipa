@@ -7,7 +7,7 @@ use crate::{
         sort::{
             apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
-            ShuffleStep::{self, Step1, Step2, Step3},
+            ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
         },
         NoRecord, RecordId,
     },
@@ -36,6 +36,7 @@ impl From<usize> for InnerVectorElementStep {
 /// i)   2 helpers receive permutation pair and choose the permutation to be applied
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
+#[tracing::instrument(name = "shuffle_once", skip_all, fields(to = ?shuffle_for_helper(which_step)))]
 async fn shuffle_once<C, I>(
     mut input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
@@ -88,7 +89,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await?;
     let input = shuffle_once(
@@ -96,7 +97,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_once(
@@ -104,7 +105,7 @@ where
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await
 }

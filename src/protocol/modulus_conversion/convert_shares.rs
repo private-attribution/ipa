@@ -47,7 +47,7 @@ use std::{
     task::{Context as TaskContext, Poll},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Debug)]
 pub(crate) enum Step {
     ConvertBit(u32),
     Upgrade,
@@ -59,9 +59,9 @@ impl crate::protocol::step::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
-        const MODULUS_CONVERSION: [&str; 64] = repeat64str!["mc"];
+        const BIT: [&str; 64] = repeat64str!["bit"];
         match self {
-            Self::ConvertBit(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
+            Self::ConvertBit(i) => BIT[usize::try_from(*i).unwrap()],
             Self::Upgrade => "upgrade",
             Self::Xor1 => "xor1",
             Self::Xor2 => "xor2",
@@ -69,7 +69,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 
 impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
@@ -254,6 +254,7 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// If the total record count on the context is unspecified.
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
 pub fn convert_bits<F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
@@ -299,17 +300,15 @@ where
         (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
             let Some(triple) = locally_converted.next().await else { return None; };
-            let converted = ctx.parallel_join(
-                zip((0..).map(|i| ctx.narrow(&Step::ConvertBit(i))), triple).map(
-                    |(ctx, triple)| async move {
-                        let upgraded = ctx
-                            .narrow(&Step::Upgrade)
-                            .upgrade_for(record_id, triple)
-                            .await?;
-                        convert_bit(ctx, record_id, &upgraded).await
-                    },
-                ),
-            );
+            let bit_contexts = (0..).map(|i| ctx.narrow(&Step::ConvertBit(i)));
+            let converted =
+                ctx.parallel_join(zip(bit_contexts, triple).map(|(ctx, triple)| async move {
+                    let upgraded = ctx
+                        .narrow(&Step::Upgrade)
+                        .upgrade_for(record_id, triple)
+                        .await?;
+                    convert_bit(ctx, record_id, &upgraded).await
+                }));
             Some((converted, (ctx, locally_converted, record_id + 1)))
         },
     )

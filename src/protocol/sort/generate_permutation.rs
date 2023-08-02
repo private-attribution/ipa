@@ -11,8 +11,7 @@ use crate::{
         sort::{
             generate_permutation_opt::generate_permutation_opt,
             shuffle::{get_two_of_three_random_permutations, shuffle_shares},
-            ShuffleRevealStep::{GeneratePermutation, RevealPermutation, ShufflePermutation},
-            SortStep::{ShuffleRevealPermutation, SortKeys},
+            ShuffleRevealPermutationStep, SortStep,
         },
         BasicProtocols, NoRecord, RecordId,
     },
@@ -67,7 +66,9 @@ where
 {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_permutation.len().try_into().unwrap(),
-        m_ctx.narrow(&GeneratePermutation).prss_rng(),
+        m_ctx
+            .narrow(&ShuffleRevealPermutationStep::Generate)
+            .prss_rng(),
     );
 
     let shuffled_permutation = shuffle_shares(
@@ -76,7 +77,7 @@ where
             random_permutations_for_shuffle.0.as_slice(),
             random_permutations_for_shuffle.1.as_slice(),
         ),
-        m_ctx.narrow(&ShufflePermutation),
+        m_ctx.narrow(&ShuffleRevealPermutationStep::Shuffle),
     )
     .await?;
 
@@ -119,7 +120,7 @@ where
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let (validator, sort_permutation) = generate_permutation_opt(
-        sh_ctx.narrow(&SortKeys),
+        sh_ctx.narrow(&SortStep::SortKeys),
         sort_keys,
         num_multi_bits,
         max_bits,
@@ -128,7 +129,7 @@ where
 
     let m_ctx = validator.context();
     shuffle_and_reveal_permutation::<C, _, _>(
-        m_ctx.narrow(&ShuffleRevealPermutation),
+        m_ctx.narrow(&SortStep::ShuffleRevealPermutation),
         sort_permutation,
         validator,
     )
@@ -143,7 +144,10 @@ impl<'a, F: ExtendableField> DowngradeMalicious
     /// For ShuffledPermutationWrapper on downgrading, we reveal the permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         let output = self
-            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
+            .reveal(
+                self.ctx.narrow(&ShuffleRevealPermutationStep::Reveal),
+                NoRecord,
+            )
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper::new(output)
@@ -157,7 +161,10 @@ impl<'a, F: ExtendableField> DowngradeMalicious
     type Target = Vec<u32>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         let output = self
-            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
+            .reveal(
+                self.ctx.narrow(&ShuffleRevealPermutationStep::Reveal),
+                NoRecord,
+            )
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper::new(output)

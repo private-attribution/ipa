@@ -1,11 +1,11 @@
 error[E0412]: cannot find type `StepB` in this scope
- --> tests/derive_gate/missing_step.rs:7:10
-  |
-7 | #[derive(Gate)]
-  |          ^^^^ not found in this scope
-  |
-  = note: this error originates in the derive macro `Gate` (in Nightly builds, run with -Z macro-backtrace for more info)
+  --> tests/derive_gate/missing_step.rs:10:10
+   |
+10 | #[derive(Gate)]
+   |          ^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `Gate` (in Nightly builds, run with -Z macro-backtrace for more info)
 help: consider importing this enum
-  |
-4 + use crate::common::StepB;
-  |
+   |
+4  + use crate::common::StepB;
+   |

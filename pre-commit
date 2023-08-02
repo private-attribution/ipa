@@ -99,3 +99,7 @@ check "IPA benchmark" \
 
 check "Sort benchmark" \
     cargo bench --bench oneshot_sort --no-default-features --features="enable-benches descriptive-gate"
+
+check "ipa-macros tests" \
+    pushd ipa-macros && cargo test --features="trybuild" && popd
+    

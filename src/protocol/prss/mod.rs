@@ -1,13 +1,4 @@
-#[cfg(not(feature = "no-prss"))]
 mod crypto;
-#[cfg(feature = "no-prss")]
-mod no_op;
-
-#[cfg(not(feature = "no-prss"))]
-pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
-#[cfg(feature = "no-prss")]
-pub use no_op::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
-
 use super::step::Gate;
 use crate::{
     rand::{CryptoRng, RngCore},
@@ -18,6 +9,8 @@ use x25519_dalek::PublicKey;
 
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
+
+pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
