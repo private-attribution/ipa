@@ -67,7 +67,7 @@ where
         DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
     AdditiveShare<F>: Serializable,
 {
-    #[tracing::instrument("ipa_query", skip_all, fields(query_config=?self.config, %query_size))]
+    #[tracing::instrument("ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(
         self,
         ctx: C,
@@ -79,6 +79,7 @@ where
             key_registry,
             phantom_data: _,
         } = self;
+        tracing::info!("New query: {config:?}");
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
