@@ -1,4 +1,5 @@
 use super::{Step, StepNarrow};
+#[cfg(feature = "step-trace")]
 use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};
 use std::fmt::{Debug, Display, Formatter};
 
@@ -54,7 +55,10 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
             id += [std::any::type_name::<S>(), "::"].concat().as_ref();
         }
         id += step.as_ref();
-        metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
+        #[cfg(feature = "step-trace")]
+        {
+            metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
+        }
 
         Self { id }
     }
