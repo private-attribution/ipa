@@ -65,10 +65,6 @@ MAXIMUM_DEPTH = 32
 MAXIMUM_BIT_LENGTH = 32
 MAXIMUM_CONVERT_BIT_LENGTH = 64
 
-# REPEAT_STEPS = {'ipa::protocol::step::BitOpStep::bit': 32,
-#                 'ipa::protocol::attribution::InteractionPatternStep::depth': 32,
-#                 'ipa::protocol::modulus_conversion::convert_shares::Step::mc': 64,
-#                 }
 
 
 def set_env():
