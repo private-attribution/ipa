@@ -179,17 +179,17 @@ impl AsRef<str> for Upgrade2DVectors {
 }
 
 #[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, T, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
+impl<'a, C, F, I, M> UpgradeToMalicious<'a, I, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
     F: ExtendableField,
-    T: IntoIterator + Send + 'static,
-    T::IntoIter: ExactSizeIterator + Send,
-    T::Item: Send + 'static,
+    I: IntoIterator + Send + 'static,
+    I::IntoIter: ExactSizeIterator + Send,
+    I::Item: Send + 'static,
     M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T::Item, M>,
+    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, I::Item, M>,
 {
-    async fn upgrade(self, input: T) -> Result<Vec<M>, Error> {
+    async fn upgrade(self, input: I) -> Result<Vec<M>, Error> {
         let iter = input.into_iter();
         let ctx = self.ctx.set_total_records(iter.len());
         let ctx_ref = &ctx;
@@ -367,10 +367,10 @@ where
     for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, Replicated<F>, M>,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<M, Error> {
-        let ctx = if self.ctx.total_records().is_unspecified() {
-            self.ctx.set_total_records(1)
-        } else {
+        let ctx = if self.ctx.total_records().is_specified() {
             self.ctx
+        } else {
+            self.ctx.set_total_records(1)
         };
         UpgradeContext::new(ctx, RecordId::FIRST)
             .upgrade(input)

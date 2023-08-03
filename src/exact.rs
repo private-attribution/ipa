@@ -25,6 +25,12 @@ pub trait ExactSizeStream: Stream {
     }
 }
 
+impl<I> ExactSizeStream for futures::stream::Iter<I> where I: ExactSizeIterator {}
+impl<T> ExactSizeStream for futures::stream::Empty<T> {}
+impl<T> ExactSizeStream for futures::stream::Once<T> where T: futures::Future {}
+impl<S> ExactSizeStream for Pin<Box<S>> where S: ExactSizeStream {}
+impl<S> ExactSizeStream for futures::stream::Take<S> where S: Stream {}
+
 #[pin_project]
 pub struct FixedLength<S> {
     #[pin]

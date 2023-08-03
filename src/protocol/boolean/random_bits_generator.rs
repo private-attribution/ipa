@@ -1,12 +1,13 @@
-use super::{
-    solved_bits::{solved_bits, RandomBitsShare},
-    RandomBits,
-};
 use crate::{
     error::Error,
     ff::PrimeField,
     helpers::TotalRecords,
-    protocol::{context::Context, step::Step, BasicProtocols, RecordId},
+    protocol::{
+        boolean::solved_bits::{solved_bits, RandomBitsShare},
+        context::UpgradedContext,
+        step::Step,
+        BasicProtocols, RecordId,
+    },
     secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{
@@ -21,7 +22,7 @@ use std::{
 /// This object is safe to share with multiple threads.  It uses an atomic counter
 /// to manage concurrent accesses.
 #[derive(Debug)]
-pub struct RandomBitsGenerator<F, S, C> {
+pub struct RandomBitsGenerator<F, C, S> {
     ctx: C,
     fallback_ctx: C,
     fallback_count: AtomicU32,
@@ -41,10 +42,10 @@ impl AsRef<str> for FallbackStep {
 
 impl Step for FallbackStep {}
 
-impl<F, S, C> RandomBitsGenerator<F, S, C>
+impl<F, C, S> RandomBitsGenerator<F, C, S>
 where
-    C: Context + RandomBits<F, Share = S>,
     F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     #[must_use]
@@ -114,7 +115,9 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::default();
-        let [c0, c1, c2] = world.contexts().map(|ctx| ctx.set_total_records(1));
+        let contexts = world.contexts().map(|ctx| ctx.set_total_records(1));
+        let validators = contexts.map(UpgradableContext::validator);
+        let [c0, c1, c2] = validators.map(|v| v.context());
         let record_id = RecordId::from(0);
 
         let rbg0 = RandomBitsGenerator::new(c0);
@@ -139,12 +142,16 @@ mod tests {
         /// Repeating that 20 times should make the odds of failure negligible.
         const OUTER: u32 = 20;
         const INNER: u32 = 100;
+
         let world = TestWorld::default();
 
         for _ in 0..OUTER {
             let v = world
                 .semi_honest((), |ctx, _| async move {
-                    let ctx = ctx.set_total_records(usize::try_from(INNER).unwrap());
+                    let validator = ctx.validator();
+                    let ctx = validator
+                        .context()
+                        .set_total_records(usize::try_from(INNER).unwrap());
                     let rbg = RandomBitsGenerator::<Fp31, _, _>::new(ctx);
                     drop(
                         // This can't use `seq_try_join_all` because this isn't sequential.

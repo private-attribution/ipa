@@ -1,15 +1,11 @@
-use super::{
-    do_the_binary_tree_thing,
-    input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
-    prefix_or_binary_tree_style,
-};
+use super::{do_the_binary_tree_thing, input::CreditCappingInputRow, prefix_or_binary_tree_style};
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
         basics::{if_else, SecureMul},
-        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
+        context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
@@ -31,12 +27,12 @@ use strum::AsRefStr;
 #[tracing::instrument(name = "user_capping", skip_all)]
 pub async fn credit_capping<F, C, S>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, S>],
+    input: &[CreditCappingInputRow<F, S>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F, S>>, Error>
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
@@ -117,7 +113,7 @@ where
     // the cap. We can change the logic to do the opposite, i.e. cap the newest reports first, by
     // reversing the order of the input.
     //
-    let final_credits = compute_final_credits(
+    compute_final_credits(
         ctx,
         input,
         &prefix_summed_credits,
@@ -125,17 +121,7 @@ where
         &capped_credits,
         cap,
     )
-    .await?;
-
-    let output = input
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            MCCreditCappingOutputRow::new(x.breakdown_key.clone(), final_credits[i].clone())
-        })
-        .collect::<Vec<_>>();
-
-    Ok(output)
+    .await
 }
 
 ///
@@ -152,14 +138,14 @@ where
 /// is from the same `match-key`, and the prefix-OR indicates that there is *at least one* attributed conversion
 /// in the following rows, then the contribution is "capped", which in this context means set to zero.
 /// In this way, only the final attributed conversion will not be "capped".
-async fn credit_capping_max_one<F, C, T>(
+async fn credit_capping_max_one<F, C, S>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + '_, Error>
+    input: &[CreditCappingInputRow<F, S>],
+) -> Result<impl Iterator<Item = S> + '_, Error>
 where
     F: Field,
     C: Context,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let input_len = input.len();
 
@@ -200,7 +186,7 @@ where
                 .map(|(i, (uncapped_credit, any_subsequent_credit))| {
                     let record_id = RecordId::from(i);
                     let c = potentially_cap_ctx.clone();
-                    let one = T::share_known_value(&c, F::ONE);
+                    let one = S::share_known_value(&c, F::ONE);
                     async move {
                         uncapped_credit
                             .multiply(&(one - any_subsequent_credit), c, record_id)
@@ -210,20 +196,17 @@ where
         )
         .await?;
 
-    let output = input.iter().enumerate().map(move |(i, x)| {
-        let credit = if i < capped_credits.len() {
-            &capped_credits[i]
-        } else {
-            &uncapped_credits[i]
-        };
-        MCCreditCappingOutputRow::new(x.breakdown_key.clone(), credit.clone())
-    });
-
-    Ok(output)
+    // Because the capping process produces fewer rows than the full list,
+    // we use the uncapped values for the remainder.
+    // This is safe because these rows cannot exceed the cap.
+    let capped_count = capped_credits.len();
+    Ok(capped_credits
+        .into_iter()
+        .chain(uncapped_credits.into_iter().skip(capped_count)))
 }
 
 async fn mask_source_credits<F, C, T>(
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[CreditCappingInputRow<F, T>],
     ctx: C,
 ) -> Result<Vec<T>, Error>
 where
@@ -248,17 +231,17 @@ where
     .await
 }
 
-async fn report_level_capping<F, C, T>(
+async fn report_level_capping<F, C, S>(
     ctx: C,
-    original_credits: &[T],
+    original_credits: &[S],
     cap: u32,
-) -> Result<Vec<T>, Error>
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let share_of_cap = T::share_known_value(&ctx, F::truncate_from(cap));
+    let share_of_cap = S::share_known_value(&ctx, F::truncate_from(cap));
     let cap_ref = &share_of_cap;
     let exceeds_cap_bits =
         is_credit_larger_than_cap(ctx.narrow(&Step::ReportLevelCapping), original_credits, cap)
@@ -280,7 +263,7 @@ where
 
 async fn credit_prefix_sum<'a, F, C, T, I>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[CreditCappingInputRow<F, T>],
     original_credits: I,
 ) -> Result<Vec<T>, Error>
 where
@@ -302,15 +285,15 @@ where
     Ok(credits)
 }
 
-async fn is_credit_larger_than_cap<F, C, T>(
+async fn is_credit_larger_than_cap<F, C, S>(
     ctx: C,
-    prefix_summed_credits: &[T],
+    prefix_summed_credits: &[S],
     cap: u32,
-) -> Result<Vec<T>, Error>
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
-    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(prefix_summed_credits.len());
@@ -339,12 +322,12 @@ where
 
 async fn propagate_overflow_detection<F, C, T>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[CreditCappingInputRow<F, T>],
     exceeds_cap_bits: Vec<T>,
 ) -> Result<Vec<T>, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = T>,
+    C: UpgradedContext<F>,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let helper_bits = input
@@ -363,7 +346,7 @@ where
 
 async fn compute_final_credits<F, C, T>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
+    input: &[CreditCappingInputRow<F, T>],
     prefix_summed_credits: &[T],
     exceeds_cap_bits: &[T],
     original_credits: &[T],
@@ -477,54 +460,26 @@ mod tests {
         credit_capping_test_input,
         ff::{Field, Fp32BitPrime, PrimeField},
         protocol::{
-            attribution::{
-                credit_capping::credit_capping,
-                input::{CreditCappingInputRow, MCCreditCappingInputRow, MCCreditCappingOutputRow},
-            },
-            context::Context,
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            attribution::{credit_capping::credit_capping, input::CreditCappingInputRow},
+            context::{UpgradableContext, Validator},
             BreakdownKey, MatchKey,
         },
-        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
 
     async fn run_credit_capping_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,
         cap: u32,
-    ) -> [Vec<MCCreditCappingOutputRow<Fp32BitPrime, AdditiveShare<Fp32BitPrime>>>; 3] {
+    ) -> [Vec<Replicated<Fp32BitPrime>>; 3] {
         let world = TestWorld::default();
         world
             .semi_honest(
                 input.into_iter(),
-                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
-                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
-
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
-                    let modulus_converted_shares = input
-                        .iter()
-                        .zip(converted_bk_shares)
-                        .map(|(row, bk)| {
-                            MCCreditCappingInputRow::new(
-                                row.is_trigger_report.clone(),
-                                row.helper_bit.clone(),
-                                bk,
-                                row.trigger_value.clone(),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-
-                    credit_capping(ctx, &modulus_converted_shares, cap)
-                        .await
-                        .unwrap()
+                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, Replicated<_>>>| async move {
+                    let validator = ctx.validator(); // We're not running validation for this in this case.
+                    let ctx = validator.context();
+                    credit_capping(ctx, &input, cap).await.unwrap()
                 },
             )
             .await
@@ -559,24 +514,11 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
-
-        assert_eq!(result[0].len(), input_len);
-        assert_eq!(result[1].len(), input_len);
-        assert_eq!(result[2].len(), input_len);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].credit,
-                &result[1][i].credit,
-                &result[2][i].credit,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
+        let result: Vec<Fp32BitPrime> = result.reconstruct();
+        let result = result.into_iter().map(|v| v.as_u128()).collect::<Vec<_>>();
+        assert_eq!(result, EXPECTED);
     }
 
     #[tokio::test]
@@ -615,24 +557,9 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
-
-        assert_eq!(result[0].len(), input_len);
-        assert_eq!(result[1].len(), input_len);
-        assert_eq!(result[2].len(), input_len);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].credit,
-                &result[1][i].credit,
-                &result[2][i].credit,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
+        assert_eq!(result.reconstruct(), EXPECTED);
     }
 
     // This test case is to test where `exceeds_cap_bit` yields all 0's.
@@ -656,23 +583,8 @@ mod tests {
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
-        let input_len = input.len();
 
         let result = run_credit_capping_test(input, CAP).await;
-
-        assert_eq!(result[0].len(), input_len);
-        assert_eq!(result[1].len(), input_len);
-        assert_eq!(result[2].len(), input_len);
-        assert_eq!(result[0].len(), EXPECTED.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = [
-                &result[0][i].credit,
-                &result[1][i].credit,
-                &result[2][i].credit,
-            ]
-            .reconstruct();
-            assert_eq!(v.as_u128(), *expected);
-        }
+        assert_eq!(result.reconstruct(), EXPECTED);
     }
 }

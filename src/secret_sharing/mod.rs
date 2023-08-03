@@ -5,7 +5,6 @@ mod into_shares;
 mod scheme;
 
 pub use decomposed::BitDecomposed;
-#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
 pub use scheme::{Bitwise, Linear, SecretSharing};
 

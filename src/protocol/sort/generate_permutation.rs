@@ -4,15 +4,16 @@ use crate::{
     protocol::{
         basics::Reveal,
         context::{
-            Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext, Validator,
+            Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
         },
+        modulus_conversion::{BitConversionTriple, ToBitConversionTriples},
         sort::{
             generate_permutation_opt::generate_permutation_opt,
             shuffle::{get_two_of_three_random_permutations, shuffle_shares},
             ShuffleRevealPermutationStep, SortStep,
         },
-        BasicProtocols, NoRecord,
+        BasicProtocols, NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -22,10 +23,11 @@ use crate::{
             },
             semi_honest::AdditiveShare as Replicated,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
+use futures::stream::Stream;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -100,19 +102,30 @@ where
 /// # Errors
 /// If unable to convert sort keys length to u32
 #[tracing::instrument(name = "sort_permutation", skip_all)]
-pub async fn generate_permutation_and_reveal_shuffled<C, S, F>(
-    ctx: C,
-    sort_keys: impl Iterator<Item = &Vec<BitDecomposed<Replicated<F>>>>,
+pub async fn generate_permutation_and_reveal_shuffled<F, C, S, I>(
+    sh_ctx: C,
+    sort_keys: I,
+    num_multi_bits: u32,
+    max_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error>
 where
+    F: PrimeField + ExtendableField,
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    I: Stream,
+    I::Item: ToBitConversionTriples + Clone + Send + Sync,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
-    let (validator, sort_permutation) =
-        generate_permutation_opt(ctx.narrow(&SortStep::SortKeys), sort_keys).await?;
+    let (validator, sort_permutation) = generate_permutation_opt(
+        sh_ctx.narrow(&SortStep::SortKeys),
+        sort_keys,
+        num_multi_bits,
+        max_bits,
+    )
+    .await?;
 
     let m_ctx = validator.context();
     shuffle_and_reveal_permutation::<C, _, _>(
@@ -160,27 +173,23 @@ impl<'a, F: ExtendableField> DowngradeMalicious
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::zip;
-
-    use rand::seq::SliceRandom;
-
     use crate::{
-        ff::GaloisField,
+        ff::{Field, Fp31, GaloisField},
         protocol::{
-            context::{SemiHonestContext, UpgradableContext, Validator},
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
-            sort::generate_permutation_opt::generate_permutation_opt,
+            context::{Context, SemiHonestContext, UpgradableContext, Validator},
+            sort::{
+                generate_permutation::shuffle_and_reveal_permutation,
+                generate_permutation_opt::generate_permutation_opt,
+            },
             MatchKey,
         },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
-    };
-
-    use crate::{
-        ff::{Field, Fp31},
-        protocol::{context::Context, sort::generate_permutation::shuffle_and_reveal_permutation},
         test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::iter as stream_iter;
+    use rand::seq::SliceRandom;
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -199,16 +208,14 @@ mod tests {
             .semi_honest(
                 match_keys.clone().into_iter(),
                 |ctx, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-                    let (_validator, result) =
-                        generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                            .await
-                            .unwrap();
+                    let (_validator, result) = generate_permutation_opt::<Fp31, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap();
                     result
                 },
             )

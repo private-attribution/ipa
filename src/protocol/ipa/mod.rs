@@ -3,11 +3,13 @@ use crate::{
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
-        attribution::{input::MCAggregateCreditOutputRow, secure_attribution},
+        attribution::secure_attribution,
         basics::Reshare,
-        boolean::RandomBits,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::{convert_all_bits, convert_all_bits_local},
+        context::{
+            Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            Validator,
+        },
+        modulus_conversion::BitConversionTriple,
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
@@ -26,7 +28,10 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures_util::future::{try_join, try_join3};
+use futures::{
+    future::{try_join, try_join3},
+    stream::iter as stream_iter,
+};
 use generic_array::{ArrayLength, GenericArray};
 use ipa_macros::step;
 use std::{iter::zip, marker::PhantomData, ops::Add};
@@ -35,7 +40,6 @@ use typenum::Unsigned;
 
 #[step]
 pub(crate) enum Step {
-    ModulusConversionForMatchKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
     AfterConvertAllBits,
@@ -179,15 +183,15 @@ where
     }
 }
 
-pub struct ArithmeticallySharedIPAInputs<F: Field, T: LinearSecretSharing<F>> {
-    pub timestamp: T,
-    pub is_trigger_bit: T,
-    pub trigger_value: T,
+pub struct ArithmeticallySharedIPAInputs<F: Field, S: LinearSecretSharing<F>> {
+    pub timestamp: S,
+    pub is_trigger_bit: S,
+    pub trigger_value: S,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: LinearSecretSharing<F>> ArithmeticallySharedIPAInputs<F, T> {
-    pub fn new(timestamp: T, is_trigger_bit: T, trigger_value: T) -> Self {
+impl<F: Field, S: LinearSecretSharing<F>> ArithmeticallySharedIPAInputs<F, S> {
+    pub fn new(timestamp: S, is_trigger_bit: S, trigger_value: S) -> Self {
         Self {
             timestamp,
             is_trigger_bit,
@@ -198,10 +202,10 @@ impl<F: Field, T: LinearSecretSharing<F>> ArithmeticallySharedIPAInputs<F, T> {
 }
 
 #[async_trait]
-impl<F, T, C> Reshare<C, RecordId> for ArithmeticallySharedIPAInputs<F, T>
+impl<F, S, C> Reshare<C, RecordId> for ArithmeticallySharedIPAInputs<F, S>
 where
     F: Field,
-    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
+    S: LinearSecretSharing<F> + Reshare<C, RecordId>,
     C: Context,
 {
     async fn reshare<'fut>(
@@ -300,10 +304,10 @@ pub async fn ipa<'a, C, S, SB, F, MK, BK>(
     sh_ctx: C,
     input_rows: &[IPAInputRow<F, MK, BK>],
     config: IpaQueryConfig,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
+) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F>
         + BasicProtocols<C::UpgradedContext<F>, F>
         + Reshare<C::UpgradedContext<F>, RecordId>
@@ -319,35 +323,24 @@ where
     MK: GaloisField,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCAggregateCreditOutputRow<F, S, BK>:
-        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>>,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
+        + UpgradeToMalicious<
+            'u,
+            ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+            ArithmeticallySharedIPAInputs<F, S>,
+        >,
 {
     // TODO: We are sorting, which suggests there's limited value in trying to stream the input.
     // However, we immediately copy the complete input into separate vectors for different pieces
     // (MK, BK, credit), so streaming could still be beneficial.
 
-    let validator = sh_ctx.clone().validator::<F>();
-    let m_ctx = validator.context();
-
     let mk_shares: Vec<_> = input_rows.iter().map(|x| x.mk_shares.clone()).collect();
-
-    // Match key modulus conversion, and then sort
-    let locally_converted = convert_all_bits_local(m_ctx.role(), mk_shares.into_iter());
-    let converted_mk_shares = convert_all_bits(
-        &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &m_ctx.upgrade(locally_converted).await?,
-        MK::BITS,
-        config.num_multi_bits,
-    )
-    .await
-    .unwrap();
-
-    //Validate before calling sort with downgraded context
-    let converted_mk_shares = validator.validate(converted_mk_shares).await?;
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        converted_mk_shares.iter(),
+        stream_iter(mk_shares),
+        config.num_multi_bits,
+        MK::BITS,
     )
     .await
     .unwrap();
@@ -403,7 +396,6 @@ where
     .await?;
 
     secure_attribution(
-        sh_ctx,
         validator,
         binary_validator,
         arithmetically_shared_values,
@@ -459,7 +451,7 @@ where
 pub mod tests {
     use super::ipa;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, GaloisField},
+        ff::{Field, Fp31, Fp32BitPrime},
         helpers::{query::IpaQueryConfig, GatewayConfig},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
@@ -477,16 +469,7 @@ pub mod tests {
     #[test]
     fn semi_honest() {
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[
-            [0, 0],
-            [1, 2],
-            [2, 3],
-            [3, 0],
-            [4, 0],
-            [5, 0],
-            [6, 0],
-            [7, 0],
-        ];
+        const EXPECTED: &[u128] = &[0, 2, 3, 0, 0, 0, 0, 0];
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -494,17 +477,17 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -516,25 +499,14 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
     #[test]
     fn malicious() {
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -542,17 +514,17 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 4, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 4, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                         ctx,
@@ -564,33 +536,14 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
     #[test]
     fn semi_honest_with_attribution_window() {
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[
-            [0, 0],
-            [1, 0],
-            [2, 3],
-            [3, 0],
-            [4, 0],
-            [5, 0],
-            [6, 0],
-            [7, 0],
-        ];
+        const EXPECTED: &[u128] = &[0, 0, 3, 0, 0, 0, 0, 0];
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
         const NUM_MULTI_BITS: u32 = 3;
@@ -599,17 +552,17 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
-                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
-                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
-                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                    { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                    { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                    { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -626,25 +579,14 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
     #[test]
     fn malicious_with_attribution_window() {
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 0], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 0, 3];
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 10;
         const NUM_MULTI_BITS: u32 = 3;
@@ -653,17 +595,17 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
-                { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
-                { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
-                { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { timestamp: 2, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // A
+                    { timestamp: 3, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // B
+                    { timestamp: 12, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 }, // Attributed to A (12 - 2)
+                    { timestamp: 15, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }, // Not Attributed to B because it's outside the window (15 - 3)
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .malicious(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, _, MatchKey, BreakdownKey>(
                         ctx,
@@ -680,24 +622,14 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
     #[test]
     fn cap_of_one() {
         const PER_USER_CAP: u32 = 1;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
+        const EXPECTED: &[u128] = &[0, 1, 0, 0, 0, 1, 1];
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -705,28 +637,28 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
-                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
-                { timestamp: 0, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
-                { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
-                { timestamp: 0, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
-                { timestamp: 0, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
-                { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
-                { timestamp: 0, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
-                { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                    { timestamp: 0, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                    { timestamp: 0, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C, but will be capped
+                    { timestamp: 0, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                    { timestamp: 0, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to D
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
-            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -738,20 +670,9 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
+            assert_eq!(result, EXPECTED);
 
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
-
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -763,54 +684,43 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
     #[test]
     fn cap_of_one_with_attribution_window() {
         const PER_USER_CAP: u32 = 1;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 1], [4, 0], [5, 0], [6, 1]];
+        const EXPECTED: &[u128] = &[0, 1, 0, 1, 0, 0, 1];
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
         run_with::<_, _, 10>(|| async {
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            [
-                { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
-                { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
-                { timestamp: 3, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
-                { timestamp: 4, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
-                { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
-                { timestamp: 6, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 7, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
-                { timestamp: 8, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
-                { timestamp: 9, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C since TE corresponding to D is expired
-                { timestamp: 10, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
-                { timestamp: 11, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
-                { timestamp: 12, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
-                { timestamp: 13, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
-                { timestamp: 14, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
-                { timestamp: 17, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will NOT be attributed to D because it exceeds the attribution window (time_delta=4)
-            ];
-            (Fp31, MatchKey, BreakdownKey)
+                [
+                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 1, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 }, // A
+                    { timestamp: 2, match_key: 68362, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 }, // B
+                    { timestamp: 3, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to A
+                    { timestamp: 4, match_key: 77777, is_trigger_report: 1, breakdown_key: 1, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 5, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to B, but will be capped
+                    { timestamp: 6, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 7, match_key: 68362, is_trigger_report: 0, breakdown_key: 3, trigger_value: 0 }, // C
+                    { timestamp: 8, match_key: 77777, is_trigger_report: 0, breakdown_key: 4, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 9, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to C since TE corresponding to D is expired
+                    { timestamp: 10, match_key: 81818, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // E
+                    { timestamp: 11, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 12, match_key: 81818, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will be attributed to E
+                    { timestamp: 13, match_key: 68362, is_trigger_report: 0, breakdown_key: 5, trigger_value: 0 }, // D
+                    { timestamp: 14, match_key: 99999, is_trigger_report: 0, breakdown_key: 6, trigger_value: 0 }, // Irrelevant
+                    { timestamp: 17, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 0 }, // This will NOT be attributed to D because it exceeds the attribution window (time_delta=4)
+                ];
+                (Fp31, MatchKey, BreakdownKey)
             );
 
             let world = TestWorld::default();
-            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -827,20 +737,9 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
+            assert_eq!(result, EXPECTED);
 
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
-
-            let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
+            let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -857,18 +756,7 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-
-            assert_eq!(EXPECTED.len(), result.len());
-
-            for (i, expected) in EXPECTED.iter().enumerate() {
-                assert_eq!(
-                    *expected,
-                    [
-                        result[i].breakdown_key.as_u128(),
-                        result[i].trigger_value.as_u128()
-                    ]
-                );
-            }
+            assert_eq!(result, EXPECTED);
         });
     }
 
@@ -918,14 +806,18 @@ pub mod tests {
         .collect::<Vec<_>>();
 
         for per_user_cap in [1, 3] {
+            let expected_results = ipa_in_the_clear(
+                &raw_data,
+                per_user_cap,
+                ATTRIBUTION_WINDOW_SECONDS,
+                MAX_BREAKDOWN_KEY,
+            );
+
             let config = TestWorldConfig {
                 gateway_config: GatewayConfig::new(raw_data.len().clamp(4, 1024)),
                 ..Default::default()
             };
             let world = TestWorld::new_with(config);
-            let expected_results =
-                ipa_in_the_clear(&raw_data, per_user_cap, ATTRIBUTION_WINDOW_SECONDS);
-
             test_ipa::<TestField>(
                 &world,
                 &raw_data,
@@ -969,7 +861,7 @@ pub mod tests {
                 records.append(&mut record);
             }
             let world = TestWorld::default();
-            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            let trigger_values: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp31, MatchKey, BreakdownKey>(
                         ctx,
@@ -982,22 +874,21 @@ pub mod tests {
                 .await
                 .reconstruct();
 
-            let trigger_values = result
-                .into_iter()
-                .map(|x| x.trigger_value.as_u128())
-                .collect::<Vec<_>>();
             assert_eq!(MAX_BREAKDOWN_KEY as usize, trigger_values.len());
             println!("actual results: {trigger_values:#?}");
 
-            // Check that
-            //   * the contribution never exceeds the cap.
-            //   * the sum of all contributions = cap.
+            // Check that the contribution never exceeds the cap.
+
             assert!(trigger_values
                 .iter()
-                .all(|v| *v <= u128::from(PER_USER_CAP)));
+                .all(|v| v.as_u128() <= u128::from(PER_USER_CAP)));
+            // Check that the sum of all contributions = cap.
+            // The setup ensures that trigger values are always more than the per user cap.
             assert_eq!(
                 u128::from(PER_USER_CAP),
-                trigger_values.into_iter().reduce(|acc, x| acc + x).unwrap()
+                trigger_values
+                    .into_iter()
+                    .fold(0, |acc, x| acc + x.as_u128())
             );
         });
     }
@@ -1164,7 +1055,7 @@ pub mod tests {
         ) {
             let test_config = TestWorldConfig::default().enable_metrics().with_seed(0);
             let world = TestWorld::new_with(test_config);
-            let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = match mode {
+            let _: Vec<_> = match mode {
                 Malicious => world.malicious(generate_input(), |ctx, input_rows| async move {
                     ipa::<_, _, _, Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
@@ -1220,9 +1111,9 @@ pub mod tests {
                 cap_three(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 21_774,
-                    bytes_sent: 76_512,
-                    indexed_prss: 28_170,
+                    records_sent: 21_756,
+                    bytes_sent: 76_440,
+                    indexed_prss: 28_146,
                     seq_prss: 1118,
                 },
             )
@@ -1235,9 +1126,9 @@ pub mod tests {
                 cap_one(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 36_090,
-                    bytes_sent: 133_776,
-                    indexed_prss: 74_046,
+                    records_sent: 35_163,
+                    bytes_sent: 130_068,
+                    indexed_prss: 72_447,
                     seq_prss: 1132,
                 },
             )
@@ -1250,9 +1141,9 @@ pub mod tests {
                 cap_three(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 54_828,
-                    bytes_sent: 208_728,
-                    indexed_prss: 111_393,
+                    records_sent: 53_865,
+                    bytes_sent: 204_876,
+                    indexed_prss: 109_734,
                     seq_prss: 1132,
                 },
             )

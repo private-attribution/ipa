@@ -45,11 +45,10 @@ where
 mod tests {
     use crate::{
         accumulation_test_input,
-        ff::{Fp31, Fp32BitPrime, GaloisField},
+        ff::{Fp32BitPrime, GaloisField},
         protocol::{
-            attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+            attribution::input::AccumulateCreditInputRow,
             context::Context,
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::{
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
@@ -57,9 +56,10 @@ mod tests {
             BreakdownKey, MatchKey,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::iter as stream_iter;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -83,7 +83,6 @@ mod tests {
                     is_trigger_report: rng.gen::<u8>(),
                     helper_bit: rng.gen::<u8>(),
                     active_bit: rng.gen::<u8>(),
-                    breakdown_key: rng.gen::<u8>(),
                     credit: rng.gen::<u8>(),
                 };
                 (Fp32BitPrime, MathKey, BreakdownKey)
@@ -96,53 +95,21 @@ mod tests {
                 (match_keys.into_iter(), sidecar.into_iter()),
                 |ctx,
                  (mk_shares, secret): (
-                    Vec<AdditiveShare<MatchKey>>,
-                    Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
+                    Vec<Replicated<MatchKey>>,
+                    Vec<AccumulateCreditInputRow<Fp32BitPrime, Replicated<_>>>,
                 )| async move {
-                    let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                    let converted_shares = convert_all_bits(
-                        &ctx.narrow("convert_all_bits"),
-                        &local_lists,
-                        MatchKey::BITS,
-                        NUM_MULTI_BITS,
-                    )
-                    .await
-                    .unwrap();
-                    let sort_permutation = generate_permutation_and_reveal_shuffled(
-                        ctx.narrow("sort_pre_accumulation"),
-                        converted_shares.iter(),
-                    )
-                    .await
-                    .unwrap();
+                    let ctx = ctx.narrow("apply_sort");
+                    let sort_permutation =
+                        generate_permutation_and_reveal_shuffled::<Fp32BitPrime, _, _, _>(
+                            ctx.narrow("convert_all_bits"),
+                            stream_iter(mk_shares),
+                            NUM_MULTI_BITS,
+                            MatchKey::BITS,
+                        )
+                        .await
+                        .unwrap();
 
-                    let bk_shares = secret.iter().map(|x| x.breakdown_key.clone());
-
-                    let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
-                        &convert_all_bits_local(ctx.role(), bk_shares),
-                        BreakdownKey::BITS,
-                        BreakdownKey::BITS,
-                    )
-                    .await
-                    .unwrap();
-                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
-
-                    let converted_secret = secret
-                        .into_iter()
-                        .zip(converted_bk_shares)
-                        .map(|(row, bk)| {
-                            MCAccumulateCreditInputRow::new(
-                                row.is_trigger_report,
-                                row.helper_bit,
-                                row.active_bit,
-                                bk,
-                                row.trigger_value,
-                            )
-                        })
-                        .collect::<Vec<_>>();
-
-                    apply_sort_permutation(ctx, converted_secret, &sort_permutation)
+                    apply_sort_permutation(ctx, secret, &sort_permutation)
                         .await
                         .unwrap()
                 },

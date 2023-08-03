@@ -2,8 +2,10 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        boolean::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits},
-        context::Context,
+        boolean::{
+            bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
+        },
+        context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
     secret_sharing::{
@@ -11,7 +13,7 @@ use crate::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
             UnauthorizedDowngradeWrapper,
         },
-        Linear as LinearSecretSharing, SecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -25,7 +27,7 @@ where
     F: Field,
     S: SecretSharing<F>,
 {
-    pub b_b: Vec<S>,
+    pub b_b: BitDecomposed<S>,
     pub b_p: S,
     _marker: PhantomData<F>,
 }
@@ -44,13 +46,14 @@ where
         // Note that this clones the values rather than moving them.
         // This code is only used in test code, so that's probably OK.
         assert!(cfg!(test), "This code isn't ideal outside of tests");
+        let Self { b_b, b_p, .. } = self;
+        let b_b = BitDecomposed::new(
+            b_b.into_iter()
+                .map(ThisCodeIsAuthorizedToDowngradeFromMalicious::access_without_downgrade),
+        );
         UnauthorizedDowngradeWrapper::new(Self::Target {
-            b_b: self
-                .b_b
-                .iter()
-                .map(|v| v.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            b_p: self.b_p.x().access_without_downgrade().clone(),
+            b_b,
+            b_p: b_p.access_without_downgrade(),
             _marker: PhantomData,
         })
     }
@@ -69,35 +72,32 @@ where
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-/// Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
-/// Each bit has a 50% chance of being a 0 or 1, so there are
-/// `F::Integer::MAX - p` cases where `b` may become larger than `p`.
-/// However, we calculate the number of bits needed to form a random
-/// number that has the same number of bits as the prime.
-/// With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
-/// 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
 ///
 /// # Errors
-/// Fails if the multiplication protocol fails.
-///
+/// Many reasons, usually communications-related.
 /// # Panics
-/// it won't.
-pub async fn solved_bits<F, S, C>(
+/// Never, but the compiler can't see that.
+
+// Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
+// Each bit has a 50% chance of being a 0 or 1, so there are
+// `F::Integer::MAX - p` cases where `b` may become larger than `p`.
+// However, we calculate the number of bits needed to form a random
+// number that has the same number of bits as the prime.
+// With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
+// 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
+pub async fn solved_bits<F, C, S>(
     ctx: C,
     record_id: RecordId,
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    C: Context + RandomBits<F, Share = S>,
 {
     //
     // step 1 & 2
     //
-    let b_b = ctx
-        .narrow(&Step::RandomBits)
-        .generate_random_bits(record_id)
-        .await?;
+    let b_b = one_random_bit(ctx.narrow(&Step::RandomBits), record_id).await?;
 
     //
     // step 3, 4 & 5
@@ -148,8 +148,12 @@ pub(crate) enum Step {
 mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
-        protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
-        secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
+        protocol::{
+            boolean::solved_bits::solved_bits,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
+        },
+        secret_sharing::{replicated::malicious::ExtendableField, BitDecomposed, SharedValue},
         seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
@@ -167,8 +171,10 @@ mod tests {
         let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(COUNT);
                 ctx.try_join(
-                    repeat(ctx.set_total_records(COUNT))
+                    repeat(ctx.clone())
                         .take(COUNT)
                         .enumerate()
                         .map(|(i, ctx)| solved_bits(ctx, RecordId::from(i))),
@@ -250,10 +256,13 @@ mod tests {
                             //
                             // `malicious()` requires its closure to return `Downgrade`
                             // so we indicate the abort case with (0, [0]), instead
-                            // of (0, [0, 32]). But this isn't ideal because we can't
+                            // of (0, [0; 32]). But this isn't ideal because we can't
                             // catch a bug where solved_bits returns a 1-bit random bits
                             // of 0.
-                            (share_of_zero.clone(), vec![share_of_zero.clone()])
+                            (
+                                share_of_zero.clone(),
+                                BitDecomposed::decompose(1, |_| share_of_zero.clone()),
+                            )
                         }
                         Some(share) => (share.b_p, share.b_b),
                     }

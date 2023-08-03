@@ -116,26 +116,21 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            ff::GaloisField,
-            protocol::{
-                attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
-                modulus_conversion::{convert_all_bits, convert_all_bits_local},
-                BreakdownKey, MatchKey,
-            },
-            rand::{thread_rng, Rng},
-            secret_sharing::{replicated::ReplicatedSecretSharing, BitDecomposed},
-        };
-
-        use crate::{
             ff::{Fp31, Fp32BitPrime},
             protocol::{
-                context::Context,
+                attribution::input::AccumulateCreditInputRow,
+                context::{Context, UpgradableContext, Validator},
                 sort::{
                     apply_sort::shuffle::shuffle_shares,
                     shuffle::get_two_of_three_random_permutations,
                 },
+                BreakdownKey, MatchKey,
             },
-            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+            rand::{thread_rng, Rng},
+            secret_sharing::{
+                replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+                BitDecomposed,
+            },
             test_fixture::{
                 bits_to_value, get_bits, input::GenericReportTestInput, Reconstruct, Runner,
                 TestWorld,
@@ -157,19 +152,17 @@ mod tests {
                         is_trigger_report: rng.gen::<u8>(),
                         helper_bit: rng.gen::<u8>(),
                         active_bit: rng.gen::<u8>(),
-                        breakdown_key: rng.gen::<u8>(),
                         credit: rng.gen::<u8>(),
                     };
                     (Fp31, MatchKey, BreakdownKey)
                 )
             });
-            let hashed_input: HashSet<[u8; 4]> = input
+            let hashed_input: HashSet<[u8; 3]> = input
                 .iter()
                 .map(|x| {
                     [
                         u8::from(x.is_trigger_report.unwrap()),
                         u8::from(x.helper_bit.unwrap()),
-                        u8::try_from(x.breakdown_key.as_u128()).unwrap(),
                         u8::from(x.trigger_value),
                     ]
                 })
@@ -178,43 +171,16 @@ mod tests {
             let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
                 .semi_honest(
                     input.clone().into_iter(),
-                    |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| async move {
+                    |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, Replicated<_>>>| async move {
+                        let validator = ctx.validator::<Fp31>(); // Just ignore this here.
+                        let ctx = validator.context();
+
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
 
-                        let bk_shares = shares.iter().map(|x| x.breakdown_key.clone());
-
-                        let mut converted_bk_shares = convert_all_bits(
-                            &ctx,
-                            &convert_all_bits_local(ctx.role(), bk_shares),
-                            BreakdownKey::BITS,
-                            BreakdownKey::BITS,
-                        )
-                        .await
-                        .unwrap();
-                        let converted_bk_shares = converted_bk_shares.pop().unwrap();
-
-                        let converted_shares = shares
-                            .into_iter()
-                            .zip(converted_bk_shares)
-                            .map(|(row, bk)| {
-                                MCAccumulateCreditInputRow::new(
-                                    row.is_trigger_report,
-                                    row.helper_bit,
-                                    row.active_bit,
-                                    bk,
-                                    row.trigger_value,
-                                )
-                            })
-                            .collect::<Vec<_>>();
-
-                        shuffle_shares(
-                            converted_shares,
-                            (perms.0.as_slice(), perms.1.as_slice()),
-                            ctx,
-                        )
-                        .await
-                        .unwrap()
+                        shuffle_shares(shares, (perms.0.as_slice(), perms.1.as_slice()), ctx)
+                            .await
+                            .unwrap()
                     },
                 )
                 .await
@@ -227,7 +193,6 @@ mod tests {
                 hashed_output_secret.insert([
                     u8::from(val.is_trigger_report.unwrap()),
                     u8::from(val.helper_bit.unwrap()),
-                    u8::try_from(val.breakdown_key.as_u128()).unwrap(),
                     u8::from(val.trigger_value),
                 ]);
             }

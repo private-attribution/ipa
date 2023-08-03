@@ -3,8 +3,8 @@ use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::random_bits_generator::RandomBitsGenerator,
+        context::{Context, UpgradedContext},
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
@@ -65,13 +65,13 @@ use strum::AsRefStr;
 pub async fn greater_than_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
-    rbg: &RandomBitsGenerator<F, S, C>,
+    rbg: &RandomBitsGenerator<F, C, S>,
     a: &S,
     c: u128,
 ) -> Result<S, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     use GreaterThanConstantStep as Step;
@@ -303,7 +303,9 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
-            boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
+            boolean::random_bits_generator::RandomBitsGenerator,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
         },
         rand::thread_rng,
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
@@ -393,7 +395,8 @@ mod tests {
 
         let result = world
             .semi_honest(lhs, |ctx, lhs| async move {
-                let ctx = ctx.set_total_records(1);
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(1);
                 greater_than_constant(
                     ctx.clone(),
                     RecordId::from(0),

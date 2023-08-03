@@ -23,20 +23,11 @@ pub fn assert_send<'a, O>(
     fut
 }
 
-/// Sequentially join futures from an iterator.
+/// Sequentially join futures from a stream.
 ///
 /// This function polls futures in strict sequence.
 /// If any future blocks, up to `active - 1` futures after it will be polled so
 /// that they make progress.
-///
-/// Unlike [`StreamExt::buffered`], Futures from the stream must resolve in the
-/// same order in which they are produced.
-///
-/// # Panics
-///
-/// If a future produced from the stream resolves ahead of a preceding future.
-/// To help ensure that earlier futures resolve first, this guarantees that
-/// earlier futures are always polled before later futures.
 ///
 /// # Deadlocks
 ///

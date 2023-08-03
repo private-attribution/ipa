@@ -1,5 +1,3 @@
-extern crate ipa_macros;
-
 use super::{Step, StepNarrow};
 use ipa_macros::Gate;
 use std::fmt::{Debug, Display, Formatter};
@@ -57,9 +55,7 @@ fn static_state_map(state: u16, step: &str) -> u16 {
     } else if step == crate::protocol::context::semi_honest::UpgradeStep.as_ref()
         || step == crate::protocol::ipa::Step::UpgradeMatchKeyBits.as_ref()
         || step == crate::protocol::ipa::Step::UpgradeBreakdownKeyBits.as_ref()
-        || step
-            == crate::protocol::attribution::aggregate_credit::Step::UpgradeBreakdownKeyBits
-                .as_ref()
+        || step == crate::protocol::modulus_conversion::convert_shares::Step::Upgrade.as_ref()
         || state == UPGRADE_SEMI_HONEST_STATE
     {
         // ignore any upgrade steps in the semi-honest setting.

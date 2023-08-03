@@ -1,15 +1,17 @@
+use futures::stream::iter as stream_iter;
 use ipa::{
     error::Error,
-    ff::{Field, Fp32BitPrime, GaloisField, Gf40Bit},
+    ff::{Field, Fp32BitPrime, GaloisField},
     helpers::GatewayConfig,
     protocol::{
-        context::{Context, Validator},
-        modulus_conversion::{convert_all_bits, convert_all_bits_local},
+        context::{validator::SemiHonest as SemiHonestValidator, Validator},
         sort::generate_permutation_opt::generate_permutation_opt,
         MatchKey,
     },
-    secret_sharing::SharedValue,
-    test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+    },
+    test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig},
 };
 use rand::Rng;
 use std::time::Instant;
@@ -34,27 +36,14 @@ async fn main() -> Result<(), Error> {
         match_keys.push(rng.gen::<MatchKey>());
     }
 
-    let converted_shares = world
-        .semi_honest(
-            match_keys.clone().into_iter(),
-            |ctx, match_key| async move {
-                convert_all_bits::<BenchField, _, _>(
-                    &ctx,
-                    &convert_all_bits_local(ctx.role(), match_key.into_iter()),
-                    Gf40Bit::BITS,
-                    NUM_MULTI_BITS,
-                )
-                .await
-                .unwrap()
-            },
-        )
-        .await;
+    let [s0, s1, s2] = match_keys.iter().cloned().share_with(&mut rng);
 
     let start = Instant::now();
-    let [(v0, r0), (v1, r1), (v2, r2)] = join3(
-        generate_permutation_opt(ctx0, converted_shares[0].iter()),
-        generate_permutation_opt(ctx1, converted_shares[1].iter()),
-        generate_permutation_opt(ctx2, converted_shares[2].iter()),
+    let [(v0, r0), (v1, r1), (v2, r2)]: [(SemiHonestValidator<'_, BenchField>, Vec<Replicated<_>>);
+        3] = join3(
+        generate_permutation_opt(ctx0, stream_iter(s0), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx1, stream_iter(s1), NUM_MULTI_BITS, MatchKey::BITS),
+        generate_permutation_opt(ctx2, stream_iter(s2), NUM_MULTI_BITS, MatchKey::BITS),
     )
     .await;
     let result = join3(v0.validate(r0), v1.validate(r1), v2.validate(r2)).await;

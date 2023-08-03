@@ -54,8 +54,17 @@ BIT_DYNAMIC_STEPS = [
     "ipa::protocol::attribution::aggregate_credit::Step::compute_equality_checks",
     "ipa::protocol::attribution::aggregate_credit::Step::check_times_credit",
 ]
+# another one for modulus conversion
+MODULUS_CONVERSION_DYNAMIC_STEPS = [
+    "ipa::protocol::sort::SortStep::convert",
+    "ipa::protocol::attribution::AttributionStep::convert_helper_bits",
+    "ipa::protocol::boolean::solved_bits::Step::random_bits",
+    "ipa::protocol::attribution::aggregate_credit::Step::mod_conv_breakdown_key_bits",
+]
 MAXIMUM_DEPTH = 32
 MAXIMUM_BIT_LENGTH = 32
+MAXIMUM_CONVERT_BIT_LENGTH = 64
+
 
 
 def set_env():
@@ -71,8 +80,9 @@ def remove_root_step_name_from_line(l):
 
 def collect_steps(args):
     output = set()
-    interaction_pattern_steps = set()
-    compute_equality_checks_steps = set()
+    depth_dynamic_steps = set()
+    bit_dynamic_steps = set()
+    modulus_conversion_dynamic_steps = set()
 
     proc = subprocess.Popen(
         args=args,
@@ -97,12 +107,16 @@ def collect_steps(args):
 
         if any(s in line for s in DEPTH_DYNAMIC_STEPS):
             line = re.sub(r"depth\d+", "depthX", line)
-            interaction_pattern_steps.add(remove_root_step_name_from_line(line))
+            depth_dynamic_steps.add(remove_root_step_name_from_line(line))
             # continue without adding to the `output`. we'll generate the dynamic steps later
             continue
         if any(s in line for s in BIT_DYNAMIC_STEPS):
             line = re.sub(r"bit\d+", "bitX", line)
-            compute_equality_checks_steps.add(remove_root_step_name_from_line(line))
+            bit_dynamic_steps.add(remove_root_step_name_from_line(line))
+            continue
+        if any(s in line for s in MODULUS_CONVERSION_DYNAMIC_STEPS):
+            line = re.sub(r"mc\d+", "mcX", line)
+            modulus_conversion_dynamic_steps.add(remove_root_step_name_from_line(line))
             continue
 
         output.update([remove_root_step_name_from_line(line)])
@@ -114,12 +128,16 @@ def collect_steps(args):
 
     # generate dynamic steps
     for i in range(MAXIMUM_DEPTH):
-        for s in interaction_pattern_steps:
+        for s in depth_dynamic_steps:
             line = re.sub(r"depthX", "depth" + str(i), s)
             output.add(line)
     for i in range(MAXIMUM_BIT_LENGTH):
-        for s in compute_equality_checks_steps:
+        for s in bit_dynamic_steps:
             line = re.sub(r"bitX", "bit" + str(i), s)
+            output.add(line)
+    for i in range(MAXIMUM_CONVERT_BIT_LENGTH):
+        for s in modulus_conversion_dynamic_steps:
+            line = re.sub(r"mcX", "mc" + str(i), s)
             output.add(line)
 
     return output

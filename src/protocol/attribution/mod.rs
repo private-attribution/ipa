@@ -5,22 +5,20 @@ pub mod credit_capping;
 pub mod input;
 
 use self::{
-    accumulate_credit::accumulate_credit,
-    aggregate_credit::aggregate_credit,
-    apply_attribution_window::apply_attribution_window,
-    credit_capping::credit_capping,
-    input::{MCAggregateCreditOutputRow, MCApplyAttributionWindowInputRow},
+    accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
+    apply_attribution_window::apply_attribution_window, credit_capping::credit_capping,
+    input::ApplyAttributionWindowInputRow,
 };
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{Field, Gf2, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     protocol::{
         basics::SecureMul,
-        boolean::{bitwise_equal::bitwise_equal_gf2, or::or, RandomBits},
+        boolean::{bitwise_equal::bitwise_equal_gf2, or::or},
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         ipa::{ArithmeticallySharedIPAInputs, BinarySharedIPAInputs},
-        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+        modulus_conversion::convert_bits,
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, RecordId,
     },
@@ -28,15 +26,18 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::{DowngradeMalicious, ExtendableField},
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare as SemiHonestAdditiveShare},
+            semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
     },
     seq_join::assert_send,
 };
-use futures::future::try_join;
+use futures::{
+    future::try_join,
+    stream::{iter as stream_iter, TryStreamExt},
+};
 use ipa_macros::step;
-use std::iter::{empty, once, zip};
+use std::iter::{once as iter_once, zip};
 use strum::AsRefStr;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
@@ -44,45 +45,58 @@ use strum::AsRefStr;
 /// # Errors
 /// propagates errors from multiplications
 #[tracing::instrument(name = "attribute", skip_all)]
-pub async fn secure_attribution<C, S, SB, F, BK>(
-    ctx: C,
-    validator: C::Validator<F>,
-    binary_validator: C::Validator<Gf2>,
+pub async fn secure_attribution<V, VB, C, S, SB, F>(
+    validator: V,
+    binary_validator: VB,
     arithmetically_shared_values: Vec<ArithmeticallySharedIPAInputs<F, S>>,
     binary_shared_values: Vec<BinarySharedIPAInputs<SB>>,
     config: IpaQueryConfig,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
+) -> Result<Vec<Replicated<F>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
-    S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + Serializable + 'static,
+    V: Validator<C, F>,
+    VB: Validator<C, Gf2>,
+    C: UpgradableContext<Validator<F> = V>,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F>
+        + BasicProtocols<C::UpgradedContext<F>, F>
+        + Serializable
+        + DowngradeMalicious<Target = Replicated<F>>
+        + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
     F: PrimeField + ExtendableField,
-    BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCAggregateCreditOutputRow<F, S, BK>:
-        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>,
 {
+    let row_count = arithmetically_shared_values.len();
+    assert_eq!(row_count, binary_shared_values.len());
     let m_ctx = validator.context();
     let m_binary_ctx = binary_validator.context();
 
+    // There are one fewer helper bits than there are input rows.  Same for stop bits.
+    // This propagates throughout aggregation (all the code understands this).
+    // And a breakdown for the last row isn't necessary because an impression on that row can't convert.
+    // So we drop the last breakdown key right away.
     let helper_bits_gf2 = compute_helper_bits_gf2(m_binary_ctx, &binary_shared_values).await?;
     let breakdown_key_bits_gf2: Vec<_> = binary_shared_values
         .iter()
         .map(|x| x.breakdown_key.clone())
+        .take(row_count - 1)
         .collect();
+
     let (validated_helper_bits_gf2, validated_breakdown_key_bits_gf2) = binary_validator
         .validate((helper_bits_gf2, breakdown_key_bits_gf2))
         .await?;
-    let semi_honest_fp_helper_bits =
-        mod_conv_helper_bits(ctx.clone(), &validated_helper_bits_gf2).await?;
-    let helper_bits = once(S::ZERO)
-        .chain(m_ctx.upgrade(semi_honest_fp_helper_bits).await?)
-        .collect::<Vec<_>>();
+
+    let convert_ctx = m_ctx
+        .narrow(&AttributionStep::ConvertHelperBits)
+        .set_total_records(validated_helper_bits_gf2.len());
+    let helper_bits = convert_bits(convert_ctx, stream_iter(validated_helper_bits_gf2), 0..1)
+        .map_ok(|b| b.into_iter().next().unwrap()) // TODO: simplify single-bit conversion
+        .try_collect::<Vec<_>>()
+        .await?;
 
     let is_trigger_bits = arithmetically_shared_values
         .iter()
@@ -92,18 +106,22 @@ where
         .await?
         .collect::<Vec<_>>();
 
-    let attribution_input_rows = zip(arithmetically_shared_values, helper_bits)
-        .zip(validated_breakdown_key_bits_gf2)
-        .map(|((arithmetic, hb), breakdown_key_bits)| {
-            MCApplyAttributionWindowInputRow::new(
-                arithmetic.timestamp,
-                arithmetic.is_trigger_bit,
-                hb,
-                breakdown_key_bits,
-                arithmetic.trigger_value,
-            )
-        })
-        .collect::<Vec<_>>();
+    // Semantically, `helper_bit` indicates if the preceding row has the same value of `match_key`.
+    // For the first row, this cannot be the case as there is no preceding row, so we just provide a zero.
+    debug_assert_eq!(arithmetically_shared_values.len(), helper_bits.len() + 1);
+    let attribution_input_rows = zip(
+        arithmetically_shared_values,
+        iter_once(S::ZERO).chain(helper_bits),
+    )
+    .map(|(arithmetic, hb)| {
+        ApplyAttributionWindowInputRow::new(
+            arithmetic.timestamp,
+            arithmetic.is_trigger_bit,
+            hb,
+            arithmetic.trigger_value,
+        )
+    })
+    .collect::<Vec<_>>();
 
     let windowed_reports = apply_attribution_window(
         m_ctx.narrow(&AttributionStep::ApplyAttributionWindow),
@@ -131,6 +149,7 @@ where
 
     let (validator, output) = aggregate_credit(
         validator,
+        validated_breakdown_key_bits_gf2.into_iter(),
         user_capped_credits.into_iter(),
         config.max_breakdown_key,
     )
@@ -142,6 +161,7 @@ where
 
 #[step]
 pub(crate) enum AttributionStep {
+    ConvertHelperBits,
     ApplyAttributionWindow,
     AccumulateCredit,
     PerformUserCapping,
@@ -342,6 +362,14 @@ where
     Ok(())
 }
 
+/// Stop Bits are boolean values (1 or 0) and indicate if values should continue to accumulate, or not.
+/// In the case of attribution, multiple trigger reports might all be attributed to a single source
+/// report in the case that there is a source report followed by multiple trigger reports, all having
+/// the same value of match key.
+///
+/// Stop bits are the AND (i.e., multiply) of "is trigger bit" and "helper bit" from the same row.
+/// Note, the `helper_bits` provided here skip the first row as that value is known already.
+/// The output of the function also skips this first row.
 async fn compute_stop_bits<F, S, C>(
     ctx: C,
     is_trigger_bits: &[S],
@@ -356,15 +384,16 @@ where
         .narrow(&Step::ComputeStopBits)
         .set_total_records(is_trigger_bits.len() - 1);
 
-    let futures = zip(is_trigger_bits, helper_bits).skip(1).enumerate().map(
+    // Note that the helper bits provided to this function skip the first row,
+    // so this functions starts from the second row of trigger bits.
+    let futures = zip(&is_trigger_bits[1..], helper_bits).enumerate().map(
         |(i, (is_trigger_bit, helper_bit))| {
             let c = stop_bits_ctx.clone();
             let record_id = RecordId::from(i);
             async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
         },
     );
-
-    Ok(empty().chain(ctx.try_join(futures).await?))
+    Ok(ctx.try_join(futures).await?.into_iter())
 }
 
 async fn compute_helper_bits_gf2<C, S>(
@@ -394,30 +423,6 @@ where
     .await
 }
 
-async fn mod_conv_helper_bits<C: Context, F: Field>(
-    sh_ctx: C,
-    semi_honest_helper_bits_gf2: &[Replicated<Gf2>],
-) -> Result<Vec<Replicated<F>>, Error> {
-    let hb_mod_conv_ctx = sh_ctx
-        .narrow(&Step::ModConvHelperBits)
-        .set_total_records(semi_honest_helper_bits_gf2.len());
-
-    sh_ctx
-        .try_join(
-            semi_honest_helper_bits_gf2
-                .iter()
-                .enumerate()
-                .map(|(i, gf2_bit)| {
-                    let bit_triple: BitConversionTriple<Replicated<F>> =
-                        convert_bit_local::<F, Gf2>(sh_ctx.role(), 0, gf2_bit);
-                    let record_id = RecordId::from(i);
-                    let c = hb_mod_conv_ctx.clone();
-                    async move { convert_bit(c, record_id, &bit_triple).await }
-                }),
-        )
-        .await
-}
-
 #[step]
 #[allow(clippy::enum_variant_names)]
 pub(in crate::protocol) enum Step {
@@ -426,7 +431,6 @@ pub(in crate::protocol) enum Step {
     CurrentCreditOrCreditUpdate,
     ComputeHelperBits,
     ComputeStopBits,
-    ModConvHelperBits,
 }
 
 pub(crate) struct InteractionPatternStep(usize);

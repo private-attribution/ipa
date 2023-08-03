@@ -1,144 +1,137 @@
+use std::marker::PhantomData;
+
 use crate::{
     error::Error,
-    ff::{Field, Gf40Bit, PrimeField},
+    ff::PrimeField,
     protocol::{
         basics::SecureMul,
-        context::{
-            Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext,
-            UpgradedSemiHonestContext,
+        context::{prss::InstrumentedIndexedSharedRandomness, Context, UpgradedContext},
+        modulus_conversion::{
+            convert_bits, convert_some_bits, BitConversionTriple, ToBitConversionTriples,
         },
-        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
         prss::SharedRandomness,
-        step::BitOpStep,
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        Linear as LinearSecretSharing, SecretSharing, SharedValue,
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed,
+        Linear as LinearSecretSharing,
     },
-    seq_join::SeqJoin,
 };
-use async_trait::async_trait;
-use ipa_macros::step;
-use strum::AsRefStr;
+use futures::stream::{iter as stream_iter, Stream, StreamExt};
 
-#[async_trait]
-pub trait RandomBits<V: SharedValue> {
-    type Share: SecretSharing<V>;
-
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error>;
+#[derive(Debug)]
+struct RawRandomBits {
+    // TODO: use a const generic instead of a field, when generic_const_expr hits stable.
+    count: u32,
+    left: u64,
+    right: u64,
 }
 
-fn random_bits_triples<F, C>(
-    ctx: &C,
-    record_id: RecordId,
-) -> Vec<BitConversionTriple<Replicated<F>>>
-where
-    F: PrimeField,
-    C: Context,
-{
-    // Calculate the number of bits we need to form a random number that
-    // has the same number of bits as the prime.
-    let l = u128::BITS - F::PRIME.into().leading_zeros();
-
-    // Generate a pair of random numbers. We'll use these numbers as
-    // the source of `l`-bit long uniformly random sequence of bits.
-    let (b_bits_left, b_bits_right) = ctx.prss().generate_values(record_id);
-
-    // Same here. For now, 256-bit is enough for our F_p
-    let xor_share = Replicated::new(
-        Gf40Bit::truncate_from(b_bits_left),
-        Gf40Bit::truncate_from(b_bits_right),
-    );
-
-    // Convert each bit to secret sharings of that bit in the target field
-    (0..l)
-        .map(|i| convert_bit_local::<F, Gf40Bit>(ctx.role(), i, &xor_share))
-        .collect::<Vec<_>>()
+impl RawRandomBits {
+    fn generate<F: PrimeField>(
+        prss: &InstrumentedIndexedSharedRandomness,
+        record_id: RecordId,
+    ) -> Self {
+        // This avoids `F::BITS` as that can be larger than we need.
+        let count = u128::BITS - F::PRIME.into().leading_zeros();
+        assert!(count <= u64::BITS);
+        let (left, right) = prss.generate_values(record_id);
+        #[allow(clippy::cast_possible_truncation)] // See above for the relevant assertion.
+        Self {
+            count,
+            left: left as u64,
+            right: right as u64,
+        }
+    }
 }
 
-async fn convert_triples_to_shares<F, C, S>(
+impl ToBitConversionTriples for RawRandomBits {
+    // TODO const for this in place of the function
+    fn bits(&self) -> u32 {
+        self.count
+    }
+
+    fn triple<F: PrimeField>(
+        &self,
+        role: crate::helpers::Role,
+        i: u32,
+    ) -> BitConversionTriple<Replicated<F>> {
+        debug_assert!(u128::BITS - F::PRIME.into().leading_zeros() >= self.count);
+        assert!(i < self.count);
+        BitConversionTriple::new(
+            role,
+            ((self.left >> i) & 1) == 1,
+            ((self.right >> i) & 1) == 1,
+        )
+    }
+}
+
+struct RawRandomBitIter<F, C> {
     ctx: C,
     record_id: RecordId,
-    triples: &[BitConversionTriple<S>],
-) -> Result<Vec<S>, Error>
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField, C: Context> Iterator for RawRandomBitIter<F, C> {
+    type Item = RawRandomBits;
+    fn next(&mut self) -> Option<Self::Item> {
+        let v = RawRandomBits::generate::<F>(&self.ctx.prss(), self.record_id);
+        self.record_id += 1;
+        Some(v)
+    }
+}
+
+/// Produce a stream of random bits using the provided context.
+///
+/// # Panics
+/// If the provided context has an unspecified total record count.
+/// An indeterminate limit works, but setting a fixed value greatly helps performance.
+pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<BitDecomposed<C::Share>, Error>>
 where
-    F: Field,
-    C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
+    F: PrimeField,
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F> + SecureMul<C>,
 {
-    ctx.parallel_join(triples.iter().enumerate().map(|(i, t)| {
-        let c = ctx.narrow(&BitOpStep::from(i));
-        async move { convert_bit(c, record_id, t).await }
-    }))
+    debug_assert!(ctx.total_records().is_specified());
+    let iter = RawRandomBitIter::<F, C> {
+        ctx: ctx.clone(),
+        record_id: RecordId(0),
+        _f: PhantomData,
+    };
+    let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
+    convert_bits(ctx, stream_iter(iter), bits)
+}
+
+/// # Errors
+/// If the conversion is unsuccessful (usually the result of communication errors).
+/// # Panics
+/// Never, but the compiler doesn't know that.
+
+// TODO : remove this hacky function and make people use the streaming version (which might be harder to use, but is cleaner)
+pub async fn one_random_bit<F, C>(
+    ctx: C,
+    record_id: RecordId,
+) -> Result<BitDecomposed<C::Share>, Error>
+where
+    F: PrimeField,
+    C: UpgradedContext<F>,
+    C::Share: LinearSecretSharing<F> + SecureMul<C>,
+{
+    let iter = RawRandomBitIter::<F, C> {
+        ctx: ctx.clone(),
+        record_id,
+        _f: PhantomData,
+    };
+    let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
+    Box::pin(convert_some_bits(
+        ctx,
+        // TODO: For some reason, the input stream is polled 16 times, despite this function only calling "next()" once.
+        // That interacts poorly with PRSS, so cap the iterator.
+        stream_iter(iter.take(1)),
+        record_id,
+        bits,
+    ))
+    .next()
     .await
-}
-
-#[step]
-pub(crate) enum Step {
-    ConvertShares,
-    UpgradeBitTriples,
-}
-
-#[async_trait]
-impl<C, F> RandomBits<F> for C
-where
-    C: UpgradableContext,
-    F: PrimeField + ExtendableField,
-{
-    type Share = Replicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
-
-        convert_triples_to_shares(self.narrow(&Step::ConvertShares), record_id, &triples).await
-    }
-}
-
-#[async_trait]
-impl<F> RandomBits<F> for UpgradedSemiHonestContext<'_, F>
-where
-    F: PrimeField + ExtendableField,
-{
-    type Share = Replicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
-
-        convert_triples_to_shares(self.narrow(&Step::ConvertShares), record_id, &triples).await
-    }
-}
-
-#[async_trait]
-impl<F: PrimeField + ExtendableField> RandomBits<F> for UpgradedMaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
-
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples::<F, _>(&self, record_id);
-
-        // Upgrade the replicated shares to malicious, in parallel,
-        let c = self.narrow(&Step::UpgradeBitTriples);
-        let ctx = &c;
-        let malicious_triples = ctx
-            .parallel_join(triples.into_iter().enumerate().map(|(i, t)| async move {
-                ctx.narrow(&BitOpStep::from(i))
-                    .upgrade_for(record_id, t)
-                    .await
-            }))
-            .await?;
-
-        convert_triples_to_shares(
-            self.narrow(&Step::ConvertShares),
-            record_id,
-            &malicious_triples,
-        )
-        .await
-    }
+    .unwrap()
 }

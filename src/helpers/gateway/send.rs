@@ -53,7 +53,7 @@ impl GatewaySender {
 
     pub async fn send<M: Message>(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
         debug_assert!(
-            !self.total_records.is_unspecified(),
+            self.total_records.is_specified(),
             "total_records cannot be unspecified when sending"
         );
         if let TotalRecords::Specified(count) = self.total_records {
@@ -122,7 +122,10 @@ impl GatewaySenders {
         capacity: NonZeroUsize,
         total_records: TotalRecords, // TODO track children for indeterminate senders
     ) -> (Arc<GatewaySender>, Option<GatewaySendStream>) {
-        assert!(!total_records.is_unspecified());
+        assert!(
+            total_records.is_specified(),
+            "unspecified total records for {channel_id:?}"
+        );
         let senders = &self.inner;
         if let Some(sender) = senders.get(channel_id) {
             (Arc::clone(&sender), None)

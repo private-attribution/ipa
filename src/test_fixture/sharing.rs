@@ -76,18 +76,18 @@ where
     }
 }
 
-impl<I, T> Reconstruct<T> for [Vec<I>; 3]
+impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
 where
-    for<'v> [&'v Vec<I>; 3]: Reconstruct<T>,
+    for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
-    fn reconstruct(&self) -> T {
+    fn reconstruct(&self) -> Vec<T> {
         [&self[0], &self[1], &self[2]].reconstruct()
     }
 }
 
 impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
 where
-    for<'i> [&'i I; 3]: Reconstruct<T>,
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> BitDecomposed<T> {
         BitDecomposed::new(self.map(Deref::deref).reconstruct())
@@ -96,7 +96,7 @@ where
 
 impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
 where
-    for<'i> [&'i I; 3]: Reconstruct<T>,
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
@@ -162,7 +162,7 @@ where
     }
 }
 
-impl<F: ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+impl<F: ExtendableField> ValidateMalicious<F> for [&[MaliciousReplicated<F>]; 3] {
     fn validate(&self, r: F::ExtendedField) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
@@ -173,8 +173,23 @@ impl<F: ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 
     }
 }
 
+impl<F: ExtendableField> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+    fn validate(&self, r: F::ExtendedField) {
+        [&self[0][..], &self[1][..], &self[2][..]].validate(r);
+    }
+}
+
+impl<F: ExtendableField> ValidateMalicious<F> for [BitDecomposed<MaliciousReplicated<F>>; 3] {
+    fn validate(&self, r: F::ExtendedField) {
+        [&self[0][..], &self[1][..], &self[2][..]].validate(r);
+    }
+}
+
 impl<F: ExtendableField> ValidateMalicious<F>
-    for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3]
+    for [(
+        MaliciousReplicated<F>,
+        BitDecomposed<MaliciousReplicated<F>>,
+    ); 3]
 {
     fn validate(&self, r: F::ExtendedField) {
         let [t0, t1, t2] = self;

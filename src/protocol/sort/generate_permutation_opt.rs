@@ -2,26 +2,35 @@ use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
+        context::{
+            Context, UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
+            Validator,
+        },
+        modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         sort::{
             compose::compose,
             generate_permutation::{shuffle_and_reveal_permutation, ShuffledPermutationWrapper},
             multi_bit_permutation::multi_bit_permutation,
             secureapplyinv::secureapplyinv_multi,
-            SortStep::{BitPermutationStep, ComposeStep, MultiApplyInv, ShuffleRevealPermutation},
+            SortStep::{
+                BitPermutationStep, ComposeStep, ModulusConversion, MultiApplyInv,
+                ShuffleRevealPermutation,
+            },
         },
         step::IpaProtocolStep::Sort,
-        BasicProtocols,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{
             malicious::{DowngradeMalicious, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        BitDecomposed, Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing,
     },
 };
 use embed_doc_image::embed_doc_image;
+use futures::stream::{iter as stream_iter, Stream, StreamExt, TryStreamExt};
+use std::cmp::min;
 
 #[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 #[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
@@ -76,43 +85,72 @@ use embed_doc_image::embed_doc_image;
 /// # Panics
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
-pub async fn generate_permutation_opt<'a, C, F, S, I>(
+pub async fn generate_permutation_opt<'a, F, C, S, I>(
     sh_ctx: C,
     sort_keys: I,
+    num_multi_bits: u32,
+    max_bits: u32, // TODO: use a const generic on I::Item; see comment on ToBitConversionTriples::bits.
 ) -> Result<(C::Validator<F>, Vec<S>), Error>
 where
+    F: PrimeField + ExtendableField,
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
-    F: PrimeField + ExtendableField,
-    I: IntoIterator<Item = &'a Vec<BitDecomposed<Replicated<F>>>>,
+    I: Stream,
+    I::Item: ToBitConversionTriples + Clone + Send + Sync,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
     let mut malicious_validator = sh_ctx.clone().validator();
-    let mut m_ctx_bit = malicious_validator.context();
-    let mut sort_keys = sort_keys.into_iter();
+    let sort_keys = sort_keys.collect::<Vec<_>>().await;
+    if sort_keys.is_empty() {
+        return Ok((malicious_validator, Vec::new()));
+    }
 
-    let first_keys = sort_keys.next().unwrap();
+    let mut m_ctx = malicious_validator.context();
+    let chunk = 0..min(num_multi_bits, max_bits);
+    let key_chunk = convert_bits(
+        m_ctx
+            .narrow(&ModulusConversion)
+            .set_total_records(sort_keys.len()),
+        stream_iter(sort_keys.iter().cloned()),
+        chunk,
+    )
+    .try_collect::<Vec<_>>()
+    .await?;
 
-    let upgraded_sort_keys = m_ctx_bit.upgrade(first_keys.clone()).await?;
     let lsb_permutation =
-        multi_bit_permutation(m_ctx_bit.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
+        multi_bit_permutation(m_ctx.narrow(&BitPermutationStep), &key_chunk).await?;
     let mut composed_less_significant_bits_permutation = lsb_permutation;
 
-    for (chunk_num, chunk) in sort_keys.enumerate() {
+    for (chunk_num, chunk_start) in (num_multi_bits..max_bits)
+        .step_by(usize::try_from(num_multi_bits).unwrap())
+        .enumerate()
+    {
         let revealed_and_random_permutations = shuffle_and_reveal_permutation::<C, _, _>(
-            m_ctx_bit.narrow(&ShuffleRevealPermutation),
+            m_ctx.narrow(&ShuffleRevealPermutation),
             composed_less_significant_bits_permutation,
             malicious_validator,
         )
         .await?;
 
         malicious_validator = sh_ctx.narrow(&Sort(chunk_num)).validator();
-        m_ctx_bit = malicious_validator.context();
+        m_ctx = malicious_validator.context();
 
         // TODO (richaj) it might even be more efficient to apply sort permutation to XorReplicated sharings,
         // and convert them to a Vec<MaliciousReplicated> after this step, as the re-shares will be cheaper for XorReplicated sharings
-        let upgraded_sort_keys = m_ctx_bit.upgrade(chunk.clone()).await?;
+
+        let chunk = chunk_start..min(chunk_start + num_multi_bits, max_bits);
+        let key_chunk = convert_bits(
+            m_ctx
+                .narrow(&ModulusConversion)
+                .set_total_records(sort_keys.len()),
+            stream_iter(sort_keys.iter().cloned()),
+            chunk,
+        )
+        .try_collect::<Vec<_>>()
+        .await?;
 
         let (randoms_for_shuffle0, randoms_for_shuffle1, revealed) = (
             revealed_and_random_permutations
@@ -127,21 +165,21 @@ where
         );
 
         let next_few_bits_sorted_by_less_significant_bits = secureapplyinv_multi(
-            m_ctx_bit.narrow(&MultiApplyInv(chunk_num.try_into().unwrap())),
-            upgraded_sort_keys,
+            m_ctx.narrow(&MultiApplyInv(chunk_num.try_into().unwrap())),
+            key_chunk,
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
         )
         .await?;
 
         let next_few_bits_permutation = multi_bit_permutation(
-            m_ctx_bit.narrow(&BitPermutationStep),
+            m_ctx.narrow(&BitPermutationStep),
             &next_few_bits_sorted_by_less_significant_bits,
         )
         .await?;
 
         composed_less_significant_bits_permutation = compose(
-            m_ctx_bit.narrow(&ComposeStep),
+            m_ctx.narrow(&ComposeStep),
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
             next_few_bits_permutation,
@@ -157,10 +195,9 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31, GaloisField, Gf40Bit},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField},
         protocol::{
             context::{Context, Validator},
-            modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
             MatchKey,
         },
@@ -168,6 +205,7 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
+    use futures::stream::iter as stream_iter;
     use std::iter::zip;
 
     #[tokio::test]
@@ -188,17 +226,14 @@ mod tests {
             .semi_honest(
                 match_keys.clone().into_iter(),
                 |ctx, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-
-                    let (_validator, result) =
-                        generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                            .await
-                            .unwrap();
+                    let (_validator, result) = generate_permutation_opt::<Fp32BitPrime, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap();
                     result
                 },
             )
@@ -230,15 +265,14 @@ mod tests {
             .malicious(
                 match_keys.clone().into_iter(),
                 |ctx, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                        .await
-                        .unwrap()
+                    generate_permutation_opt::<Fp31, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap()
                 },
             )
             .await;
@@ -279,16 +313,14 @@ mod tests {
             .malicious(
                 match_keys.clone().into_iter(),
                 |ctx, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
-                        .await
-                        .unwrap()
+                    generate_permutation_opt::<Fp31, _, _, _>(
+                        ctx.narrow("sort"),
+                        stream_iter(mk_shares),
+                        NUM_MULTI_BITS,
+                        MatchKey::BITS,
+                    )
+                    .await
+                    .unwrap()
                 },
             )
             .await;

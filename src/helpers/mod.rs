@@ -448,8 +448,8 @@ pub enum TotalRecords {
 
 impl TotalRecords {
     #[must_use]
-    pub fn is_unspecified(&self) -> bool {
-        matches!(self, &TotalRecords::Unspecified)
+    pub fn is_specified(&self) -> bool {
+        !matches!(self, &TotalRecords::Unspecified)
     }
 
     #[must_use]
