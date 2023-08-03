@@ -103,7 +103,7 @@ pub mod metrics {
         describe_counter!(
             STEP_NARROWED,
             Unit::Count,
-            "Trace steps each time they are narrowed"
+            "Number of times the step is narrowed"
         );
     }
 }
