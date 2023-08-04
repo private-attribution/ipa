@@ -1,8 +1,6 @@
-use crate::task::JoinError;
-use std::fmt::Debug;
+use crate::{report::InvalidReportError, task::JoinError};
+use std::{backtrace::Backtrace, fmt::Debug};
 use thiserror::Error;
-
-use crate::report::InvalidReportError;
 
 /// An error raised by the IPA protocol.
 ///
@@ -82,3 +80,27 @@ impl From<std::num::ParseIntError> for Error {
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub type Res<T> = Result<T, Error>;
+
+/// Set up a global panic hook that dumps the panic information to our tracing subsystem if it is
+/// available and duplicates that to standard error output.
+///
+/// Note that it is not possible to reliably test panic hooks because Rust test runner uses more
+/// than one thread by default.
+///
+/// ## Panics
+/// If caller thread is panicking while calling this function.
+pub fn set_global_panic_hook() {
+    let default_hook = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let backtrace = Backtrace::force_capture();
+
+        let cur_thread = std::thread::current();
+        tracing::error!(
+            "{thread_id:?} \"{thread_name}\" {panic_info}\nstack trace:\n{backtrace}",
+            thread_id = cur_thread.id(),
+            thread_name = cur_thread.name().unwrap_or("<no_name>")
+        );
+        (default_hook)(panic_info);
+    }));
+}
