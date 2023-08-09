@@ -23,8 +23,6 @@ pub mod query;
 pub mod report;
 pub mod secret_sharing;
 pub mod telemetry;
-#[cfg(all(feature = "enable-serde", feature = "web-app"))]
-pub mod uri;
 
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
@@ -32,6 +30,8 @@ pub mod test_fixture;
 mod app;
 mod exact;
 mod seq_join;
+#[cfg(feature = "enable-serde")]
+mod serde;
 
 pub use app::{HelperApp, Setup as AppSetup};
 

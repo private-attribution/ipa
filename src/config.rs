@@ -19,6 +19,7 @@ use std::{
     iter::Zip,
     path::PathBuf,
     slice,
+    time::Duration,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -105,7 +106,7 @@ impl NetworkConfig {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PeerConfig {
     /// Peer URL
-    #[serde(with = "crate::uri")]
+    #[serde(with = "crate::serde::uri")]
     pub url: Uri,
 
     /// Peer's TLS certificate
@@ -290,8 +291,13 @@ impl Default for ClientConfig {
 impl ClientConfig {
     #[must_use]
     pub fn use_http2() -> Self {
+        Self::configure_http2(Http2Configurator::default())
+    }
+
+    #[must_use]
+    pub fn configure_http2(conf: Http2Configurator) -> Self {
         Self {
-            http_config: HttpClientConfigurator::http2(),
+            http_config: HttpClientConfigurator::Http2(conf),
         }
     }
 
@@ -336,7 +342,7 @@ impl HttpClientConfigurator {
 
     #[must_use]
     pub fn http2() -> Self {
-        Self::Http2(Http2Configurator)
+        Self::Http2(Http2Configurator::default())
     }
 }
 
@@ -362,23 +368,65 @@ impl Debug for Http1Configurator {
 
 /// Clients will use HTTP/2 exclusively. This will make client requests fail if server does not
 /// support HTTP/2.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Http2Configurator;
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Http2Configurator {
+    /// Enable [`PING`] frames to keep connection alive. Default value is 90 seconds to match [`Hyper`] value
+    /// for SO_KEEPALIVE. Note that because
+    /// IPA builds [`http`] connector manually, keep-alive is not enabled by Hyper. It is somewhat
+    /// confusing that Hyper turns it on inside [`build_http`] method only.
+    ///
+    /// Enabling PING requires hyper `runtime` feature, so make sure it is enabled. There may be
+    /// a bug in hyper that enables method `http2_keep_alive_interval` even when this feature is
+    /// turned off. At least I was able to compile IPA without `runtime` feature.
+    ///
+    /// ## Serialization notes
+    ///
+    /// IPA uses TOML for configuration files that does not support "unsetting a key": [`toml_issue`].
+    /// For this reason, if value is not present in the configuration file, it will be set to `None`.
+    /// It is up to the config creator to ensure that value is specified when `network.toml` is created.
+    ///
+    /// [`PING`]: https://datatracker.ietf.org/doc/html/rfc9113#name-ping
+    /// [`Hyper`]: https://docs.rs/hyper/0.14.27/hyper/client/struct.Builder.html#method.pool_idle_timeout
+    /// [`http`]: https://docs.rs/hyper/0.14.27/hyper/client/struct.Builder.html#method.build
+    /// [`build_http`]: https://docs.rs/hyper/0.14.27/hyper/client/struct.Builder.html#method.build_http
+    /// [`toml_issue`]: https://github.com/toml-lang/toml/issues/30
+    #[serde(
+        rename = "ping_interval_secs",
+        default,
+        serialize_with = "crate::serde::duration::to_secs",
+        deserialize_with = "crate::serde::duration::from_secs_optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    ping_interval: Option<Duration>,
+}
+
+impl Default for Http2Configurator {
+    fn default() -> Self {
+        Self {
+            ping_interval: Some(Duration::from_secs(90)),
+        }
+    }
+}
 
 impl HyperClientConfigurator for Http2Configurator {
     fn configure<'a>(&self, client_builder: &'a mut Builder) -> &'a mut Builder {
-        client_builder.http2_only(true)
+        client_builder
+            .http2_only(true)
+            .http2_keep_alive_interval(self.ping_interval)
     }
 }
 
 impl Debug for Http2Configurator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "http version: HTTP 2")
+        f.debug_struct("Http2Configurator")
+            .field("PING_interval", &self.ping_interval)
+            .finish()
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use super::*;
     use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
     use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
@@ -415,5 +463,40 @@ mod tests {
         let (_, public_key) = X25519HkdfSha256::gen_keypair(&mut rng);
         let config = HpkeClientConfig { public_key };
         assert_eq!(format!("{config:?}"), "HpkeClientConfig { public_key: \"2bd9da78f01d8bc6948bbcbe44ec1e7163d05083e267d110cdb2e75d847e3b6f\" }");
+    }
+
+    #[test]
+    fn client_config_serde() {
+        fn assert_config_eq(config_str: &str, expected: &ClientConfig) {
+            let actual: ClientConfig = serde_json::from_str(config_str).unwrap();
+
+            match (&expected.http_config, &actual.http_config) {
+                (HttpClientConfigurator::Http2(left), HttpClientConfigurator::Http2(right)) => {
+                    assert_eq!(left, right);
+                }
+                (HttpClientConfigurator::Http1(_), HttpClientConfigurator::Http1(_)) => {}
+                _ => panic!(
+                    "http config is not the same: {:?} vs {:?}",
+                    expected.http_config, actual.http_config
+                ),
+            };
+        }
+
+        assert_config_eq(
+            r#"{ "http_config": { "version": "http2" } }"#,
+            &ClientConfig::configure_http2(Http2Configurator {
+                ping_interval: None,
+            }),
+        );
+        assert_config_eq(
+            r#"{ "http_config": { "version": "http1" } }"#,
+            &ClientConfig::use_http1(),
+        );
+        assert_config_eq(
+            r#"{ "http_config": { "version": "http2", "ping_interval_secs": 132 } }"#,
+            &ClientConfig::configure_http2(Http2Configurator {
+                ping_interval: Some(Duration::from_secs(132)),
+            }),
+        );
     }
 }
