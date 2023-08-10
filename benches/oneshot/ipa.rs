@@ -8,7 +8,7 @@ use ipa::{
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+use rand::{random, rngs::StdRng, SeedableRng};
 use std::{
     num::{NonZeroU32, NonZeroUsize},
     time::Instant,
@@ -102,7 +102,7 @@ async fn run(args: Args) -> Result<(), Error> {
         ..TestWorldConfig::default()
     };
 
-    let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
+    let seed = args.random_seed.unwrap_or_else(|| random());
     tracing::trace!(
         "Using random seed: {seed} for {q} records",
         q = args.query_size
