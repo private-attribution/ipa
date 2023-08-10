@@ -278,7 +278,7 @@ fn get_meta_data_for(
             // the code where the step is narrowed is no longer executed, or the
             // step is used in tests only.
             Err(syn::Error::new_spanned(
-                data.enum_token,
+                ident,
                 "ipa_macros::step expects an enum with variants that match the steps in \
             steps.txt. If you've made a change to steps, make sure to run `collect_steps.py` \
             and replace steps.txt with the output. If the step is obsolete, consider \
@@ -294,10 +294,10 @@ fn get_meta_data_for(
                 .collect::<Vec<_>>())
         }
         _ => Err(syn::Error::new_spanned(
-            data.enum_token,
+            ident,
             format!(
                 "ipa_macros::step found multiple enums that have the same name and \
-            contain at least one variant with the same names. Consider renaming the \
+            contain at least one variant with the same name. Consider renaming the \
             enum/variant to avoid this conflict.",
             ),
         )),
