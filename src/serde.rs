@@ -16,9 +16,9 @@ pub mod uri {
 pub mod duration {
     use std::time::Duration;
 
-    pub fn to_secs<'a, I, S>(d: I, s: S) -> Result<S::Ok, S::Error>
+    pub fn to_secs<'dur, I, S>(d: I, s: S) -> Result<S::Ok, S::Error>
     where
-        Option<&'a Duration>: From<I>,
+        I: Into<Option<&'dur Duration>>,
         S: serde::Serializer,
     {
         let d = d.into();
@@ -34,9 +34,10 @@ pub mod duration {
     }
 
     #[cfg(feature = "web-app")]
-    pub fn from_secs_optional<'de, D: serde::Deserializer<'de>>(
-        d: D,
-    ) -> Result<Option<Duration>, D::Error> {
+    pub fn from_secs_optional<'de, D>(d: D) -> Result<Option<Duration>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
         let secs: Option<f64> = serde::Deserialize::deserialize(d)?;
         Ok(secs.map(Duration::from_secs_f64))
     }
