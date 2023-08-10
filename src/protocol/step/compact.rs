@@ -20,13 +20,13 @@ impl From<&str> for Compact {
 
 impl Display for Compact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.as_ref())
     }
 }
 
 impl Debug for Compact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "step={}", self.0)
+        write!(f, "gate[{}]={}", self.0, self.as_ref())
     }
 }
 
