@@ -1,4 +1,4 @@
-use crate::{error::BoxError, protocol::QueryId};
+use crate::{error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -44,10 +44,17 @@ pub enum Error {
     // information back to clients in machine-parsable form. If we did that, then these two error
     // variants could be combined. Alternatively, successful delivery of an application layer
     // failure could be viewed as not a transport error at all.
-    #[error("request returned {status}: {reason}")]
+    #[error("request to {dest} failed with status {status:?}: {reason}")]
     FailedHttpRequest {
+        dest: String,
         status: hyper::StatusCode,
         reason: String,
+    },
+    #[error("Failed to connect to {dest}: {inner}")]
+    ConnectError {
+        dest: String,
+        #[source]
+        inner: hyper::Error,
     },
     #[error("{error}")]
     Application { code: StatusCode, error: BoxError },
@@ -65,16 +72,14 @@ impl Error {
     ///
     /// # Panics
     /// If the response is not a failure (4xx/5xx status)
-    pub async fn from_failed_resp<B>(resp: hyper::Response<B>) -> Self
-    where
-        B: hyper::body::HttpBody,
-        Error: From<<B as hyper::body::HttpBody>::Error>,
-    {
+    pub async fn from_failed_resp(resp: ResponseFromEndpoint<'_>) -> Self {
         let status = resp.status();
         assert!(status.is_client_error() || status.is_server_error()); // must be failure
-        hyper::body::to_bytes(resp.into_body())
+        let (endpoint, body) = resp.into_parts();
+        hyper::body::to_bytes(body)
             .await
             .map_or_else(Into::into, |reason_bytes| Error::FailedHttpRequest {
+                dest: endpoint.to_string(),
                 status,
                 reason: String::from_utf8_lossy(&reason_bytes).to_string(),
             })
@@ -138,9 +143,10 @@ impl IntoResponse for Error {
             | Self::WrongBodyLen { .. }
             | Self::AxumPassthrough(_)
             | Self::InvalidJsonBody(_)
-            | Self::QueryIdNotFound(_) => StatusCode::BAD_REQUEST,
+            | Self::QueryIdNotFound(_)
+            | Self::ConnectError { .. } => StatusCode::BAD_REQUEST,
 
-            Self::HyperPassthrough(_)
+            Self::HyperPassthrough { .. }
             | Self::HyperHttpPassthrough(_)
             | Self::FailedHttpRequest { .. }
             | Self::InvalidUri(_)

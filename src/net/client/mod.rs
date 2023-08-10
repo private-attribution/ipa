@@ -10,18 +10,19 @@ use crate::{
 use axum::http::uri::{self, Parts, Scheme};
 use futures::{Stream, StreamExt};
 use hyper::{
-    body,
-    client::{HttpConnector, ResponseFuture},
-    header::HeaderName,
-    http::HeaderValue,
-    Body, Client, Request, Response, StatusCode, Uri,
+    body, client::HttpConnector, header::HeaderName, http::HeaderValue, Body, Client, Request,
+    Response, StatusCode, Uri,
 };
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
+use pin_project::pin_project;
 use std::{
     collections::HashMap,
+    future::Future,
     io,
     io::{BufReader, Cursor},
     iter::repeat,
+    pin::Pin,
+    task::{ready, Context, Poll},
 };
 use tokio_rustls::{
     rustls,
@@ -70,6 +71,58 @@ impl ClientIdentity {
             .expect("Non-empty byte slice is provided to parse a private key");
 
         Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
+    }
+}
+
+/// Wrapper around Hyper's [future](hyper::client::ResponseFuture) interface that keeps around
+/// request endpoint for nicer error messages if request fails.
+#[pin_project]
+pub struct ResponseFuture<'a> {
+    authority: &'a uri::Authority,
+    #[pin]
+    inner: hyper::client::ResponseFuture,
+}
+
+/// Similar to [fut](ResponseFuture), wraps the response and keeps the URI authority for better
+/// error messages that show where error is originated from
+pub struct ResponseFromEndpoint<'a> {
+    authority: &'a uri::Authority,
+    inner: Response<Body>,
+}
+
+impl<'a> ResponseFromEndpoint<'a> {
+    pub fn endpoint(&self) -> String {
+        self.authority.to_string()
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.inner.status()
+    }
+
+    pub fn into_body(self) -> Body {
+        self.inner.into_body()
+    }
+
+    pub fn into_parts(self) -> (&'a uri::Authority, Body) {
+        (self.authority, self.inner.into_body())
+    }
+}
+
+impl<'a> Future for ResponseFuture<'a> {
+    type Output = Result<ResponseFromEndpoint<'a>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        match ready!(this.inner.poll(cx)) {
+            Ok(resp) => Poll::Ready(Ok(ResponseFromEndpoint {
+                authority: this.authority,
+                inner: resp,
+            })),
+            Err(e) => Poll::Ready(Err(Error::ConnectError {
+                dest: this.authority.to_string(),
+                inner: e,
+            })),
+        }
     }
 }
 
@@ -204,11 +257,14 @@ impl MpcHelperClient {
         }
     }
 
-    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture {
+    pub fn request(&self, mut req: Request<Body>) -> ResponseFuture<'_> {
         if let Some((k, v)) = self.auth_header.clone() {
             req.headers_mut().insert(k, v);
         }
-        self.client.request(req)
+        ResponseFuture {
+            authority: &self.authority,
+            inner: self.client.request(req),
+        }
     }
 
     /// Responds with whatever input is passed to it
@@ -230,6 +286,7 @@ impl MpcHelperClient {
             // It is potentially confusing to synthesize a 500 error here, but
             // it doesn't seem worth creating an error variant just for this.
             query_params.remove(FOO).ok_or(Error::FailedHttpRequest {
+                dest: self.authority.to_string(),
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 reason: "did not receive mirrored echo response".into(),
             })
@@ -242,7 +299,7 @@ impl MpcHelperClient {
     ///
     /// # Errors
     /// If there was an error reading the response body or if the request itself failed.
-    pub async fn resp_ok(resp: Response<Body>) -> Result<(), Error> {
+    pub async fn resp_ok(resp: ResponseFromEndpoint<'_>) -> Result<(), Error> {
         if resp.status().is_success() {
             Ok(())
         } else {
@@ -432,7 +489,7 @@ pub(crate) mod tests {
         // The server's self-signed test cert is not in the system truststore, and we didn't supply
         // it in the client config, so the connection should fail with a certificate error.
         let res = client.echo(ECHO_DATA).await;
-        assert!(matches!(res, Err(Error::HyperPassthrough(e)) if e.is_connect()));
+        assert!(matches!(res, Err(Error::ConnectError { inner: e, .. }) if e.is_connect()));
     }
 
     /// tests that a query command runs as expected. Since query commands require the server to

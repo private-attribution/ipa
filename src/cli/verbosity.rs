@@ -1,4 +1,7 @@
-use crate::cli::{install_collector, metric_collector::CollectorHandle};
+use crate::{
+    cli::{install_collector, metric_collector::CollectorHandle},
+    error::set_global_panic_hook,
+};
 use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
 use std::io::stderr;
@@ -40,6 +43,7 @@ impl Verbosity {
         let handle = LoggingHandle {
             metrics_handle: (!self.quiet).then(install_collector),
         };
+        set_global_panic_hook();
 
         info!("Logging setup at level {}", filter_layer);
 
