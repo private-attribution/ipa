@@ -482,6 +482,12 @@ mod tests {
             };
         }
 
+        assert!(serde_json::from_str::<ClientConfig>(
+            r#"{ "http_config": { "version": "http1", "ping_interval_secs": 132 } }"#,
+        )
+        .unwrap_err()
+        .is_data());
+
         assert_config_eq(
             r#"{ "http_config": { "version": "http2" } }"#,
             &ClientConfig::configure_http2(Http2Configurator {
