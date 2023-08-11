@@ -191,7 +191,7 @@ mod tests {
             grandchild = Some(grandchild.as_ref().unwrap().upgrade());
         }
 
-        // Since we called `upgrade()` on the grandchild, it holds a reference to its parent node.
+        // Since we called `upgrade()` on the grandchild, it holds a strong reference to its parent node.
         assert_eq!(grandchild.as_ref().unwrap().value.0, 2);
         {
             let parent = grandchild.as_ref().unwrap().get_parent().unwrap();

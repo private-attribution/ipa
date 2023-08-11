@@ -88,7 +88,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
         }
     };
 
-    // do a sanity check on the enum variants
+    // sanity check on the enum variants
     if let Err(e) = check_enum_variants(&data) {
         return TokenStream::from(e.to_compile_error());
     }
@@ -134,7 +134,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
     data.variants.iter().for_each(|v| {
         let ident = &v.ident;
         let ident_snake_case = ident.to_string().to_snake_case();
-        let ident_upper_case = ident.to_string().to_uppercase();
+        let ident_upper_case = ident_snake_case.to_uppercase();
 
         if is_dynamic_step(v) {
             // create an array of 64 strings and use the variant index as array index
@@ -231,7 +231,7 @@ fn get_meta_data_for(
     // Create a list of all enum variant names in the given enum `data`.
     // If a step is narrowed, they will be present in `steps` vec, except
     // for the obsolete steps. The dynamic steps are synthetically generated
-    // in `collect_steps.py`, so we'll need to generate them here as well.
+    // here to cover all subsets in `steps.txt`.
     let variant_names = data
         .variants
         .iter()
@@ -260,8 +260,8 @@ fn get_meta_data_for(
     // can't simply use the enum name as a key to look up.
     // Instead, we check whether all steps in `grouped_steps[i]` exist in
     // `variant_names`. If `S ⊆ variant_names where S ∈ grouped_steps`,
-    // then we have found our enum. If there are more than one enums that
-    // satisfy this condition, we are in trouble...
+    // then we have found our enum. If there are more than one enum that
+    // satisfies this condition, we are in trouble...
     let mut target_steps = Vec::new();
     for (_, steps) in grouped_steps {
         if steps.iter().all(|s| {
