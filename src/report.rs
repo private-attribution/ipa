@@ -1,7 +1,7 @@
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{
-        open_in_place, seal_in_place, CryptError, Info, KeyPair, KeyRegistry, MatchKeyCrypt,
+        open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
@@ -134,7 +134,7 @@ where
     B: Deref<Target = [u8]>,
     F: PrimeField,
     Replicated<F>: Serializable,
-    MK: MatchKeyCrypt,
+    MK: FieldShareCrypt,
     BK: GaloisField,
 {
     data: B,
@@ -165,9 +165,9 @@ where
     //     offsets are used by validations in the `from_bytes` constructor.)
     const ENCAP_KEY_OFFSET: usize = 5 + 2 * <F as Serializable>::Size::USIZE;
     const CIPHERTEXT_OFFSET: usize =
-        Self::ENCAP_KEY_OFFSET + <Gf40Bit as MatchKeyCrypt>::EncapKeySize::USIZE;
+        Self::ENCAP_KEY_OFFSET + <Gf40Bit as FieldShareCrypt>::EncapKeySize::USIZE;
     const EVENT_TYPE_OFFSET: usize =
-        Self::CIPHERTEXT_OFFSET + <Gf40Bit as MatchKeyCrypt>::CiphertextSize::USIZE;
+        Self::CIPHERTEXT_OFFSET + <Gf40Bit as FieldShareCrypt>::CiphertextSize::USIZE;
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
 
     /// ## Panics
@@ -253,13 +253,13 @@ where
         )
         .unwrap(); // validated on construction
 
-        let mut ciphertext: GenericArray<u8, <Gf40Bit as MatchKeyCrypt>::CiphertextSize> =
+        let mut ciphertext: GenericArray<u8, <Gf40Bit as FieldShareCrypt>::CiphertextSize> =
             GenericArray::clone_from_slice(self.match_key_ciphertext());
         let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, &info)?;
 
         Ok(Report {
             timestamp: self.timestamp(),
-            mk_shares: <Gf40Bit as MatchKeyCrypt>::SemiHonestShares::deserialize(
+            mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize(
                 GenericArray::from_slice(plaintext),
             ),
             event_type: self.event_type(),
@@ -288,11 +288,11 @@ pub struct Report<F, MK, BK>
 where
     F: PrimeField,
     Replicated<F>: Serializable,
-    MK: MatchKeyCrypt,
+    MK: FieldShareCrypt,
     BK: GaloisField,
 {
     pub timestamp: u32,
-    pub mk_shares: <MK as MatchKeyCrypt>::SemiHonestShares,
+    pub mk_shares: <MK as FieldShareCrypt>::SemiHonestShares,
     pub event_type: EventType,
     pub breakdown_key: BK,
     pub trigger_value: Replicated<F>,
