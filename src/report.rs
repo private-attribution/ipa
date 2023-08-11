@@ -1,3 +1,15 @@
+use std::{
+    fmt::{Display, Formatter},
+    marker::PhantomData,
+    ops::Deref,
+};
+
+use bytes::{BufMut, Bytes};
+use generic_array::GenericArray;
+use hpke::Serializable as _;
+use rand_core::{CryptoRng, RngCore};
+use typenum::Unsigned;
+
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{
@@ -6,16 +18,6 @@ use crate::{
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use bytes::{BufMut, Bytes};
-use generic_array::GenericArray;
-use hpke::Serializable as _;
-use rand_core::{CryptoRng, RngCore};
-use std::{
-    fmt::{Display, Formatter},
-    marker::PhantomData,
-    ops::Deref,
-};
-use typenum::Unsigned;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -386,12 +388,11 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use crate::ff::{Fp32BitPrime, Gf40Bit, Gf8Bit};
-
-    use super::*;
-
     use rand::{distributions::Alphanumeric, rngs::StdRng, Rng};
     use rand_core::SeedableRng;
+
+    use super::*;
+    use crate::ff::{Fp32BitPrime, Gf40Bit, Gf8Bit};
 
     #[test]
     fn enc_dec_roundtrip() {

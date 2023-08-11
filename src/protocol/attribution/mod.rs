@@ -4,6 +4,15 @@ pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
 
+use std::iter::{once as iter_once, zip};
+
+use futures::{
+    future::try_join,
+    stream::{iter as stream_iter, TryStreamExt},
+};
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use self::{
     accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
     apply_attribution_window::apply_attribution_window, credit_capping::credit_capping,
@@ -32,13 +41,6 @@ use crate::{
     },
     seq_join::assert_send,
 };
-use futures::{
-    future::try_join,
-    stream::{iter as stream_iter, TryStreamExt},
-};
-use ipa_macros::step;
-use std::iter::{once as iter_once, zip};
-use strum::AsRefStr;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///

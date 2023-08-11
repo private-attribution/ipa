@@ -1,3 +1,11 @@
+use std::{
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
+
+use generic_array::{ArrayLength, GenericArray};
+use typenum::Unsigned;
+
 use crate::{
     ff::Serializable,
     secret_sharing::{
@@ -5,12 +13,6 @@ use crate::{
         SharedValue,
     },
 };
-use generic_array::{ArrayLength, GenericArray};
-use std::{
-    fmt::{Debug, Formatter},
-    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
-};
-use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: SharedValue>(V, V);

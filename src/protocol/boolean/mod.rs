@@ -1,3 +1,5 @@
+use std::iter::repeat;
+
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
@@ -9,7 +11,6 @@ use crate::{
     },
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
-use std::iter::repeat;
 
 pub mod add_constant;
 pub mod bit_decomposition;

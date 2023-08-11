@@ -1,17 +1,18 @@
-use crate::sync::Arc;
-use dashmap::DashMap;
-use futures::Stream;
 use std::{
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
+
+use dashmap::DashMap;
+use futures::Stream;
 use typenum::Unsigned;
 
 use crate::{
     helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
     protocol::RecordId,
+    sync::Arc,
     telemetry::{
         labels::{ROLE, STEP},
         metrics::{BYTES_SENT, RECORDS_SENT},

@@ -1,9 +1,3 @@
-use crate::{
-    ff::{Field, GaloisField},
-    secret_sharing::replicated::{
-        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
-    },
-};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -12,6 +6,13 @@ use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+
+use crate::{
+    ff::{Field, GaloisField},
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
+};
 
 pub trait SharedRandomness {
     /// Generate two random values, one that is known to the left helper

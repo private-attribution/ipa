@@ -31,6 +31,10 @@ pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + S
 #[cfg(all(test, unit_test))]
 mod tests {
     mod semi_honest {
+        use std::iter::repeat_with;
+
+        use rand::seq::SliceRandom;
+
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -44,8 +48,6 @@ mod tests {
             secret_sharing::BitDecomposed,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use rand::seq::SliceRandom;
-        use std::iter::repeat_with;
 
         #[tokio::test]
         pub async fn multi() {

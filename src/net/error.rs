@@ -1,8 +1,9 @@
-use crate::{error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+
+use crate::{error::BoxError, net::client::ResponseFromEndpoint, protocol::QueryId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

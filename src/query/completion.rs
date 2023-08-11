@@ -1,12 +1,14 @@
-use crate::query::{
-    runner::QueryResult,
-    state::{RemoveQuery, RunningQuery},
-};
-use futures::FutureExt;
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
+};
+
+use futures::FutureExt;
+
+use crate::query::{
+    runner::QueryResult,
+    state::{RemoveQuery, RunningQuery},
 };
 
 /// Query completion polls the tokio task to get the results and cleans up the query state after.

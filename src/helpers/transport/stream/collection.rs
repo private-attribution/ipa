@@ -1,13 +1,15 @@
-use crate::{
-    helpers::HelperIdentity,
-    protocol::{step::Gate, QueryId},
-    sync::{Arc, Mutex},
-};
-use futures::Stream;
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::{Debug, Formatter},
     task::Waker,
+};
+
+use futures::Stream;
+
+use crate::{
+    helpers::HelperIdentity,
+    protocol::{step::Gate, QueryId},
+    sync::{Arc, Mutex},
 };
 
 /// Each stream is indexed by query id, the identity of helper where stream is originated from

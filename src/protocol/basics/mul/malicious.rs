@@ -1,3 +1,9 @@
+use std::fmt::Debug;
+
+use futures::future::try_join;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     protocol::{
@@ -11,10 +17,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-use futures::future::try_join;
-use ipa_macros::step;
-use std::fmt::Debug;
-use strum::AsRefStr;
 
 #[step]
 pub(crate) enum Step {

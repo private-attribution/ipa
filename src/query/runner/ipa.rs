@@ -1,3 +1,10 @@
+use std::marker::PhantomData;
+
+use futures::{
+    stream::{iter, repeat},
+    Stream, StreamExt, TryStreamExt,
+};
+
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
@@ -21,11 +28,6 @@ use crate::{
     },
     sync::Arc,
 };
-use futures::{
-    stream::{iter, repeat},
-    Stream, StreamExt, TryStreamExt,
-};
-use std::marker::PhantomData;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,
@@ -158,6 +160,11 @@ pub fn assert_stream_send<'a, T>(
 mod tests {
     use std::iter::zip;
 
+    use generic_array::GenericArray;
+    use rand::rngs::StdRng;
+    use rand_core::SeedableRng;
+    use typenum::Unsigned;
+
     use super::*;
     use crate::{
         ff::Fp31,
@@ -166,10 +173,6 @@ mod tests {
         secret_sharing::IntoShares,
         test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
     };
-    use generic_array::GenericArray;
-    use rand::rngs::StdRng;
-    use rand_core::SeedableRng;
-    use typenum::Unsigned;
 
     #[tokio::test]
     async fn ipa() {

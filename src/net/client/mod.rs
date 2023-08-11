@@ -1,20 +1,3 @@
-use crate::{
-    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
-    helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
-        HelperIdentity,
-    },
-    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
-    protocol::{step::Gate, QueryId},
-};
-use axum::http::uri::{self, Parts, Scheme};
-use futures::{Stream, StreamExt};
-use hyper::{
-    body, client::HttpConnector, header::HeaderName, http::HeaderValue, Body, Client, Request,
-    Response, StatusCode, Uri,
-};
-use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
-use pin_project::pin_project;
 use std::{
     collections::HashMap,
     future::Future,
@@ -24,11 +7,30 @@ use std::{
     pin::Pin,
     task::{ready, Context, Poll},
 };
+
+use axum::http::uri::{self, Parts, Scheme};
+use futures::{Stream, StreamExt};
+use hyper::{
+    body, client::HttpConnector, header::HeaderName, http::HeaderValue, Body, Client, Request,
+    Response, StatusCode, Uri,
+};
+use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
+use pin_project::pin_project;
 use tokio_rustls::{
     rustls,
     rustls::{Certificate, PrivateKey, RootCertStore},
 };
 use tracing::error;
+
+use crate::{
+    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
+    helpers::{
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        HelperIdentity,
+    },
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
+    protocol::{step::Gate, QueryId},
+};
 
 #[derive(Clone, Default)]
 pub enum ClientIdentity {
@@ -421,6 +423,15 @@ fn make_http_connector() -> HttpConnector {
 
 #[cfg(all(test, web_test))]
 pub(crate) mod tests {
+    use std::{
+        fmt::Debug,
+        future::{ready, Future},
+        iter::zip,
+        task::Poll,
+    };
+
+    use futures::stream::{once, poll_immediate};
+
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
@@ -433,13 +444,6 @@ pub(crate) mod tests {
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::Arc,
-    };
-    use futures::stream::{once, poll_immediate};
-    use std::{
-        fmt::Debug,
-        future::{ready, Future},
-        iter::zip,
-        task::Poll,
     };
 
     // This is a kludgy way of working around `TransportCallbacks` not being `Clone`, so

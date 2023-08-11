@@ -1,9 +1,11 @@
+use std::fmt::Debug;
+
+use typenum::{U1, U4};
+
 use crate::{
     error,
     secret_sharing::{Block, SharedValue},
 };
-use std::fmt::Debug;
-use typenum::{U1, U4};
 
 impl Block for u8 {
     type Size = U1;

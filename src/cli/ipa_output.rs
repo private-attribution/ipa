@@ -1,5 +1,6 @@
-use crate::helpers::query::{IpaQueryConfig, QuerySize};
 use std::time::Duration;
+
+use crate::helpers::query::{IpaQueryConfig, QuerySize};
 
 #[derive(Debug)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]

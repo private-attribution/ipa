@@ -1,13 +1,15 @@
+use std::{fs, fs::File, io::Write, iter::zip, path::PathBuf};
+
+use clap::Args;
+use config::Map;
+use hpke::Serializable as _;
+use toml::{Table, Value};
+
 use crate::{
     cli::paths::PathExt,
     config::{ClientConfig, HpkeClientConfig, NetworkConfig, PeerConfig},
     error::BoxError,
 };
-use clap::Args;
-use config::Map;
-use hpke::Serializable as _;
-use std::{fs, fs::File, io::Write, iter::zip, path::PathBuf};
-use toml::{Table, Value};
 
 #[derive(Debug, Args)]
 #[clap(about = "Generate client config for 3 MPC helper parties")]

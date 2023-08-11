@@ -15,6 +15,18 @@ pub mod ipa;
 pub mod logging;
 pub mod metrics;
 
+use std::fmt::Debug;
+
+#[cfg(feature = "in-memory-infra")]
+pub use app::TestApp;
+pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
+use futures::TryFuture;
+use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
+use rand_core::{CryptoRng, RngCore};
+pub use sharing::{get_bits, into_bits, Reconstruct};
+#[cfg(feature = "in-memory-infra")]
+pub use world::{Runner, TestWorld, TestWorldConfig};
+
 use crate::{
     ff::Field,
     protocol::{
@@ -24,16 +36,6 @@ use crate::{
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
-#[cfg(feature = "in-memory-infra")]
-pub use app::TestApp;
-pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
-use futures::TryFuture;
-use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
-use rand_core::{CryptoRng, RngCore};
-pub use sharing::{get_bits, into_bits, Reconstruct};
-use std::fmt::Debug;
-#[cfg(feature = "in-memory-infra")]
-pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`

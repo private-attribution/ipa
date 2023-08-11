@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use axum::{routing::get, Extension, Router};
+use hyper::StatusCode;
+
 use crate::{
     helpers::Transport,
     net::{http_serde, server::Error, HttpTransport},
 };
-use axum::{routing::get, Extension, Router};
-use hyper::StatusCode;
 
 /// Handles the completion of the query by blocking the sender until query is completed.
 async fn handler(
@@ -30,6 +31,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::future::ready;
 
+    use axum::http::Request;
+    use hyper::StatusCode;
+
     use super::*;
     use crate::{
         ff::Fp31,
@@ -42,8 +46,6 @@ mod tests {
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     };
-    use axum::http::Request;
-    use hyper::StatusCode;
 
     #[tokio::test]
     async fn results_test() {

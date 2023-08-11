@@ -1,10 +1,3 @@
-use crate::{
-    helpers::{Error, Message},
-    protocol::RecordId,
-    sync::{Arc, Mutex},
-};
-use futures::{task::Waker, Future, Stream};
-use generic_array::GenericArray;
 use std::{
     marker::PhantomData,
     mem::take,
@@ -12,7 +5,16 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures::{task::Waker, Future, Stream};
+use generic_array::GenericArray;
 use typenum::Unsigned;
+
+use crate::{
+    helpers::{Error, Message},
+    protocol::RecordId,
+    sync::{Arc, Mutex},
+};
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
@@ -298,10 +300,8 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
-    use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Serializable},
-        helpers::buffers::unordered_receiver::UnorderedReceiver,
-    };
+    use std::num::NonZeroUsize;
+
     use futures::{
         future::{try_join, try_join_all},
         stream::iter,
@@ -311,10 +311,14 @@ mod test {
     use rand::Rng;
     #[cfg(feature = "shuttle")]
     use shuttle::future::spawn;
-    use std::num::NonZeroUsize;
     #[cfg(not(feature = "shuttle"))]
     use tokio::spawn;
     use typenum::Unsigned;
+
+    use crate::{
+        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        helpers::buffers::unordered_receiver::UnorderedReceiver,
+    };
 
     fn receiver<I, T>(it: I) -> UnorderedReceiver<impl Stream<Item = T>, T>
     where

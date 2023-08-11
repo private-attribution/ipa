@@ -2,18 +2,20 @@ mod input;
 mod ipa;
 mod multiply;
 
+use core::fmt::Debug;
+use std::{fs, path::Path, time::Duration};
+
+use comfy_table::{Cell, Color, Table};
+use hyper::http::uri::Scheme;
+pub use input::InputSource;
+pub use multiply::secure_mul;
+use tokio::time::sleep;
+
 pub use self::ipa::playbook_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     net::{ClientIdentity, MpcHelperClient},
 };
-use comfy_table::{Cell, Color, Table};
-use core::fmt::Debug;
-use hyper::http::uri::Scheme;
-pub use input::InputSource;
-pub use multiply::secure_mul;
-use std::{fs, path::Path, time::Duration};
-use tokio::time::sleep;
 
 pub fn validate<'a, I, S>(expected: I, actual: I)
 where

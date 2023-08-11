@@ -1,3 +1,21 @@
+use std::{
+    fmt::Debug,
+    future::{ready, Future},
+    pin::Pin,
+    sync::Arc,
+};
+
+use ::tokio::sync::oneshot;
+use futures::FutureExt;
+use generic_array::GenericArray;
+use rand::rngs::StdRng;
+use rand_core::SeedableRng;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
+use typenum::Unsigned;
+
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+use crate::query::runner::execute_test_multiply;
 use crate::{
     ff::{FieldType, Fp32BitPrime, Serializable},
     helpers::{
@@ -11,26 +29,11 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
     },
-    query::{runner::IpaQuery, state::RunningQuery},
+    query::{
+        runner::{IpaQuery, QueryResult},
+        state::RunningQuery,
+    },
 };
-
-#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-use crate::query::runner::execute_test_multiply;
-use crate::query::runner::QueryResult;
-use ::tokio::sync::oneshot;
-use futures::FutureExt;
-use generic_array::GenericArray;
-use rand::rngs::StdRng;
-use rand_core::SeedableRng;
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
-use std::{
-    fmt::Debug,
-    future::{ready, Future},
-    pin::Pin,
-    sync::Arc,
-};
-use typenum::Unsigned;
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;

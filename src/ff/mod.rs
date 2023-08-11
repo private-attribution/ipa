@@ -6,15 +6,16 @@ mod field;
 mod galois_field;
 mod prime_field;
 
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf40Bit, Gf8Bit};
+use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
 
 use crate::secret_sharing::SharedValue;
-use generic_array::{ArrayLength, GenericArray};
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {

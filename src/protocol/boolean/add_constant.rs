@@ -211,6 +211,9 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use bitvec::macros::internal::funty::Fundamental;
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
@@ -221,8 +224,6 @@ mod tests {
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
-    use bitvec::macros::internal::funty::Fundamental;
-    use rand::{distributions::Standard, prelude::Distribution};
 
     async fn add<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
     where

@@ -1,5 +1,6 @@
-use metrics_tracing_context::MetricsLayer;
 use std::{str::FromStr, sync::Once};
+
+use metrics_tracing_context::MetricsLayer;
 use tracing::Level;
 use tracing_subscriber::{
     filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,

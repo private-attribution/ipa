@@ -1,18 +1,20 @@
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::{Debug, Formatter},
+    future::Future,
+    task::Poll,
+};
+
+use ::tokio::sync::oneshot::{error::TryRecvError, Receiver};
+use futures::{ready, FutureExt};
+use serde::{Deserialize, Serialize};
+
 use crate::{
     helpers::{query::QueryConfig, RoleAssignment},
     protocol::QueryId,
     query::runner::QueryResult,
     sync::Mutex,
     task::JoinHandle,
-};
-use ::tokio::sync::oneshot::{error::TryRecvError, Receiver};
-use futures::{ready, FutureExt};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    fmt::{Debug, Formatter},
-    future::Future,
-    task::Poll,
 };
 
 /// The status of query processing

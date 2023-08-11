@@ -1,3 +1,14 @@
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+};
+
+use async_trait::async_trait;
+use futures::future::try_join;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -18,15 +29,6 @@ use crate::{
     },
     sync::{Arc, Mutex, Weak},
 };
-use async_trait::async_trait;
-use futures::future::try_join;
-use ipa_macros::step;
-use std::{
-    any::type_name,
-    fmt::{Debug, Formatter},
-    marker::PhantomData,
-};
-use strum::AsRefStr;
 
 #[async_trait]
 pub trait Validator<B: UpgradableContext, F: ExtendableField> {
@@ -311,6 +313,8 @@ impl<F: ExtendableField> Debug for Malicious<'_, F> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::{repeat, zip};
+
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -331,7 +335,6 @@ mod tests {
         seq_join::SeqJoin,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
-    use std::iter::{repeat, zip};
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -

@@ -48,9 +48,10 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::seq::SliceRandom;
+
     use super::{apply, apply_inv};
     use crate::rand::thread_rng;
-    use rand::seq::SliceRandom;
 
     #[test]
     fn apply_just_one_cycle() {
