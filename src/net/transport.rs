@@ -153,16 +153,12 @@ impl Transport for Arc<HttpTransport> {
                 let step =
                     <Option<Gate>>::from(route.gate()).expect("step required when sending records");
                 let resp_future = self.clients[dest].step(query_id, &step, data)?;
-                tokio::spawn(async move {
-                    resp_future
-                        .map_err(Into::into)
-                        .and_then(MpcHelperClient::resp_ok)
-                        .await
-                        .expect("failed to stream records");
-                });
-                // TODO(600): We need to do something better than panic if there is an error sending the
-                // data. Note, also, that the caller of this function (`GatewayBase::get_sender`)
-                // currently panics on errors.
+                // we don't need to spawn a task here. Gateway's sender interface already does that
+                // so this can just poll this future.
+                resp_future
+                    .map_err(Into::into)
+                    .and_then(MpcHelperClient::resp_ok)
+                    .await?;
                 Ok(())
             }
             RouteId::PrepareQuery => {
