@@ -187,6 +187,11 @@ impl MultiplyWork for MultiplyZeroPositions {
 
 #[cfg(all(test, unit_test))]
 pub(in crate::protocol) mod test {
+    use std::{borrow::Borrow, iter::zip};
+
+    use futures::future::try_join;
+    use rand::distributions::{Distribution, Standard};
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
@@ -206,9 +211,6 @@ pub(in crate::protocol) mod test {
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join;
-    use rand::distributions::{Distribution, Standard};
-    use std::{borrow::Borrow, iter::zip};
 
     #[derive(Clone, Copy)]
     pub struct SparseField<F> {

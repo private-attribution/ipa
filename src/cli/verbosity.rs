@@ -1,13 +1,15 @@
-use crate::{
-    cli::{install_collector, metric_collector::CollectorHandle},
-    error::set_global_panic_hook,
-};
+use std::io::stderr;
+
 use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
-use std::io::stderr;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+};
+
+use crate::{
+    cli::{install_collector, metric_collector::CollectorHandle},
+    error::set_global_panic_hook,
 };
 
 #[derive(Debug, Parser)]

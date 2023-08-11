@@ -1,3 +1,5 @@
+use axum::{routing::post, Extension, Router};
+
 use crate::{
     helpers::{BodyStream, Transport},
     net::{
@@ -7,7 +9,6 @@ use crate::{
     },
     sync::Arc,
 };
-use axum::{routing::post, Extension, Router};
 
 #[allow(clippy::unused_async)] // axum doesn't like synchronous handler
 async fn handler(
@@ -30,6 +31,10 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::task::Poll;
 
+    use axum::http::Request;
+    use futures::{stream::poll_immediate, StreamExt};
+    use hyper::{Body, StatusCode};
+
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
@@ -45,9 +50,6 @@ mod tests {
             QueryId,
         },
     };
-    use axum::http::Request;
-    use futures::{stream::poll_immediate, StreamExt};
-    use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
 

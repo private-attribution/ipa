@@ -1,3 +1,11 @@
+use std::{
+    iter::{repeat, zip},
+    num::NonZeroU32,
+};
+
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use super::{
     do_the_binary_tree_thing,
     input::{ApplyAttributionWindowInputRow, ApplyAttributionWindowOutputRow},
@@ -12,12 +20,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
-use std::{
-    iter::{repeat, zip},
-    num::NonZeroU32,
-};
-use strum::AsRefStr;
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to
@@ -191,6 +193,8 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::{iter::zip, num::NonZeroU32};
+
     use crate::{
         attribution_window_test_input,
         ff::{Field, Fp32BitPrime},
@@ -206,7 +210,6 @@ mod tests {
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use std::{iter::zip, num::NonZeroU32};
 
     #[tokio::test]
     pub async fn attribution_window() {

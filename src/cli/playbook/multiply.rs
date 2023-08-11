@@ -1,5 +1,11 @@
 #![cfg(feature = "web-app")]
 
+use std::ops::Add;
+
+use futures::future::try_join_all;
+use generic_array::{ArrayLength, GenericArray};
+use typenum::Unsigned;
+
 use crate::{
     ff::{Field, Serializable},
     helpers::{query::QueryInput, BodyStream},
@@ -8,10 +14,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::Reconstruct,
 };
-use futures::future::try_join_all;
-use generic_array::{ArrayLength, GenericArray};
-use std::ops::Add;
-use typenum::Unsigned;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.

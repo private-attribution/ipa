@@ -1,10 +1,3 @@
-use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
-use bytes::Bytes;
-use futures::{
-    stream::{iter, once, Fuse, FusedStream, Iter, Map, Once},
-    Stream, StreamExt,
-};
-use pin_project::pin_project;
 use std::{
     cmp::max,
     collections::VecDeque,
@@ -15,7 +8,16 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use bytes::Bytes;
+use futures::{
+    stream::{iter, once, Fuse, FusedStream, Iter, Map, Once},
+    Stream, StreamExt,
+};
+use pin_project::pin_project;
 use typenum::{Unsigned, U2};
+
+use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
 
 #[derive(Debug)]
 pub struct BufDeque {
@@ -448,13 +450,14 @@ mod test {
     use super::*;
 
     mod unit_test {
+        use futures::{StreamExt, TryStreamExt};
+        use generic_array::GenericArray;
+
         use super::*;
         use crate::{
             ff::{Fp31, Fp32BitPrime, Serializable},
             secret_sharing::replicated::semi_honest::AdditiveShare,
         };
-        use futures::{StreamExt, TryStreamExt};
-        use generic_array::GenericArray;
 
         #[tokio::test]
         async fn records_stream_fp31() {
@@ -578,8 +581,9 @@ mod test {
     }
 
     mod delimited {
-        use super::*;
         use futures::TryStreamExt;
+
+        use super::*;
 
         #[tokio::test]
         async fn basic() {
@@ -669,13 +673,13 @@ mod test {
     }
 
     mod prop_test {
-        use crate::ff::Fp32BitPrime;
-
-        use super::*;
         use futures::TryStreamExt;
         use generic_array::GenericArray;
         use proptest::prelude::*;
         use rand::{rngs::StdRng, SeedableRng};
+
+        use super::*;
+        use crate::ff::Fp32BitPrime;
 
         prop_compose! {
             fn arb_size_in_bytes(field_size: usize, max_multiplier: usize)
@@ -727,11 +731,12 @@ mod test {
     mod delimited_prop_test {
         use std::{mem::size_of, ops::Range};
 
-        use super::*;
         use bytes::BufMut;
         use futures::TryStreamExt;
         use proptest::prelude::*;
         use rand::{rngs::StdRng, SeedableRng};
+
+        use super::*;
 
         #[derive(Copy, Clone, Debug)]
         enum ItemSize {

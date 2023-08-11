@@ -1,3 +1,12 @@
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+};
+
+use async_trait::async_trait;
+
+use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
@@ -24,14 +33,6 @@ use crate::{
     seq_join::SeqJoin,
     sync::Arc,
 };
-use async_trait::async_trait;
-use std::{
-    any::type_name,
-    fmt::{Debug, Formatter},
-    num::NonZeroUsize,
-};
-
-use super::{UpgradeContext, UpgradeToMalicious};
 
 #[derive(Clone)]
 pub struct Context<'a> {

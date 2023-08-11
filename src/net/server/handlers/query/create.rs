@@ -1,11 +1,12 @@
+use axum::{routing::post, Extension, Json, Router};
+use hyper::StatusCode;
+
 use crate::{
     helpers::Transport,
     net::{http_serde, Error, HttpTransport},
     query::NewQueryError,
     sync::Arc,
 };
-use axum::{routing::post, Extension, Json, Router};
-use hyper::StatusCode;
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`].
@@ -31,6 +32,14 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::{future::ready, num::NonZeroU32};
+
+    use axum::http::Request;
+    use hyper::{
+        http::uri::{Authority, Scheme},
+        Body, StatusCode,
+    };
+
     use super::*;
     use crate::{
         ff::FieldType,
@@ -44,13 +53,6 @@ mod tests {
         },
         protocol::QueryId,
     };
-    use axum::http::Request;
-
-    use hyper::{
-        http::uri::{Authority, Scheme},
-        Body, StatusCode,
-    };
-    use std::{future::ready, num::NonZeroU32};
 
     async fn create_test(expected_query_config: QueryConfig) {
         let cb = TransportCallbacks {

@@ -1,6 +1,8 @@
-use super::{Step, StepNarrow};
-use ipa_macros::Gate;
 use std::fmt::{Debug, Display, Formatter};
+
+use ipa_macros::Gate;
+
+use super::{Step, StepNarrow};
 
 #[derive(Gate, Clone, Hash, PartialEq, Eq, Default)]
 #[cfg_attr(

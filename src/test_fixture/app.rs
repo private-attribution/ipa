@@ -1,18 +1,21 @@
+use std::iter::zip;
+
+use generic_array::GenericArray;
+use typenum::Unsigned;
+
 use crate::{
     app::Error,
     ff::Serializable,
-    helpers::query::{QueryConfig, QueryInput},
+    helpers::{
+        query::{QueryConfig, QueryInput},
+        InMemoryNetwork, InMemoryTransport,
+    },
     protocol::QueryId,
     query::QueryStatus,
     secret_sharing::IntoShares,
     test_fixture::try_join3_array,
     AppSetup, HelperApp,
 };
-use std::iter::zip;
-
-use crate::helpers::{InMemoryNetwork, InMemoryTransport};
-use generic_array::GenericArray;
-use typenum::Unsigned;
 
 pub trait IntoBuf {
     fn into_buf(self) -> Vec<u8>;

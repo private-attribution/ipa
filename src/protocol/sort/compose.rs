@@ -1,3 +1,5 @@
+use embed_doc_image::embed_doc_image;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -9,7 +11,6 @@ use crate::{
     },
     secret_sharing::SecretSharing,
 };
-use embed_doc_image::embed_doc_image;
 
 #[embed_doc_image("compose", "images/sort/compose.png")]
 /// This is an implementation of Compose (Algorithm 5) found in the paper:
@@ -53,6 +54,8 @@ pub async fn compose<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>, C: Co
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::seq::SliceRandom;
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{
@@ -65,7 +68,6 @@ mod tests {
         rand::thread_rng,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::seq::SliceRandom;
 
     #[tokio::test]
     pub async fn semi_honest() {

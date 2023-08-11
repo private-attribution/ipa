@@ -9,10 +9,6 @@ pub mod prss;
 pub mod sort;
 pub mod step;
 
-use crate::{
-    error::Error,
-    ff::{Gf40Bit, Gf8Bit},
-};
 use std::{
     fmt::{Debug, Display, Formatter},
     hash::Hash,
@@ -20,6 +16,11 @@ use std::{
 };
 
 pub use basics::BasicProtocols;
+
+use crate::{
+    error::Error,
+    ff::{Gf40Bit, Gf8Bit},
+};
 
 pub type MatchKey = Gf40Bit;
 pub type BreakdownKey = Gf8Bit;

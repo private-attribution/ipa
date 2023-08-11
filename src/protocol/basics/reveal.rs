@@ -1,5 +1,9 @@
 use std::iter::{repeat, zip};
 
+use async_trait::async_trait;
+use embed_doc_image::embed_doc_image;
+use futures::future::try_join;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -17,9 +21,6 @@ use crate::{
         SecretSharing,
     },
 };
-use async_trait::async_trait;
-use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -153,14 +154,9 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use crate::{
-        protocol::context::{UpgradableContext, UpgradedContext, Validator},
-        rand::{thread_rng, Rng},
-        secret_sharing::replicated::malicious::ExtendableField,
-        test_fixture::Runner,
-    };
-    use futures::future::{try_join, try_join3};
     use std::iter::zip;
+
+    use futures::future::{try_join, try_join3};
 
     use crate::{
         error::Error,
@@ -168,16 +164,20 @@ mod tests {
         helpers::Direction,
         protocol::{
             basics::Reveal,
-            context::{Context, UpgradedMaliciousContext},
+            context::{
+                Context, UpgradableContext, UpgradedContext, UpgradedMaliciousContext, Validator,
+            },
             RecordId,
         },
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::malicious::{
-                AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                AdditiveShare as MaliciousReplicated, ExtendableField,
+                ThisCodeIsAuthorizedToDowngradeFromMalicious,
             },
             IntoShares,
         },
-        test_fixture::{join3v, TestWorld},
+        test_fixture::{join3v, Runner, TestWorld},
     };
 
     #[tokio::test]

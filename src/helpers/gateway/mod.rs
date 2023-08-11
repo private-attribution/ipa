@@ -2,7 +2,11 @@ mod receive;
 mod send;
 mod transport;
 
+use std::{fmt::Debug, num::NonZeroUsize};
+
 pub use send::SendingEnd;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 use crate::{
     helpers::{
@@ -15,9 +19,6 @@ use crate::{
     },
     protocol::QueryId,
 };
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
-use std::{fmt::Debug, num::NonZeroUsize};
 
 /// Alias for the currently configured transport.
 ///
@@ -145,6 +146,8 @@ impl GatewayConfig {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use futures_util::future::{join, try_join};
+
     use super::*;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Gf2},
@@ -152,7 +155,6 @@ mod tests {
         protocol::{context::Context, RecordId},
         test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
-    use futures_util::future::{join, try_join};
 
     /// Verifies that [`Gateway`] send buffer capacity is adjusted to the message size.
     /// IPA protocol opens many channels to send values from different fields, while message size

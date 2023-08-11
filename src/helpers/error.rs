@@ -1,10 +1,11 @@
+use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
+
 use crate::{
     error::BoxError,
     helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
     protocol::{step::Gate, RecordId},
 };
-use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
 
 /// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]

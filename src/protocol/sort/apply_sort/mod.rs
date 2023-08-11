@@ -43,6 +43,8 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use futures::stream::iter as stream_iter;
+
     use crate::{
         accumulation_test_input,
         ff::{Fp32BitPrime, GaloisField},
@@ -59,7 +61,6 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::iter as stream_iter;
 
     #[tokio::test]
     pub async fn semi_honest() {

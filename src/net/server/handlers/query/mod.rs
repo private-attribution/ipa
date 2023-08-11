@@ -5,10 +5,8 @@ mod results;
 mod status;
 mod step;
 
-use crate::{
-    net::{server::ClientIdentity, HttpTransport},
-    sync::Arc,
-};
+use std::any::Any;
+
 use axum::{
     response::{IntoResponse, Response},
     Router,
@@ -18,8 +16,12 @@ use futures_util::{
     FutureExt,
 };
 use hyper::{http::request, Request, StatusCode};
-use std::any::Any;
 use tower::{layer::layer_fn, Service};
+
+use crate::{
+    net::{server::ClientIdentity, HttpTransport},
+    sync::Arc,
+};
 
 /// Construct router for IPA query web service
 ///
@@ -115,10 +117,11 @@ impl MaybeExtensionExt for request::Builder {
 
 #[cfg(all(test, unit_test))]
 pub mod test_helpers {
-    use crate::net::test::TestServer;
     use futures_util::future::poll_immediate;
     use hyper::{service::Service, StatusCode};
     use tower::ServiceExt;
+
+    use crate::net::test::TestServer;
 
     /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
     /// axum routing. Pair with `assert_req_fails_with` to detect specific [`StatusCode`] failures.

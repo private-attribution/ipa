@@ -1,17 +1,19 @@
-use crate::{
-    cli::{keygen, KeygenArgs},
-    error::BoxError,
-};
-use clap::Args;
 use std::{
     fs::{DirBuilder, File},
     iter::zip,
     path::PathBuf,
 };
 
-use crate::cli::{
-    clientconf::{gen_client_config, HelperClientConf},
-    paths::PathExt,
+use clap::Args;
+
+use crate::{
+    cli::{
+        clientconf::{gen_client_config, HelperClientConf},
+        keygen,
+        paths::PathExt,
+        KeygenArgs,
+    },
+    error::BoxError,
 };
 
 #[derive(Debug, Args)]

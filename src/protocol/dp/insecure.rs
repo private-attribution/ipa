@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
-use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller};
+use std::f64;
+
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
-use std::f64;
+
+use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -101,11 +103,12 @@ impl DiscreteDp {
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use super::*;
-    use crate::protocol::dp::distributions::is_close;
     use proptest::{prelude::ProptestConfig, proptest};
     use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
+
+    use super::*;
+    use crate::protocol::dp::distributions::is_close;
 
     #[test]
     fn dp_normal_distribution_generation_standard() {

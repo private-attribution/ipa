@@ -1,10 +1,12 @@
-use crate::tree::Node;
-use quote::format_ident;
 use std::{
     collections::{HashMap, VecDeque},
     io::Read,
     path::PathBuf,
 };
+
+use quote::format_ident;
+
+use crate::tree::Node;
 
 const TARGET_CRATE: &str = "ipa";
 const STEPS_FILE_PATH: &str = "/../src/protocol/step/";

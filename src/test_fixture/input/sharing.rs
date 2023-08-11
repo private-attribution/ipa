@@ -1,3 +1,7 @@
+use std::iter::zip;
+
+use rand::{distributions::Standard, prelude::Distribution};
+
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
@@ -16,8 +20,6 @@ use crate::{
         Reconstruct,
     },
 };
-use rand::{distributions::Standard, prelude::Distribution};
-use std::iter::zip;
 
 impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where

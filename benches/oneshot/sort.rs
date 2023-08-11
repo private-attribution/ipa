@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use futures::stream::iter as stream_iter;
 use ipa::{
     error::Error,
@@ -14,7 +16,6 @@ use ipa::{
     test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig},
 };
 use rand::Rng;
-use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
