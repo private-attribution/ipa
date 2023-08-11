@@ -16,7 +16,6 @@ use crate::{
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
 use ipa_macros::{step, Step};
-use std::fmt::Debug;
 
 #[step]
 pub(crate) enum SortStep {
@@ -30,6 +29,7 @@ pub(crate) enum SortStep {
 }
 
 #[step]
+#[derive(Clone, Copy)]
 pub(crate) enum ShuffleStep {
     Shuffle1,
     Shuffle2,

@@ -4,7 +4,6 @@ mod compact;
 mod descriptive;
 
 use ipa_macros::{step, Step};
-use std::fmt::Debug;
 
 #[cfg(feature = "compact-gate")]
 pub use compact::Compact;

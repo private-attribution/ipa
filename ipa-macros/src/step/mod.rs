@@ -89,7 +89,7 @@ fn add_derives(mut item: syn::ItemEnum, args: StepArgs) -> TokenStream {
     });
 
     quote!(
-        #[derive(Step, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Step)]
         #item
     )
     .into()
