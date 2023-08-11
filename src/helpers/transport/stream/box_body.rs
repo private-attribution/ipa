@@ -1,10 +1,11 @@
-use crate::helpers::transport::stream::BoxBytesStream;
-
-use futures::Stream;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures::Stream;
+
+use crate::helpers::transport::stream::BoxBytesStream;
 
 pub struct WrappedBoxBodyStream(BoxBytesStream);
 

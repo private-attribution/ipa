@@ -1,3 +1,9 @@
+use std::cmp::Ordering;
+
+use futures::future::try_join;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -9,10 +15,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use futures::future::try_join;
-use ipa_macros::step;
-use std::cmp::Ordering;
-use strum::AsRefStr;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
@@ -202,6 +204,8 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use super::BitwiseLessThanPrime;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
@@ -209,7 +213,6 @@ mod tests {
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution};
 
     #[tokio::test]
     pub async fn fp31() {

@@ -1,5 +1,9 @@
 extern crate ipa_macros;
 
+use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
@@ -19,9 +23,6 @@ use crate::{
     },
     seq_join::seq_join,
 };
-use futures::stream::{iter as stream_iter, StreamExt, TryStreamExt};
-use ipa_macros::step;
-use strum::AsRefStr;
 
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.

@@ -1,5 +1,6 @@
-use crate::error::Error;
 use std::{fmt::Debug, ops::Deref};
+
+use crate::error::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {

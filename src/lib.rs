@@ -57,11 +57,10 @@ pub(crate) mod sync {
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod rand {
-    pub use shuttle::rand::{thread_rng, Rng, RngCore};
-
     /// TODO: shuttle does not re-export `CryptoRng`. The only reason it works is because IPA uses
     /// the same version of `rand`.
     pub use rand::CryptoRng;
+    pub use shuttle::rand::{thread_rng, Rng, RngCore};
 }
 
 #[cfg(not(all(feature = "shuttle", test)))]

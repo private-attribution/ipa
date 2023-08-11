@@ -1,5 +1,7 @@
 //! Metric-aware PRSS decorators
 
+use rand_core::{Error, RngCore};
+
 use crate::{
     helpers::Role,
     protocol::{
@@ -12,7 +14,6 @@ use crate::{
         metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED},
     },
 };
-use rand_core::{Error, RngCore};
 
 /// Wrapper around `IndexedSharedRandomness` that instrument calls to `generate_values`
 pub struct InstrumentedIndexedSharedRandomness<'a> {

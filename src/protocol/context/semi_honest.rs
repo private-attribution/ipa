@@ -1,5 +1,13 @@
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+    num::NonZeroUsize,
+};
+
 use async_trait::async_trait;
 
+use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
@@ -19,14 +27,6 @@ use crate::{
     },
     seq_join::SeqJoin,
 };
-use std::{
-    any::type_name,
-    fmt::{Debug, Formatter},
-    marker::PhantomData,
-    num::NonZeroUsize,
-};
-
-use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
 
 #[derive(Clone)]
 pub struct Context<'a> {

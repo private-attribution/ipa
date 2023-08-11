@@ -1,6 +1,7 @@
+use std::fmt::Debug;
+
 use super::SharedValue;
 use crate::ff::{ArithmeticRefOps, GaloisField};
-use std::fmt::Debug;
 
 /// Secret sharing scheme i.e. Replicated secret sharing
 pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {

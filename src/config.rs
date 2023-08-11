@@ -1,17 +1,3 @@
-use crate::{
-    error::BoxError,
-    helpers::HelperIdentity,
-    hpke::{
-        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
-    },
-};
-
-use hyper::{client::Builder, http::uri::Scheme, Uri};
-use rustls_pemfile::Item;
-use serde::{Deserialize, Deserializer, Serialize};
-use tokio::fs;
-use tokio_rustls::rustls::Certificate;
-
 use std::{
     array,
     borrow::{Borrow, Cow},
@@ -20,6 +6,20 @@ use std::{
     path::PathBuf,
     slice,
     time::Duration,
+};
+
+use hyper::{client::Builder, http::uri::Scheme, Uri};
+use rustls_pemfile::Item;
+use serde::{Deserialize, Deserializer, Serialize};
+use tokio::fs;
+use tokio_rustls::rustls::Certificate;
+
+use crate::{
+    error::BoxError,
+    helpers::HelperIdentity,
+    hpke::{
+        Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -426,12 +426,13 @@ impl Debug for Http2Configurator {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
-    use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
     use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
+
+    use super::*;
+    use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
 
     const URI_1: &str = "http://localhost:3000";
     const URI_2: &str = "http://localhost:3001";

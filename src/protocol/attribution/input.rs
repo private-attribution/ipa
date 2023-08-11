@@ -1,3 +1,10 @@
+use std::marker::PhantomData;
+
+use async_trait::async_trait;
+use futures::future::try_join4;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -5,11 +12,6 @@ use crate::{
     protocol::{basics::Reshare, context::Context, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use async_trait::async_trait;
-use futures::future::try_join4;
-use ipa_macros::step;
-use std::marker::PhantomData;
-use strum::AsRefStr;
 
 //
 // `apply_attribution_window` protocol

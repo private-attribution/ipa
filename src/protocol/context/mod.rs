@@ -4,6 +4,15 @@ pub mod semi_honest;
 pub mod upgrade;
 pub mod validator;
 
+use std::{num::NonZeroUsize, sync::Arc};
+
+use async_trait::async_trait;
+pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
+use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
+pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use upgrade::{UpgradeContext, UpgradeToMalicious};
+pub use validator::Validator;
+
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
@@ -19,14 +28,6 @@ use crate::{
     },
     seq_join::SeqJoin,
 };
-use async_trait::async_trait;
-use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-use std::{num::NonZeroUsize, sync::Arc};
-
-pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
-pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
-pub use upgrade::{UpgradeContext, UpgradeToMalicious};
-pub use validator::Validator;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -265,6 +266,16 @@ impl<'a> Inner<'a> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::repeat;
+
+    use futures_util::{future::join_all, try_join};
+    use rand::{
+        distributions::{Distribution, Standard},
+        Rng,
+    };
+    use typenum::Unsigned;
+
+    use super::*;
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::Direction,
@@ -279,15 +290,6 @@ mod tests {
         },
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
-    use futures_util::{future::join_all, try_join};
-    use rand::{
-        distributions::{Distribution, Standard},
-        Rng,
-    };
-    use std::iter::repeat;
-    use typenum::Unsigned;
-
-    use super::*;
 
     trait AsReplicatedTestOnly<F: Field> {
         fn l(&self) -> F;

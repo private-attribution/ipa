@@ -1,11 +1,12 @@
 mod echo;
 mod query;
 
+use axum::Router;
+
 use crate::{
     net::{http_serde, HttpTransport},
     sync::Arc,
 };
-use axum::Router;
 
 pub fn router(transport: Arc<HttpTransport>) -> Router {
     echo::router().nest(

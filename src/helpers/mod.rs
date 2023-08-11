@@ -9,30 +9,29 @@ mod gateway;
 pub(crate) mod prss_protocol;
 mod transport;
 
-pub use error::{Error, Result};
-pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
-
-// TODO: this type should only be available within infra. Right now several infra modules
-// are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{Gateway, TransportError, TransportImpl};
-
-pub use prss_protocol::negotiate as negotiate_prss;
-#[cfg(feature = "web-app")]
-pub use transport::WrappedAxumBodyStream;
-pub use transport::{
-    callbacks::*, BodyStream, BytesStream, LengthDelimitedStream, LogErrors, NoResourceIdentifier,
-    QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams, StepBinding,
-    StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
-};
-
-#[cfg(feature = "in-memory-infra")]
-pub use transport::{InMemoryNetwork, InMemoryTransport};
-
-pub use transport::query;
+use std::ops::{Index, IndexMut};
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::OrderingSender;
+pub use error::{Error, Result};
+// TODO: this type should only be available within infra. Right now several infra modules
+// are exposed at the root level. That makes it impossible to have a proper hierarchy here.
+pub use gateway::{Gateway, TransportError, TransportImpl};
+pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
+use generic_array::GenericArray;
+pub use prss_protocol::negotiate as negotiate_prss;
+#[cfg(feature = "web-app")]
+pub use transport::WrappedAxumBodyStream;
+pub use transport::{
+    callbacks::*, query, BodyStream, BytesStream, LengthDelimitedStream, LogErrors,
+    NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams,
+    StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
+};
+#[cfg(feature = "in-memory-infra")]
+pub use transport::{InMemoryNetwork, InMemoryTransport};
+use typenum::{Unsigned, U8};
+use x25519_dalek::PublicKey;
 
 use crate::{
     ff::Serializable,
@@ -43,10 +42,6 @@ use crate::{
     protocol::{step::Gate, RecordId},
     secret_sharing::SharedValue,
 };
-use generic_array::GenericArray;
-use std::ops::{Index, IndexMut};
-use typenum::{Unsigned, U8};
-use x25519_dalek::PublicKey;
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
@@ -527,14 +522,13 @@ mod tests {
     }
 
     mod role_assignment_tests {
+        use super::*;
         use crate::{
             ff::Fp31,
             protocol::{basics::SecureMul, context::Context, RecordId},
             rand::{thread_rng, Rng},
             test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
         };
-
-        use super::*;
 
         #[test]
         fn basic() {
@@ -663,6 +657,10 @@ mod tests {
 
 #[cfg(all(test, feature = "shuttle"))]
 mod concurrency_tests {
+    use futures::future::try_join;
+    use rand_core::RngCore;
+    use shuttle_crate::rand::thread_rng;
+
     use crate::{
         ff::{Field, FieldType, Fp31, Fp32BitPrime},
         helpers::{
@@ -676,9 +674,6 @@ mod concurrency_tests {
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestApp, TestWorld, TestWorldConfig},
     };
-    use futures::future::try_join;
-    use rand_core::RngCore;
-    use shuttle_crate::rand::thread_rng;
 
     #[test]
     fn send_receive_sequential() {

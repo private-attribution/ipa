@@ -22,6 +22,8 @@ pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::distributions::{Distribution, Standard};
+
     use super::or;
     use crate::{
         ff::{Field, Fp31},
@@ -29,7 +31,6 @@ mod tests {
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::distributions::{Distribution, Standard};
 
     async fn run<F>(world: &TestWorld, a: F, b: F) -> F
     where

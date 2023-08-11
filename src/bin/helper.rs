@@ -1,3 +1,11 @@
+use std::{
+    fs,
+    net::TcpListener,
+    os::fd::{FromRawFd, RawFd},
+    path::{Path, PathBuf},
+    process,
+};
+
 use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
 use ipa::{
@@ -9,13 +17,6 @@ use ipa::{
     helpers::HelperIdentity,
     net::{ClientIdentity, HttpTransport, MpcHelperClient},
     AppSetup,
-};
-use std::{
-    fs,
-    net::TcpListener,
-    os::fd::{FromRawFd, RawFd},
-    path::{Path, PathBuf},
-    process,
 };
 use tracing::{error, info};
 

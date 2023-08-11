@@ -1,3 +1,11 @@
+use std::{fmt::Debug, io::stdout, iter::zip};
+
+use async_trait::async_trait;
+use futures::{future::join_all, Future};
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand_core::{RngCore, SeedableRng};
+use tracing::{Instrument, Level, Span};
+
 use crate::{
     helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
@@ -22,12 +30,6 @@ use crate::{
         logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
     },
 };
-use async_trait::async_trait;
-use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
-use rand_core::{RngCore, SeedableRng};
-use std::{fmt::Debug, io::stdout, iter::zip};
-use tracing::{Instrument, Level, Span};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so

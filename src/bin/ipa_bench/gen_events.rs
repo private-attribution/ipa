@@ -1,14 +1,16 @@
-use crate::{
-    models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number},
-    sample::Sample,
-};
+use std::io;
+
 use bitvec::view::BitViewSized;
 use rand::{
     distributions::{Bernoulli, Distribution},
     CryptoRng, Rng, RngCore,
 };
-use std::io;
 use tracing::{debug, info, trace};
+
+use crate::{
+    models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number},
+    sample::Sample,
+};
 
 // 0x1E. https://datatracker.ietf.org/doc/html/rfc7464
 const RECORD_SEPARATOR: u8 = 30;
@@ -170,13 +172,15 @@ fn add_event_timestamps(rhs: EventTimestamp, lhs: EventTimestamp) -> EventTimest
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
-    use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};
-    use rand::{rngs::StdRng, SeedableRng};
     use std::{
         cmp::Ordering,
         io::{Cursor, Write},
     };
+
+    use rand::{rngs::StdRng, SeedableRng};
+
+    use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
+    use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};
 
     const DATA: &str = r#"
       {

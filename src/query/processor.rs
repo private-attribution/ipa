@@ -1,3 +1,11 @@
+use std::{
+    collections::hash_map::Entry,
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
+
+use futures::{future::try_join, stream};
+
 use crate::{
     error::Error as ProtocolError,
     helpers::{
@@ -11,12 +19,6 @@ use crate::{
         state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
         CompletionHandle, ProtocolResult,
     },
-};
-use futures::{future::try_join, stream};
-use std::{
-    collections::hash_map::Entry,
-    fmt::{Debug, Formatter},
-    sync::Arc,
 };
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party
@@ -310,6 +312,12 @@ impl Processor {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::{array, future::Future, sync::Arc};
+
+    use futures::pin_mut;
+    use futures_util::future::poll_immediate;
+    use tokio::sync::Barrier;
+
     use super::*;
     use crate::{
         ff::FieldType,
@@ -318,10 +326,6 @@ mod tests {
             HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
         },
     };
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
-    use std::{array, future::Future, sync::Arc};
-    use tokio::sync::Barrier;
 
     fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
     where
@@ -520,6 +524,10 @@ mod tests {
     }
 
     mod e2e {
+        use std::time::Duration;
+
+        use tokio::time::sleep;
+
         use super::*;
         use crate::{
             error::BoxError,
@@ -530,8 +538,6 @@ mod tests {
             secret_sharing::replicated::semi_honest,
             test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
         };
-        use std::time::Duration;
-        use tokio::time::sleep;
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {

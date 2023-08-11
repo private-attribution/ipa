@@ -1,6 +1,8 @@
-use crate::{report::InvalidReportError, task::JoinError};
 use std::{backtrace::Backtrace, fmt::Debug};
+
 use thiserror::Error;
+
+use crate::{report::InvalidReportError, task::JoinError};
 
 /// An error raised by the IPA protocol.
 ///

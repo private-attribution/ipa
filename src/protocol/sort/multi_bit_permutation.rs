@@ -1,3 +1,5 @@
+use std::iter::repeat;
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -10,7 +12,6 @@ use crate::{
         SecretSharing,
     },
 };
-use std::iter::repeat;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"

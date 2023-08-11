@@ -44,7 +44,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Check formatting
-        run: cargo fmt --all -- --check --config imports_granularity=Crate
+        run: cargo fmt --all -- --check --config "imports_granularity=Crate,group_imports=StdExternalCrate"
 
       - name: Clippy
         if: ${{ success() || failure() }}

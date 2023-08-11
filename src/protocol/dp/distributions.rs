@@ -1,9 +1,9 @@
+use std::{f64::consts::PI, fmt::Debug};
+
 use rand::{
     distributions::{Distribution, Uniform},
     Rng,
 };
-
-use std::{f64::consts::PI, fmt::Debug};
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
 /// |a-b| < 10^(-precision).
@@ -72,10 +72,12 @@ impl From<BoxMuller> for RoundedBoxMuller {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
+    use std::iter::repeat_with;
+
     use rand::{distributions::Distribution, thread_rng};
     use rand_core::RngCore;
-    use std::iter::repeat_with;
+
+    use super::*;
 
     #[test]
     fn dp_normal_distribution_sample_standard() {

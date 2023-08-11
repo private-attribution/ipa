@@ -2,25 +2,27 @@
 //!
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/blob/main/details/encryption.md
 
+use std::{fmt::Debug, io, ops::Add};
+
 use generic_array::ArrayLength;
 use hpke::{
     aead::AeadTag, single_shot_open_in_place_detached, single_shot_seal_in_place_detached, OpModeR,
     OpModeS,
 };
 use rand_core::{CryptoRng, RngCore};
-use std::{fmt::Debug, io, ops::Add};
 use typenum::U16;
 
 mod info;
 mod registry;
+
+pub use info::Info;
+pub use registry::{KeyPair, KeyRegistry, PublicKeyOnly, PublicKeyRegistry};
 
 use crate::{
     ff::{GaloisField, Serializable as IpaSerializable},
     report::KeyIdentifier,
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
-pub use info::Info;
-pub use registry::{KeyPair, KeyRegistry, PublicKeyOnly, PublicKeyRegistry};
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -155,17 +157,17 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
     use generic_array::GenericArray;
+    use rand::rngs::StdRng;
+    use rand_core::{CryptoRng, RngCore, SeedableRng};
+    use typenum::Unsigned;
 
+    use super::*;
     use crate::{
         ff::{Gf40Bit, Serializable as IpaSerializable},
         report::{Epoch, EventType},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
-    use rand::rngs::StdRng;
-    use rand_core::{CryptoRng, RngCore, SeedableRng};
-    use typenum::Unsigned;
 
     type XorReplicated = AdditiveShare<Gf40Bit>;
 
@@ -349,9 +351,10 @@ mod tests {
     }
 
     mod proptests {
-        use super::*;
         use proptest::prelude::ProptestConfig;
         use rand::{distributions::Alphanumeric, Rng};
+
+        use super::*;
 
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
