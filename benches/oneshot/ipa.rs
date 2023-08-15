@@ -13,7 +13,6 @@ use ipa::{
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
-
 use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 

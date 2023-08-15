@@ -1,0 +1,88 @@
+From ba6c503fbe930a9298d83c04bab15f329faf13ae Mon Sep 17 00:00:00 2001
+From: Alex Koshelev <koshelev@meta.com>
+Date: Fri, 11 Aug 2023 14:25:03 -0700
+Subject: [PATCH] CI: split extra step into two
+
+This is an attempt to increase parallelism on CI. Those builds take ~4 mins and running tests take another 5-6 mins. Splitting this step should make CI run faster.
+---
+ .github/workflows/check.yml | 42 ++++++++++++++++++++++++++++---------
+ 1 file changed, 32 insertions(+), 10 deletions(-)
+
+diff --git a/.github/workflows/check.yml b/.github/workflows/check.yml
+index 54f869ac..9a8e1886 100644
+--- a/.github/workflows/check.yml
++++ b/.github/workflows/check.yml
+@@ -15,13 +15,15 @@ on:
+       - "benches/**/*"
+       - "tests/**/*"
+ 
++env:
++  CARGO_TERM_COLOR: always
++  RUSTFLAGS: -D warnings
++  RUSTDOCFLAGS: -D warnings
++
+ jobs:
+   basic:
+     name: Basic Checks
+     env:
+-      CARGO_TERM_COLOR: always
+-      RUSTFLAGS: -D warnings
+-      RUSTDOCFLAGS: -D warnings
+       CARGO_INCREMENTAL: 0
+ 
+     runs-on: ubuntu-latest
+@@ -64,12 +66,13 @@ jobs:
+       - name: Run Web Tests
+         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+ 
+-  extra:
+-    name: Additional Builds and Concurrency Tests
++      - name: Run compact gate tests
++        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
++
++  extra-builds:
++    name: Additional Builds
+     env:
+-      CARGO_TERM_COLOR: always
+       RUSTFLAGS: -D warnings -C target-cpu=native
+-      RUSTDOCFLAGS: -D warnings
+ 
+     runs-on: ubuntu-latest
+ 
+@@ -102,11 +105,30 @@ jobs:
+       - name: Build concurrency tests (debug mode)
+         run: cargo build --features shuttle
+ 
++  benches-and-fuzzy:
++    name: Run benchmarks and concurrency tests
++
++    runs-on: ubuntu-latest
++
++    steps:
++      - uses: actions/checkout@v3
++
++      - uses: dtolnay/rust-toolchain@stable
++        with:
++          components: clippy,rustfmt
++
++      - uses: actions/cache@v3
++        with:
++          path: |
++            ~/.cargo/bin/
++            ~/.cargo/registry/index/
++            ~/.cargo/registry/cache/
++            ~/.cargo/git/db/
++            target/
++          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
++
+       - name: Run concurrency tests
+         run: cargo test --release --features shuttle
+ 
+       - name: Run IPA bench
+         run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate"
+-
+-      - name: Run compact gate tests
+-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+-- 
+2.31.1
+
