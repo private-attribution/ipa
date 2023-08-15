@@ -1,3 +1,6 @@
+use futures::future::try_join;
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     protocol::{
@@ -11,8 +14,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-use futures::future::try_join;
-use ipa_macros::{step, Step};
 
 #[step]
 pub(crate) enum Step {

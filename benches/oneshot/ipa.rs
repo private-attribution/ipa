@@ -1,3 +1,8 @@
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    time::Instant,
+};
+
 use clap::Parser;
 use ipa::{
     error::Error,
@@ -9,10 +14,6 @@ use ipa::{
     },
 };
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{
-    num::{NonZeroU32, NonZeroUsize},
-    time::Instant,
-};
 use tokio::runtime::Builder;
 
 #[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]

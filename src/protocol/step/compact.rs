@@ -1,7 +1,9 @@
+use std::fmt::{Debug, Display, Formatter};
+
+use ipa_macros::Gate;
+
 use super::StepNarrow;
 use crate::helpers::{prss_protocol::PrssExchangeStep, query::QueryType};
-use ipa_macros::Gate;
-use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Gate, Clone, Hash, PartialEq, Eq, Default)]
 #[cfg_attr(
@@ -56,9 +58,9 @@ impl StepNarrow<PrssExchangeStep> for Compact {
 fn static_reverse_state_map(state: u16) -> &'static str {
     match state {
         ROOT_STATE => "run-0",
-        QUERY_TYPE_SEMIHONEST_STATE => crate::helpers::query::QueryType::SEMIHONEST_IPA_STR,
-        QUERY_TYPE_MALICIOUS_STATE => crate::helpers::query::QueryType::MALICIOUS_IPA_STR,
-        PRSS_EXCHANGE_STATE => crate::helpers::prss_protocol::PrssExchangeStep.as_ref(),
+        QUERY_TYPE_SEMIHONEST_STATE => QueryType::SEMIHONEST_IPA_STR,
+        QUERY_TYPE_MALICIOUS_STATE => QueryType::MALICIOUS_IPA_STR,
+        PRSS_EXCHANGE_STATE => PrssExchangeStep.as_ref(),
         _ => panic!("cannot as_ref() from the invalid state {state}"),
     }
 }
@@ -66,11 +68,11 @@ fn static_reverse_state_map(state: u16) -> &'static str {
 fn static_deserialize_state_map(s: &str) -> u16 {
     if s == "run-0" {
         return ROOT_STATE;
-    } else if s == crate::helpers::query::QueryType::SEMIHONEST_IPA_STR {
+    } else if s == QueryType::SEMIHONEST_IPA_STR {
         return QUERY_TYPE_SEMIHONEST_STATE;
-    } else if s == crate::helpers::query::QueryType::MALICIOUS_IPA_STR {
+    } else if s == QueryType::MALICIOUS_IPA_STR {
         return QUERY_TYPE_MALICIOUS_STATE;
-    } else if s == crate::helpers::prss_protocol::PrssExchangeStep.as_ref() {
+    } else if s == PrssExchangeStep.as_ref() {
         return PRSS_EXCHANGE_STATE;
     }
 

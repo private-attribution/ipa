@@ -38,13 +38,14 @@
 //     }
 //     ...
 
+use proc_macro::TokenStream;
+use quote::{__private::TokenStream as TokenStream2, format_ident, quote};
+use syn::{parse_macro_input, DeriveInput};
+
 use crate::{
     parser::{group_by_modules, ipa_state_transition_map, StepMetaData},
     tree::Node,
 };
-use proc_macro::TokenStream;
-use quote::{__private::TokenStream as TokenStream2, format_ident, quote};
-use syn::{parse_macro_input, DeriveInput};
 
 trait CaseStyle {
     fn to_snake_case(&self) -> String;

@@ -1,3 +1,5 @@
+use std::{borrow::Borrow, iter::zip, ops::Deref};
+
 use crate::{
     ff::{Field, PrimeField},
     protocol::boolean::RandomBitsShare,
@@ -10,7 +12,6 @@ use crate::{
         BitDecomposed, SecretSharing,
     },
 };
-use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 /// Deconstructs a field value into N values, one for each bit.
 pub fn into_bits<F: PrimeField>(v: F) -> BitDecomposed<F> {

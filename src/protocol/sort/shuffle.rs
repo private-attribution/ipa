@@ -1,17 +1,16 @@
 use embed_doc_image::embed_doc_image;
 use rand::{seq::SliceRandom, Rng};
 
+use super::{
+    apply::{apply, apply_inv},
+    ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
+};
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{basics::Reshare, context::Context, step::Step, NoRecord, RecordId},
     secret_sharing::SecretSharing,
-};
-
-use super::{
-    apply::{apply, apply_inv},
-    ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
 };
 
 #[derive(Debug)]
@@ -199,6 +198,8 @@ mod tests {
     }
 
     mod semi_honest {
+        use std::collections::HashSet;
+
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -209,7 +210,6 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn semi_honest() {
@@ -293,6 +293,8 @@ mod tests {
     }
 
     mod malicious {
+        use std::collections::HashSet;
+
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -303,7 +305,6 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn malicious() {

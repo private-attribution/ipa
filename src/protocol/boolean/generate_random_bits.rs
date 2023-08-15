@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use futures::stream::{iter as stream_iter, Stream, StreamExt};
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -17,7 +19,6 @@ use crate::{
         Linear as LinearSecretSharing,
     },
 };
-use futures::stream::{iter as stream_iter, Stream, StreamExt};
 
 #[derive(Debug)]
 struct RawRandomBits {

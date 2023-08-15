@@ -1,12 +1,13 @@
-use clap::Args;
-use rand::rngs::StdRng;
 use std::{
     collections::BTreeMap,
     fmt::{Debug, Display, Formatter},
 };
 
-use crate::protocol::dp::InsecureDiscreteDp;
+use clap::Args;
+use rand::rngs::StdRng;
 use rand_core::SeedableRng;
+
+use crate::protocol::dp::InsecureDiscreteDp;
 
 #[derive(Debug, Args)]
 #[clap(about = "Apply differential privacy noise to the given input")]

@@ -19,6 +19,18 @@
 //! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
 //! is equivalent to fn xor(a, b) { a + b - 2*a*b }
 
+use std::{
+    iter::zip,
+    marker::PhantomData,
+    ops::Range,
+    pin::Pin,
+    task::{Context as TaskContext, Poll},
+};
+
+use futures::stream::{unfold, Stream, StreamExt};
+use ipa_macros::{step, Step};
+use pin_project::pin_project;
+
 use crate::{
     error::Error,
     exact::ExactSizeStream,
@@ -35,16 +47,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
     seq_join::seq_join,
-};
-use futures::stream::{unfold, Stream, StreamExt};
-use ipa_macros::{step, Step};
-use pin_project::pin_project;
-use std::{
-    iter::zip,
-    marker::PhantomData,
-    ops::Range,
-    pin::Pin,
-    task::{Context as TaskContext, Poll},
 };
 
 #[step]
@@ -305,6 +307,10 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::future::ready;
+
+    use futures::stream::{once, StreamExt, TryStreamExt};
+
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -320,8 +326,6 @@ mod tests {
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::{once, StreamExt, TryStreamExt};
-    use std::future::ready;
 
     #[tokio::test]
     pub async fn one_bit() {

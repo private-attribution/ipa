@@ -9,13 +9,14 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
-use ipa_macros::{step, Step};
 
 #[step]
 pub(crate) enum SortStep {

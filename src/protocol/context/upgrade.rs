@@ -1,3 +1,9 @@
+use std::marker::PhantomData;
+
+use async_trait::async_trait;
+use futures::future::{try_join, try_join3};
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::Field,
@@ -14,10 +20,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
-use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
-use ipa_macros::{step, Step};
-use std::marker::PhantomData;
 
 /// Special context type used for malicious upgrades.
 ///

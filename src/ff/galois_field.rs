@@ -1,14 +1,16 @@
-use crate::{
-    ff::{Field, Serializable},
-    secret_sharing::{Block, SharedValue},
-};
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
-use generic_array::GenericArray;
 use std::{
     fmt::{Debug, Formatter},
     ops::Index,
 };
+
+use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U4, U5};
+
+use crate::{
+    ff::{Field, Serializable},
+    secret_sharing::{Block, SharedValue},
+};
 
 /// Trait for data types storing arbitrary number of bits.
 pub trait GaloisField:

@@ -4,12 +4,12 @@ use std::{
 };
 
 use metrics::{KeyName, Label, SharedString};
-
-use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
 use metrics_util::{
     debugging::{DebugValue, Snapshot},
     CompositeKey, MetricKind,
 };
+
+use crate::{helpers::Role, protocol::step::Gate, telemetry::labels};
 
 /// Simple counter stats
 #[derive(Debug, Default)]

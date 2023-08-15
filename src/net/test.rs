@@ -9,6 +9,15 @@
 
 #![allow(clippy::missing_panics_doc)]
 
+use std::{
+    array,
+    net::{SocketAddr, TcpListener},
+};
+
+use once_cell::sync::Lazy;
+use tokio::task::JoinHandle;
+use tokio_rustls::rustls::Certificate;
+
 use crate::{
     config::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
@@ -20,15 +29,6 @@ use crate::{
     sync::Arc,
     test_fixture::metrics::MetricsHandle,
 };
-use once_cell::sync::Lazy;
-use std::{
-    array,
-    net::{SocketAddr, TcpListener},
-};
-
-use tokio::task::JoinHandle;
-
-use tokio_rustls::rustls::Certificate;
 
 pub const DEFAULT_TEST_PORTS: [u16; 3] = [3000, 3001, 3002];
 

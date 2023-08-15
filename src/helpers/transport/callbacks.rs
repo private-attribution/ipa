@@ -1,3 +1,5 @@
+use std::{future::Future, pin::Pin};
+
 use crate::{
     helpers::query::{PrepareQuery, QueryConfig, QueryInput},
     protocol::QueryId,
@@ -6,7 +8,6 @@ use crate::{
         QueryStatus, QueryStatusError,
     },
 };
-use std::{future::Future, pin::Pin};
 
 /// Macro for defining transport callbacks.
 ///

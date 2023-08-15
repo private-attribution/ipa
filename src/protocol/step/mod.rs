@@ -3,12 +3,11 @@ mod compact;
 #[cfg(feature = "descriptive-gate")]
 mod descriptive;
 
-use ipa_macros::{step, Step};
-
 #[cfg(feature = "compact-gate")]
 pub use compact::Compact;
 #[cfg(feature = "descriptive-gate")]
 pub use descriptive::Descriptive;
+use ipa_macros::{step, Step};
 
 #[cfg(feature = "descriptive-gate")]
 pub type Gate = descriptive::Descriptive;

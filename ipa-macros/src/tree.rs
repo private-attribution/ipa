@@ -127,8 +127,9 @@ impl<T> Deref for InnerNode<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tree::Node;
     use std::rc::{Rc, Weak};
+
+    use crate::tree::Node;
 
     #[derive(Debug)]
     struct TestData(u8);

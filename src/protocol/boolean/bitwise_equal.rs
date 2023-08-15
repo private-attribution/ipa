@@ -1,3 +1,7 @@
+use std::iter::zip;
+
+use ipa_macros::{step, Step};
+
 use super::xor;
 use crate::{
     error::Error,
@@ -8,8 +12,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::{step, Step};
-use std::iter::zip;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
 ///
@@ -114,14 +116,13 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use super::{bitwise_equal, bitwise_equal_constant};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
         secret_sharing::BitDecomposed,
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
-
-    use super::{bitwise_equal, bitwise_equal_constant};
 
     #[tokio::test]
     pub async fn simple() {

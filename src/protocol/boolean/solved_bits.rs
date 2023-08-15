@@ -1,3 +1,8 @@
+use std::marker::PhantomData;
+
+use async_trait::async_trait;
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
@@ -16,9 +21,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
-use async_trait::async_trait;
-use ipa_macros::{step, Step};
-use std::marker::PhantomData;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
@@ -145,6 +147,10 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::{repeat, zip};
+
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
@@ -156,8 +162,6 @@ mod tests {
         seq_join::SeqJoin,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution};
-    use std::iter::{repeat, zip};
 
     /// Execute `solved_bits` `COUNT` times for `F`. The count should be chosen
     /// such that the probability of that many consecutive failures in `F` is

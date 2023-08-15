@@ -97,11 +97,12 @@ impl Config {
     }
 }
 
-use crate::{rand::Rng, test_fixture::ipa::TestRawDataRecord};
 use std::{
     collections::HashSet,
     num::{NonZeroU32, NonZeroU64},
 };
+
+use crate::{rand::Rng, test_fixture::ipa::TestRawDataRecord};
 
 struct UserStats {
     user_id: UserId,
@@ -265,8 +266,9 @@ impl<R: Rng> Iterator for EventGenerator<R> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
     use rand::thread_rng;
+
+    use super::*;
 
     #[test]
     fn iter() {
@@ -294,14 +296,16 @@ mod tests {
     }
 
     mod proptests {
-        use super::*;
+        use std::collections::HashMap;
+
         use proptest::{
             prelude::{Just, Strategy},
             prop_oneof, proptest,
         };
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
-        use std::collections::HashMap;
+
+        use super::*;
 
         fn report_filter_strategy() -> impl Strategy<Value = ReportFilter> {
             prop_oneof![

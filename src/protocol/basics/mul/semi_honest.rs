@@ -83,6 +83,10 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::iter::{repeat, zip};
+
+    use rand::distributions::{Distribution, Standard};
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{basics::SecureMul, context::Context, RecordId},
@@ -90,8 +94,6 @@ mod test {
         seq_join::SeqJoin,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::distributions::{Distribution, Standard};
-    use std::iter::{repeat, zip};
 
     #[tokio::test]
     async fn basic() {

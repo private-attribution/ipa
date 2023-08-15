@@ -1,3 +1,10 @@
+use std::{
+    iter::{repeat, zip},
+    num::NonZeroU32,
+};
+
+use ipa_macros::{step, Step};
+
 use super::{
     do_the_binary_tree_thing,
     input::{ApplyAttributionWindowInputRow, ApplyAttributionWindowOutputRow},
@@ -11,11 +18,6 @@ use crate::{
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
-};
-use ipa_macros::{step, Step};
-use std::{
-    iter::{repeat, zip},
-    num::NonZeroU32,
 };
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
@@ -190,6 +192,8 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::{iter::zip, num::NonZeroU32};
+
     use crate::{
         attribution_window_test_input,
         ff::{Field, Fp32BitPrime},
@@ -205,7 +209,6 @@ mod tests {
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use std::{iter::zip, num::NonZeroU32};
 
     #[tokio::test]
     pub async fn attribution_window() {

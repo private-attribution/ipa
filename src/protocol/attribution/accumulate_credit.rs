@@ -1,3 +1,7 @@
+use std::num::NonZeroU32;
+
+use ipa_macros::{step, Step};
+
 use super::{
     do_the_binary_tree_thing,
     input::{AccumulateCreditInputRow, AccumulateCreditOutputRow},
@@ -8,8 +12,6 @@ use crate::{
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::{step, Step};
-use std::num::NonZeroU32;
 
 ///
 /// When `PER_USER_CAP` is set to one, this function is called
@@ -145,6 +147,8 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::num::NonZeroU32;
+
     use crate::{
         accumulation_test_input,
         ff::Fp32BitPrime,
@@ -159,7 +163,6 @@ mod tests {
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use std::num::NonZeroU32;
 
     async fn accumulate_credit_test(
         input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>>,

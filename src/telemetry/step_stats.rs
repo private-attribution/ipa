@@ -1,17 +1,18 @@
 //!
 //! Export metrics collected during protocol run in CSV format. Metrics are partitioned by step.
 
+use std::{
+    collections::{BTreeMap, HashMap},
+    io,
+    io::{Error, Write},
+};
+
 use crate::telemetry::{
     labels,
     metrics::{
         BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED, STEP_NARROWED,
     },
     stats::Metrics,
-};
-use std::{
-    collections::{BTreeMap, HashMap},
-    io,
-    io::{Error, Write},
 };
 
 pub trait CsvExporter {

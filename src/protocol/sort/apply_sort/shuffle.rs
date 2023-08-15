@@ -1,3 +1,6 @@
+use embed_doc_image::embed_doc_image;
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     helpers::Direction,
@@ -12,8 +15,6 @@ use crate::{
         NoRecord, RecordId,
     },
 };
-use embed_doc_image::embed_doc_image;
-use ipa_macros::{step, Step};
 
 #[step]
 pub(crate) enum InnerVectorElementStep {
@@ -109,6 +110,8 @@ where
 mod tests {
 
     mod semi_honest {
+        use std::collections::HashSet;
+
         use crate::{
             accumulation_test_input,
             ff::{Fp31, Fp32BitPrime},
@@ -131,7 +134,6 @@ mod tests {
                 TestWorld,
             },
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {

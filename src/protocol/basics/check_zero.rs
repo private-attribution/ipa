@@ -1,3 +1,5 @@
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::Field,
@@ -9,7 +11,6 @@ use crate::{
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use ipa_macros::{step, Step};
 
 #[step]
 pub(crate) enum Step {
@@ -65,6 +66,8 @@ pub async fn check_zero<C: Context, F: Field>(
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use futures_util::future::try_join3;
+
     use crate::{
         error::Error,
         ff::{Field, Fp31, PrimeField},
@@ -73,7 +76,6 @@ mod tests {
         secret_sharing::{IntoShares, SharedValue},
         test_fixture::TestWorld,
     };
-    use futures_util::future::try_join3;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {

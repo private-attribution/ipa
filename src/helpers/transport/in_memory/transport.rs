@@ -1,22 +1,3 @@
-use crate::{
-    error::BoxError,
-    helpers::{
-        query::{PrepareQuery, QueryConfig},
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportCallbacks,
-    },
-    protocol::{step::Gate, QueryId},
-};
-use ::tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
-    oneshot,
-};
-
-use async_trait::async_trait;
-use futures::{Stream, StreamExt};
-use serde::de::DeserializeOwned;
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
@@ -27,8 +8,28 @@ use std::{
     sync::{Arc, Weak},
     task::{Context, Poll},
 };
+
+use ::tokio::sync::{
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
+use async_trait::async_trait;
+use futures::{Stream, StreamExt};
+use serde::de::DeserializeOwned;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+
+use crate::{
+    error::BoxError,
+    helpers::{
+        query::{PrepareQuery, QueryConfig},
+        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
+        StepBinding, StreamCollection, Transport, TransportCallbacks,
+    },
+    protocol::{step::Gate, QueryId},
+};
 
 type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
 type ConnectionTx = Sender<Packet>;
@@ -368,6 +369,11 @@ impl Setup {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
+
+    use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
+    use tokio::sync::{mpsc::channel, oneshot};
+
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
@@ -376,9 +382,6 @@ mod tests {
             OrderingSender,
         },
     };
-    use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
-    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
-    use tokio::sync::{mpsc::channel, oneshot};
 
     const STEP: &str = "in-memory-transport";
 

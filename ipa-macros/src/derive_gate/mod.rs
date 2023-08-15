@@ -1,10 +1,12 @@
-use crate::parser::{group_by_modules, ipa_state_transition_map};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+use crate::parser::{group_by_modules, ipa_state_transition_map};
+
 /// Generate a state transition graph and the corresponding `AsRef<str>`
 /// and `deserialize()` implementations for `Compact` gate.
+
 pub fn expand(item: TokenStream) -> TokenStream {
     // `item` is the `struct Compact(u16)` in AST
     let ast = parse_macro_input!(item as DeriveInput);

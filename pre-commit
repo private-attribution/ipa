@@ -53,9 +53,11 @@ stashfile=$(mktemp .pre-commit.stashXXXXXX)
 trap 'set +e;git stash pop -q; rm -f "$stashfile"; restore_merge_files' EXIT
 save_merge_files
 git stash push -k -u -q -m "pre-commit stash"
-if ! errors=($(cargo fmt -- --check --config imports_granularity=Crate -l)); then
+
+fmtconfig="imports_granularity=Crate,group_imports=StdExternalCrate"
+if ! errors=($(cargo fmt --all -- --check --config "$fmtconfig" -l)); then
     echo "Formatting errors found."
-    echo "Run \`cargo fmt -- --config imports_granularity=Crate\` to fix the following files:"
+    echo "Run \`cargo fmt --all -- --config \"$fmtconfig\"\` to fix the following files:"
     for err in "${errors[@]}"; do
         echo "  $err"
     done

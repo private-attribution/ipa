@@ -1,3 +1,11 @@
+use std::iter::{repeat, zip};
+
+use futures::{
+    stream::{iter, once},
+    StreamExt, TryStreamExt,
+};
+use ipa_macros::{step, Step};
+
 use super::{do_the_binary_tree_thing, input::CreditCappingInputRow, prefix_or_binary_tree_style};
 use crate::{
     error::Error,
@@ -11,12 +19,6 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
-use futures::{
-    stream::{iter, once},
-    StreamExt, TryStreamExt,
-};
-use ipa_macros::{step, Step};
-use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
 ///

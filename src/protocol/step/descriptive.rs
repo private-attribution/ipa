@@ -1,7 +1,8 @@
+use std::fmt::{Debug, Display, Formatter};
+
 use super::{Step, StepNarrow};
 #[cfg(feature = "step-trace")]
 use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};
-use std::fmt::{Debug, Display, Formatter};
 
 /// A descriptive representation of a unique step in protocol execution.
 ///

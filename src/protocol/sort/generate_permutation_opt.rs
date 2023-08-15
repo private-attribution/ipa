@@ -1,3 +1,8 @@
+use std::cmp::min;
+
+use embed_doc_image::embed_doc_image;
+use futures::stream::{iter as stream_iter, Stream, StreamExt, TryStreamExt};
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -25,9 +30,6 @@ use crate::{
         Linear as LinearSecretSharing,
     },
 };
-use embed_doc_image::embed_doc_image;
-use futures::stream::{iter as stream_iter, Stream, StreamExt, TryStreamExt};
-use std::cmp::min;
 
 #[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 #[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
@@ -191,6 +193,10 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::zip;
+
+    use futures::stream::iter as stream_iter;
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, GaloisField},
         protocol::{
@@ -202,8 +208,6 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::iter as stream_iter;
-    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {

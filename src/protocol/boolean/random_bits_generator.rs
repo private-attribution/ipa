@@ -1,3 +1,10 @@
+use std::{
+    marker::PhantomData,
+    sync::atomic::{AtomicU32, Ordering},
+};
+
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -8,11 +15,6 @@ use crate::{
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
-};
-use ipa_macros::{step, Step};
-use std::{
-    marker::PhantomData,
-    sync::atomic::{AtomicU32, Ordering},
 };
 
 /// A struct that generates random sharings of bits from the
@@ -91,6 +93,10 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::zip;
+
+    use futures::future::try_join_all;
+
     use super::RandomBitsGenerator;
     use crate::{
         ff::{Field, Fp31},
@@ -104,8 +110,6 @@ mod tests {
         },
         test_fixture::{join3, join3v, Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
-    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {

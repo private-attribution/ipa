@@ -1,10 +1,11 @@
+use ipa_macros::{step, Step};
+
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::{step, Step};
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -202,6 +203,9 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use bitvec::macros::internal::funty::Fundamental;
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
@@ -212,8 +216,6 @@ mod tests {
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
-    use bitvec::macros::internal::funty::Fundamental;
-    use rand::{distributions::Standard, prelude::Distribution};
 
     async fn add<F>(world: &TestWorld, a: F, b: u128) -> Vec<F>
     where
