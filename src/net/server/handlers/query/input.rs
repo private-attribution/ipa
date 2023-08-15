@@ -1,10 +1,11 @@
+use axum::{routing::post, Extension, Router};
+use hyper::StatusCode;
+
 use crate::{
     helpers::Transport,
     net::{http_serde, Error, HttpTransport},
     sync::Arc,
 };
-use axum::{routing::post, Extension, Router};
-use hyper::StatusCode;
 
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
@@ -25,6 +26,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use axum::http::Request;
+    use hyper::{Body, StatusCode};
+
     use super::*;
     use crate::{
         helpers::{query::QueryInput, BytesStream, TransportCallbacks},
@@ -34,8 +38,6 @@ mod tests {
         },
         protocol::QueryId,
     };
-    use axum::http::Request;
-    use hyper::{Body, StatusCode};
 
     #[tokio::test]
     async fn input_test() {

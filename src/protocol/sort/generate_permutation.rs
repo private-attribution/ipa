@@ -1,3 +1,6 @@
+use async_trait::async_trait;
+use futures::stream::Stream;
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -26,8 +29,6 @@ use crate::{
         Linear as LinearSecretSharing, SecretSharing,
     },
 };
-use async_trait::async_trait;
-use futures::stream::Stream;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -173,6 +174,11 @@ impl<'a, F: ExtendableField> DowngradeMalicious
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::zip;
+
+    use futures::stream::iter as stream_iter;
+    use rand::seq::SliceRandom;
+
     use crate::{
         ff::{Field, Fp31, GaloisField},
         protocol::{
@@ -187,9 +193,6 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
-    use futures::stream::iter as stream_iter;
-    use rand::seq::SliceRandom;
-    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {

@@ -1,3 +1,5 @@
+use embed_doc_image::embed_doc_image;
+
 use crate::{
     error::Error,
     helpers::Direction,
@@ -13,7 +15,6 @@ use crate::{
     },
     repeat64str,
 };
-use embed_doc_image::embed_doc_image;
 
 pub struct InnerVectorElementStep(usize);
 
@@ -114,6 +115,8 @@ where
 mod tests {
 
     mod semi_honest {
+        use std::collections::HashSet;
+
         use crate::{
             accumulation_test_input,
             ff::{Fp31, Fp32BitPrime},
@@ -136,7 +139,6 @@ mod tests {
                 TestWorld,
             },
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {

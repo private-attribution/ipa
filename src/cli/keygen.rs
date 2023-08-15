@@ -1,4 +1,9 @@
-use crate::{error::BoxError, hpke::KeyPair};
+use std::{
+    fs::File,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
+
 use clap::Args;
 use rand::{thread_rng, Rng};
 use rand_core::CryptoRng;
@@ -6,12 +11,9 @@ use rcgen::{
     Certificate, CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa,
     KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
 };
-use std::{
-    fs::File,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
 use time::{Duration, OffsetDateTime};
+
+use crate::{error::BoxError, hpke::KeyPair};
 
 #[derive(Debug, Args)]
 #[clap(

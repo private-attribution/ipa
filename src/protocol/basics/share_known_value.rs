@@ -36,6 +36,8 @@ impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::Rng;
+
     use super::ShareKnownValue;
     use crate::{
         ff::Fp31,
@@ -45,7 +47,6 @@ mod tests {
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::Rng;
 
     #[tokio::test]
     pub async fn semi_honest_share_known_values() {

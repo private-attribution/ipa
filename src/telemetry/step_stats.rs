@@ -1,15 +1,18 @@
 //!
 //! Export metrics collected during protocol run in CSV format. Metrics are partitioned by step.
 
-use crate::telemetry::{
-    labels,
-    metrics::{BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
-    stats::Metrics,
-};
 use std::{
     collections::{BTreeMap, HashMap},
     io,
     io::{Error, Write},
+};
+
+use crate::telemetry::{
+    labels,
+    metrics::{
+        BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED, STEP_NARROWED,
+    },
+    stats::Metrics,
 };
 
 pub trait CsvExporter {
@@ -38,18 +41,19 @@ impl CsvExporter for Metrics {
         if self.print_header {
             writeln!(
                 w,
-                "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS"
+                "Step,Records sent,Bytes sent,Indexed PRSS,Sequential PRSS,Step narrowed"
             )?;
         }
         for (step, stats) in steps_stats.all_steps() {
             writeln!(
                 w,
-                "{},{},{},{},{}",
+                "{},{},{},{},{},{}",
                 step,
                 stats.get(RECORDS_SENT),
                 stats.get(BYTES_SENT),
                 stats.get(INDEXED_PRSS_GENERATED),
-                stats.get(SEQUENTIAL_PRSS_GENERATED)
+                stats.get(SEQUENTIAL_PRSS_GENERATED),
+                stats.get(STEP_NARROWED),
             )?;
         }
 

@@ -1,7 +1,8 @@
-use crate::parser::{group_by_modules, ipa_state_transition_map, module_string_to_ast};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
+
+use crate::parser::{group_by_modules, ipa_state_transition_map, module_string_to_ast};
 
 // Procedural macro to derive the Step and StepNarrow traits and generate a memory-efficient gate.
 //

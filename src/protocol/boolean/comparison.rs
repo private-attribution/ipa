@@ -1,3 +1,6 @@
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use super::or::or;
 use crate::{
     error::Error,
@@ -10,8 +13,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
-use strum::AsRefStr;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //
@@ -296,6 +297,9 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use proptest::proptest;
+    use rand::{distributions::Standard, prelude::Distribution, Rng};
+
     use super::{
         bitwise_greater_than_constant, bitwise_less_than_constant, compute_r_bounds,
         greater_than_constant,
@@ -311,8 +315,6 @@ mod tests {
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
-    use proptest::proptest;
-    use rand::{distributions::Standard, prelude::Distribution, Rng};
 
     async fn bitwise_lt<F>(world: &TestWorld, a: F, b: u128) -> F
     where

@@ -1,3 +1,6 @@
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -12,8 +15,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use ipa_macros::step;
-use strum::AsRefStr;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -89,6 +90,8 @@ pub(crate) enum Step {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
@@ -100,7 +103,6 @@ mod tests {
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution};
 
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where

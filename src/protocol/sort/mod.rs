@@ -9,6 +9,11 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
+use std::fmt::Debug;
+
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -20,9 +25,6 @@ use crate::{
     repeat64str,
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
-use ipa_macros::step;
-use std::fmt::Debug;
-use strum::AsRefStr;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {

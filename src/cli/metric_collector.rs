@@ -1,10 +1,12 @@
-use crate::telemetry::stats::Metrics;
+use std::{io::stderr, thread};
+
 use metrics_tracing_context::TracingContextLayer;
 use metrics_util::{
     debugging::{DebuggingRecorder, Snapshotter},
     layers::Layer,
 };
-use std::{io::stderr, thread};
+
+use crate::telemetry::stats::Metrics;
 
 /// Collects metrics using `DebuggingRecorder` and dumps them to `stderr` when dropped.
 pub struct CollectorHandle {

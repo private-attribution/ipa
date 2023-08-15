@@ -4,11 +4,13 @@
 // to compose const strings at compile time is concat!()
 
 pub mod echo {
-    use crate::net::Error;
+    use std::collections::HashMap;
+
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
     use hyper::http::uri;
-    use std::collections::HashMap;
+
+    use crate::net::Error;
 
     #[derive(Debug, Default, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
@@ -78,16 +80,18 @@ pub mod echo {
 }
 
 pub mod query {
+    use std::{
+        fmt::{Display, Formatter},
+        num::NonZeroU32,
+    };
+
+    use async_trait::async_trait;
+    use axum::extract::{FromRequest, Query, RequestParts};
+
     use crate::{
         ff::FieldType,
         helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
         net::Error,
-    };
-    use async_trait::async_trait;
-    use axum::extract::{FromRequest, Query, RequestParts};
-    use std::{
-        fmt::{Display, Formatter},
-        num::NonZeroU32,
     };
 
     /// wrapper around [`QueryConfig`] to enable extraction from an `Axum` request. To be used with
@@ -209,6 +213,10 @@ pub mod query {
     pub const BASE_AXUM_PATH: &str = "/query";
 
     pub mod create {
+        use async_trait::async_trait;
+        use axum::extract::{FromRequest, RequestParts};
+        use hyper::http::uri;
+
         use crate::{
             helpers::query::QueryConfig,
             net::{
@@ -217,9 +225,6 @@ pub mod query {
             },
             protocol::QueryId,
         };
-        use async_trait::async_trait;
-        use axum::extract::{FromRequest, RequestParts};
-        use hyper::http::uri;
 
         #[derive(Debug, Clone)]
         pub struct Request {
@@ -268,13 +273,6 @@ pub mod query {
     }
 
     pub mod prepare {
-        use crate::{
-            helpers::{query::PrepareQuery, RoleAssignment},
-            net::{
-                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
-                Error,
-            },
-        };
         use async_trait::async_trait;
         use axum::{
             extract::{FromRequest, Path, RequestParts},
@@ -282,6 +280,14 @@ pub mod query {
             Json,
         };
         use hyper::header::CONTENT_TYPE;
+
+        use crate::{
+            helpers::{query::PrepareQuery, RoleAssignment},
+            net::{
+                http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
+                Error,
+            },
+        };
 
         #[derive(Debug, Clone)]
         pub struct Request {
@@ -346,16 +352,17 @@ pub mod query {
     }
 
     pub mod input {
-        use crate::{
-            helpers::query::QueryInput,
-            net::{http_serde::query::BASE_AXUM_PATH, Error},
-        };
         use async_trait::async_trait;
         use axum::{
             extract::{FromRequest, Path, RequestParts},
             http::uri,
         };
         use hyper::{header::CONTENT_TYPE, Body};
+
+        use crate::{
+            helpers::query::QueryInput,
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
+        };
 
         #[derive(Debug)]
         pub struct Request {
@@ -410,15 +417,16 @@ pub mod query {
     }
 
     pub mod step {
-        use crate::{
-            helpers::BodyStream,
-            net::{http_serde::query::BASE_AXUM_PATH, Error},
-            protocol::{step::Gate, QueryId},
-        };
         use async_trait::async_trait;
         use axum::{
             extract::{FromRequest, Path, RequestParts},
             http::uri,
+        };
+
+        use crate::{
+            helpers::BodyStream,
+            net::{http_serde::query::BASE_AXUM_PATH, Error},
+            protocol::{step::Gate, QueryId},
         };
 
         // When this type is used on the client side, `B` is `hyper::Body`. When this type
@@ -490,10 +498,11 @@ pub mod query {
     }
 
     pub mod status {
-        use crate::{net::Error, protocol::QueryId, query::QueryStatus};
         use async_trait::async_trait;
         use axum::extract::{FromRequest, Path, RequestParts};
         use serde::{Deserialize, Serialize};
+
+        use crate::{net::Error, protocol::QueryId, query::QueryStatus};
 
         #[derive(Debug, Clone)]
         pub struct Request {
@@ -544,9 +553,10 @@ pub mod query {
     }
 
     pub mod results {
-        use crate::{net::Error, protocol::QueryId};
         use async_trait::async_trait;
         use axum::extract::{FromRequest, Path, RequestParts};
+
+        use crate::{net::Error, protocol::QueryId};
 
         #[derive(Debug, Clone)]
         pub struct Request {

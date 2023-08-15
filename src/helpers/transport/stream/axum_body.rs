@@ -1,13 +1,14 @@
-use crate::error::BoxError;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use axum::extract::{BodyStream, FromRequest, RequestParts};
 use futures::{Stream, TryStreamExt};
 use hyper::Body;
 use pin_project::pin_project;
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
+
+use crate::error::BoxError;
 
 type AxumInner = futures::stream::MapErr<BodyStream, fn(axum::Error) -> crate::error::BoxError>;
 

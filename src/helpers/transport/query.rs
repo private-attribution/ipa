@@ -1,3 +1,10 @@
+use std::{
+    fmt::{Debug, Display, Formatter},
+    num::NonZeroU32,
+};
+
+use serde::{Deserialize, Deserializer, Serialize};
+
 use crate::{
     ff::FieldType,
     helpers::{
@@ -5,11 +12,6 @@ use crate::{
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
     protocol::{step::Step, QueryId},
-};
-use serde::{Deserialize, Deserializer, Serialize};
-use std::{
-    fmt::{Debug, Display, Formatter},
-    num::NonZeroU32,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]

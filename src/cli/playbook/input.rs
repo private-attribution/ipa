@@ -1,18 +1,16 @@
-use crate::ff::Field;
-
 use std::{
     any::type_name,
     fs::File,
     io,
     io::{stdin, BufRead, BufReader, Read},
+    path::PathBuf,
 };
 
 use crate::{
-    ff::GaloisField,
+    ff::{Field, GaloisField},
     ipa_test_input,
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord},
 };
-use std::path::PathBuf;
 
 pub trait InputItem {
     fn from_str(s: &str) -> Self;

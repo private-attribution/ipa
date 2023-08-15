@@ -16,6 +16,7 @@ pub mod metrics {
     pub const BYTES_SENT: &str = "bytes.sent";
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
+    pub const STEP_NARROWED: &str = "step.narrowed";
 
     #[cfg(feature = "web-app")]
     pub mod web {
@@ -97,6 +98,12 @@ pub mod metrics {
             SEQUENTIAL_PRSS_GENERATED,
             Unit::Count,
             "Number of times PRSS is used as CPRNG to generate a random value"
+        );
+
+        describe_counter!(
+            STEP_NARROWED,
+            Unit::Count,
+            "Number of times the step is narrowed"
         );
     }
 }

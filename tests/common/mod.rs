@@ -1,9 +1,3 @@
-use command_fds::CommandFdExt;
-use ipa::{
-    cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
-};
-use rand::thread_rng;
-use rand_core::RngCore;
 use std::{
     array,
     error::Error,
@@ -15,6 +9,13 @@ use std::{
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
 };
+
+use command_fds::CommandFdExt;
+use ipa::{
+    cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
+};
+use rand::thread_rng;
+use rand_core::RngCore;
 use tempdir::TempDir;
 
 #[cfg(all(test, feature = "cli"))]

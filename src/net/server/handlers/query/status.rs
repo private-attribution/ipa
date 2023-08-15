@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use axum::{routing::get, Extension, Json, Router};
+use hyper::StatusCode;
+
 use crate::{
     helpers::Transport,
     net::{http_serde::query::status, server::Error, HttpTransport},
 };
-use axum::{routing::get, Extension, Json, Router};
-use hyper::StatusCode;
 
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
@@ -28,6 +29,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::future::ready;
 
+    use axum::http::Request;
+    use hyper::StatusCode;
+
     use super::*;
     use crate::{
         helpers::TransportCallbacks,
@@ -39,8 +43,6 @@ mod tests {
         protocol::QueryId,
         query::QueryStatus,
     };
-    use axum::http::Request;
-    use hyper::StatusCode;
 
     #[tokio::test]
     async fn status_test() {

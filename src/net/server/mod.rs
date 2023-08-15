@@ -1,13 +1,16 @@
 mod handlers;
 
-use crate::{
-    config::{NetworkConfig, ServerConfig, TlsConfig},
-    error::BoxError,
-    helpers::HelperIdentity,
-    net::{Error, HttpTransport},
-    sync::Arc,
-    task::JoinHandle,
-    telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
+use std::{
+    borrow::Cow,
+    io,
+    net::{Ipv4Addr, SocketAddr, TcpListener},
+    ops::Deref,
+    task::{Context, Poll},
+};
+
+use ::tokio::{
+    fs,
+    io::{AsyncRead, AsyncWrite},
 };
 use axum::{
     response::{IntoResponse, Response},
@@ -28,13 +31,8 @@ use futures::{
 use hyper::{header::HeaderName, server::conn::AddrStream, Request};
 use metrics::increment_counter;
 use rustls_pemfile::Item;
-use std::{
-    borrow::Cow,
-    io,
-    net::{Ipv4Addr, SocketAddr, TcpListener},
-    ops::Deref,
-    task::{Context, Poll},
-};
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 use tokio_rustls::{
     rustls::{
         server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
@@ -46,13 +44,15 @@ use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
-use ::tokio::{
-    fs,
-    io::{AsyncRead, AsyncWrite},
+use crate::{
+    config::{NetworkConfig, ServerConfig, TlsConfig},
+    error::BoxError,
+    helpers::HelperIdentity,
+    net::{Error, HttpTransport},
+    sync::Arc,
+    task::JoinHandle,
+    telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
-
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 
 pub trait TracingSpanMaker: Send + Sync + Clone + 'static {
     fn make_span(&self) -> Span;
@@ -482,15 +482,11 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 
 #[cfg(all(test, unit_test))]
 mod e2e_tests {
-    use super::*;
-    use crate::{
-        net::{http_serde, test::TestServer},
-        test_fixture::metrics::MetricsHandle,
-    };
+    use std::{collections::HashMap, time::SystemTime};
+
     use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
     use hyper_rustls::HttpsConnector;
     use metrics_util::debugging::Snapshotter;
-    use std::{collections::HashMap, time::SystemTime};
     use tokio_rustls::{
         rustls,
         rustls::{
@@ -499,6 +495,12 @@ mod e2e_tests {
         },
     };
     use tracing::Level;
+
+    use super::*;
+    use crate::{
+        net::{http_serde, test::TestServer},
+        test_fixture::metrics::MetricsHandle,
+    };
 
     fn expected_req(host: String) -> http_serde::echo::Request {
         http_serde::echo::Request::new(

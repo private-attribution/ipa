@@ -1,4 +1,17 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
+use std::{
+    cmp::min,
+    iter::zip,
+    time::{Duration, Instant},
+};
+
+use futures_util::future::try_join_all;
+use generic_array::GenericArray;
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand_core::SeedableRng;
+use tokio::time::sleep;
+use typenum::Unsigned;
+
 use crate::{
     cli::IpaQueryResult,
     ff::{PrimeField, Serializable},
@@ -15,17 +28,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
 };
-use futures_util::future::try_join_all;
-use generic_array::GenericArray;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
-use rand_core::SeedableRng;
-use std::{
-    cmp::min,
-    iter::zip,
-    time::{Duration, Instant},
-};
-use tokio::time::sleep;
-use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
 /// Returns aggregated values per breakdown key represented as index in the returned vector

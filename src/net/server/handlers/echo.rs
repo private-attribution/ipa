@@ -1,5 +1,6 @@
-use crate::net::{http_serde, server::Error};
 use axum::{routing::get, Json, Router};
+
+use crate::net::{http_serde, server::Error};
 
 #[allow(clippy::unused_async)] // needs to be async for axum handler
 async fn handler(req: http_serde::echo::Request) -> Result<Json<http_serde::echo::Request>, Error> {
@@ -12,8 +13,9 @@ pub fn router() -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     #[tokio::test]
     async fn happy_case() {

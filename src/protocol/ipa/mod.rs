@@ -1,3 +1,15 @@
+use std::{iter::zip, marker::PhantomData, ops::Add};
+
+use async_trait::async_trait;
+use futures::{
+    future::{try_join, try_join3},
+    stream::iter as stream_iter,
+};
+use generic_array::{ArrayLength, GenericArray};
+use ipa_macros::step;
+use strum::AsRefStr;
+use typenum::Unsigned;
+
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
@@ -27,16 +39,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
-use async_trait::async_trait;
-use futures::{
-    future::{try_join, try_join3},
-    stream::iter as stream_iter,
-};
-use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::step;
-use std::{iter::zip, marker::PhantomData, ops::Add};
-use strum::AsRefStr;
-use typenum::Unsigned;
 
 #[step]
 pub(crate) enum Step {
@@ -449,6 +451,8 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+    use std::num::NonZeroU32;
+
     use super::ipa;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
@@ -464,7 +468,6 @@ pub mod tests {
             TestWorldConfig,
         },
     };
-    use std::num::NonZeroU32;
 
     #[test]
     fn semi_honest() {
@@ -895,6 +898,14 @@ pub mod tests {
 
     #[cfg(all(test, unit_test))]
     mod serialization {
+        use generic_array::GenericArray;
+        use proptest::{
+            proptest,
+            test_runner::{RngAlgorithm, TestRng},
+        };
+        use rand::distributions::{Distribution, Standard};
+        use typenum::Unsigned;
+
         use crate::{
             ff::{Field, Fp31, PrimeField, Serializable},
             ipa_test_input,
@@ -905,13 +916,6 @@ pub mod tests {
             secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
             test_fixture::input::GenericReportTestInput,
         };
-        use generic_array::GenericArray;
-        use proptest::{
-            proptest,
-            test_runner::{RngAlgorithm, TestRng},
-        };
-        use rand::distributions::{Distribution, Standard};
-        use typenum::Unsigned;
 
         fn serde_internal<F>(
             timestamp: u128,

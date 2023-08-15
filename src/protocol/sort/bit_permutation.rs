@@ -1,11 +1,13 @@
+use std::iter::{repeat, zip};
+
+use embed_doc_image::embed_doc_image;
+
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use embed_doc_image::embed_doc_image;
-use std::iter::{repeat, zip};
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:

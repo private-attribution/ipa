@@ -1,8 +1,3 @@
-use crate::{
-    rand::{thread_rng, Rng},
-    telemetry::{metrics::register, stats::Metrics},
-    test_fixture::logging,
-};
 use metrics::KeyName;
 use metrics_tracing_context::TracingContextLayer;
 use metrics_util::{
@@ -12,6 +7,12 @@ use metrics_util::{
 use once_cell::sync::OnceCell;
 use rand::distributions::Alphanumeric;
 use tracing::{Level, Span};
+
+use crate::{
+    rand::{thread_rng, Rng},
+    telemetry::{metrics::register, stats::Metrics},
+    test_fixture::logging,
+};
 
 // TODO: move to OnceCell from std once it is stabilized
 static ONCE: OnceCell<Snapshotter> = OnceCell::new();

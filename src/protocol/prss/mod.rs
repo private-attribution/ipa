@@ -1,16 +1,16 @@
 mod crypto;
+use std::{collections::HashMap, fmt::Debug};
+#[cfg(debug_assertions)]
+use std::{collections::HashSet, fmt::Formatter};
+
+pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+use x25519_dalek::PublicKey;
+
 use super::step::Gate;
 use crate::{
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
-use std::{collections::HashMap, fmt::Debug};
-use x25519_dalek::PublicKey;
-
-#[cfg(debug_assertions)]
-use std::{collections::HashSet, fmt::Formatter};
-
-pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
@@ -256,6 +256,10 @@ impl EndpointSetup {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
+    use std::mem::drop;
+
+    use rand::prelude::SliceRandom;
+
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
         ff::{Field, Fp31},
@@ -267,8 +271,6 @@ pub mod test {
         secret_sharing::SharedValue,
         test_fixture::make_participants,
     };
-    use rand::prelude::SliceRandom;
-    use std::mem::drop;
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
