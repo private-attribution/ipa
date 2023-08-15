@@ -120,6 +120,14 @@ mod tests {
         .await;
     }
 
+    #[tokio::test]
+    async fn create_test_aggregate() {
+        create_test(QueryConfig::new(QueryType::SemiHonestAggregate, FieldType::Fp31, 1).unwrap())
+            .await;
+        create_test(QueryConfig::new(QueryType::MaliciousAggregate, FieldType::Fp31, 1).unwrap())
+            .await;
+    }
+
     struct OverrideReq {
         field_type: String,
         query_type_params: String,

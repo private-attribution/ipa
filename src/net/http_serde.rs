@@ -166,7 +166,8 @@ pub mod query {
                         &_ => unreachable!(),
                     }
                 }
-
+                QueryType::SEMIHONEST_AGGREGATE_STR => Ok(QueryType::SemiHonestAggregate),
+                QueryType::MALICIOUS_AGGREGATE_STR => Ok(QueryType::MaliciousAggregate),
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
