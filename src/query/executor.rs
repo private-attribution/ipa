@@ -30,7 +30,7 @@ use crate::{
         step::{Gate, StepNarrow},
     },
     query::{
-        runner::{IpaQuery, QueryResult},
+        runner::{AggregateQuery, IpaQuery, QueryResult},
         state::RunningQuery,
     },
 };
@@ -126,6 +126,60 @@ pub fn execute(
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
                     IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::SemiHonestAggregate, FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    AggregateQuery::<crate::ff::Fp31, _, _>::new(key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        (QueryType::SemiHonestAggregate, FieldType::Fp32BitPrime) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    AggregateQuery::<Fp32BitPrime, _, _>::new(key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::MaliciousAggregate, FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = MaliciousContext::new(prss, gateway);
+                Box::pin(
+                    AggregateQuery::<crate::ff::Fp31, _, _>::new(key_registry)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        (QueryType::MaliciousAggregate, FieldType::Fp32BitPrime) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = MaliciousContext::new(prss, gateway);
+                Box::pin(
+                    AggregateQuery::<Fp32BitPrime, _, _>::new(key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )

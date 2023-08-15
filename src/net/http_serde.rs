@@ -206,6 +206,8 @@ pub mod query {
 
                     Ok(())
                 }
+                QueryType::SemiHonestAggregate => Ok(()),
+                QueryType::MaliciousAggregate => Ok(()),
             }
         }
     }
