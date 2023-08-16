@@ -56,6 +56,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn execute(
     config: QueryConfig,
     key_registry: Arc<KeyRegistry<KeyPair>>,
