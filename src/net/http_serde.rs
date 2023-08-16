@@ -90,7 +90,10 @@ pub mod query {
 
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+        helpers::query::{
+            AggregateQueryConfig, ContributionBits, IpaQueryConfig, QueryConfig, QuerySize,
+            QueryType,
+        },
         net::Error,
     };
 
@@ -166,8 +169,32 @@ pub mod query {
                         &_ => unreachable!(),
                     }
                 }
-                QueryType::SEMIHONEST_AGGREGATE_STR => Ok(QueryType::SemiHonestAggregate),
-                QueryType::MALICIOUS_AGGREGATE_STR => Ok(QueryType::MaliciousAggregate),
+                QueryType::SEMIHONEST_AGGREGATE_STR | QueryType::MALICIOUS_AGGREGATE_STR => {
+                    #[derive(serde::Deserialize)]
+                    struct AggregateQueryConfigParam {
+                        contribution_bits: ContributionBits,
+                        num_contributions: u32,
+                    }
+                    let Query(AggregateQueryConfigParam {
+                        contribution_bits,
+                        num_contributions,
+                    }) = req.extract().await?;
+                    match query_type.as_str() {
+                        QueryType::SEMIHONEST_AGGREGATE_STR => {
+                            Ok(QueryType::SemiHonestAggregate(AggregateQueryConfig {
+                                contribution_bits,
+                                num_contributions,
+                            }))
+                        }
+                        QueryType::MALICIOUS_AGGREGATE_STR => {
+                            Ok(QueryType::MaliciousAggregate(AggregateQueryConfig {
+                                contribution_bits,
+                                num_contributions,
+                            }))
+                        }
+                        &_ => unreachable!(),
+                    }
+                }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
@@ -207,8 +234,8 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::SemiHonestAggregate => Ok(()),
-                QueryType::MaliciousAggregate => Ok(()),
+                QueryType::SemiHonestAggregate(_) => Ok(()),
+                QueryType::MaliciousAggregate(_) => Ok(()),
             }
         }
     }

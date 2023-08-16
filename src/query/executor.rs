@@ -133,7 +133,7 @@ pub fn execute(
             },
         ),
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::SemiHonestAggregate, FieldType::Fp31) => do_query(
+        (QueryType::SemiHonestAggregate(_), FieldType::Fp31) => do_query(
             config,
             gateway,
             input,
@@ -146,7 +146,7 @@ pub fn execute(
                 )
             },
         ),
-        (QueryType::SemiHonestAggregate, FieldType::Fp32BitPrime) => do_query(
+        (QueryType::SemiHonestAggregate(_), FieldType::Fp32BitPrime) => do_query(
             config,
             gateway,
             input,
@@ -160,7 +160,7 @@ pub fn execute(
             },
         ),
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::MaliciousAggregate, FieldType::Fp31) => do_query(
+        (QueryType::MaliciousAggregate(_), FieldType::Fp31) => do_query(
             config,
             gateway,
             input,
@@ -173,7 +173,7 @@ pub fn execute(
                 )
             },
         ),
-        (QueryType::MaliciousAggregate, FieldType::Fp32BitPrime) => do_query(
+        (QueryType::MaliciousAggregate(_), FieldType::Fp32BitPrime) => do_query(
             config,
             gateway,
             input,
