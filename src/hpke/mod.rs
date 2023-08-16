@@ -6,8 +6,8 @@ use std::{fmt::Debug, io, ops::Add};
 
 use generic_array::ArrayLength;
 use hpke::{
-    aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached,
-    single_shot_seal_in_place_detached, OpModeR, OpModeS,
+    aead::AeadTag, single_shot_open_in_place_detached, single_shot_seal_in_place_detached, OpModeR,
+    OpModeS,
 };
 use rand_core::{CryptoRng, RngCore};
 use typenum::U16;
@@ -19,7 +19,7 @@ pub use info::Info;
 pub use registry::{KeyPair, KeyRegistry, PublicKeyOnly, PublicKeyRegistry};
 
 use crate::{
-    ff::{GaloisField, Gf40Bit, Serializable as IpaSerializable},
+    ff::{GaloisField, Serializable as IpaSerializable},
     report::KeyIdentifier,
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
@@ -29,44 +29,32 @@ type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
-/// Right now we assume the match keys to be 40 bits long. If it is not the case, the decryption
-/// will fail. This assumption allows to keep the bitstrings on the stack, for dynamically sized
-/// match keys we would have to heap allocate.
-type XorReplicated = AdditiveShare<Gf40Bit>;
-
 pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 pub use hpke::{Deserializable, Serializable};
 
-/// match key size, in bytes
-const MATCHKEY_LEN: usize = <XorReplicated as IpaSerializable>::Size::USIZE;
-
-/// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize =
-    MATCHKEY_LEN + <AeadTag<IpaAead> as Serializable>::OutputSize::USIZE;
-
-pub trait MatchKeyCrypt: GaloisField + IpaSerializable {
+pub trait FieldShareCrypt: GaloisField + IpaSerializable {
     type EncapKeySize: ArrayLength<u8>;
     type CiphertextSize: ArrayLength<u8>;
     type SemiHonestShares: IpaSerializable + Clone + Debug + Eq;
 }
 
-// Ideally this could generically add the tag size to the match key size (i.e. remove the
+// Ideally this could generically add the tag size to the size of the share (i.e. remove the
 // `OutputSize = U16` constraint and instead of writing `Add<U16>`, write `Add<<AeadTag<IpaAead> as
-// hpke::Serializable>::OutputSize>`, but could not figure out how to get the compiler to accept
+// hpke::Serializable>::OutputSize>`), but could not figure out how to get the compiler to accept
 // that, and it doesn't seem worth a lot of trouble for a value that won't be changing.
-impl<MK> MatchKeyCrypt for MK
+impl<F> FieldShareCrypt for F
 where
-    MK: GaloisField + IpaSerializable + Clone + Debug + Eq,
-    AdditiveShare<MK>: IpaSerializable + Clone + Debug + Eq,
+    F: GaloisField + IpaSerializable + Clone + Debug + Eq,
+    AdditiveShare<F>: IpaSerializable + Clone + Debug + Eq,
     AeadTag<IpaAead>: Serializable<OutputSize = U16>,
-    <AdditiveShare<MK> as IpaSerializable>::Size: Add<U16>,
-    <<AdditiveShare<MK> as IpaSerializable>::Size as Add<U16>>::Output: ArrayLength<u8>,
+    <AdditiveShare<F> as IpaSerializable>::Size: Add<U16>,
+    <<AdditiveShare<F> as IpaSerializable>::Size as Add<U16>>::Output: ArrayLength<u8>,
 {
     type EncapKeySize = <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
-    type CiphertextSize = <<AdditiveShare<MK> as IpaSerializable>::Size as Add<U16>>::Output;
-    type SemiHonestShares = AdditiveShare<MK>;
+    type CiphertextSize = <<AdditiveShare<F> as IpaSerializable>::Size as Add<U16>>::Output;
+    type SemiHonestShares = AdditiveShare<F>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -134,7 +122,7 @@ pub fn open_in_place<'a>(
 
 // Avoids a clippy "complex type" warning on the return type from `seal_in_place`.
 // Not intended to be widely used.
-pub(crate) type MatchKeyCiphertext<'a> = (
+pub(crate) type Ciphertext<'a> = (
     <IpaKem as hpke::Kem>::EncappedKey,
     &'a [u8],
     AeadTag<IpaAead>,
@@ -147,7 +135,7 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
     plaintext: &'a mut [u8],
     info: &'a Info,
     rng: &mut R,
-) -> Result<MatchKeyCiphertext<'a>, CryptError> {
+) -> Result<Ciphertext<'a>, CryptError> {
     let key_id = info.key_id;
     let info = info.to_bytes();
     let pk_r = key_registry
@@ -167,39 +155,47 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
     Ok((encap_key, plaintext, tag))
 }
 
-/// Represents an encrypted share of single match key.
-#[derive(Clone)]
-// temporarily to appease clippy while we don't have actual consumers of this struct
-#[cfg(all(test, unit_test))]
-struct MatchKeyEncryption<'a> {
-    /// Encapsulated key as defined in [`url`] specification.
-    /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
-    ///
-    /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-4
-    /// [`aead`]: IpaAead
-    enc: [u8; 32],
-
-    /// Ciphertext + tag
-    ct: [u8; MATCHKEY_CT_LEN],
-
-    /// Info part of the receiver context as defined in [`url`] specification.
-    ///
-    /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-5.1
-    info: Info<'a>,
-}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use generic_array::GenericArray;
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
+    use typenum::Unsigned;
 
     use super::*;
     use crate::{
-        ff::Serializable as IpaSerializable,
+        ff::{Gf40Bit, Serializable as IpaSerializable},
         report::{Epoch, EventType},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
+
+    type XorReplicated = AdditiveShare<Gf40Bit>;
+
+    /// match key size, in bytes
+    const MATCHKEY_LEN: usize = <XorReplicated as IpaSerializable>::Size::USIZE;
+
+    /// Total len in bytes for an encrypted matchkey including the authentication tag.
+    const MATCHKEY_CT_LEN: usize =
+        MATCHKEY_LEN + <AeadTag<IpaAead> as Serializable>::OutputSize::USIZE;
+
+    /// Represents an encrypted share of single match key.
+    #[derive(Clone)]
+    struct MatchKeyEncryption<'a> {
+        /// Encapsulated key as defined in [`url`] specification.
+        /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
+        ///
+        /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-4
+        /// [`aead`]: IpaAead
+        enc: [u8; 32],
+
+        /// Ciphertext + tag
+        ct: [u8; MATCHKEY_CT_LEN],
+
+        /// Info part of the receiver context as defined in [`url`] specification.
+        ///
+        /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-5.1
+        info: Info<'a>,
+    }
 
     struct EncryptionSuite<R: RngCore + CryptoRng> {
         registry: KeyRegistry<KeyPair>,
