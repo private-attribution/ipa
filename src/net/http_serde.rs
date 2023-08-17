@@ -234,8 +234,15 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::SemiHonestAggregate(_) => Ok(()),
-                QueryType::MaliciousAggregate(_) => Ok(()),
+                QueryType::SemiHonestAggregate(config) | QueryType::MaliciousAggregate(config) => {
+                    write!(
+                        f,
+                        "&contribution_bits={}&num_contributions={}",
+                        config.contribution_bits, config.num_contributions,
+                    )?;
+
+                    Ok(())
+                }
             }
         }
     }

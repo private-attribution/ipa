@@ -331,6 +331,12 @@ impl Default for ContributionBits {
     }
 }
 
+impl std::fmt::Display for ContributionBits {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct AggregateQueryConfig {
