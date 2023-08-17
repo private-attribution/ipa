@@ -5,8 +5,15 @@ rust-version = "1.64.0"
 edition = "2021"
 
 [features]
-# by default remove all TRACE, DEBUG spans from release builds
-default = ["web-app", "in-memory-infra", "tracing/max_level_trace", "tracing/release_max_level_info", "descriptive-gate"]
+default = [
+    "web-app",
+    "in-memory-infra",
+    # by default remove all TRACE, DEBUG spans from release builds
+    "tracing/max_level_trace",
+    "tracing/release_max_level_info",
+    "descriptive-gate",
+    "aggregate-circuit"
+]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
 disable-metrics = []
@@ -30,6 +37,10 @@ step-trace = ["descriptive-gate"]
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
 descriptive-gate = []
 compact-gate = []
+
+# Standalone aggregation protocol. We use IPA infra for communication
+# but it has nothing to do with IPA.
+aggregate-circuit = []
 
 [dependencies]
 ipa-macros = { version = "*", path = "./ipa-macros" }
