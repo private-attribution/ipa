@@ -44,7 +44,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
+            query::{AggregateQueryConfig, IpaQueryConfig, QueryConfig, QueryType},
             TransportCallbacks,
         },
         net::{
@@ -122,10 +122,24 @@ mod tests {
 
     #[tokio::test]
     async fn create_test_aggregate() {
-        create_test(QueryConfig::new(QueryType::SemiHonestAggregate, FieldType::Fp31, 1).unwrap())
-            .await;
-        create_test(QueryConfig::new(QueryType::MaliciousAggregate, FieldType::Fp31, 1).unwrap())
-            .await;
+        create_test(QueryConfig {
+            size: 1.try_into().unwrap(),
+            field_type: FieldType::Fp31,
+            query_type: QueryType::SemiHonestAggregate(AggregateQueryConfig {
+                contribution_bits: 8.try_into().unwrap(),
+                num_contributions: 20,
+            }),
+        })
+        .await;
+        create_test(QueryConfig {
+            size: 1.try_into().unwrap(),
+            field_type: FieldType::Fp31,
+            query_type: QueryType::MaliciousAggregate(AggregateQueryConfig {
+                contribution_bits: 8.try_into().unwrap(),
+                num_contributions: 20,
+            }),
+        })
+        .await;
     }
 
     struct OverrideReq {
