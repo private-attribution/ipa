@@ -157,31 +157,31 @@ bench = false
 name = "criterion_arithmetic"
 path = "benches/ct/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches"]
+required-features = ["enable-benches", "descriptive-gate"]
 
 [[bench]]
 name = "iai_arithmetic"
 path = "benches/iai/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches"]
+required-features = ["enable-benches", "descriptive-gate"]
 
 [[bench]]
 name = "oneshot_arithmetic"
 path = "benches/oneshot/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches"]
+required-features = ["enable-benches", "descriptive-gate"]
 
 [[bench]]
 name = "oneshot_sort"
 path = "benches/oneshot/sort.rs"
 harness = false
-required-features = ["enable-benches"]
+required-features = ["enable-benches", "descriptive-gate"]
 
 [[bench]]
 name = "oneshot_ipa"
 path = "benches/oneshot/ipa.rs"
 harness = false
-required-features = ["enable-benches"]
+required-features = ["enable-benches", "descriptive-gate"]
 
 [[test]]
 name = "helper_networks"
