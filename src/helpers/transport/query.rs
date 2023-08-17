@@ -204,12 +204,16 @@ pub enum QueryType {
     TestMultiply,
     SemiHonestIpa(IpaQueryConfig),
     MaliciousIpa(IpaQueryConfig),
+    SemiHonestAggregate(AggregateQueryConfig),
+    MaliciousAggregate(AggregateQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const SEMIHONEST_IPA_STR: &'static str = "semihonest-ipa";
     pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
+    pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-aggregate";
+    pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-aggregate";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -220,6 +224,8 @@ impl AsRef<str> for QueryType {
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::SemiHonestIpa(_) => Self::SEMIHONEST_IPA_STR,
             QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
+            QueryType::SemiHonestAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
+            QueryType::MaliciousAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
         }
     }
 }
@@ -297,6 +303,52 @@ impl IpaQueryConfig {
             attribution_window_seconds: None,
             num_multi_bits,
             plaintext_match_keys: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Debug)]
+#[serde(try_from = "u32")] // Tell serde to deserialize data into an int and then try to convert it into a valie contributuion bit size
+pub struct ContributionBits(u32);
+
+impl TryFrom<u32> for ContributionBits {
+    type Error = String;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            8 | 32 | 40 => Ok(Self(value)),
+            _ => Err(format!(
+                "{value} contribution bits is not supported. \
+                 Please set to 8, 32, or 40, or add an new implementation."
+            )),
+        }
+    }
+}
+
+impl Default for ContributionBits {
+    fn default() -> Self {
+        Self(8)
+    }
+}
+
+impl std::fmt::Display for ContributionBits {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+pub struct AggregateQueryConfig {
+    pub contribution_bits: ContributionBits,
+    pub num_contributions: u32,
+}
+
+impl Default for AggregateQueryConfig {
+    fn default() -> Self {
+        Self {
+            contribution_bits: ContributionBits::default(),
+            num_contributions: 1,
         }
     }
 }

@@ -44,7 +44,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
+            query::{AggregateQueryConfig, IpaQueryConfig, QueryConfig, QueryType},
             TransportCallbacks,
         },
         net::{
@@ -115,6 +115,28 @@ mod tests {
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
                 plaintext_match_keys: true,
+            }),
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create_test_aggregate() {
+        create_test(QueryConfig {
+            size: 1.try_into().unwrap(),
+            field_type: FieldType::Fp31,
+            query_type: QueryType::SemiHonestAggregate(AggregateQueryConfig {
+                contribution_bits: 8.try_into().unwrap(),
+                num_contributions: 20,
+            }),
+        })
+        .await;
+        create_test(QueryConfig {
+            size: 1.try_into().unwrap(),
+            field_type: FieldType::Fp31,
+            query_type: QueryType::MaliciousAggregate(AggregateQueryConfig {
+                contribution_bits: 8.try_into().unwrap(),
+                num_contributions: 20,
             }),
         })
         .await;
@@ -273,6 +295,73 @@ mod tests {
     async fn malformed_num_multi_bits_ipa() {
         let req = OverrideIPAReq {
             num_multi_bits: "-1".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    struct OverrideAggregateReq {
+        field_type: String,
+        query_type: String,
+        contribution_bits: String,
+        num_contributions: String,
+    }
+
+    impl IntoFailingReq for OverrideAggregateReq {
+        fn into_req(self, port: u16) -> Request<Body> {
+            let query = format!(
+                "query_type={}&contribution_bits={}&num_contributions={}",
+                self.query_type, self.contribution_bits, self.num_contributions,
+            );
+            OverrideReq {
+                field_type: self.field_type,
+                query_type_params: query,
+            }
+            .into_req(port)
+        }
+    }
+
+    impl Default for OverrideAggregateReq {
+        fn default() -> Self {
+            Self {
+                field_type: format!("{:?}", FieldType::Fp32BitPrime),
+                query_type: QueryType::SEMIHONEST_AGGREGATE_STR.to_string(),
+                contribution_bits: "8".into(),
+                num_contributions: "20".into(),
+            }
+        }
+    }
+    #[tokio::test]
+    async fn malformed_field_type_aggregate() {
+        let req = OverrideAggregateReq {
+            field_type: "invalid_field".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_query_type_aggregate() {
+        let req = OverrideAggregateReq {
+            query_type: "not_aggregate".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_contribution_bits_aggregate() {
+        let req = OverrideAggregateReq {
+            contribution_bits: "3".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_num_contributions_aggregate() {
+        let req = OverrideAggregateReq {
+            num_contributions: "-1".into(),
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
