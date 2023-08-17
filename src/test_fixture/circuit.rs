@@ -24,10 +24,12 @@ where
     for<'a> Replicated<F>: SecureMul<SemiHonestContext<'a>>,
 {
     let world = TestWorld::default();
+    // Re-use contexts for the entire execution because record identifiers are contiguous.
+    let contexts = world.contexts();
 
     let mut multiplications = Vec::new();
     for record in 0..width {
-        let circuit_result = circuit(&world, RecordId::from(record), depth);
+        let circuit_result = circuit(&contexts, RecordId::from(record), depth);
         multiplications.push(circuit_result);
     }
 
@@ -41,23 +43,26 @@ where
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit<'a, F>(world: &'a TestWorld, record_id: RecordId, depth: u8) -> [Replicated<F>; 3]
+async fn circuit<'a, F>(
+    top_ctx: &[SemiHonestContext<'a>; 3],
+    record_id: RecordId,
+    depth: u8,
+) -> [Replicated<F>; 3]
 where
     F: Field + IntoShares<Replicated<F>>,
     Replicated<F>: SecureMul<SemiHonestContext<'a>>,
 {
-    let top_ctx = world.contexts();
     let mut a = F::ONE.share_with(&mut thread_rng());
 
     for bit in 0..depth {
         let b = F::ONE.share_with(&mut thread_rng());
-        let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
+        let bit_ctx = narrow_contexts(top_ctx, &format!("b{bit}"));
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
                 let mul = a[i].multiply(
                     &b[i],
-                    ctx.narrow(&"mult".to_string())
+                    ctx.narrow("mult")
                         .set_total_records(TotalRecords::Indeterminate),
                     record_id,
                 );
