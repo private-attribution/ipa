@@ -299,4 +299,71 @@ mod tests {
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
+
+    struct OverrideAggregateReq {
+        field_type: String,
+        query_type: String,
+        contribution_bits: String,
+        num_contributions: String,
+    }
+
+    impl IntoFailingReq for OverrideAggregateReq {
+        fn into_req(self, port: u16) -> Request<Body> {
+            let query = format!(
+                "query_type={}&contribution_bits={}&num_contributions={}",
+                self.query_type, self.contribution_bits, self.num_contributions,
+            );
+            OverrideReq {
+                field_type: self.field_type,
+                query_type_params: query,
+            }
+            .into_req(port)
+        }
+    }
+
+    impl Default for OverrideAggregateReq {
+        fn default() -> Self {
+            Self {
+                field_type: format!("{:?}", FieldType::Fp32BitPrime),
+                query_type: QueryType::SEMIHONEST_AGGREGATE_STR.to_string(),
+                contribution_bits: "8".into(),
+                num_contributions: "20".into(),
+            }
+        }
+    }
+    #[tokio::test]
+    async fn malformed_field_type_aggregate() {
+        let req = OverrideAggregateReq {
+            field_type: "invalid_field".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_query_type_aggregate() {
+        let req = OverrideAggregateReq {
+            query_type: "not_aggregate".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_contribution_bits_aggregate() {
+        let req = OverrideAggregateReq {
+            contribution_bits: "3".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_num_contributions_aggregate() {
+        let req = OverrideAggregateReq {
+            num_contributions: "-1".into(),
+            ..Default::default()
+        };
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 }
