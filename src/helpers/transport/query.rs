@@ -318,9 +318,8 @@ impl TryFrom<u32> for ContributionBits {
         match value {
             8 | 32 | 40 => Ok(Self(value)),
             _ => Err(format!(
-                "{} contribution bits is not supported. \
-                 Please set to 8, 32, or 40, or add an new implementation.",
-                value
+                "{value} contribution bits is not supported. \
+                 Please set to 8, 32, or 40, or add an new implementation."
             )),
         }
     }
