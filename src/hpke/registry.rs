@@ -1,6 +1,8 @@
-use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
-use hpke::Serializable;
 use std::ops::Deref;
+
+use hpke::Serializable;
+
+use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
 
 /// A pair of secret key and public key. Public keys used by UA to encrypt the data towards helpers
 /// secret keys used by helpers to open the ciphertexts. Each helper needs access to both
@@ -121,11 +123,12 @@ impl PublicKeyRegistry for KeyRegistry<PublicKeyOnly> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::*;
-    use crate::hpke::{IpaAead, IpaKdf, IpaKem};
     use hpke::{kem::EncappedKey, HpkeError, OpModeR, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
+
+    use super::*;
+    use crate::hpke::{IpaAead, IpaKdf, IpaKem};
 
     const INFO_STR: &[u8] = b"This is an INFO string.";
     const AAD: &[u8] = b"This is AAD.";

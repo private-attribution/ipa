@@ -1,3 +1,14 @@
+use std::{
+    borrow::Borrow,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::{Stream, TryFutureExt};
+
 use crate::{
     config::{NetworkConfig, ServerConfig},
     error::BoxError,
@@ -11,15 +22,6 @@ use crate::{
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{step::Gate, QueryId},
     sync::Arc,
-};
-use async_trait::async_trait;
-use bytes::Bytes;
-use futures::{Stream, TryFutureExt};
-use std::{
-    borrow::Borrow,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
 };
 
 type LogHttpErrors = LogErrors<BodyStream, Bytes, BoxError>;
@@ -153,16 +155,12 @@ impl Transport for Arc<HttpTransport> {
                 let step =
                     <Option<Gate>>::from(route.gate()).expect("step required when sending records");
                 let resp_future = self.clients[dest].step(query_id, &step, data)?;
-                tokio::spawn(async move {
-                    resp_future
-                        .map_err(Into::into)
-                        .and_then(MpcHelperClient::resp_ok)
-                        .await
-                        .expect("failed to stream records");
-                });
-                // TODO(600): We need to do something better than panic if there is an error sending the
-                // data. Note, also, that the caller of this function (`GatewayBase::get_sender`)
-                // currently panics on errors.
+                // we don't need to spawn a task here. Gateway's sender interface already does that
+                // so this can just poll this future.
+                resp_future
+                    .map_err(Into::into)
+                    .and_then(MpcHelperClient::resp_ok)
+                    .await?;
                 Ok(())
             }
             RouteId::PrepareQuery => {
@@ -189,6 +187,16 @@ impl Transport for Arc<HttpTransport> {
 
 #[cfg(all(test, web_test))]
 mod tests {
+    use std::{iter::zip, net::TcpListener, task::Poll};
+
+    use futures::stream::{poll_immediate, StreamExt};
+    use futures_util::future::{join_all, try_join_all};
+    use generic_array::GenericArray;
+    use once_cell::sync::Lazy;
+    use tokio::sync::mpsc::channel;
+    use tokio_stream::wrappers::ReceiverStream;
+    use typenum::Unsigned;
+
     use super::*;
     use crate::{
         config::{NetworkConfig, ServerConfig},
@@ -202,14 +210,6 @@ mod tests {
         test_fixture::Reconstruct,
         AppSetup, HelperApp,
     };
-    use futures::stream::{poll_immediate, StreamExt};
-    use futures_util::future::{join_all, try_join_all};
-    use generic_array::GenericArray;
-    use once_cell::sync::Lazy;
-    use std::{iter::zip, net::TcpListener, task::Poll};
-    use tokio::sync::mpsc::channel;
-    use tokio_stream::wrappers::ReceiverStream;
-    use typenum::Unsigned;
 
     static STEP: Lazy<Gate> = Lazy::new(|| Gate::from("http-transport"));
 

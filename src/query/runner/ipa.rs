@@ -1,3 +1,10 @@
+use std::marker::PhantomData;
+
+use futures::{
+    stream::{iter, repeat},
+    Stream, StreamExt, TryStreamExt,
+};
+
 use crate::{
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
@@ -7,26 +14,20 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        attribution::input::MCAggregateCreditOutputRow,
         basics::{Reshare, ShareKnownValue},
-        boolean::RandomBits,
-        context::{UpgradableContext, UpgradedContext},
-        ipa::{ipa, IPAInputRow},
+        context::{UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext},
+        ipa::{ipa, ArithmeticallySharedIPAInputs, IPAInputRow},
+        modulus_conversion::BitConversionTriple,
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, BreakdownKey, MatchKey, RecordId,
     },
     report::{EncryptedReport, EventType, InvalidReportError},
     secret_sharing::{
-        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare},
+        replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare as Replicated},
         Linear as LinearSecretSharing,
     },
     sync::Arc,
 };
-use futures::{
-    stream::{iter, repeat},
-    Stream, StreamExt, TryStreamExt,
-};
-use std::marker::PhantomData;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,
@@ -47,38 +48,42 @@ impl<F, C, S> IpaQuery<F, C, S> {
 impl<F, C, S, SB> IpaQuery<F, C, S>
 where
     C: UpgradableContext + Send,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S> + RandomBits<F, Share = S>,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F>
         + BasicProtocols<C::UpgradedContext<F>, F>
         + Reshare<C::UpgradedContext<F>, RecordId>
         + Serializable
-        + DowngradeMalicious<Target = AdditiveShare<F>>
+        + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
-        + DowngradeMalicious<Target = AdditiveShare<Gf2>>
+        + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
     F: PrimeField,
-    AdditiveShare<F>: Serializable + ShareKnownValue<C, F>,
+    Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
-    MCAggregateCreditOutputRow<F, S, BreakdownKey>:
-        DowngradeMalicious<Target = MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>,
-    AdditiveShare<F>: Serializable,
+    for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
+        + UpgradeToMalicious<
+            'u,
+            ArithmeticallySharedIPAInputs<F, Replicated<F>>,
+            ArithmeticallySharedIPAInputs<F, S>,
+        >,
 {
-    #[tracing::instrument("ipa_query", skip_all, fields(query_config=?self.config, %query_size))]
+    #[tracing::instrument("ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(
         self,
         ctx: C,
         query_size: QuerySize,
         input_stream: BodyStream,
-    ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BreakdownKey>>, Error> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let Self {
             config,
             key_registry,
             phantom_data: _,
         } = self;
+        tracing::info!("New query: {config:?}");
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
@@ -108,16 +113,14 @@ where
             .zip(repeat(ctx.clone()))
             .map(|(res, ctx)| {
                 res.and_then(|report| {
-                    let timestamp = AdditiveShare::<F>::share_known_value(
+                    let timestamp = Replicated::<F>::share_known_value(
                         &ctx,
                         F::try_from(report.timestamp.into())
                             .map_err(|_| InvalidReportError::Timestamp(report.timestamp))?,
                     );
-                    let breakdown_key = AdditiveShare::<BreakdownKey>::share_known_value(
-                        &ctx,
-                        report.breakdown_key,
-                    );
-                    let is_trigger_bit = AdditiveShare::<F>::share_known_value(
+                    let breakdown_key =
+                        Replicated::<BreakdownKey>::share_known_value(&ctx, report.breakdown_key);
+                    let is_trigger_bit = Replicated::<F>::share_known_value(
                         &ctx,
                         match report.event_type {
                             EventType::Source => F::ZERO,
@@ -157,22 +160,23 @@ pub fn assert_stream_send<'a, T>(
 mod tests {
     use std::iter::zip;
 
-    use super::*;
-    use crate::{
-        ff::{Field, Fp31},
-        ipa_test_input,
-        report::{Report, DEFAULT_KEY_ID},
-        secret_sharing::IntoShares,
-        test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
-    };
     use generic_array::GenericArray;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
     use typenum::Unsigned;
 
+    use super::*;
+    use crate::{
+        ff::Fp31,
+        ipa_test_input,
+        report::{Report, DEFAULT_KEY_ID},
+        secret_sharing::IntoShares,
+        test_fixture::{input::GenericReportTestInput, join3v, Reconstruct, TestWorld},
+    };
+
     #[tokio::test]
     async fn ipa() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -224,27 +228,16 @@ mod tests {
             // Note that we ignore the last 2 records to test that runner follows the rule
             // to take up to `record_count` reports. Everything else outside that will
             // be ignored
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty()))
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::new(KeyRegistry::empty()))
                 .execute(ctx, query_size, input)
         }))
         .await;
-
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 
     #[tokio::test]
     async fn malicious_ipa() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -290,7 +283,7 @@ mod tests {
                 max_breakdown_key: 3,
                 plaintext_match_keys: true,
             };
-            IpaQuery::new(query_config, Arc::new(KeyRegistry::empty())).execute(
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::new(KeyRegistry::empty())).execute(
                 ctx,
                 query_size,
                 shares.into(),
@@ -298,22 +291,12 @@ mod tests {
         }))
         .await;
 
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 
     #[tokio::test]
     async fn encrypted_match_keys() {
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const EXPECTED: &[u128] = &[0, 2, 3];
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -357,20 +340,11 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            IpaQuery::new(query_config, Arc::clone(&key_registry)).execute(ctx, query_size, input)
+            IpaQuery::<Fp31, _, _>::new(query_config, Arc::clone(&key_registry))
+                .execute(ctx, query_size, input)
         }))
         .await;
 
-        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
-            results.reconstruct();
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    results[i].breakdown_key.as_u128(),
-                    results[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(results.reconstruct(), EXPECTED);
     }
 }

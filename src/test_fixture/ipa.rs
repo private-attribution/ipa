@@ -2,7 +2,7 @@ use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
 #[cfg(feature = "in-memory-infra")]
 use crate::{
-    ff::{GaloisField, PrimeField, Serializable},
+    ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{ipa::ipa, BreakdownKey, MatchKey},
@@ -43,12 +43,13 @@ pub fn ipa_in_the_clear(
     input: &[TestRawDataRecord],
     per_user_cap: u32,
     attribution_window: Option<NonZeroU32>,
+    max_breakdown: u32,
 ) -> Vec<u32> {
     // build a view that is convenient for attribution. match key -> events sorted by timestamp in reverse
     // that is more memory intensive, but should be faster to compute. We can always opt-out and
     // execute IPA in place
     let mut user_events = HashMap::new();
-    let (mut max_breakdown, mut last_ts) = (0, 0);
+    let mut last_ts = 0;
     for row in input {
         if cfg!(debug_assertions) {
             assert!(
@@ -64,10 +65,9 @@ pub fn ipa_in_the_clear(
             .entry(row.user_id)
             .or_insert_with(Vec::new)
             .push(row);
-        max_breakdown = max_breakdown.max(row.breakdown_key);
     }
 
-    let mut breakdowns = vec![0u32; usize::try_from(max_breakdown + 1).unwrap()];
+    let mut breakdowns = vec![0u32; usize::try_from(max_breakdown).unwrap()];
     for records_per_user in user_events.values() {
         // it works because input is sorted and vectors preserve the insertion order
         // so records in `rev` are returned in reverse chronological order
@@ -167,7 +167,7 @@ pub async fn test_ipa<F>(
         })
         .collect::<Vec<_>>();
 
-    let result: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = match security_model {
+    let result: Vec<F> = match security_model {
         IpaSecurityModel::Malicious => world
             .malicious(records.into_iter(), |ctx, input_rows| async move {
                 ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
@@ -185,19 +185,9 @@ pub async fn test_ipa<F>(
             .await
             .reconstruct(),
     };
-
-    assert_eq!(
-        config.max_breakdown_key,
-        u32::try_from(result.len()).unwrap()
-    );
-
-    for (i, expected) in expected_results.iter().enumerate() {
-        assert_eq!(
-            [i as u128, u128::from(*expected)],
-            [
-                result[i].breakdown_key.as_u128(),
-                result[i].trigger_value.as_u128()
-            ]
-        );
-    }
+    let result = result
+        .into_iter()
+        .map(|v| u32::try_from(v.as_u128()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(result, expected_results);
 }

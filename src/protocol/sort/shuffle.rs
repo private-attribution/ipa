@@ -1,17 +1,16 @@
 use embed_doc_image::embed_doc_image;
 use rand::{seq::SliceRandom, Rng};
 
+use super::{
+    apply::{apply, apply_inv},
+    ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
+};
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{basics::Reshare, context::Context, step::Step, NoRecord, RecordId},
     secret_sharing::SecretSharing,
-};
-
-use super::{
-    apply::{apply, apply_inv},
-    ShuffleStep::{self, Step1, Step2, Step3},
 };
 
 #[derive(Debug)]
@@ -50,9 +49,9 @@ pub fn get_two_of_three_random_permutations<R: Rng>(
 
 pub(super) fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
     match which_step {
-        Step1 => Role::H1,
-        Step2 => Role::H2,
-        Step3 => Role::H3,
+        Shuffle1 => Role::H1,
+        Shuffle2 => Role::H2,
+        Shuffle3 => Role::H3,
     }
 }
 
@@ -109,7 +108,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await?;
     let input = shuffle_or_unshuffle_once(
@@ -117,7 +116,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_or_unshuffle_once(
@@ -125,7 +124,7 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await
 }
@@ -144,7 +143,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step3,
+        Shuffle3,
     )
     .await?;
     let input = shuffle_or_unshuffle_once(
@@ -152,7 +151,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step2,
+        Shuffle2,
     )
     .await?;
     shuffle_or_unshuffle_once(
@@ -160,7 +159,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F> + Reshare<C, RecordI
         random_permutations,
         ShuffleOrUnshuffle::Unshuffle,
         &ctx,
-        Step1,
+        Shuffle1,
     )
     .await
 }
@@ -199,6 +198,8 @@ mod tests {
     }
 
     mod semi_honest {
+        use std::collections::HashSet;
+
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -209,7 +210,6 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn semi_honest() {
@@ -293,6 +293,8 @@ mod tests {
     }
 
     mod malicious {
+        use std::collections::HashSet;
+
         use crate::{
             ff::{Field, Fp31},
             protocol::{
@@ -303,7 +305,6 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use std::collections::HashSet;
 
         #[tokio::test]
         async fn malicious() {

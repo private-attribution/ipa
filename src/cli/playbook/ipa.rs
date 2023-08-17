@@ -1,7 +1,20 @@
 #![cfg(all(feature = "web-app", feature = "cli"))]
+use std::{
+    cmp::min,
+    iter::zip,
+    time::{Duration, Instant},
+};
+
+use futures_util::future::try_join_all;
+use generic_array::GenericArray;
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand_core::SeedableRng;
+use tokio::time::sleep;
+use typenum::Unsigned;
+
 use crate::{
     cli::IpaQueryResult,
-    ff::{Field, PrimeField, Serializable},
+    ff::{PrimeField, Serializable},
     helpers::{
         query::{IpaQueryConfig, QueryInput, QuerySize},
         BodyStream,
@@ -9,26 +22,12 @@ use crate::{
     hpke::PublicKeyRegistry,
     ipa_test_input,
     net::MpcHelperClient,
-    protocol::{
-        attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey, MatchKey,
-        QueryId,
-    },
+    protocol::{ipa::IPAInputRow, BreakdownKey, MatchKey, QueryId},
     query::QueryStatus,
     report::{KeyIdentifier, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
 };
-use futures_util::future::try_join_all;
-use generic_array::GenericArray;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
-use rand_core::SeedableRng;
-use std::{
-    cmp::min,
-    iter::zip,
-    time::{Duration, Instant},
-};
-use tokio::time::sleep;
-use typenum::Unsigned;
 
 /// Semi-honest IPA protocol.
 /// Returns aggregated values per breakdown key represented as index in the returned vector
@@ -139,25 +138,17 @@ where
         .try_into()
         .unwrap();
 
-    let results: Vec<GenericReportTestInput<F, MatchKey, BreakdownKey>> = results
-        .map(|bytes| {
-            MCAggregateCreditOutputRow::<F, AdditiveShare<F>, BreakdownKey>::from_byte_slice(&bytes)
-                .collect::<Vec<_>>()
-        })
+    let results: Vec<F> = results
+        .map(|bytes| AdditiveShare::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
         .reconstruct();
 
     let lat = mpc_time.elapsed();
     tracing::info!("Running IPA for {query_size:?} records took {t:?}", t = lat);
-    let mut breakdowns = Vec::new();
-    for row in results {
-        let breakdown_key = usize::try_from(row.breakdown_key.as_u128()).unwrap();
+    let mut breakdowns = vec![0; usize::try_from(query_config.max_breakdown_key).unwrap()];
+    for (breakdown_key, trigger_value) in results.into_iter().enumerate() {
         // TODO: make the data type used consistent with `ipa_in_the_clear`
         // I think using u32 is wrong, we should move to u128
-        let trigger_value = u32::try_from(row.trigger_value.as_u128()).unwrap();
-        if breakdown_key >= breakdowns.len() {
-            breakdowns.resize(breakdown_key + 1, 0);
-            breakdowns[breakdown_key] += trigger_value
-        }
+        breakdowns[breakdown_key] += u32::try_from(trigger_value.as_u128()).unwrap();
     }
 
     IpaQueryResult {

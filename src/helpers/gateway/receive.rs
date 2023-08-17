@@ -1,10 +1,12 @@
+use std::marker::PhantomData;
+
+use dashmap::DashMap;
+use futures::Stream;
+
 use crate::{
     helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport},
     protocol::RecordId,
 };
-use dashmap::DashMap;
-use futures::Stream;
-use std::marker::PhantomData;
 
 /// Receiving end end of the gateway channel.
 pub struct ReceivingEnd<T: Transport, M: Message> {

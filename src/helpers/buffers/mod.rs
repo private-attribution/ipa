@@ -9,8 +9,9 @@ pub use unordered_receiver::UnorderedReceiver;
 #[cfg(debug_assertions)]
 #[allow(unused)] // todo(alex): make test world print the state again
 mod waiting {
-    use crate::helpers::ChannelId;
     use std::collections::HashMap;
+
+    use crate::helpers::ChannelId;
 
     pub(in crate::helpers) struct WaitingTasks<'a> {
         tasks: HashMap<&'a ChannelId, Vec<u32>>,

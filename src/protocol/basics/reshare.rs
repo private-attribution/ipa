@@ -1,3 +1,9 @@
+use std::iter::{repeat, zip};
+
+use async_trait::async_trait;
+use embed_doc_image::embed_doc_image;
+use futures::future::try_join;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -20,10 +26,6 @@ use crate::{
         BitDecomposed,
     },
 };
-use async_trait::async_trait;
-use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
-use std::iter::{repeat, zip};
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
 ///
@@ -169,6 +171,7 @@ impl<S, C: Context> Reshare<C, NoRecord> for Vec<S>
 where
     S: Reshare<C, RecordId> + Send + Sync,
 {
+    #[tracing::instrument(name = "reshare", skip_all, fields(to = ?to_helper))]
     async fn reshare<'fut>(
         &self,
         ctx: C,

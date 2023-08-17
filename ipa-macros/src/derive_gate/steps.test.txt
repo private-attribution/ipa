@@ -1,3 +1,0 @@
-StepA::foo
-StepA::foo/StepB::bar
-StepA::foo/StepB::baz

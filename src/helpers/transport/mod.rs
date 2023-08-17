@@ -1,10 +1,12 @@
+use std::borrow::Borrow;
+
+use async_trait::async_trait;
+use futures::Stream;
+
 use crate::{
     helpers::HelperIdentity,
     protocol::{step::Gate, QueryId},
 };
-use async_trait::async_trait;
-use futures::Stream;
-use std::borrow::Borrow;
 
 pub mod callbacks;
 #[cfg(feature = "in-memory-infra")]

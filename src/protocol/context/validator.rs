@@ -1,3 +1,14 @@
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+};
+
+use async_trait::async_trait;
+use futures::future::try_join;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -17,13 +28,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
     sync::{Arc, Mutex, Weak},
-};
-use async_trait::async_trait;
-use futures::future::try_join;
-use std::{
-    any::type_name,
-    fmt::{Debug, Formatter},
-    marker::PhantomData,
 };
 
 #[async_trait]
@@ -66,7 +70,7 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -74,36 +78,14 @@ pub(crate) enum Step {
     Validate,
 }
 
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::MaliciousProtocol => "malicious_protocol",
-            Self::Validate => "validate",
-        }
-    }
-}
-
+#[step]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
-    PropagateUW,
+    PropagateUAndW,
     /// Reveal the value of `r`, necessary for validation.
     RevealR,
     /// Check that there is no disagreement between accumulated values.
     CheckZero,
-}
-
-impl crate::protocol::step::Step for ValidateStep {}
-
-impl AsRef<str> for ValidateStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::PropagateUW => "propagate_uw",
-            Self::RevealR => "reveal_r",
-            Self::CheckZero => "check_zero",
-        }
-    }
 }
 
 /// This code is an implementation of the approach found in the paper:
@@ -235,7 +217,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    #[tracing::instrument(name = "validate", skip_all, fields(gate = %self.validate_ctx.gate()))]
+    #[tracing::instrument(name = "validate", skip_all, fields(gate = %self.validate_ctx.gate().as_ref()))]
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
@@ -299,7 +281,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
         let propagate_ctx = self
             .validate_ctx
-            .narrow(&ValidateStep::PropagateUW)
+            .narrow(&ValidateStep::PropagateUAndW)
             .set_total_records(2);
         let helper_right = propagate_ctx.send_channel(propagate_ctx.role().peer(Direction::Right));
         let helper_left = propagate_ctx.recv_channel(propagate_ctx.role().peer(Direction::Left));
@@ -331,6 +313,8 @@ impl<F: ExtendableField> Debug for Malicious<'_, F> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::{repeat, zip};
+
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -351,7 +335,6 @@ mod tests {
         seq_join::SeqJoin,
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
-    use std::iter::{repeat, zip};
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -

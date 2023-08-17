@@ -1,9 +1,3 @@
-use crate::exact::ExactSizeStream;
-use futures::{
-    stream::{iter, Iter as StreamIter, TryCollect},
-    Future, Stream, StreamExt, TryStreamExt,
-};
-use pin_project::pin_project;
 use std::{
     collections::VecDeque,
     future::IntoFuture,
@@ -11,6 +5,14 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures::{
+    stream::{iter, Iter as StreamIter, TryCollect},
+    Future, Stream, StreamExt, TryStreamExt,
+};
+use pin_project::pin_project;
+
+use crate::exact::ExactSizeStream;
 
 /// This helper function might be necessary to convince the compiler that
 /// the return value from [`seq_try_join_all`] implements `Send`.
@@ -23,20 +25,11 @@ pub fn assert_send<'a, O>(
     fut
 }
 
-/// Sequentially join futures from an iterator.
+/// Sequentially join futures from a stream.
 ///
 /// This function polls futures in strict sequence.
 /// If any future blocks, up to `active - 1` futures after it will be polled so
 /// that they make progress.
-///
-/// Unlike [`StreamExt::buffered`], Futures from the stream must resolve in the
-/// same order in which they are produced.
-///
-/// # Panics
-///
-/// If a future produced from the stream resolves ahead of a preceding future.
-/// To help ensure that earlier futures resolve first, this guarantees that
-/// earlier futures are always polled before later futures.
 ///
 /// # Deadlocks
 ///
@@ -221,12 +214,6 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use crate::seq_join::{seq_join, seq_try_join_all};
-    use futures::{
-        future::{lazy, BoxFuture},
-        stream::{iter, poll_fn, poll_immediate, repeat_with},
-        Future, StreamExt,
-    };
     use std::{
         convert::Infallible,
         iter::once,
@@ -235,6 +222,14 @@ mod test {
         sync::{Arc, Mutex},
         task::{Context, Poll, Waker},
     };
+
+    use futures::{
+        future::{lazy, BoxFuture},
+        stream::{iter, poll_fn, poll_immediate, repeat_with},
+        Future, StreamExt,
+    };
+
+    use crate::seq_join::{seq_join, seq_try_join_all};
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();

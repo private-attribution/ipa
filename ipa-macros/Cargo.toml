@@ -16,7 +16,7 @@ path = "tests/mod.rs"
 required-features = ["trybuild"]
 
 [dependencies]
-syn = { version = "2.0.15", features = ["extra-traits"] }
+syn = { version = "2.0.15", features = ["full"] }
 quote = "1.0.27"
 
 [dev-dependencies]

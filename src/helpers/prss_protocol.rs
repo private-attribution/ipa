@@ -1,3 +1,7 @@
+use futures_util::future::try_join4;
+use rand_core::{CryptoRng, RngCore};
+use x25519_dalek::PublicKey;
+
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords, Transport},
     protocol::{
@@ -6,11 +10,6 @@ use crate::{
         RecordId,
     },
 };
-use futures_util::future::try_join4;
-
-use rand_core::{CryptoRng, RngCore};
-
-use x25519_dalek::PublicKey;
 
 pub struct PrssExchangeStep;
 

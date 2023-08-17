@@ -1,14 +1,16 @@
-use crate::{
-    error::BoxError,
-    helpers::transport::stream::{StreamCollection, StreamKey},
-};
-use futures::Stream;
-use futures_util::StreamExt;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures::Stream;
+use futures_util::StreamExt;
 use tracing::error;
+
+use crate::{
+    error::BoxError,
+    helpers::transport::stream::{StreamCollection, StreamKey},
+};
 
 /// Adapt a stream of `Result<T: Into<Vec<u8>>, Error>` to a stream of `Vec<u8>`.
 ///

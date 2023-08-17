@@ -1,10 +1,13 @@
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use super::or::or;
 use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
-        context::Context,
+        boolean::random_bits_generator::RandomBitsGenerator,
+        context::{Context, UpgradedContext},
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
@@ -63,13 +66,13 @@ use crate::{
 pub async fn greater_than_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
-    rbg: &RandomBitsGenerator<F, S, C>,
+    rbg: &RandomBitsGenerator<F, C, S>,
     a: &S,
     c: u128,
 ) -> Result<S, Error>
 where
     F: PrimeField,
-    C: Context + RandomBits<F, Share = S>,
+    C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     use GreaterThanConstantStep as Step;
@@ -141,25 +144,12 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
     RBounds { r_lo, r_hi, invert }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum GreaterThanConstantStep {
     Reveal,
     CompareLo,
     CompareHi,
     And,
-}
-
-impl crate::protocol::step::Step for GreaterThanConstantStep {}
-
-impl AsRef<str> for GreaterThanConstantStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Reveal => "reveal",
-            Self::CompareLo => "compare_lo",
-            Self::CompareHi => "compare_hi",
-            Self::And => "and",
-        }
-    }
 }
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
@@ -299,25 +289,17 @@ where
     Ok(first_diff_bit)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     PrefixOr,
     DotProduct,
 }
 
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::PrefixOr => "prefix_or",
-            Self::DotProduct => "dot_product",
-        }
-    }
-}
-
 #[cfg(all(test, unit_test))]
 mod tests {
+    use proptest::proptest;
+    use rand::{distributions::Standard, prelude::Distribution, Rng};
+
     use super::{
         bitwise_greater_than_constant, bitwise_less_than_constant, compute_r_bounds,
         greater_than_constant,
@@ -325,14 +307,14 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
-            boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
+            boolean::random_bits_generator::RandomBitsGenerator,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
         },
         rand::thread_rng,
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
-    use proptest::proptest;
-    use rand::{distributions::Standard, prelude::Distribution, Rng};
 
     async fn bitwise_lt<F>(world: &TestWorld, a: F, b: u128) -> F
     where
@@ -415,7 +397,8 @@ mod tests {
 
         let result = world
             .semi_honest(lhs, |ctx, lhs| async move {
-                let ctx = ctx.set_total_records(1);
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(1);
                 greater_than_constant(
                     ctx.clone(),
                     RecordId::from(0),

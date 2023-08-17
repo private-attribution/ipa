@@ -1,3 +1,6 @@
+use futures_util::future::join_all;
+
+use super::join3v;
 use crate::{
     ff::Field,
     helpers::TotalRecords,
@@ -10,9 +13,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{narrow_contexts, Reconstruct, TestWorld},
 };
-use futures_util::future::join_all;
-
-use super::join3v;
 
 /// Creates an arithmetic circuit with the given width and depth.
 ///

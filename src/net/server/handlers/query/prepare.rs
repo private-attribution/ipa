@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
+use axum::{response::IntoResponse, routing::post, Extension, Router};
+use hyper::StatusCode;
+
 use crate::{
     net::{http_serde, server::ClientIdentity, HttpTransport},
     query::PrepareQueryError,
 };
-use axum::{response::IntoResponse, routing::post, Extension, Router};
-use hyper::StatusCode;
 
 /// Called by whichever peer helper is the leader for an individual query, to initiatialize
 /// processing of that query.
@@ -33,6 +34,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::future::ready;
 
+    use axum::http::Request;
+    use hyper::{Body, StatusCode};
+
     use super::*;
     use crate::{
         ff::FieldType,
@@ -52,8 +56,6 @@ mod tests {
         },
         protocol::QueryId,
     };
-    use axum::http::Request;
-    use hyper::{Body, StatusCode};
 
     #[tokio::test]
     async fn prepare_test() {

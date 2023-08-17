@@ -1,3 +1,5 @@
+use std::iter::repeat;
+
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
@@ -9,7 +11,6 @@ use crate::{
     },
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
-use std::iter::repeat;
 
 pub mod add_constant;
 pub mod bit_decomposition;
@@ -24,7 +25,7 @@ mod xor;
 
 pub use bit_decomposition::BitDecomposition;
 pub use comparison::greater_than_constant;
-pub use generate_random_bits::RandomBits;
+pub use generate_random_bits::random_bits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
 

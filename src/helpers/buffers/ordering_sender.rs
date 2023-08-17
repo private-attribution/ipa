@@ -1,17 +1,5 @@
 #![allow(dead_code)] // TODO remove
 
-use crate::{
-    helpers::Message,
-    sync::{
-        atomic::{
-            AtomicUsize,
-            Ordering::{AcqRel, Acquire},
-        },
-        Mutex, MutexGuard,
-    },
-};
-use futures::{task::Waker, Future, Stream};
-use generic_array::GenericArray;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -22,7 +10,21 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+
+use futures::{task::Waker, Future, Stream};
+use generic_array::GenericArray;
 use typenum::Unsigned;
+
+use crate::{
+    helpers::Message,
+    sync::{
+        atomic::{
+            AtomicUsize,
+            Ordering::{AcqRel, Acquire},
+        },
+        Mutex, MutexGuard,
+    },
+};
 
 /// The operating state for an `OrderingSender`.
 struct State {
@@ -394,13 +396,8 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
-    use super::OrderingSender;
-    use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Serializable},
-        rand::thread_rng,
-        sync::Arc,
-        test_executor::run,
-    };
+    use std::{iter::zip, num::NonZeroUsize};
+
     use futures::{
         future::{join, join3, join_all},
         stream::StreamExt,
@@ -408,8 +405,15 @@ mod test {
     };
     use generic_array::GenericArray;
     use rand::Rng;
-    use std::{iter::zip, num::NonZeroUsize};
     use typenum::Unsigned;
+
+    use super::OrderingSender;
+    use crate::{
+        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        rand::thread_rng,
+        sync::Arc,
+        test_executor::run,
+    };
 
     fn sender() -> Arc<OrderingSender> {
         Arc::new(OrderingSender::new(

@@ -1,9 +1,10 @@
-use futures::stream::Stream;
-use pin_project::pin_project;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+use futures::stream::Stream;
+use pin_project::pin_project;
 
 /// An analogue of [`ExactSizeIterator`] for [`Stream`].
 /// This behaves exactly as you might expect based on the documentation of
@@ -24,6 +25,12 @@ pub trait ExactSizeStream: Stream {
         self.len() == 0
     }
 }
+
+impl<I> ExactSizeStream for futures::stream::Iter<I> where I: ExactSizeIterator {}
+impl<T> ExactSizeStream for futures::stream::Empty<T> {}
+impl<T> ExactSizeStream for futures::stream::Once<T> where T: futures::Future {}
+impl<S> ExactSizeStream for Pin<Box<S>> where S: ExactSizeStream {}
+impl<S> ExactSizeStream for futures::stream::Take<S> where S: Stream {}
 
 #[pin_project]
 pub struct FixedLength<S> {
@@ -77,9 +84,10 @@ impl<S: Stream> ExactSizeStream for FixedLength<S> {}
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use crate::exact::{ExactSizeStream, FixedLength};
     use futures::stream::iter;
     use futures_util::StreamExt;
+
+    use crate::exact::{ExactSizeStream, FixedLength};
 
     #[test]
     fn fixed_stream() {

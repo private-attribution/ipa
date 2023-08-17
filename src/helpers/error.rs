@@ -1,10 +1,11 @@
+use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
+
 use crate::{
     error::BoxError,
     helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
     protocol::{step::Gate, RecordId},
 };
-use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
 
 /// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]
@@ -21,12 +22,12 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("An error occurred while sending data to unknown helper")]
+    #[error("An error occurred while sending data to unknown helper: {inner}")]
     PollSendError {
         #[source]
         inner: BoxError,
     },
-    #[error("An error occurred while receiving data from {source:?}/{step}")]
+    #[error("An error occurred while receiving data from {source:?}/{step}: {inner}")]
     ReceiveError {
         source: Role,
         step: String,
@@ -38,7 +39,7 @@ pub enum Error {
         // TODO(mt): add more fields, like step and role.
         record_id: RecordId,
     },
-    #[error("An error occurred while serializing or deserializing data for {record_id:?} and step {step}")]
+    #[error("An error occurred while serializing or deserializing data for {record_id:?} and step {step}: {inner}")]
     SerializationError {
         record_id: RecordId,
         step: String,

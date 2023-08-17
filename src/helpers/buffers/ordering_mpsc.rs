@@ -1,13 +1,5 @@
 #![allow(dead_code)]
 
-use crate::{
-    ff::Serializable,
-    helpers::{Error, Message},
-    sync::{atomic::AtomicUsize, Arc},
-};
-use bitvec::{bitvec, vec::BitVec};
-use futures::{FutureExt, Stream};
-use generic_array::GenericArray;
 use std::{
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
@@ -15,11 +7,21 @@ use std::{
     sync::atomic::Ordering::{AcqRel, Acquire},
     task::{Context, Poll},
 };
+
+use bitvec::{bitvec, vec::BitVec};
+use futures::{FutureExt, Stream};
+use generic_array::GenericArray;
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
 };
 use typenum::Unsigned;
+
+use crate::{
+    ff::Serializable,
+    helpers::{Error, Message},
+    sync::{atomic::AtomicUsize, Arc},
+};
 
 pub struct OrderingMpscReceiver<M: Message> {
     rx: Receiver<(usize, M)>,
@@ -271,6 +273,13 @@ impl OrderingMpscEnd {
 
 #[cfg(test)]
 mod fixture {
+    use std::num::NonZeroUsize;
+
+    use async_trait::async_trait;
+    use futures::future::join_all;
+    use tokio::sync::mpsc::{channel, Receiver};
+    use typenum::Unsigned;
+
     use crate::{
         ff::{Fp32BitPrime, Serializable},
         helpers::buffers::ordering_mpsc::{
@@ -278,11 +287,6 @@ mod fixture {
         },
         rand::thread_rng,
     };
-    use async_trait::async_trait;
-    use futures::future::join_all;
-    use std::num::NonZeroUsize;
-    use tokio::sync::mpsc::{channel, Receiver};
-    use typenum::Unsigned;
 
     pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Serializable>::Size::USIZE;
 
@@ -357,6 +361,11 @@ mod fixture {
 
 #[cfg(all(test, unit_test))]
 mod unit {
+    use std::{mem, num::NonZeroUsize};
+
+    use futures::{future::join, FutureExt, StreamExt};
+    use generic_array::GenericArray;
+
     use crate::{
         ff::{Field, Fp31, Serializable},
         helpers::buffers::ordering_mpsc::{
@@ -364,9 +373,6 @@ mod unit {
             ordering_mpsc,
         },
     };
-    use futures::{future::join, FutureExt, StreamExt};
-    use generic_array::GenericArray;
-    use std::{mem, num::NonZeroUsize};
 
     /// Test that a single value can be sent and received successfully.
     #[tokio::test]
@@ -471,8 +477,9 @@ mod unit {
 
 #[cfg(all(test, feature = "shuttle"))]
 mod concurrency {
-    use crate::helpers::buffers::ordering_mpsc::fixture::{shuffle_indices, shuffled_send_recv};
     use shuttle::{check_random, future::block_on};
+
+    use crate::helpers::buffers::ordering_mpsc::fixture::{shuffle_indices, shuffled_send_recv};
 
     #[test]
     fn shuffle() {

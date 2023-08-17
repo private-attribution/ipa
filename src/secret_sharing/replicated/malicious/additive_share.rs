@@ -1,3 +1,17 @@
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
+
+use async_trait::async_trait;
+use futures::{
+    future::{join, join_all},
+    stream::{iter as stream_iter, StreamExt},
+};
+use generic_array::{ArrayLength, GenericArray};
+use typenum::Unsigned;
+
 use crate::{
     ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable},
     secret_sharing::{
@@ -6,18 +20,6 @@ use crate::{
     },
     seq_join::seq_join,
 };
-use async_trait::async_trait;
-use futures::{
-    future::{join, join_all},
-    stream::{iter as stream_iter, StreamExt},
-};
-use generic_array::{ArrayLength, GenericArray};
-use std::{
-    fmt::{Debug, Formatter},
-    num::NonZeroUsize,
-    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
-};
-use typenum::Unsigned;
 
 ///
 /// This code is an optimization to our malicious compiler that is drawn from:
@@ -89,6 +91,14 @@ impl<T> UnauthorizedDowngradeWrapper<T> {
 
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
+}
+
+impl<V: SharedValue + ExtendableField>
+    ThisCodeIsAuthorizedToDowngradeFromMalicious<SemiHonestAdditiveShare<V>> for AdditiveShare<V>
+{
+    fn access_without_downgrade(self) -> SemiHonestAdditiveShare<V> {
+        self.x
+    }
 }
 
 impl<V: SharedValue + Debug + ExtendableField> Debug for AdditiveShare<V> {

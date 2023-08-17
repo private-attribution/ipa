@@ -9,6 +9,11 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
+use std::fmt::Debug;
+
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -20,12 +25,11 @@ use crate::{
     repeat64str,
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
-use std::fmt::Debug;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
+    ModulusConversion,
     BitPermutationStep,
-    ApplyInv,
     ComposeStep,
     ShuffleRevealPermutation,
     SortKeys,
@@ -38,8 +42,8 @@ impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
         const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
         match self {
+            Self::ModulusConversion => "convert",
             Self::BitPermutationStep => "bit_permute",
-            Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
@@ -48,104 +52,34 @@ impl AsRef<str> for SortStep {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum ShuffleStep {
-    Step1,
-    Step2,
-    Step3,
+#[step]
+pub(crate) enum ShuffleStep {
+    Shuffle1,
+    Shuffle2,
+    Shuffle3,
 }
 
-impl Step for ShuffleStep {}
-
-impl AsRef<str> for ShuffleStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Step1 => "shuffle1",
-            Self::Step2 => "shuffle2",
-            Self::Step3 => "shuffle3",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ApplyInvStep {
+#[step]
+pub(crate) enum ApplyInvStep {
     ShuffleInputs,
 }
 
-impl Step for ApplyInvStep {}
-
-impl AsRef<str> for ApplyInvStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::ShuffleInputs => "shuffle_inputs",
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ComposeStep {
+#[step]
+pub(crate) enum ComposeStep {
     UnshuffleRho,
 }
 
-impl Step for ComposeStep {}
-
-impl AsRef<str> for ComposeStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::UnshuffleRho => "unshuffle_rho",
-        }
-    }
+#[step]
+pub(crate) enum ShuffleRevealPermutationStep {
+    Generate,
+    Reveal,
+    Shuffle,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ShuffleRevealStep {
-    GeneratePermutation,
-    RevealPermutation,
-    ShufflePermutation,
-}
-
-impl Step for ShuffleRevealStep {}
-
-impl AsRef<str> for ShuffleRevealStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::GeneratePermutation => "generate_permutation",
-            Self::RevealPermutation => "reveal_permutation",
-            Self::ShufflePermutation => "shuffle_permutation",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum ReshareStep {
+#[step]
+pub(crate) enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,
-}
-
-impl Step for ReshareStep {}
-
-impl AsRef<str> for ReshareStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::RandomnessForValidation => "randomness_for_validation",
-            Self::ReshareRx => "reshare_rx",
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum MultiBitPermutationStep {
-    MultiplyAcrossBits,
-}
-
-impl Step for MultiBitPermutationStep {}
-
-impl AsRef<str> for MultiBitPermutationStep {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::MultiplyAcrossBits => "multiply_across_bits",
-        }
-    }
 }
 
 ///
@@ -209,8 +143,7 @@ where
     //
     // Where 000, 101, 011, and 110 mean positive contributions, and
     // 001, 010, 100, and 111 mean negative contributions.
-    let side_length = 1 << num_bits;
-    Ok(BitDecomposed::decompose(side_length, |i| {
+    Ok(BitDecomposed::decompose(1 << num_bits, |i| {
         let mut check = S::ZERO;
         for (j, combination) in precomputed_combinations.iter().enumerate() {
             let bit: i8 = i8::from((i & j) == i);
@@ -242,11 +175,15 @@ where
 // It does so by starting with the array `[1]`.
 // The next step is to multiply this by `x_1` and append it to the end of the array.
 // Now the array is `[1, x_1]`.
-// The next step is to mulitply all of these values by `x_2` and append them to the end of the array.
+// The next step is to multiply all of these values by `x_2` and append them to the end of the array.
 // Now the array is `[1, x_1, x_2, x_1*x_2]`
 // The next step is to mulitply all of these values of `x_3` and append them to the end of the array.
 // Now the array is `[1, x_1, x_2, x_1*x_2, x_3, x_1*x_3, x_2*x_3, x_1*x_2*x_3]`
 // This process continues for as many steps as there are bits of input.
+//
+// Operation complexity of this function is `2^n-n-1` where `n` is the number of bits.
+// Circuit depth is equal to `n-2`.
+// This gets inefficient very quickly as a result.
 async fn pregenerate_all_combinations<F, C, S>(
     ctx: C,
     record_idx: usize,

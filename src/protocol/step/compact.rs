@@ -1,8 +1,8 @@
-extern crate ipa_macros;
+use std::fmt::{Debug, Display, Formatter};
+
+use ipa_macros::Gate;
 
 use super::{Step, StepNarrow};
-use ipa_macros::Gate;
-use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Gate, Clone, Hash, PartialEq, Eq, Default)]
 #[cfg_attr(
@@ -22,13 +22,13 @@ impl From<&str> for Compact {
 
 impl Display for Compact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.as_ref())
     }
 }
 
 impl Debug for Compact {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "step={}", self.0)
+        write!(f, "gate[{}]={}", self.0, self.as_ref())
     }
 }
 
@@ -57,7 +57,7 @@ fn static_state_map(state: u16, step: &str) -> u16 {
     } else if step == crate::protocol::context::semi_honest::UpgradeStep.as_ref()
         || step == crate::protocol::ipa::Step::UpgradeMatchKeyBits.as_ref()
         || step == crate::protocol::ipa::Step::UpgradeBreakdownKeyBits.as_ref()
-        || step == crate::protocol::attribution::aggregate_credit::Step::UpgradeBits.as_ref()
+        || step == crate::protocol::modulus_conversion::convert_shares::Step::Upgrade.as_ref()
         || state == UPGRADE_SEMI_HONEST_STATE
     {
         // ignore any upgrade steps in the semi-honest setting.

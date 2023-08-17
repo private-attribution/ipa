@@ -1,3 +1,8 @@
+use std::{
+    num::{NonZeroU32, NonZeroUsize},
+    time::Instant,
+};
+
 use clap::Parser;
 use ipa::{
     error::Error,
@@ -8,11 +13,7 @@ use ipa::{
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use std::{
-    num::{NonZeroU32, NonZeroUsize},
-    time::Instant,
-};
+use rand::{random, rngs::StdRng, SeedableRng};
 use tokio::runtime::Builder;
 
 #[cfg(all(not(target_env = "msvc"), not(feature = "dhat-heap")))]
@@ -102,7 +103,7 @@ async fn run(args: Args) -> Result<(), Error> {
         ..TestWorldConfig::default()
     };
 
-    let seed = args.random_seed.unwrap_or_else(|| thread_rng().gen());
+    let seed = args.random_seed.unwrap_or_else(|| random());
     tracing::trace!(
         "Using random seed: {seed} for {q} records",
         q = args.query_size
@@ -120,8 +121,12 @@ async fn run(args: Args) -> Result<(), Error> {
     .take(args.query_size)
     .collect::<Vec<_>>();
 
-    let expected_results =
-        ipa_in_the_clear(&raw_data, args.per_user_cap, args.attribution_window());
+    let expected_results = ipa_in_the_clear(
+        &raw_data,
+        args.per_user_cap,
+        args.attribution_window(),
+        args.breakdown_keys,
+    );
 
     let world = TestWorld::new_with(config.clone());
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());

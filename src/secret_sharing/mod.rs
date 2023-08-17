@@ -4,13 +4,11 @@ mod decomposed;
 mod into_shares;
 mod scheme;
 
-pub use decomposed::BitDecomposed;
-#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-pub use into_shares::IntoShares;
-pub use scheme::{Bitwise, Linear, SecretSharing};
+use std::fmt::Debug;
 
-use crate::ff::{ArithmeticOps, Serializable};
+pub use decomposed::BitDecomposed;
 use generic_array::ArrayLength;
+pub use into_shares::IntoShares;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 use rand::{
     distributions::{Distribution, Standard},
@@ -18,7 +16,9 @@ use rand::{
 };
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 use replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing};
-use std::fmt::Debug;
+pub use scheme::{Bitwise, Linear, SecretSharing};
+
+use crate::ff::{ArithmeticOps, Serializable};
 
 // Trait for primitive integer types used to represent the underlying type for shared values
 pub trait Block: Sized + Copy + Debug {

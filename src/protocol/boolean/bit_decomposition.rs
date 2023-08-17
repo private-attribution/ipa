@@ -1,13 +1,18 @@
-use super::{
-    add_constant::{add_constant, maybe_add_constant_mod2l},
-    bitwise_less_than_prime::BitwiseLessThanPrime,
-    random_bits_generator::RandomBitsGenerator,
-    RandomBits,
-};
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     ff::PrimeField,
-    protocol::{context::Context, BasicProtocols, RecordId},
+    protocol::{
+        boolean::{
+            add_constant::{add_constant, maybe_add_constant_mod2l},
+            bitwise_less_than_prime::BitwiseLessThanPrime,
+            random_bits_generator::RandomBitsGenerator,
+        },
+        context::UpgradedContext,
+        BasicProtocols, RecordId,
+    },
     secret_sharing::Linear as LinearSecretSharing,
 };
 
@@ -27,16 +32,16 @@ impl BitDecomposition {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<F, S, C>(
+    pub async fn execute<F, C, S>(
         ctx: C,
         record_id: RecordId,
-        rbg: &RandomBitsGenerator<F, S, C>,
+        rbg: &RandomBitsGenerator<F, C, S>,
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
         F: PrimeField,
+        C: UpgradedContext<F, Share = S>,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-        C: Context + RandomBits<F, Share = S>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
@@ -75,7 +80,7 @@ impl BitDecomposition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     RevealAMinusB,
     AddBtoC,
@@ -83,31 +88,21 @@ pub(crate) enum Step {
     AddDtoG,
 }
 
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::RevealAMinusB => "reveal_a_minus_b",
-            Self::AddBtoC => "add_b_to_c",
-            Self::IsPLessThanD => "is_p_less_than_d",
-            Self::AddDtoG => "add_d_to_g",
-        }
-    }
-}
-
 #[cfg(all(test, unit_test))]
 mod tests {
+    use rand::{distributions::Standard, prelude::Distribution};
+
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
-            boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
+            boolean::random_bits_generator::RandomBitsGenerator,
+            context::{Context, UpgradableContext, Validator},
+            RecordId,
         },
         secret_sharing::replicated::malicious::ExtendableField,
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution};
 
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
@@ -116,8 +111,9 @@ mod tests {
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                let ctx = ctx.set_total_records(1);
-                let rbg = RandomBitsGenerator::new(ctx.narrow("generate_random_bits"));
+                let validator = ctx.validator();
+                let ctx = validator.context().set_total_records(1);
+                let rbg = RandomBitsGenerator::new(ctx.narrow("bitgen"));
                 BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()

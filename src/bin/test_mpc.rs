@@ -1,3 +1,5 @@
+use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
+
 use clap::{Parser, Subcommand};
 use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
@@ -11,7 +13,6 @@ use ipa::{
     net::MpcHelperClient,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
 };
-use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(

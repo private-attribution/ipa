@@ -1,10 +1,11 @@
-use rand::{CryptoRng, Rng, RngCore};
-use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Debug, Formatter},
     io::{Error as IoError, ErrorKind as IoErrorKind},
     ops::Range,
 };
+
+use rand::{CryptoRng, Rng, RngCore};
+use serde::{Deserialize, Serialize};
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
@@ -318,9 +319,8 @@ impl Debug for TriggerFanoutQuery {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use crate::models::Epoch;
-
     use super::EventTimestamp;
+    use crate::models::Epoch;
 
     #[test]
     fn event_timestamp_new() {

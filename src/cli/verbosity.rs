@@ -1,10 +1,15 @@
-use crate::cli::{install_collector, metric_collector::CollectorHandle};
+use std::io::{stderr, IsTerminal};
+
 use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
-use std::io::stderr;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
     fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+};
+
+use crate::{
+    cli::{install_collector, metric_collector::CollectorHandle},
+    error::set_global_panic_hook,
 };
 
 #[derive(Debug, Parser)]
@@ -29,6 +34,7 @@ impl Verbosity {
         let filter_layer = self.level_filter();
         let fmt_layer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+            .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
         tracing_subscriber::registry()
@@ -40,6 +46,7 @@ impl Verbosity {
         let handle = LoggingHandle {
             metrics_handle: (!self.quiet).then(install_collector),
         };
+        set_global_panic_hook();
 
         info!("Logging setup at level {}", filter_layer);
 

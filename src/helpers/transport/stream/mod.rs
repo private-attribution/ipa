@@ -4,16 +4,17 @@ mod box_body;
 mod collection;
 mod input;
 
+use std::pin::Pin;
+
 #[cfg(feature = "web-app")]
 pub use axum_body::WrappedAxumBodyStream;
 pub use box_body::WrappedBoxBodyStream;
+use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
+use futures::Stream;
 pub use input::{LengthDelimitedStream, RecordsStream};
 
 use crate::error::BoxError;
-use bytes::Bytes;
-use futures::Stream;
-use std::pin::Pin;
 
 pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests

@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::ops::Range;
+
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "enable-serde")]
 #[derive(Serialize, Deserialize, Debug)]

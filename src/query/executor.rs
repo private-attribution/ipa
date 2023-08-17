@@ -1,24 +1,10 @@
-use crate::{
-    ff::{Field, FieldType, Fp32BitPrime, GaloisField, Serializable},
-    helpers::{
-        negotiate_prss,
-        query::{QueryConfig, QueryType},
-        BodyStream, Gateway,
-    },
-    hpke::{KeyPair, KeyRegistry},
-    protocol::{
-        attribution::input::MCAggregateCreditOutputRow,
-        context::{MaliciousContext, SemiHonestContext},
-        prss::Endpoint as PrssEndpoint,
-        step::{Gate, StepNarrow},
-    },
-    query::{runner::IpaQuery, state::RunningQuery},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing},
+use std::{
+    fmt::Debug,
+    future::{ready, Future},
+    pin::Pin,
+    sync::Arc,
 };
 
-#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-use crate::query::runner::execute_test_multiply;
-use crate::query::runner::QueryResult;
 use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
@@ -26,47 +12,44 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::{
-    fmt::Debug,
-    future::{ready, Future},
-    pin::Pin,
-    sync::Arc,
-};
 use typenum::Unsigned;
+
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+use crate::query::runner::execute_test_multiply;
+use crate::{
+    ff::{FieldType, Fp32BitPrime, Serializable},
+    helpers::{
+        negotiate_prss,
+        query::{QueryConfig, QueryType},
+        BodyStream, Gateway,
+    },
+    hpke::{KeyPair, KeyRegistry},
+    protocol::{
+        context::{MaliciousContext, SemiHonestContext},
+        prss::Endpoint as PrssEndpoint,
+        step::{Gate, StepNarrow},
+    },
+    query::{
+        runner::{IpaQuery, QueryResult},
+        state::RunningQuery,
+    },
+};
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 
-impl<F: Field> Result for Vec<AdditiveShare<F>>
-where
-    AdditiveShare<F>: Serializable,
-{
-    fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * <AdditiveShare<F> as Serializable>::Size::USIZE];
-        for (i, share) in self.into_iter().enumerate() {
-            share.serialize(GenericArray::from_mut_slice(
-                &mut r[i * <AdditiveShare<F> as Serializable>::Size::USIZE
-                    ..(i + 1) * <AdditiveShare<F> as Serializable>::Size::USIZE],
-            ));
-        }
-
-        r
-    }
-}
-
-impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> Result
-    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<T> Result for Vec<T>
 where
     T: Serializable,
+    Vec<T>: Debug + Send,
 {
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, T, BK>::SIZE];
+        let mut r = vec![0u8; self.len() * T::Size::USIZE];
         for (i, row) in self.into_iter().enumerate() {
-            row.serialize(
-                &mut r[MCAggregateCreditOutputRow::<F, T, BK>::SIZE * i
-                    ..MCAggregateCreditOutputRow::<F, T, BK>::SIZE * (i + 1)],
-            );
+            row.serialize(GenericArray::from_mut_slice(
+                &mut r[(i * T::Size::USIZE)..((i + 1) * T::Size::USIZE)],
+            ));
         }
 
         r

@@ -1,4 +1,5 @@
 use std::{mem, path::Path, thread};
+
 use tempfile::tempdir;
 
 /// Wrapper around [`TempDir`] that prevents the temp directory from being deleted

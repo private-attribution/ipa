@@ -1,3 +1,5 @@
+use futures::StreamExt;
+
 use crate::{
     error::Error,
     ff::{PrimeField, Serializable},
@@ -11,7 +13,6 @@ use crate::{
     query::runner::QueryResult,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use futures::StreamExt;
 
 pub async fn execute_test_multiply<'a, F>(
     prss: &'a PrssEndpoint,
@@ -67,14 +68,15 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use generic_array::GenericArray;
+    use typenum::Unsigned;
+
     use super::*;
     use crate::{
         ff::{Field, Fp31},
         secret_sharing::IntoShares,
         test_fixture::{join3v, Reconstruct, TestWorld},
     };
-    use generic_array::GenericArray;
-    use typenum::Unsigned;
 
     #[tokio::test]
     async fn multiply() {

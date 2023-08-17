@@ -1,9 +1,10 @@
+use generic_array::GenericArray;
+
 use super::Field;
 use crate::{
     ff::Serializable,
     secret_sharing::{Block, SharedValue},
 };
-use generic_array::GenericArray;
 
 pub trait PrimeField: Field {
     type PrimeInteger: Into<u128>;
@@ -165,14 +166,14 @@ macro_rules! field_impl {
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, unit_test))]
         impl std::cmp::PartialEq<u128> for $field {
             fn eq(&self, other: &u128) -> bool {
                 self.as_u128() == *other
             }
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, unit_test))]
         impl std::cmp::PartialEq<$field> for u128 {
             fn eq(&self, other: &$field) -> bool {
                 *self == other.as_u128()
@@ -181,10 +182,11 @@ macro_rules! field_impl {
 
         #[cfg(all(test, unit_test))]
         mod common_tests {
-            use super::*;
-            use crate::ff::Serializable;
             use generic_array::GenericArray;
             use proptest::proptest;
+
+            use super::*;
+            use crate::ff::Serializable;
 
             #[test]
             fn zero() {

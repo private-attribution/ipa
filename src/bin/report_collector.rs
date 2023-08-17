@@ -1,33 +1,3 @@
-use clap::{Parser, Subcommand};
-use hyper::http::uri::Scheme;
-use ipa::{
-    cli::{
-        playbook::{make_clients, playbook_ipa, validate, InputSource},
-        Verbosity,
-    },
-    config::NetworkConfig,
-    ff::{FieldType, Fp32BitPrime},
-    helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-    hpke::{KeyRegistry, PublicKeyOnly},
-    net::MpcHelperClient,
-    protocol::{BreakdownKey, MatchKey},
-    report::{KeyIdentifier, DEFAULT_KEY_ID},
-    test_fixture::{
-        ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
-        EventGenerator, EventGeneratorConfig,
-    },
-};
-
-use comfy_table::{Cell, Table};
-use ipa::{
-    cli::{
-        noise::{apply, ApplyDpArgs},
-        CsvSerializer, IpaQueryResult,
-    },
-    helpers::query::QuerySize,
-};
-use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
-use rand_core::SeedableRng;
 use std::{
     borrow::Cow,
     error::Error,
@@ -38,6 +8,30 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
 };
+
+use clap::{Parser, Subcommand};
+use comfy_table::{Cell, Table};
+use hyper::http::uri::Scheme;
+use ipa::{
+    cli::{
+        noise::{apply, ApplyDpArgs},
+        playbook::{make_clients, playbook_ipa, validate, InputSource},
+        CsvSerializer, IpaQueryResult, Verbosity,
+    },
+    config::NetworkConfig,
+    ff::{FieldType, Fp32BitPrime},
+    helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+    hpke::{KeyRegistry, PublicKeyOnly},
+    net::MpcHelperClient,
+    protocol::{BreakdownKey, MatchKey},
+    report::{KeyIdentifier, DEFAULT_KEY_ID},
+    test_fixture::{
+        ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
+        EventGenerator, EventGeneratorConfig,
+    },
+};
+use rand::{distributions::Alphanumeric, rngs::StdRng, thread_rng, Rng};
+use rand_core::SeedableRng;
 
 #[derive(Debug, Parser)]
 #[clap(name = "rc", about = "Report Collector CLI")]
@@ -256,6 +250,7 @@ async fn ipa(
             &input_rows,
             ipa_query_config.per_user_credit_cap,
             ipa_query_config.attribution_window_seconds,
+            ipa_query_config.max_breakdown_key,
         );
 
         // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results

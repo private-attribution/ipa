@@ -1,3 +1,9 @@
+use std::fmt::Debug;
+
+use futures::future::try_join;
+use ipa_macros::step;
+use strum::AsRefStr;
+
 use crate::{
     error::Error,
     protocol::{
@@ -11,24 +17,11 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-use futures::future::try_join;
-use std::fmt::Debug;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[step]
 pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::DuplicateMultiply => "duplicate_multiply",
-            Self::RandomnessForValidation => "randomness_for_validation",
-        }
-    }
 }
 
 ///
