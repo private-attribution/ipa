@@ -4,59 +4,56 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{GaloisField, Gf2, Serializable},
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed,
-        Linear as LinearSecretSharing,
-    },
+    ff::{GaloisField, Serializable},
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct AggregateInputRow<V: GaloisField, BK: GaloisField> {
-    pub value: Replicated<V>,
+pub struct AggregateInputRow<CV: GaloisField, BK: GaloisField> {
+    pub contribution_value: Replicated<CV>,
     pub breakdown_key: Replicated<BK>,
 }
 
-impl<V: GaloisField, BK: GaloisField> Serializable for AggregateInputRow<V, BK>
+impl<CV: GaloisField, BK: GaloisField> Serializable for AggregateInputRow<CV, BK>
 where
-    Replicated<V>: Serializable,
+    Replicated<CV>: Serializable,
     Replicated<BK>: Serializable,
-    <Replicated<V> as Serializable>::Size: Add<<Replicated<BK> as Serializable>::Size>,
-    <<Replicated<V> as Serializable>::Size as Add<<Replicated<BK> as Serializable>::Size>>::Output:
+    <Replicated<CV> as Serializable>::Size: Add<<Replicated<BK> as Serializable>::Size>,
+    <<Replicated<CV> as Serializable>::Size as Add<<Replicated<BK> as Serializable>::Size>>::Output:
         ArrayLength<u8>,
 {
-    type Size = <<Replicated<V> as Serializable>::Size as Add<
+    type Size = <<Replicated<CV> as Serializable>::Size as Add<
         <Replicated<BK> as Serializable>::Size,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
+        let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
 
-        self.value
-            .serialize(GenericArray::from_mut_slice(&mut buf[..v_sz]));
+        self.contribution_value
+            .serialize(GenericArray::from_mut_slice(&mut buf[..cv_sz]));
         self.breakdown_key
-            .serialize(GenericArray::from_mut_slice(&mut buf[v_sz..v_sz + bk_sz]));
+            .serialize(GenericArray::from_mut_slice(&mut buf[cv_sz..cv_sz + bk_sz]));
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let v_sz = <Replicated<V> as Serializable>::Size::USIZE;
+        let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
 
-        let value = Replicated::<V>::deserialize(GenericArray::from_slice(&buf[..v_sz]));
+        let value = Replicated::<CV>::deserialize(GenericArray::from_slice(&buf[..cv_sz]));
         let breakdown_key =
-            Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[v_sz..v_sz + bk_sz]));
+            Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[cv_sz..cv_sz + bk_sz]));
         Self {
-            value,
+            contribution_value: value,
             breakdown_key,
         }
     }
 }
 
-impl<V: GaloisField, BK: GaloisField> AggregateInputRow<V, BK>
+impl<CV: GaloisField, BK: GaloisField> AggregateInputRow<CV, BK>
 where
-    AggregateInputRow<V, BK>: Serializable,
+    AggregateInputRow<CV, BK>: Serializable,
 {
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
@@ -66,26 +63,11 @@ where
     pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
         assert_eq!(
             0,
-            input.len() % <AggregateInputRow<V, BK> as Serializable>::Size::USIZE,
+            input.len() % <AggregateInputRow<CV, BK> as Serializable>::Size::USIZE,
             "input is not aligned"
         );
         input
-            .chunks(<AggregateInputRow<V, BK> as Serializable>::Size::USIZE)
-            .map(|chunk| AggregateInputRow::<V, BK>::deserialize(GenericArray::from_slice(chunk)))
-    }
-}
-
-pub struct BinarySharedAggregateInputs<T: LinearSecretSharing<Gf2>> {
-    pub value: BitDecomposed<T>,
-    pub breakdown_key: BitDecomposed<T>,
-}
-
-impl<T: LinearSecretSharing<Gf2>> BinarySharedAggregateInputs<T> {
-    #[must_use]
-    pub fn new(value: BitDecomposed<T>, breakdown_key: BitDecomposed<T>) -> Self {
-        Self {
-            value,
-            breakdown_key,
-        }
+            .chunks(<AggregateInputRow<CV, BK> as Serializable>::Size::USIZE)
+            .map(|chunk| AggregateInputRow::<CV, BK>::deserialize(GenericArray::from_slice(chunk)))
     }
 }

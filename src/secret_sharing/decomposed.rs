@@ -1,6 +1,6 @@
 use std::{fmt::Debug, ops::Deref};
 
-use crate::error::Error;
+use crate::{error::Error, ff::PrimeField, secret_sharing::Linear as LinearSecretSharing};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {
@@ -38,6 +38,24 @@ impl<S> BitDecomposed<S> {
     /// Translate this into a different form.
     pub fn map<F: Fn(S) -> T, T>(self, f: F) -> BitDecomposed<T> {
         BitDecomposed::new(self.bits.into_iter().map(f))
+    }
+
+    pub fn len(&self) -> usize {
+        return self.bits.len();
+    }
+
+    /// Convert this into a base-10 field value.
+    /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
+    /// each element is (should be) a share of 1 or 0. This function iterates
+    /// over the shares of bits and computes Σ(2^i * b_i).
+    pub fn as_decimal<F>(&self) -> S
+    where
+        S: LinearSecretSharing<F>,
+        F: PrimeField,
+    {
+        self.iter().enumerate().fold(S::ZERO, |acc, (i, b)| {
+            acc + &(b.clone() * F::truncate_from(1_u128 << i))
+        })
     }
 }
 

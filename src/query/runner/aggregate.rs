@@ -5,14 +5,17 @@ use futures_util::TryStreamExt;
 use super::ipa::assert_stream_send;
 use crate::{
     error::Error,
-    ff::{Gf2, PrimeField, Serializable},
-    helpers::{query::QuerySize, BodyStream, RecordsStream},
+    ff::{Gf2, Gf8Bit, PrimeField, Serializable},
+    helpers::{
+        query::{AggregateQueryConfig, QuerySize},
+        BodyStream, RecordsStream,
+    },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
         aggregation::{aggregate, AggregateInputRow},
-        basics::ShareKnownValue,
+        basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext},
-        BasicProtocols, BreakdownKey, ConversionValue,
+        BasicProtocols, BreakdownKey, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare as Replicated},
@@ -21,23 +24,32 @@ use crate::{
     sync::Arc,
 };
 
-pub struct AggregateQuery<F, C> {
+pub struct AggregateQuery<F, C, S> {
+    _config: AggregateQueryConfig,
     _key_registry: Arc<KeyRegistry<KeyPair>>,
-    phantom_data: PhantomData<(F, C)>,
+    phantom_data: PhantomData<(F, C, S)>,
 }
 
-impl<F, C> AggregateQuery<F, C> {
-    pub fn new(key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
+impl<F, C, S> AggregateQuery<F, C, S> {
+    pub fn new(config: AggregateQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
         Self {
+            _config: config,
             _key_registry: key_registry,
             phantom_data: PhantomData,
         }
     }
 }
 
-impl<F, C, SB> AggregateQuery<F, C>
+impl<F, C, S, SB> AggregateQuery<F, C, S>
 where
     C: UpgradableContext + Send,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F>
+        + BasicProtocols<C::UpgradedContext<F>, F>
+        + Reshare<C::UpgradedContext<F>, RecordId>
+        + Serializable
+        + DowngradeMalicious<Target = Replicated<F>>
+        + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
@@ -45,7 +57,7 @@ where
         + 'static,
     F: PrimeField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
-    AggregateInputRow<ConversionValue, BreakdownKey>: Serializable,
+    AggregateInputRow<Gf8Bit, BreakdownKey>: Serializable,
 {
     #[tracing::instrument("aggregate_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(
@@ -55,16 +67,20 @@ where
         input_stream: BodyStream,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let Self {
+            _config,
             _key_registry,
             phantom_data: _,
         } = self;
         let sz = usize::from(query_size);
 
-        //TODO(taikiy): decrypt the input
+        //TODO(taikiy):
+        // 1. decrypt the input
+        // 2. deserialize the input into `AggregateInputRow` with `contribution_bits` size field
 
         let input = {
+            //TODO: Replace `Gf8Bit` with an appropriate type specified by the config `contribution_bits`
             let mut v = assert_stream_send(RecordsStream::<
-                AggregateInputRow<ConversionValue, BreakdownKey>,
+                AggregateInputRow<Gf8Bit, BreakdownKey>,
                 _,
             >::new(input_stream))
             .try_concat()
