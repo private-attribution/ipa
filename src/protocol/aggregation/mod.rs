@@ -5,11 +5,9 @@ pub use input::AggregateInputRow;
 use ipa_macros::step;
 use strum::AsRefStr;
 
-use super::{basics::Reshare, RecordId};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
-    helpers::query::AggregateQueryConfig,
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
@@ -44,15 +42,11 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F>
         + BasicProtocols<C::UpgradedContext<F>, F>
-        + Reshare<C::UpgradedContext<F>, RecordId>
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
-    SB: LinearSecretSharing<Gf2>
-        + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
-        + DowngradeMalicious<Target = Replicated<Gf2>>
-        + 'static,
+    SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
     F: PrimeField + ExtendableField,
     CV: GaloisField,
     BK: GaloisField,
@@ -74,9 +68,8 @@ where
 }
 
 /// Performs a set of aggregation protocols on binary shared values.
-/// This protocol assumes that the input rows are from the same match key and
-/// for the same breakdown key, so that we don't have to worry about computing
-/// the helper_bits or capping.
+/// This protocol assumes that devices and/or browsers have applied per-user
+/// capping.
 ///
 /// # Errors
 /// propagates errors from multiplications
@@ -103,19 +96,12 @@ where
         0..u32::try_from(bits).unwrap(),
     );
 
-    //TODO: retrieve the previous aggregate value from the storage
-
     let aggregate = converted_contribution_values
         .try_fold(S::ZERO, |mut acc, row| async move {
             acc += &row.as_decimal();
             Ok(acc)
         })
         .await?;
-
-    //TODO:
-    // * add the new aggregate value to the previous one
-    // * add DP noise relative to cap and max # of reports
-    // * store the new aggregate value
 
     Ok(aggregate)
 }
@@ -199,4 +185,6 @@ mod tests {
             .reconstruct();
         assert_eq!(result, EXPECTED);
     }
+
+    //TODO(taikiy): add malicious test
 }
