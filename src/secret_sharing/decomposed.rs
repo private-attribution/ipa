@@ -54,7 +54,7 @@ impl<S> BitDecomposed<S> {
     /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
     /// each element is (should be) a share of 1 or 0. This function iterates
     /// over the shares of bits and computes `Σ(2^i * b_i)`.
-    pub fn as_decimal<F>(&self) -> S
+    pub fn to_additive_sharing_in_large_field<F>(&self) -> S
     where
         S: LinearSecretSharing<F>,
         F: PrimeField,

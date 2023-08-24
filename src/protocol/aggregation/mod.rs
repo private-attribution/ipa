@@ -98,7 +98,7 @@ where
 
     let aggregate = converted_contribution_values
         .try_fold(S::ZERO, |mut acc, row| async move {
-            acc += &row.as_decimal();
+            acc += &row.to_additive_sharing_in_large_field();
             Ok(acc)
         })
         .await?;
