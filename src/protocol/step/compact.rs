@@ -182,3 +182,6 @@ impl NoCommsStep for str {}
 
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl NoCommsStep for String {}
+
+// TODO(taikiy): remove this once we implement the aggregation protocol
+impl NoCommsStep for crate::protocol::aggregation::Step {}
