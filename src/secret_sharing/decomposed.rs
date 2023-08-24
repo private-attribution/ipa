@@ -50,7 +50,6 @@ impl<S> BitDecomposed<S> {
         self.bits.is_empty()
     }
 
-    /// Convert this into a base-10 field value.
     /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
     /// each element is (should be) a share of 1 or 0. This function iterates
     /// over the shares of bits and computes `Σ(2^i * b_i)`.
