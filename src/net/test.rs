@@ -289,7 +289,8 @@ impl TestServerBuilder {
             servers: [server_config, _, _],
             sockets: Some([server_socket, _, _]),
             ..
-        } = test_config else {
+        } = test_config
+        else {
             panic!("TestConfig should have allocated ports");
         };
         let clients = MpcHelperClient::from_conf(&network_config, identity.clone());

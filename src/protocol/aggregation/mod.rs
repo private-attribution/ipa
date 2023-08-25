@@ -1,10 +1,13 @@
 mod input;
 
-use futures::{stream::iter as stream_iter, TryStreamExt};
+use std::fmt::Debug;
+
+use futures::{stream::iter as stream_iter, StreamExt, TryStreamExt};
 pub use input::AggregateInputRow;
 use ipa_macros::step;
 use strum::AsRefStr;
 
+use super::{context::Context, sort::check_everything, step::BitOpStep, RecordId};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
@@ -21,19 +24,23 @@ use crate::{
         },
         BitDecomposed, Linear as LinearSecretSharing,
     },
+    seq_join::seq_join,
 };
 
 #[step]
 pub(crate) enum Step {
     Validator,
     ConvertValueBits,
+    ConvertBreakdownKeyBits,
+    ComputeEqualityChecks,
+    CheckTimesValue,
 }
 
-/// Binary-share aggregation protocol.
+/// Binary-share aggregation protocol for a sparse breakdown key vector input.
 ///
 /// # Errors
 /// Propagates errors from multiplications
-pub async fn aggregate<'a, C, S, SB, F, CV, BK>(
+pub async fn sparse_aggregate<'a, C, S, SB, F, CV, BK>(
     sh_ctx: C,
     input_rows: &[AggregateInputRow<CV, BK>],
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -52,139 +59,229 @@ where
     BK: GaloisField,
 {
     let validator = sh_ctx.narrow(&Step::Validator).validator::<F>();
+    let ctx = validator.context();
 
-    let (gf2_value_bits, _gf2_breakdown_keys) = (
-        get_gf2_value_bits(input_rows),
-        get_gf2_breakdown_key_bits(input_rows),
+    // convert the input from `[Z2]^u` into `[Zp]^u`
+    let (converted_value_bits, converted_breakdown_key_bits) = (
+        upgrade_bit_shares(
+            ctx.narrow(&Step::ConvertValueBits),
+            input_rows,
+            CV::BITS,
+            |row, i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.contribution_value.left()[i]),
+                    Gf2::truncate_from(row.contribution_value.right()[i]),
+                )
+            },
+        )
+        .await?,
+        upgrade_bit_shares(
+            ctx.narrow(&Step::ConvertBreakdownKeyBits),
+            input_rows,
+            BK::BITS,
+            |row, i| {
+                Replicated::new(
+                    Gf2::truncate_from(row.breakdown_key.left()[i]),
+                    Gf2::truncate_from(row.breakdown_key.right()[i]),
+                )
+            },
+        )
+        .await?,
     );
 
-    // TODO(taikiy):
-    // 1. slice the buckets into N streams and send them to the aggregation protocol
-    // 2. collect the results and return them
+    let output =
+        aggregate_values_per_bucket(ctx, converted_value_bits, converted_breakdown_key_bits)
+            .await?;
 
-    let output = aggregate_values(validator.context(), gf2_value_bits).await?;
-
-    validator.validate(vec![output]).await
+    validator.validate(output).await
 }
 
-/// Performs a set of aggregation protocols on binary shared values.
 /// This protocol assumes that devices and/or browsers have applied per-user
 /// capping.
 ///
 /// # Errors
 /// propagates errors from multiplications
-#[tracing::instrument(name = "simple_aggregate_values", skip_all)]
-pub async fn aggregate_values<F, C, S>(
+#[tracing::instrument(name = "aggregate_values_per_bucket", skip_all)]
+pub async fn aggregate_values_per_bucket<F, C, S>(
     ctx: C,
-    contribution_value_bits_gf2: Vec<BitDecomposed<Replicated<Gf2>>>,
-) -> Result<S, Error>
+    contribution_values: Vec<BitDecomposed<S>>,
+    breakdown_keys: Vec<BitDecomposed<S>>,
+) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
 {
-    let record_count = contribution_value_bits_gf2.len();
-    let bits = contribution_value_bits_gf2[0].len();
+    debug_assert!(contribution_values.len() == breakdown_keys.len());
+    let num_records = contribution_values.len();
+    // for now, we assume that the bucket count is 2^BK::BITS
+    let num_buckets = 1 << breakdown_keys[0].len();
 
-    // mod-convert for later validation
-    let convert_ctx = ctx
-        .narrow(&Step::ConvertValueBits)
-        .set_total_records(record_count);
-    let converted_contribution_values = convert_bits(
-        convert_ctx,
-        stream_iter(contribution_value_bits_gf2),
-        0..u32::try_from(bits).unwrap(),
+    let equality_check_ctx = ctx
+        .narrow(&Step::ComputeEqualityChecks)
+        .set_total_records(num_records);
+    let check_times_value_ctx = ctx
+        .narrow(&Step::CheckTimesValue)
+        .set_total_records(num_records);
+
+    // Generate N streams for each bucket specified by the breakdown key (N = |breakdown_keys|).
+    // A stream is pipeline of contribution values multiplied by the "check bit". A check bit is
+    // a bit that is a share of 1 if the breakdown key matches the bucket, and 0 otherwise.
+    let streams = seq_join(
+        ctx.active_work(),
+        stream_iter(breakdown_keys)
+            .zip(stream_iter(contribution_values))
+            .enumerate()
+            .map(|(i, (bk, v))| {
+                let eq_ctx = &equality_check_ctx;
+                let mul_ctx = &check_times_value_ctx;
+                async move {
+                    let equality_checks = check_everything(eq_ctx.clone(), i, &bk).await?;
+                    let value = &v;
+                    eq_ctx
+                        .try_join(
+                            equality_checks
+                                .into_iter()
+                                .take(num_buckets)
+                                .enumerate()
+                                .map(|(check_idx, check)| {
+                                    let step = BitOpStep::from(check_idx);
+                                    let c = mul_ctx.narrow(&step);
+                                    let record_id = RecordId::from(i);
+                                    async move {
+                                        check
+                                            .multiply(
+                                                &value.to_additive_sharing_in_large_field(),
+                                                c,
+                                                record_id,
+                                            )
+                                            .await
+                                    }
+                                }),
+                        )
+                        .await
+                }
+            }),
     );
-
-    let aggregate = converted_contribution_values
-        .try_fold(S::ZERO, |mut acc, row| async move {
-            acc += &row.to_additive_sharing_in_large_field();
+    // for each bucket stream, sum up the contribution values
+    streams
+        .try_fold(vec![S::ZERO; num_buckets], |mut acc, bucket| async move {
+            for (i, b) in bucket.into_iter().enumerate() {
+                acc[i] += &b;
+            }
             Ok(acc)
         })
-        .await?;
-
-    Ok(aggregate)
+        .await
 }
 
-fn get_gf2_value_bits<CV, BK>(
+async fn upgrade_bit_shares<F, C, S, H, CV, BK>(
+    ctx: C,
     input_rows: &[AggregateInputRow<CV, BK>],
-) -> Vec<BitDecomposed<Replicated<Gf2>>>
+    num_bits: u32,
+    f: H,
+) -> Result<Vec<BitDecomposed<S>>, Error>
 where
+    F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
+    H: Fn(&AggregateInputRow<CV, BK>, u32) -> Replicated<Gf2>,
     CV: GaloisField,
     BK: GaloisField,
 {
-    input_rows
+    let num_records = input_rows.len();
+    let gf2_bits = input_rows
         .iter()
-        .map(|row| {
-            BitDecomposed::decompose(CV::BITS, |i| {
-                Replicated::new(
-                    Gf2::truncate_from(row.contribution_value.left()[i]),
-                    Gf2::truncate_from(row.contribution_value.right()[i]),
-                )
-            })
-        })
-        .collect::<Vec<_>>()
-}
+        .map(|row| BitDecomposed::decompose(num_bits, |i| f(row, i)))
+        .collect::<Vec<_>>();
 
-fn get_gf2_breakdown_key_bits<CV, BK>(
-    input_rows: &[AggregateInputRow<CV, BK>],
-) -> Vec<BitDecomposed<Replicated<Gf2>>>
-where
-    CV: GaloisField,
-    BK: GaloisField,
-{
-    input_rows
-        .iter()
-        .map(|row| {
-            BitDecomposed::decompose(BK::BITS, |i| {
-                Replicated::new(
-                    Gf2::truncate_from(row.breakdown_key.left()[i]),
-                    Gf2::truncate_from(row.breakdown_key.right()[i]),
-                )
-            })
-        })
-        .collect::<Vec<_>>()
+    convert_bits(
+        ctx.narrow(&Step::ConvertValueBits)
+            .set_total_records(num_records),
+        stream_iter(gf2_bits),
+        0..num_bits,
+    )
+    .try_collect::<Vec<_>>()
+    .await
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::aggregate_values;
+    use super::sparse_aggregate;
     use crate::{
-        ff::{Fp32BitPrime, Gf2},
-        protocol::context::{UpgradableContext, Validator},
-        secret_sharing::BitDecomposed,
+        ff::{Field, Fp32BitPrime, GaloisField, Gf3Bit, Gf8Bit},
+        protocol::aggregation::AggregateInputRow,
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    fn create_input_vec<T, U>(
+        input: &[(Replicated<T>, Replicated<U>)],
+    ) -> Vec<AggregateInputRow<T, U>>
+    where
+        T: GaloisField,
+        U: GaloisField,
+    {
+        input
+            .iter()
+            .map(|x| AggregateInputRow {
+                contribution_value: x.0.clone(),
+                breakdown_key: x.1.clone(),
+            })
+            .collect::<Vec<_>>()
+    }
+
     #[tokio::test]
     pub async fn aggregate() {
-        const CONTRIBUTION_BITS: u32 = 8;
-        const EXPECTED: u128 = 36;
+        type CV = Gf8Bit;
+        type BK = Gf3Bit;
 
-        const INPUT: &[u32] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
+        const EXPECTED: &[u128] = &[28, 0, 0, 6, 1, 0, 0, 8];
+
+        const INPUT: &[(u32, u32)] = &[
+            (0, 0),
+            (0, 0),
+            (18, 0),
+            (0, 0),
+            (0, 0),
+            (5, 3),
+            (0, 0),
+            (1, 4),
+            (0, 0),
+            (0, 0),
+            (2, 7),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (10, 0),
+            (1, 3),
+            (0, 0),
+            (6, 7),
+            (0, 0),
+        ];
+
+        let bitwise_input = INPUT
+            .iter()
+            .map(|(value, bk)| (CV::truncate_from(*value), BK::truncate_from(*bk)));
 
         let world = TestWorld::default();
         let result = world
-            .semi_honest(
-                INPUT.iter().map(|&value| {
-                    BitDecomposed::decompose(CONTRIBUTION_BITS, |i| {
-                        Gf2::try_from((u128::from(value) >> i) & 1).unwrap()
-                    })
-                }),
-                |ctx, shares| async move {
-                    let validator = ctx.validator::<Fp32BitPrime>();
-                    aggregate_values(
-                        validator.context(), // note: not upgrading any inputs, so semi-honest only.
-                        shares,
-                    )
+            .semi_honest(bitwise_input.clone(), |ctx, shares| async move {
+                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(ctx, &create_input_vec(&shares))
                     .await
                     .unwrap()
-                },
-            )
+            })
+            .await
+            .reconstruct();
+        assert_eq!(result, EXPECTED);
+
+        let result = world
+            .malicious(bitwise_input.clone(), |ctx, shares| async move {
+                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(ctx, &create_input_vec(&shares))
+                    .await
+                    .unwrap()
+            })
             .await
             .reconstruct();
         assert_eq!(result, EXPECTED);
     }
-
-    //TODO(taikiy): add malicious test
 }

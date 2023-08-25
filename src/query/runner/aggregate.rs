@@ -12,7 +12,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        aggregation::{aggregate, AggregateInputRow},
+        aggregation::{sparse_aggregate, AggregateInputRow},
         basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext},
         BasicProtocols, BreakdownKey, RecordId,
@@ -89,6 +89,6 @@ where
             v
         };
 
-        aggregate(ctx, input.as_slice()).await
+        sparse_aggregate(ctx, input.as_slice()).await
     }
 }
