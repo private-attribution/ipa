@@ -259,7 +259,7 @@ where
         let epoch = 1;
         let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
 
-        zip(mk_shares.into_iter(), trigger_value.into_iter())
+        zip(mk_shares, trigger_value)
             .map(|(mk_shares, trigger_value)| Report {
                 timestamp: self.timestamp.try_into().unwrap(),
                 mk_shares,
@@ -293,7 +293,7 @@ where
         let epoch = 1;
         let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
 
-        zip(mk_shares.into_iter(), trigger_value.into_iter())
+        zip(mk_shares, trigger_value)
             .map(|(mk_shares, trigger_value)| Report {
                 timestamp: self.timestamp.unwrap().as_u128().try_into().unwrap(),
                 mk_shares,
