@@ -91,8 +91,8 @@ pub mod query {
     use crate::{
         ff::FieldType,
         helpers::query::{
-            AggregateQueryConfig, ContributionBits, IpaQueryConfig, QueryConfig, QuerySize,
-            QueryType,
+            ContributionBits, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+            SparseAggregateQueryConfig,
         },
         net::Error,
     };
@@ -181,13 +181,13 @@ pub mod query {
                     }) = req.extract().await?;
                     match query_type.as_str() {
                         QueryType::SEMIHONEST_AGGREGATE_STR => {
-                            Ok(QueryType::SemiHonestAggregate(AggregateQueryConfig {
+                            Ok(QueryType::SemiHonestAggregate(SparseAggregateQueryConfig {
                                 contribution_bits,
                                 num_contributions,
                             }))
                         }
                         QueryType::MALICIOUS_AGGREGATE_STR => {
-                            Ok(QueryType::MaliciousAggregate(AggregateQueryConfig {
+                            Ok(QueryType::MaliciousAggregate(SparseAggregateQueryConfig {
                                 contribution_bits,
                                 num_contributions,
                             }))

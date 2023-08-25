@@ -44,7 +44,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{AggregateQueryConfig, IpaQueryConfig, QueryConfig, QueryType},
+            query::{IpaQueryConfig, QueryConfig, QueryType, SparseAggregateQueryConfig},
             TransportCallbacks,
         },
         net::{
@@ -125,7 +125,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp31,
-            query_type: QueryType::SemiHonestAggregate(AggregateQueryConfig {
+            query_type: QueryType::SemiHonestAggregate(SparseAggregateQueryConfig {
                 contribution_bits: 8.try_into().unwrap(),
                 num_contributions: 20,
             }),
@@ -134,7 +134,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp31,
-            query_type: QueryType::MaliciousAggregate(AggregateQueryConfig {
+            query_type: QueryType::MaliciousAggregate(SparseAggregateQueryConfig {
                 contribution_bits: 8.try_into().unwrap(),
                 num_contributions: 20,
             }),

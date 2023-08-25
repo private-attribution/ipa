@@ -204,8 +204,8 @@ pub enum QueryType {
     TestMultiply,
     SemiHonestIpa(IpaQueryConfig),
     MaliciousIpa(IpaQueryConfig),
-    SemiHonestAggregate(AggregateQueryConfig),
-    MaliciousAggregate(AggregateQueryConfig),
+    SemiHonestAggregate(SparseAggregateQueryConfig),
+    MaliciousAggregate(SparseAggregateQueryConfig),
 }
 
 impl QueryType {
@@ -339,12 +339,12 @@ impl std::fmt::Display for ContributionBits {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct AggregateQueryConfig {
+pub struct SparseAggregateQueryConfig {
     pub contribution_bits: ContributionBits,
     pub num_contributions: u32,
 }
 
-impl Default for AggregateQueryConfig {
+impl Default for SparseAggregateQueryConfig {
     fn default() -> Self {
         Self {
             contribution_bits: ContributionBits::default(),

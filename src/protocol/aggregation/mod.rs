@@ -1,7 +1,7 @@
 mod input;
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
-pub use input::AggregateInputRow;
+pub use input::SparseAggregateInputRow;
 use ipa_macros::step;
 use strum::AsRefStr;
 
@@ -35,7 +35,7 @@ pub(crate) enum Step {
 /// Propagates errors from multiplications
 pub async fn aggregate<'a, C, S, SB, F, CV, BK>(
     sh_ctx: C,
-    input_rows: &[AggregateInputRow<CV, BK>],
+    input_rows: &[SparseAggregateInputRow<CV, BK>],
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradableContext,
@@ -107,7 +107,7 @@ where
 }
 
 fn get_gf2_value_bits<CV, BK>(
-    input_rows: &[AggregateInputRow<CV, BK>],
+    input_rows: &[SparseAggregateInputRow<CV, BK>],
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     CV: GaloisField,
@@ -127,7 +127,7 @@ where
 }
 
 fn get_gf2_breakdown_key_bits<CV, BK>(
-    input_rows: &[AggregateInputRow<CV, BK>],
+    input_rows: &[SparseAggregateInputRow<CV, BK>],
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     CV: GaloisField,

@@ -30,7 +30,7 @@ use crate::{
         step::{Gate, StepNarrow},
     },
     query::{
-        runner::{AggregateQuery, IpaQuery, QueryResult},
+        runner::{IpaQuery, QueryResult, SparseAggregateQuery},
         state::RunningQuery,
     },
 };
@@ -140,9 +140,12 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    AggregateQuery::<crate::ff::Fp31, _, _>::new(aggregate_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
+                        aggregate_config,
+                        key_registry,
+                    )
+                    .execute(ctx, config.size, input)
+                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
@@ -153,7 +156,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    AggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
+                    SparseAggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -167,9 +170,12 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    AggregateQuery::<crate::ff::Fp31, _, _>::new(aggregate_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
+                        aggregate_config,
+                        key_registry,
+                    )
+                    .execute(ctx, config.size, input)
+                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
@@ -180,7 +186,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = MaliciousContext::new(prss, gateway);
                 Box::pin(
-                    AggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
+                    SparseAggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
