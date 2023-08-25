@@ -250,7 +250,7 @@ where
     <I as IntoIterator>::IntoIter: Send,
 {
     fn from(value: I) -> Self {
-        RecordsStream::new(iter(value.into_iter()).map(|buf| Ok(buf.into())))
+        RecordsStream::new(iter(value).map(|buf| Ok(buf.into())))
     }
 }
 

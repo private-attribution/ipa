@@ -512,7 +512,7 @@ mod tests {
             ));
 
             drop(stream_tx);
-            assert!(matches!(poll_immediate(&mut recv).next().await, None));
+            assert!(poll_immediate(&mut recv).next().await.is_none());
         }
 
         let mut setup1 = Setup::new(HelperIdentity::ONE);
