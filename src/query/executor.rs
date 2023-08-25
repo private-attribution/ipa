@@ -133,7 +133,7 @@ pub fn execute(
             },
         ),
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::SemiHonestAggregate(aggregate_config), FieldType::Fp31) => do_query(
+        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
             config,
             gateway,
             input,
@@ -149,21 +149,26 @@ pub fn execute(
                 )
             },
         ),
-        (QueryType::SemiHonestAggregate(aggregate_config), FieldType::Fp32BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    SparseAggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
+        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
+            do_query(
+                config,
+                gateway,
+                input,
+                move |prss, gateway, config, input| {
+                    let ctx = SemiHonestContext::new(prss, gateway);
+                    Box::pin(
+                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
+                            aggregate_config,
+                            key_registry,
+                        )
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
+                    )
+                },
+            )
+        }
         #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::MaliciousAggregate(aggregate_config), FieldType::Fp31) => do_query(
+        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
             config,
             gateway,
             input,
@@ -179,19 +184,24 @@ pub fn execute(
                 )
             },
         ),
-        (QueryType::MaliciousAggregate(aggregate_config), FieldType::Fp32BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = MaliciousContext::new(prss, gateway);
-                Box::pin(
-                    SparseAggregateQuery::<Fp32BitPrime, _, _>::new(aggregate_config, key_registry)
+        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
+            do_query(
+                config,
+                gateway,
+                input,
+                move |prss, gateway, config, input| {
+                    let ctx = MaliciousContext::new(prss, gateway);
+                    Box::pin(
+                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
+                            aggregate_config,
+                            key_registry,
+                        )
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
+                    )
+                },
+            )
+        }
     }
 }
 

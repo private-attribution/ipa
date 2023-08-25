@@ -125,7 +125,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp31,
-            query_type: QueryType::SemiHonestAggregate(SparseAggregateQueryConfig {
+            query_type: QueryType::SemiHonestSparseAggregate(SparseAggregateQueryConfig {
                 contribution_bits: 8.try_into().unwrap(),
                 num_contributions: 20,
             }),
@@ -134,7 +134,7 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp31,
-            query_type: QueryType::MaliciousAggregate(SparseAggregateQueryConfig {
+            query_type: QueryType::MaliciousSparseAggregate(SparseAggregateQueryConfig {
                 contribution_bits: 8.try_into().unwrap(),
                 num_contributions: 20,
             }),
