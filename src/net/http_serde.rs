@@ -180,18 +180,18 @@ pub mod query {
                         num_contributions,
                     }) = req.extract().await?;
                     match query_type.as_str() {
-                        QueryType::SEMIHONEST_AGGREGATE_STR => {
-                            Ok(QueryType::SemiHonestAggregate(SparseAggregateQueryConfig {
+                        QueryType::SEMIHONEST_AGGREGATE_STR => Ok(
+                            QueryType::SemiHonestSparseAggregate(SparseAggregateQueryConfig {
                                 contribution_bits,
                                 num_contributions,
-                            }))
-                        }
-                        QueryType::MALICIOUS_AGGREGATE_STR => {
-                            Ok(QueryType::MaliciousAggregate(SparseAggregateQueryConfig {
+                            }),
+                        ),
+                        QueryType::MALICIOUS_AGGREGATE_STR => Ok(
+                            QueryType::MaliciousSparseAggregate(SparseAggregateQueryConfig {
                                 contribution_bits,
                                 num_contributions,
-                            }))
-                        }
+                            }),
+                        ),
                         &_ => unreachable!(),
                     }
                 }
@@ -234,7 +234,8 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::SemiHonestAggregate(config) | QueryType::MaliciousAggregate(config) => {
+                QueryType::SemiHonestSparseAggregate(config)
+                | QueryType::MaliciousSparseAggregate(config) => {
                     write!(
                         f,
                         "&contribution_bits={}&num_contributions={}",

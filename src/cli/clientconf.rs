@@ -180,7 +180,10 @@ fn assert_network_config(config_toml: &Map<String, Value>, config_str: &str) {
     let nw_config =
         NetworkConfig::from_toml_str(config_str).expect("Can deserialize network config");
 
-    let Value::Array(peer_config_expected) = config_toml.get("peers").expect("peer section must be present") else {
+    let Value::Array(peer_config_expected) = config_toml
+        .get("peers")
+        .expect("peer section must be present")
+    else {
         panic!("peers section in toml config is not a table");
     };
     for (i, peer_config_actual) in nw_config.peers.iter().enumerate() {

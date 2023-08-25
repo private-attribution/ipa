@@ -204,16 +204,16 @@ pub enum QueryType {
     TestMultiply,
     SemiHonestIpa(IpaQueryConfig),
     MaliciousIpa(IpaQueryConfig),
-    SemiHonestAggregate(SparseAggregateQueryConfig),
-    MaliciousAggregate(SparseAggregateQueryConfig),
+    SemiHonestSparseAggregate(SparseAggregateQueryConfig),
+    MaliciousSparseAggregate(SparseAggregateQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
     pub const SEMIHONEST_IPA_STR: &'static str = "semihonest-ipa";
     pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
-    pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-aggregate";
-    pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-aggregate";
+    pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-sparse-aggregate";
+    pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-sparse-aggregate";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -224,8 +224,8 @@ impl AsRef<str> for QueryType {
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::SemiHonestIpa(_) => Self::SEMIHONEST_IPA_STR,
             QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
-            QueryType::SemiHonestAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
-            QueryType::MaliciousAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
+            QueryType::SemiHonestSparseAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
+            QueryType::MaliciousSparseAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
         }
     }
 }

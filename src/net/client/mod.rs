@@ -248,7 +248,8 @@ impl MpcHelperClient {
             scheme: Some(scheme),
             authority: Some(authority),
             ..
-        } = addr.into_parts() else {
+        } = addr.into_parts()
+        else {
             panic!("peer URL must have a scheme and authority");
         };
         Self {

@@ -52,7 +52,9 @@ impl<S: Stream> StreamCollection<S> {
         match streams.entry(key) {
             Entry::Occupied(mut entry) => match entry.get_mut() {
                 rs @ StreamState::Waiting(_) => {
-                    let StreamState::Waiting(waker) = std::mem::replace(rs, StreamState::Ready(stream)) else {
+                    let StreamState::Waiting(waker) =
+                        std::mem::replace(rs, StreamState::Ready(stream))
+                    else {
                         unreachable!()
                     };
                     waker.wake();
@@ -88,7 +90,9 @@ impl<S: Stream> StreamCollection<S> {
                         None
                     }
                     rs @ StreamState::Ready(_) => {
-                        let StreamState::Ready(stream) = std::mem::replace(rs, StreamState::Completed) else {
+                        let StreamState::Ready(stream) =
+                            std::mem::replace(rs, StreamState::Completed)
+                        else {
                             unreachable!();
                         };
 
