@@ -83,6 +83,9 @@ impl<T: Transport> Gateway<T> {
         &self.config
     }
 
+    ///
+    /// ## Panics
+    /// If there is a failure connecting via HTTP
     #[must_use]
     pub fn get_sender<M: Message>(
         &self,
