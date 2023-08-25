@@ -233,7 +233,7 @@ impl InMemoryStream {
     {
         use futures_util::stream;
         Self {
-            inner: Box::pin(stream::iter(input.into_iter())),
+            inner: Box::pin(stream::iter(input)),
         }
     }
 }
