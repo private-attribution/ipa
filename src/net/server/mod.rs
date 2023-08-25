@@ -211,6 +211,7 @@ impl MpcHelperServer {
     }
 }
 
+#[allow(clippy::unused_async)]
 async fn spawn_server<A>(
     server: Server<A>,
     handle: Handle,
