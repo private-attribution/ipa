@@ -10,12 +10,12 @@ use crate::{
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct AggregateInputRow<CV: GaloisField, BK: GaloisField> {
+pub struct SparseAggregateInputRow<CV: GaloisField, BK: GaloisField> {
     pub contribution_value: Replicated<CV>,
     pub breakdown_key: Replicated<BK>,
 }
 
-impl<CV: GaloisField, BK: GaloisField> Serializable for AggregateInputRow<CV, BK>
+impl<CV: GaloisField, BK: GaloisField> Serializable for SparseAggregateInputRow<CV, BK>
 where
     Replicated<CV>: Serializable,
     Replicated<BK>: Serializable,
@@ -51,9 +51,9 @@ where
     }
 }
 
-impl<CV: GaloisField, BK: GaloisField> AggregateInputRow<CV, BK>
+impl<CV: GaloisField, BK: GaloisField> SparseAggregateInputRow<CV, BK>
 where
-    AggregateInputRow<CV, BK>: Serializable,
+    SparseAggregateInputRow<CV, BK>: Serializable,
 {
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
@@ -63,11 +63,13 @@ where
     pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
         assert_eq!(
             0,
-            input.len() % <AggregateInputRow<CV, BK> as Serializable>::Size::USIZE,
+            input.len() % <SparseAggregateInputRow<CV, BK> as Serializable>::Size::USIZE,
             "input is not aligned"
         );
         input
-            .chunks(<AggregateInputRow<CV, BK> as Serializable>::Size::USIZE)
-            .map(|chunk| AggregateInputRow::<CV, BK>::deserialize(GenericArray::from_slice(chunk)))
+            .chunks(<SparseAggregateInputRow<CV, BK> as Serializable>::Size::USIZE)
+            .map(|chunk| {
+                SparseAggregateInputRow::<CV, BK>::deserialize(GenericArray::from_slice(chunk))
+            })
     }
 }

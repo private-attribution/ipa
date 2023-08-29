@@ -7,12 +7,12 @@ use crate::{
     error::Error,
     ff::{Gf2, Gf8Bit, PrimeField, Serializable},
     helpers::{
-        query::{AggregateQueryConfig, QuerySize},
+        query::{QuerySize, SparseAggregateQueryConfig},
         BodyStream, RecordsStream,
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        aggregation::{aggregate, AggregateInputRow},
+        aggregation::{aggregate, SparseAggregateInputRow},
         basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext},
         BasicProtocols, BreakdownKey, RecordId,
@@ -24,14 +24,17 @@ use crate::{
     sync::Arc,
 };
 
-pub struct AggregateQuery<F, C, S> {
-    _config: AggregateQueryConfig,
+pub struct SparseAggregateQuery<F, C, S> {
+    _config: SparseAggregateQueryConfig,
     _key_registry: Arc<KeyRegistry<KeyPair>>,
     phantom_data: PhantomData<(F, C, S)>,
 }
 
-impl<F, C, S> AggregateQuery<F, C, S> {
-    pub fn new(config: AggregateQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
+impl<F, C, S> SparseAggregateQuery<F, C, S> {
+    pub fn new(
+        config: SparseAggregateQueryConfig,
+        key_registry: Arc<KeyRegistry<KeyPair>>,
+    ) -> Self {
         Self {
             _config: config,
             _key_registry: key_registry,
@@ -40,7 +43,7 @@ impl<F, C, S> AggregateQuery<F, C, S> {
     }
 }
 
-impl<F, C, S, SB> AggregateQuery<F, C, S>
+impl<F, C, S, SB> SparseAggregateQuery<F, C, S>
 where
     C: UpgradableContext + Send,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
@@ -57,9 +60,9 @@ where
         + 'static,
     F: PrimeField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
-    AggregateInputRow<Gf8Bit, BreakdownKey>: Serializable,
+    SparseAggregateInputRow<Gf8Bit, BreakdownKey>: Serializable,
 {
-    #[tracing::instrument("aggregate_query", skip_all, fields(sz=%query_size))]
+    #[tracing::instrument("sparse_aggregate_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(
         self,
         ctx: C,
@@ -80,7 +83,7 @@ where
         let input = {
             //TODO: Replace `Gf8Bit` with an appropriate type specified by the config `contribution_bits`
             let mut v = assert_stream_send(RecordsStream::<
-                AggregateInputRow<Gf8Bit, BreakdownKey>,
+                SparseAggregateInputRow<Gf8Bit, BreakdownKey>,
                 _,
             >::new(input_stream))
             .try_concat()

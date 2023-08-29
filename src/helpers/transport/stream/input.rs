@@ -250,7 +250,7 @@ where
     <I as IntoIterator>::IntoIter: Send,
 {
     fn from(value: I) -> Self {
-        RecordsStream::new(iter(value.into_iter()).map(|buf| Ok(buf.into())))
+        RecordsStream::new(iter(value).map(|buf| Ok(buf.into())))
     }
 }
 
@@ -509,7 +509,7 @@ mod test {
         async fn records_stream_buffers_optimally() {
             const ARR_SIZE: usize = 20;
             const CHUNK_SIZE: usize = 3;
-            let vec = vec![7u8; ARR_SIZE * <Fp32BitPrime as Serializable>::Size::USIZE];
+            let vec = [7u8; ARR_SIZE * <Fp32BitPrime as Serializable>::Size::USIZE];
             let chunks = vec
                 .chunks(CHUNK_SIZE)
                 .map(ToOwned::to_owned)

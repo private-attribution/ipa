@@ -233,7 +233,7 @@ impl InMemoryStream {
     {
         use futures_util::stream;
         Self {
-            inner: Box::pin(stream::iter(input.into_iter())),
+            inner: Box::pin(stream::iter(input)),
         }
     }
 }
@@ -512,7 +512,7 @@ mod tests {
             ));
 
             drop(stream_tx);
-            assert!(matches!(poll_immediate(&mut recv).next().await, None));
+            assert!(poll_immediate(&mut recv).next().await.is_none());
         }
 
         let mut setup1 = Setup::new(HelperIdentity::ONE);
