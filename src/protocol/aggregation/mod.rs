@@ -1,9 +1,8 @@
 mod input;
 
-use std::fmt::Debug;
-
-use futures::{stream::iter as stream_iter, StreamExt, TryStreamExt};
-pub use input::AggregateInputRow;
+use futures::{stream::iter as stream_iter, TryStreamExt};
+use futures_util::StreamExt;
+pub use input::SparseAggregateInputRow;
 use ipa_macros::step;
 use strum::AsRefStr;
 
@@ -42,7 +41,7 @@ pub(crate) enum Step {
 /// Propagates errors from multiplications
 pub async fn sparse_aggregate<'a, C, S, SB, F, CV, BK>(
     sh_ctx: C,
-    input_rows: &[AggregateInputRow<CV, BK>],
+    input_rows: &[SparseAggregateInputRow<CV, BK>],
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradableContext,
@@ -176,7 +175,7 @@ where
 
 async fn upgrade_bit_shares<F, C, S, H, CV, BK>(
     ctx: C,
-    input_rows: &[AggregateInputRow<CV, BK>],
+    input_rows: &[SparseAggregateInputRow<CV, BK>],
     num_bits: u32,
     f: H,
 ) -> Result<Vec<BitDecomposed<S>>, Error>
@@ -184,7 +183,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
-    H: Fn(&AggregateInputRow<CV, BK>, u32) -> Replicated<Gf2>,
+    H: Fn(&SparseAggregateInputRow<CV, BK>, u32) -> Replicated<Gf2>,
     CV: GaloisField,
     BK: GaloisField,
 {
@@ -209,21 +208,21 @@ mod tests {
     use super::sparse_aggregate;
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf3Bit, Gf8Bit},
-        protocol::aggregation::AggregateInputRow,
+        protocol::aggregation::SparseAggregateInputRow,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     fn create_input_vec<T, U>(
         input: &[(Replicated<T>, Replicated<U>)],
-    ) -> Vec<AggregateInputRow<T, U>>
+    ) -> Vec<SparseAggregateInputRow<T, U>>
     where
         T: GaloisField,
         U: GaloisField,
     {
         input
             .iter()
-            .map(|x| AggregateInputRow {
+            .map(|x| SparseAggregateInputRow {
                 contribution_value: x.0.clone(),
                 breakdown_key: x.1.clone(),
             })
