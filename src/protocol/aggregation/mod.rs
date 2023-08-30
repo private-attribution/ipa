@@ -36,6 +36,12 @@ pub(crate) enum Step {
 }
 
 /// Binary-share aggregation protocol for a sparse breakdown key vector input.
+/// It takes a tuple of two vectors, contribution_values and breakdown_keys, and
+/// aggregate each value to the corresponding histogram bucket specified by the
+/// breakdown key. Since breakdown keys are secret shared, we need to create a
+/// vector of Z2 shares for each record indicating which bucket the value should
+/// be aggregated to. The output is a vector of Zp shares - a histogram of the
+/// aggregated values.
 ///
 /// # Errors
 /// Propagates errors from multiplications
