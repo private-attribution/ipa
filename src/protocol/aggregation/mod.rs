@@ -1,6 +1,6 @@
 mod input;
 
-use futures::{stream::iter as stream_iter, TryStreamExt};
+use futures::{future::try_join, stream::iter as stream_iter, TryStreamExt};
 use futures_util::StreamExt;
 pub use input::SparseAggregateInputRow;
 use ipa_macros::step;
@@ -61,7 +61,7 @@ where
     let ctx = validator.context();
 
     // convert the input from `[Z2]^u` into `[Zp]^u`
-    let (converted_value_bits, converted_breakdown_key_bits) = (
+    let (converted_value_bits, converted_breakdown_key_bits) = try_join(
         upgrade_bit_shares(
             ctx.narrow(&Step::ConvertValueBits),
             input_rows,
@@ -72,8 +72,7 @@ where
                     Gf2::truncate_from(row.contribution_value.right()[i]),
                 )
             },
-        )
-        .await?,
+        ),
         upgrade_bit_shares(
             ctx.narrow(&Step::ConvertBreakdownKeyBits),
             input_rows,
@@ -84,9 +83,9 @@ where
                     Gf2::truncate_from(row.breakdown_key.right()[i]),
                 )
             },
-        )
-        .await?,
-    );
+        ),
+    )
+    .await?;
 
     let output =
         aggregate_values_per_bucket(ctx, converted_value_bits, converted_breakdown_key_bits)
@@ -119,13 +118,10 @@ where
     let equality_check_ctx = ctx
         .narrow(&Step::ComputeEqualityChecks)
         .set_total_records(num_records);
-    let check_times_value_ctx = ctx
-        .narrow(&Step::CheckTimesValue)
-        .set_total_records(num_records);
 
     // Generate N streams for each bucket specified by the breakdown key (N = |breakdown_keys|).
-    // A stream is pipeline of contribution values multiplied by the "check bit". A check bit is
-    // a bit that is a share of 1 if the breakdown key matches the bucket, and 0 otherwise.
+    // A stream is pipeline of contribution values multiplied by the "equality bit". An equality
+    // bit is a bit that is a share of 1 if the breakdown key matches the bucket, or 0 otherwise.
     let streams = seq_join(
         ctx.active_work(),
         stream_iter(breakdown_keys)
@@ -133,31 +129,10 @@ where
             .enumerate()
             .map(|(i, (bk, v))| {
                 let eq_ctx = &equality_check_ctx;
-                let mul_ctx = &check_times_value_ctx;
+                let c = ctx.clone();
                 async move {
                     let equality_checks = check_everything(eq_ctx.clone(), i, &bk).await?;
-                    let value = &v;
-                    eq_ctx
-                        .try_join(
-                            equality_checks
-                                .into_iter()
-                                .take(num_buckets)
-                                .enumerate()
-                                .map(|(check_idx, check)| {
-                                    let step = BitOpStep::from(check_idx);
-                                    let c = mul_ctx.narrow(&step);
-                                    let record_id = RecordId::from(i);
-                                    async move {
-                                        check
-                                            .multiply(
-                                                &value.to_additive_sharing_in_large_field(),
-                                                c,
-                                                record_id,
-                                            )
-                                            .await
-                                    }
-                                }),
-                        )
+                    equality_bits_times_value(&c, equality_checks, num_buckets, v, num_records, i)
                         .await
                 }
             }),
@@ -171,6 +146,43 @@ where
             Ok(acc)
         })
         .await
+}
+
+async fn equality_bits_times_value<F, C, S>(
+    ctx: &C,
+    check_bits: BitDecomposed<S>,
+    num_buckets: usize,
+    value_bits: BitDecomposed<S>,
+    num_records: usize,
+    record_id: usize,
+) -> Result<Vec<S>, Error>
+where
+    F: PrimeField,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
+{
+    let check_times_value_ctx = ctx
+        .narrow(&Step::CheckTimesValue)
+        .set_total_records(num_records);
+
+    ctx.try_join(
+        check_bits
+            .into_iter()
+            .take(num_buckets)
+            .enumerate()
+            .map(|(check_idx, check)| {
+                let step = BitOpStep::from(check_idx);
+                let c = check_times_value_ctx.narrow(&step);
+                let record_id = RecordId::from(record_id);
+                let v = &value_bits;
+                async move {
+                    check
+                        .multiply(&v.to_additive_sharing_in_large_field(), c, record_id)
+                        .await
+                }
+            }),
+    )
+    .await
 }
 
 async fn upgrade_bit_shares<F, C, S, H, CV, BK>(
