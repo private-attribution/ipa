@@ -36,18 +36,19 @@ pub(crate) enum Step {
 }
 
 /// Binary-share aggregation protocol for a sparse breakdown key vector input.
-/// It takes a tuple of two vectors, contribution_values and breakdown_keys, and
-/// aggregate each value to the corresponding histogram bucket specified by the
-/// breakdown key. Since breakdown keys are secret shared, we need to create a
-/// vector of Z2 shares for each record indicating which bucket the value should
-/// be aggregated to. The output is a vector of Zp shares - a histogram of the
-/// aggregated values.
+/// It takes a tuple of two vectors, `contribution_values` and `breakdown_keys`,
+/// and aggregate each value to the corresponding histogram bucket specified by
+/// the breakdown key. Since breakdown keys are secret shared, we need to create
+/// a vector of Z2 shares for each record indicating which bucket the value
+/// should be aggregated to. The output is a vector of Zp shares - a histogram
+/// of the aggregated values.
 ///
 /// # Errors
 /// Propagates errors from multiplications
 pub async fn sparse_aggregate<'a, C, S, SB, F, CV, BK>(
     sh_ctx: C,
     input_rows: &[SparseAggregateInputRow<CV, BK>],
+    num_buckets: usize,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradableContext,
@@ -93,9 +94,13 @@ where
     )
     .await?;
 
-    let output =
-        aggregate_values_per_bucket(ctx, converted_value_bits, converted_breakdown_key_bits)
-            .await?;
+    let output = sparse_aggregate_values_per_bucket(
+        ctx,
+        converted_value_bits,
+        converted_breakdown_key_bits,
+        num_buckets,
+    )
+    .await?;
 
     validator.validate(output).await
 }
@@ -106,10 +111,11 @@ where
 /// # Errors
 /// propagates errors from multiplications
 #[tracing::instrument(name = "aggregate_values_per_bucket", skip_all)]
-pub async fn aggregate_values_per_bucket<F, C, S>(
+pub async fn sparse_aggregate_values_per_bucket<F, C, S>(
     ctx: C,
     contribution_values: Vec<BitDecomposed<S>>,
     breakdown_keys: Vec<BitDecomposed<S>>,
+    num_buckets: usize,
 ) -> Result<Vec<S>, Error>
 where
     F: PrimeField,
@@ -118,14 +124,12 @@ where
 {
     debug_assert!(contribution_values.len() == breakdown_keys.len());
     let num_records = contribution_values.len();
-    // for now, we assume that the bucket count is 2^BK::BITS
-    let num_buckets = 1 << breakdown_keys[0].len();
 
     let equality_check_ctx = ctx
         .narrow(&Step::ComputeEqualityChecks)
         .set_total_records(num_records);
 
-    // Generate N streams for each bucket specified by the breakdown key (N = |breakdown_keys|).
+    // Generate N streams for each bucket specified by the `num_buckets`.
     // A stream is pipeline of contribution values multiplied by the "equality bit". An equality
     // bit is a bit that is a share of 1 if the breakdown key matches the bucket, or 0 otherwise.
     let streams = seq_join(
@@ -180,12 +184,8 @@ where
                 let step = BitOpStep::from(check_idx);
                 let c = check_times_value_ctx.narrow(&step);
                 let record_id = RecordId::from(record_id);
-                let v = &value_bits;
-                async move {
-                    check
-                        .multiply(&v.to_additive_sharing_in_large_field(), c, record_id)
-                        .await
-                }
+                let v = value_bits.to_additive_sharing_in_large_field();
+                async move { check.multiply(&v, c, record_id).await }
             }),
     )
     .await
@@ -227,65 +227,70 @@ mod tests {
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf3Bit, Gf8Bit},
         protocol::aggregation::SparseAggregateInputRow,
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    fn create_input_vec<T, U>(
-        input: &[(Replicated<T>, Replicated<U>)],
-    ) -> Vec<SparseAggregateInputRow<T, U>>
+    fn create_input_vec<BK, CV>(
+        input: &[(Replicated<BK>, Replicated<CV>)],
+    ) -> Vec<SparseAggregateInputRow<CV, BK>>
     where
-        T: GaloisField,
-        U: GaloisField,
+        BK: GaloisField,
+        CV: GaloisField,
     {
         input
             .iter()
             .map(|x| SparseAggregateInputRow {
-                contribution_value: x.0.clone(),
-                breakdown_key: x.1.clone(),
+                breakdown_key: x.0.clone(),
+                contribution_value: x.1.clone(),
             })
             .collect::<Vec<_>>()
     }
 
     #[tokio::test]
     pub async fn aggregate() {
-        type CV = Gf8Bit;
         type BK = Gf3Bit;
+        type CV = Gf8Bit;
 
         const EXPECTED: &[u128] = &[28, 0, 0, 6, 1, 0, 0, 8];
-
+        const NUM_BUCKETS: usize = 1 << BK::BITS;
         const INPUT: &[(u32, u32)] = &[
+            // (breakdown_key, contribution_value)
             (0, 0),
             (0, 0),
-            (18, 0),
+            (0, 18),
             (0, 0),
             (0, 0),
-            (5, 3),
+            (3, 5),
             (0, 0),
-            (1, 4),
-            (0, 0),
-            (0, 0),
-            (2, 7),
+            (4, 1),
             (0, 0),
             (0, 0),
+            (7, 2),
             (0, 0),
-            (10, 0),
-            (1, 3),
             (0, 0),
-            (6, 7),
+            (0, 0),
+            (0, 10),
+            (3, 1),
+            (0, 0),
+            (7, 6),
             (0, 0),
         ];
 
         let bitwise_input = INPUT
             .iter()
-            .map(|(value, bk)| (CV::truncate_from(*value), BK::truncate_from(*bk)));
+            .map(|(bk, value)| (BK::truncate_from(*bk), CV::truncate_from(*value)));
 
         let world = TestWorld::default();
         let result = world
             .semi_honest(bitwise_input.clone(), |ctx, shares| async move {
-                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(ctx, &create_input_vec(&shares))
-                    .await
-                    .unwrap()
+                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(
+                    ctx,
+                    &create_input_vec(&shares),
+                    NUM_BUCKETS,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -293,9 +298,13 @@ mod tests {
 
         let result = world
             .malicious(bitwise_input.clone(), |ctx, shares| async move {
-                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(ctx, &create_input_vec(&shares))
-                    .await
-                    .unwrap()
+                sparse_aggregate::<_, _, _, Fp32BitPrime, CV, BK>(
+                    ctx,
+                    &create_input_vec(&shares),
+                    NUM_BUCKETS,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
