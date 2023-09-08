@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        basics::SumOfProducts, context::UpgradedContext, sort::check_everything, BasicProtocols,
+        basics::SumOfProducts, context::UpgradedContext, sort::bitwise_to_onehot, BasicProtocols,
         RecordId,
     },
     secret_sharing::{
@@ -66,7 +66,7 @@ where
                 .iter()
                 .zip(repeat(ctx.set_total_records(num_records)))
                 .enumerate()
-                .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
+                .map(|(idx, (record, ctx))| bitwise_to_onehot(ctx, idx, record)),
         )
         .await?;
 
@@ -117,7 +117,7 @@ mod tests {
         ff::{Field, Fp31},
         protocol::{
             context::{Context, UpgradableContext, Validator},
-            sort::check_everything,
+            sort::bitwise_to_onehot,
         },
         secret_sharing::{BitDecomposed, SharedValue},
         seq_join::SeqJoin,
@@ -170,7 +170,7 @@ mod tests {
                 let ctx = ctx.set_total_records(num_records);
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for (i, record) in m_shares.iter().enumerate() {
-                    equality_check_futures.push(check_everything(ctx.clone(), i, record));
+                    equality_check_futures.push(bitwise_to_onehot(ctx.clone(), i, record));
                 }
                 ctx.try_join(equality_check_futures).await.unwrap()
             })
