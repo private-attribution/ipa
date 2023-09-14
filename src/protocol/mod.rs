@@ -1,3 +1,4 @@
+pub mod aggregation;
 pub mod attribution;
 pub mod basics;
 pub mod boolean;

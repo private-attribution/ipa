@@ -30,7 +30,7 @@ use crate::{
         step::{Gate, StepNarrow},
     },
     query::{
-        runner::{IpaQuery, QueryResult},
+        runner::{IpaQuery, QueryResult, SparseAggregateQuery},
         state::RunningQuery,
     },
 };
@@ -56,6 +56,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn execute(
     config: QueryConfig,
     key_registry: Arc<KeyRegistry<KeyPair>>,
@@ -131,6 +132,76 @@ pub fn execute(
                 )
             },
         ),
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
+                        aggregate_config,
+                        key_registry,
+                    )
+                    .execute(ctx, config.size, input)
+                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
+            do_query(
+                config,
+                gateway,
+                input,
+                move |prss, gateway, config, input| {
+                    let ctx = SemiHonestContext::new(prss, gateway);
+                    Box::pin(
+                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
+                            aggregate_config,
+                            key_registry,
+                        )
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    )
+                },
+            )
+        }
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = MaliciousContext::new(prss, gateway);
+                Box::pin(
+                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
+                        aggregate_config,
+                        key_registry,
+                    )
+                    .execute(ctx, config.size, input)
+                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
+            do_query(
+                config,
+                gateway,
+                input,
+                move |prss, gateway, config, input| {
+                    let ctx = MaliciousContext::new(prss, gateway);
+                    Box::pin(
+                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
+                            aggregate_config,
+                            key_registry,
+                        )
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                    )
+                },
+            )
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, ops::Deref};
 
-use crate::error::Error;
+use crate::{error::Error, ff::PrimeField, secret_sharing::Linear as LinearSecretSharing};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {
@@ -38,6 +38,29 @@ impl<S> BitDecomposed<S> {
     /// Translate this into a different form.
     pub fn map<F: Fn(S) -> T, T>(self, f: F) -> BitDecomposed<T> {
         BitDecomposed::new(self.bits.into_iter().map(f))
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.bits.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.bits.is_empty()
+    }
+
+    /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
+    /// each element is (should be) a share of 1 or 0. This function iterates
+    /// over the shares of bits and computes `Σ(2^i * b_i)`.
+    pub fn to_additive_sharing_in_large_field<F>(&self) -> S
+    where
+        S: LinearSecretSharing<F>,
+        F: PrimeField,
+    {
+        self.iter().enumerate().fold(S::ZERO, |acc, (i, b)| {
+            acc + &(b.clone() * F::truncate_from(1_u128 << i))
+        })
     }
 }
 

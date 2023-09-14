@@ -1,4 +1,4 @@
-use std::io::stderr;
+use std::io::{stderr, IsTerminal};
 
 use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
@@ -34,6 +34,7 @@ impl Verbosity {
         let filter_layer = self.level_filter();
         let fmt_layer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+            .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
         tracing_subscriber::registry()

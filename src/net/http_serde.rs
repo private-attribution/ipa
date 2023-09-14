@@ -90,7 +90,10 @@ pub mod query {
 
     use crate::{
         ff::FieldType,
-        helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
+        helpers::query::{
+            ContributionBits, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
+            SparseAggregateQueryConfig,
+        },
         net::Error,
     };
 
@@ -166,7 +169,32 @@ pub mod query {
                         &_ => unreachable!(),
                     }
                 }
-
+                QueryType::SEMIHONEST_AGGREGATE_STR | QueryType::MALICIOUS_AGGREGATE_STR => {
+                    #[derive(serde::Deserialize)]
+                    struct AggregateQueryConfigParam {
+                        contribution_bits: ContributionBits,
+                        num_contributions: u32,
+                    }
+                    let Query(AggregateQueryConfigParam {
+                        contribution_bits,
+                        num_contributions,
+                    }) = req.extract().await?;
+                    match query_type.as_str() {
+                        QueryType::SEMIHONEST_AGGREGATE_STR => Ok(
+                            QueryType::SemiHonestSparseAggregate(SparseAggregateQueryConfig {
+                                contribution_bits,
+                                num_contributions,
+                            }),
+                        ),
+                        QueryType::MALICIOUS_AGGREGATE_STR => Ok(
+                            QueryType::MaliciousSparseAggregate(SparseAggregateQueryConfig {
+                                contribution_bits,
+                                num_contributions,
+                            }),
+                        ),
+                        &_ => unreachable!(),
+                    }
+                }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
@@ -203,6 +231,16 @@ pub mod query {
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;
                     }
+
+                    Ok(())
+                }
+                QueryType::SemiHonestSparseAggregate(config)
+                | QueryType::MaliciousSparseAggregate(config) => {
+                    write!(
+                        f,
+                        "&contribution_bits={}&num_contributions={}",
+                        config.contribution_bits, config.num_contributions,
+                    )?;
 
                     Ok(())
                 }

@@ -124,7 +124,9 @@ impl<F: IntoFuture> ActiveItem<F> {
     /// ## Panics
     /// Panics if this item is completed
     fn check_ready(&mut self, cx: &mut Context<'_>) -> bool {
-        let ActiveItem::Pending(f) = self else { return true; };
+        let ActiveItem::Pending(f) = self else {
+            return true;
+        };
         if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
             *self = ActiveItem::Resolved(v);
             true
