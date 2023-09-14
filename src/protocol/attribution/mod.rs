@@ -10,7 +10,7 @@ use futures::{
     future::try_join,
     stream::{iter as stream_iter, TryStreamExt},
 };
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use self::{
     accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
@@ -159,7 +159,7 @@ where
     validator.validate(output).await
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum AttributionStep {
     ConvertHelperBits,
     ApplyAttributionWindow,
@@ -423,7 +423,7 @@ where
     .await
 }
 
-#[step]
+#[derive(Step)]
 #[allow(clippy::enum_variant_names)]
 pub(in crate::protocol) enum Step {
     CurrentStopBitTimesSuccessorCredit,
@@ -433,7 +433,7 @@ pub(in crate::protocol) enum Step {
     ComputeStopBits,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum InteractionPatternStep {
     #[dynamic]
     Depth(usize),

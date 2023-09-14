@@ -1,4 +1,4 @@
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use super::or::or;
 use crate::{
@@ -143,7 +143,7 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
     RBounds { r_lo, r_hi, invert }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum GreaterThanConstantStep {
     Reveal,
     CompareLo,
@@ -288,7 +288,7 @@ where
     Ok(first_diff_bit)
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     PrefixOr,
     DotProduct,

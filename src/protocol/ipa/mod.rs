@@ -6,7 +6,7 @@ use futures::{
     stream::iter as stream_iter,
 };
 use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 use typenum::Unsigned;
 
 use crate::{
@@ -39,7 +39,7 @@ use crate::{
     },
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
@@ -49,7 +49,7 @@ pub(crate) enum Step {
     BinaryValidator,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum IPAInputRowResharableStep {
     Timestamp,
     MatchKeyShares,

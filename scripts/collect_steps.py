@@ -31,6 +31,8 @@ BREAKDOWN_KEYS = [32]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
 
+# TODO(taikiy): #771 allows us to remove this synthetic step generation code
+
 # There are protocols in IPA that that will generate log(N) steps where N is the number
 # of input rows to IPA. In this script, we execute IPA with 10 input rows, hence it
 # only generates log2(10) (maybe a few more/less because of the optimizations) dynamic
@@ -64,7 +66,6 @@ MODULUS_CONVERSION_DYNAMIC_STEPS = [
 MAXIMUM_DEPTH = 32
 MAXIMUM_BIT_LENGTH = 32
 MAXIMUM_CONVERT_BIT_LENGTH = 64
-
 
 
 def set_env():

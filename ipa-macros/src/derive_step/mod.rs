@@ -89,11 +89,6 @@ pub fn expand(input: TokenStream) -> TokenStream {
         }
     };
 
-    // sanity check on the enum variants
-    if let Err(e) = check_enum_variants(&data) {
-        return TokenStream::from(e.to_compile_error());
-    }
-
     // all IPA protocol steps need to implement the `Step` trait
     let ident = &ast.ident;
     let mut out = quote!(
@@ -109,20 +104,6 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
 
     out.into()
-}
-
-/// Any enum variant checks are done in this function. Currently, we only
-/// check that the `dynamic` and `obsolete` attributes are mutually exclusive.
-fn check_enum_variants(data: &syn::DataEnum) -> Result<(), syn::Error> {
-    data.variants.iter().try_for_each(|v| {
-        if [is_dynamic_step(v), is_obsolete_step(v)].into_iter().filter(|&b| b).collect::<Vec<_>>().len() > 1 {
-            return Err(syn::Error::new_spanned(
-                v,
-                "ipa_macros::step expects an enum variant to only have one of the following attributes: `dynamic`, `obsolete`",
-            ));
-        }
-        Ok(())
-    })
 }
 
 /// Generate string representations for each variant of the enum. This is
@@ -195,12 +176,7 @@ fn impl_step_narrow(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStr
         step.as_ref(),
     ));
 
-    // There are cases where `states` vector end up being empty (e.g., the
-    // enum is marked as `obsolete`). In such cases, the step transition
-    // will only consists of the catch-all panic arm and clippy will complain
-    // that anything below would be unreachable, which is okay.
     let narrow_impl = quote!(
-        #[allow(unreachable_code)]
         Self(match (self.0, step.as_ref()) {
             #(#states)*
             _ => #panic,
@@ -223,16 +199,14 @@ fn get_meta_data_for(
     ident: &syn::Ident,
     data: &syn::DataEnum,
 ) -> Result<Vec<Node<StepMetaData>>, syn::Error> {
-    // Create lists of steps grouped by modules from `steps.txt`. Not all
-    // variants are executed (e.g., `obsolete` steps), and those will not
-    // be present in the lists.
+    // Create lists of steps grouped by modules from `steps.txt`.
     let steps = ipa_state_transition_map();
     let grouped_steps = group_by_modules(&steps);
 
     // Create a list of all enum variant names in the given enum `data`.
-    // If a step is narrowed, they will be present in `steps` vec, except
-    // for the obsolete steps. The dynamic steps are synthetically generated
-    // here to cover all subsets in `steps.txt`.
+    // If a step is narrowed, they will be present in `steps` vec.
+    // The dynamic steps are synthetically generated here to cover all
+    // subsets in `steps.txt`.
     let variant_names = data
         .variants
         .iter()
@@ -241,16 +215,14 @@ fn get_meta_data_for(
                 (0..64)
                     .map(|i| format!("{}{}", v.ident.to_string().to_snake_case(), i))
                     .collect::<Vec<_>>()
-            } else if is_obsolete_step(v) {
-                Vec::new()
             } else {
                 vec![v.ident.to_string().to_snake_case()]
             }
         })
         .collect::<Vec<_>>();
 
-    // If there are no variants in the enum, all variants must have been
-    // annotated as `obsolete`. The caller will need to handle this case.
+    // If there are no variants in the enum, return an empty vector. The
+    // caller will need to handle this case properly.
     if variant_names.is_empty() {
         return Ok(Vec::new());
     }
@@ -282,8 +254,8 @@ fn get_meta_data_for(
                 ident,
                 "ipa_macros::step expects an enum with variants that match the steps in \
             steps.txt. If you've made a change to steps, make sure to run `collect_steps.py` \
-            and replace steps.txt with the output. If the step is obsolete, consider \
-            removing it or annotate the enum/variant with `obsolete` attribute.",
+            and replace steps.txt with the output. If the step is not a part of the protocol, \
+            consider removing it.",
             ))
         }
         1 => {
@@ -307,8 +279,4 @@ fn get_meta_data_for(
 
 fn is_dynamic_step(variant: &syn::Variant) -> bool {
     variant.attrs.iter().any(|x| x.path().is_ident("dynamic"))
-}
-
-fn is_obsolete_step(variant: &syn::Variant) -> bool {
-    variant.attrs.iter().any(|x| x.path().is_ident("obsolete"))
 }

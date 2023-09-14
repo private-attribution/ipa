@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use futures::future::try_join;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -191,7 +191,7 @@ impl BitwiseLessThanPrime {
     }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,

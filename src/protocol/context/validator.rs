@@ -6,7 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::future::try_join;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -69,7 +69,7 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -77,7 +77,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,

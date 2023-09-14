@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
 use crate::{
@@ -191,7 +191,7 @@ impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
 // `UpgradeToMalicious::upgrade()` narrows but these will end up in
 // `UpgradedContext::upgrade_one()` or `UpgradedContext::upgrade_sparse()` which both
 // return Ok() and never trigger communications.
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeStep {
     UpgradeSemiHonest,
 }

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -94,7 +94,7 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeTripleStep {
     UpgradeBitTriple0,
     UpgradeBitTriple1,
@@ -163,7 +163,7 @@ where
     }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Upgrade2DVectors {
     #[dynamic]
     Upgrade2d(usize),
@@ -250,7 +250,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeModConvStep {
     UpgradeModConv1,
     UpgradeModConv2,

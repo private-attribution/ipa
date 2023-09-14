@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -34,7 +34,7 @@ pub struct RandomBitsGenerator<F, C, S> {
 /// Special context that is used when values generated using the standard method are larger
 /// than the prime for the field. It is grossly inefficient to use, because communications
 /// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
-#[step]
+#[derive(Step)]
 pub(crate) enum FallbackStep {
     Fallback,
 }

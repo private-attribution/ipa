@@ -7,7 +7,7 @@ mod descriptive;
 pub use compact::Compact;
 #[cfg(feature = "descriptive-gate")]
 pub use descriptive::Descriptive;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 #[cfg(feature = "descriptive-gate")]
 pub type Gate = descriptive::Descriptive;
@@ -51,7 +51,7 @@ impl Step for str {}
 ///
 /// This is a temporary solution for narrowing contexts until the infra is
 /// updated with a new step scheme.
-#[step]
+#[derive(Step)]
 pub enum BitOpStep {
     #[dynamic]
     Bit(usize),
@@ -76,7 +76,7 @@ impl From<usize> for BitOpStep {
 }
 
 /// Set of steps that define the IPA protocol.
-#[step]
+#[derive(Step)]
 pub(crate) enum IpaProtocolStep {
     /// Sort shares by the match key
     #[dynamic]

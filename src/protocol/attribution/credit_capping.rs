@@ -4,7 +4,7 @@ use futures::{
     stream::{iter, once},
     StreamExt, TryStreamExt,
 };
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use super::{do_the_binary_tree_thing, input::CreditCappingInputRow, prefix_or_binary_tree_style};
 use crate::{
@@ -441,7 +441,7 @@ where
         .await
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     MaskSourceCredits,
     ReportLevelCapping,

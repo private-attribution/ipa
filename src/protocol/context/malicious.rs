@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
@@ -187,7 +187,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
 }
 
 /// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeStep {
     Upgrade,
 }

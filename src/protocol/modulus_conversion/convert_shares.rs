@@ -28,7 +28,7 @@ use std::{
 };
 
 use futures::stream::{unfold, Stream, StreamExt};
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 use pin_project::pin_project;
 
 use crate::{
@@ -49,7 +49,7 @@ use crate::{
     seq_join::seq_join,
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ConvertSharesStep {
     #[dynamic]
     ConvertBit(u32),

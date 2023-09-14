@@ -2,8 +2,6 @@ mod input;
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 pub use input::SparseAggregateInputRow;
-use ipa_macros::step;
-use strum::AsRefStr;
 
 use crate::{
     error::Error,
@@ -23,10 +21,27 @@ use crate::{
     },
 };
 
-#[step]
+// TODO: Use `#[derive(Step)]` once the protocol is implemented and the bench test is enabled.
+//       Once that is done, run `collect_steps.py` to generate `steps.txt` that includes these steps.
+
 pub(crate) enum Step {
     Validator,
     ConvertValueBits,
+}
+impl crate::protocol::step::Step for Step {}
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Step::Validator => "validator",
+            Step::ConvertValueBits => "convert_value_bits",
+        }
+    }
+}
+#[cfg(feature = "compact-gate")]
+impl super::step::StepNarrow<Step> for crate::protocol::step::Compact {
+    fn narrow(&self, _step: &Step) -> Self {
+        unimplemented!("compact gate is not supported in unit tests")
+    }
 }
 
 /// Binary-share aggregation protocol.

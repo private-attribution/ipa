@@ -1,5 +1,5 @@
 use embed_doc_image::embed_doc_image;
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum InnerVectorElementStep {
     #[dynamic]
     Elem(usize),

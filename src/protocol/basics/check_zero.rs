@@ -1,4 +1,4 @@
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -12,7 +12,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     MultiplyWithR,
     RevealR,

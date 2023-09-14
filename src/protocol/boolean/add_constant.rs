@@ -1,9 +1,7 @@
-use ipa_macros::{step, Step};
-
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, BasicProtocols, RecordId},
+    ff::Field,
+    protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
 
@@ -111,96 +109,6 @@ where
     Ok(output)
 }
 
-// The Bit Decomposition logic adds a constant value - multiplied by a single sharing of either one or zero.
-// This is a specialized protocol to support that.
-// The win is in cases (like in bit decomposition) where you're adding a constant that's mostly zeroes in binary.
-// In those cases, the carry is very simple, it's just one multiplication, the unknown-bit * the last carry.
-// In those cases where the constant has a 1 bit, you have to do more work,
-// but there are only 2 of those, and one is the very first bit, when there is no other carry! So it's a special case as well.
-//
-// `a` needs to have `el` values, where `el` is the number of bits needed to represent `F::PRIME`.
-//
-// `b` is a constant.  The least significant bit of `b` must be a `1`.
-//
-// `maybe` must be a secret sharing of either `1` or `0`. It should be thought of as a secret-shared boolean.
-//
-// The output is the bitwise `a + (b*maybe)`, modulo `2^el`.
-///
-/// # Errors
-/// Fails if the multiplication protocol fails.
-///
-/// # Panics
-/// it won't
-pub async fn maybe_add_constant_mod2l<F, C, S>(
-    ctx: C,
-    record_id: RecordId,
-    a: &[S],
-    b: u128,
-    maybe: &S,
-) -> Result<Vec<S>, Error>
-where
-    F: PrimeField,
-    C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
-{
-    let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
-    assert!(a.len() >= el);
-    assert_eq!(
-        b & 1,
-        1,
-        "This function only accepts values of `b` where the least significant bit is `1`."
-    );
-    let mut output = Vec::with_capacity(a.len() + 1);
-
-    let mut last_carry = a[0]
-        .multiply(maybe, ctx.narrow(&BitOpStep::from(0)), record_id)
-        .await?;
-    output.push(-last_carry.clone() * F::truncate_from(2_u128) + &a[0] + maybe);
-
-    let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
-    for (bit_index, bit) in a.iter().enumerate().skip(1).take(el - 1) {
-        let next_bit = (b >> bit_index) & 1;
-        let carry_times_bit = bit
-            .multiply(
-                &last_carry,
-                ctx.narrow(&BitOpStep::from(bit_index)),
-                record_id,
-            )
-            .await?;
-
-        if next_bit == 0 {
-            let next_carry = carry_times_bit;
-
-            output.push(-next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry);
-
-            last_carry = next_carry;
-        } else {
-            let carry_xor_bit =
-                -carry_times_bit.clone() * F::truncate_from(2_u128) + &last_carry + bit;
-
-            let carry_xor_bit_times_maybe = carry_xor_bit
-                .multiply(
-                    maybe,
-                    ctx_other.narrow(&BitOpStep::from(bit_index)),
-                    record_id,
-                )
-                .await?;
-
-            let next_carry = carry_xor_bit_times_maybe + &carry_times_bit;
-
-            output.push(-next_carry.clone() * F::truncate_from(2_u128) + bit + maybe + &last_carry);
-
-            last_carry = next_carry;
-        }
-    }
-    Ok(output)
-}
-
-#[step(obsolete)]
-pub(crate) enum Step {
-    CarryXorBitTimesMaybe,
-}
-
 #[cfg(all(test, unit_test))]
 mod tests {
     use bitvec::macros::internal::funty::Fundamental;
@@ -208,11 +116,7 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, PrimeField},
-        protocol::{
-            boolean::add_constant::{add_constant, maybe_add_constant_mod2l},
-            context::Context,
-            RecordId,
-        },
+        protocol::{boolean::add_constant::add_constant, context::Context, RecordId},
         secret_sharing::{replicated::malicious::ExtendableField, SharedValue},
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
@@ -246,52 +150,6 @@ mod tests {
         result
     }
 
-    async fn maybe_add<F>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
-    where
-        F: PrimeField + ExtendableField,
-        Standard: Distribution<F>,
-    {
-        let result = world
-            .semi_honest(
-                (into_bits(a), maybe),
-                |ctx, (a_share, maybe_share)| async move {
-                    maybe_add_constant_mod2l(
-                        ctx.set_total_records(1),
-                        RecordId::from(0),
-                        &a_share,
-                        b,
-                        &maybe_share,
-                    )
-                    .await
-                    .unwrap()
-                },
-            )
-            .await
-            .reconstruct();
-
-        let m_result = world
-            .upgraded_malicious(
-                (into_bits(a), maybe),
-                |ctx, (a_share, maybe_share)| async move {
-                    maybe_add_constant_mod2l(
-                        ctx.set_total_records(1),
-                        RecordId::from(0),
-                        &a_share,
-                        b,
-                        &maybe_share,
-                    )
-                    .await
-                    .unwrap()
-                },
-            )
-            .await
-            .reconstruct();
-
-        assert_eq!(result, m_result);
-
-        result
-    }
-
     #[tokio::test]
     pub async fn fp31() {
         let c = Fp31::truncate_from;
@@ -300,34 +158,19 @@ mod tests {
         let world = TestWorld::default();
 
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add(&world, zero, 1).await);
-        assert_eq!(vec![1, 0, 0, 0, 0], maybe_add(&world, zero, 1, one).await);
-        assert_eq!(vec![0, 0, 0, 0, 0], maybe_add(&world, zero, 1, zero).await);
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add(&world, one, 0).await);
         assert_eq!(vec![0, 0, 0, 0, 0, 0], add(&world, zero, 0).await);
         assert_eq!(vec![0, 1, 0, 0, 0, 0], add(&world, one, 1).await);
-        assert_eq!(vec![0, 1, 0, 0, 0], maybe_add(&world, one, 1, one).await);
-        assert_eq!(vec![1, 0, 0, 0, 0], maybe_add(&world, one, 1, zero).await);
 
         assert_eq!(vec![0, 1, 0, 1, 0, 0], add(&world, c(3_u8), 7).await);
-        assert_eq!(
-            vec![0, 1, 0, 1, 0],
-            maybe_add(&world, c(3_u8), 7, one).await
-        );
-        assert_eq!(
-            vec![1, 1, 0, 0, 0],
-            maybe_add(&world, c(3_u8), 7, zero).await
-        );
         assert_eq!(vec![1, 0, 0, 1, 0, 1], add(&world, c(21), 20).await);
         assert_eq!(vec![0, 1, 0, 0, 1, 0], add(&world, c(9), 9).await);
-        assert_eq!(vec![0, 1, 0, 0, 1], maybe_add(&world, c(9), 9, one).await);
-        assert_eq!(vec![1, 0, 0, 1, 0], maybe_add(&world, c(9), 9, zero).await);
     }
 
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
-        let one = Fp32BitPrime::ONE;
         let world = TestWorld::default();
 
         // 0 + 0
@@ -352,32 +195,6 @@ mod tests {
             )
             .await
         );
-        assert_eq!(
-            vec![
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0
-            ],
-            maybe_add(
-                &world,
-                Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
-                7,
-                one
-            )
-            .await
-        );
-        assert_eq!(
-            vec![
-                0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1
-            ],
-            maybe_add(
-                &world,
-                Fp32BitPrime::truncate_from(Fp32BitPrime::PRIME - 1),
-                7,
-                zero
-            )
-            .await
-        );
 
         // 123456789 + 234567890
         assert_eq!(
@@ -392,32 +209,6 @@ mod tests {
             )
             .await
         );
-        assert_eq!(
-            vec![
-                0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
-                1, 0, 0, 0
-            ],
-            maybe_add(
-                &world,
-                Fp32BitPrime::truncate_from(123_456_789_u128),
-                234_567_891,
-                one
-            )
-            .await
-        );
-        assert_eq!(
-            vec![
-                1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0,
-                0, 0, 0, 0
-            ],
-            maybe_add(
-                &world,
-                Fp32BitPrime::truncate_from(123_456_789_u128),
-                234_567_891,
-                zero
-            )
-            .await
-        );
 
         // some random number (236461931) + (2^l - PRIME)
         let some_random_number = Fp32BitPrime::truncate_from(236_461_931_u128);
@@ -428,20 +219,6 @@ mod tests {
                 0, 0, 0, 0, 0
             ],
             add(&world, some_random_number, x).await
-        );
-        assert_eq!(
-            vec![
-                0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
-                0, 0, 0, 0
-            ],
-            maybe_add(&world, some_random_number, x, one).await
-        );
-        assert_eq!(
-            vec![
-                1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
-                0, 0, 0, 0
-            ],
-            maybe_add(&world, some_random_number, x, zero).await
         );
     }
 }

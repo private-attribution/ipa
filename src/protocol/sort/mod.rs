@@ -9,7 +9,7 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
-use ipa_macros::{step, Step};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -18,7 +18,7 @@ use crate::{
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum SortStep {
     ModulusConversion,
     BitPermutation,
@@ -29,32 +29,31 @@ pub(crate) enum SortStep {
     MultiApplyInv(u32),
 }
 
-#[step]
-#[derive(Clone, Copy)]
+#[derive(Step, Clone, Copy)]
 pub(crate) enum ShuffleStep {
     Shuffle1,
     Shuffle2,
     Shuffle3,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ApplyInvStep {
     ShuffleInputs,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ComposeStep {
     UnshuffleRho,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ShuffleRevealPermutationStep {
     Generate,
     Reveal,
     Shuffle,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,
