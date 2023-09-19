@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -16,7 +15,6 @@ use crate::{
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         BitDecomposed, Linear as LinearSecretSharing,
@@ -96,7 +94,7 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeTripleStep {
     UpgradeBitTriple0,
     UpgradeBitTriple1,
@@ -165,19 +163,10 @@ where
     }
 }
 
+#[derive(Step)]
 pub(crate) enum Upgrade2DVectors {
-    V(usize),
-}
-impl Step for Upgrade2DVectors {}
-
-impl AsRef<str> for Upgrade2DVectors {
-    fn as_ref(&self) -> &str {
-        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
-
-        match self {
-            Self::V(i) => COLUMN[*i],
-        }
-    }
+    #[dynamic]
+    Upgrade2d(usize),
 }
 
 #[async_trait]
@@ -221,7 +210,7 @@ where
         BitDecomposed::try_from(
             self.ctx
                 .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
-                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::V(i)), record_id)
+                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::Upgrade2d(i)), record_id)
                         .upgrade(share)
                         .await
                 }))
@@ -261,7 +250,7 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum UpgradeModConvStep {
     UpgradeModConv1,
     UpgradeModConv2,

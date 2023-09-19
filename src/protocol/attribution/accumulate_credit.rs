@@ -1,7 +1,6 @@
 use std::num::NonZeroU32;
 
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use super::{
     do_the_binary_tree_thing,
@@ -141,7 +140,7 @@ where
     Ok(output)
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     ActiveBitTimesStopBit,
 }

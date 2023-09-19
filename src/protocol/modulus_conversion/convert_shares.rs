@@ -28,6 +28,7 @@ use std::{
 };
 
 use futures::stream::{unfold, Stream, StreamExt};
+use ipa_macros::Step;
 use pin_project::pin_project;
 
 use crate::{
@@ -41,7 +42,6 @@ use crate::{
         context::{Context, UpgradeContext, UpgradeToMalicious, UpgradedContext},
         RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, Linear as LinearSecretSharing,
@@ -49,26 +49,13 @@ use crate::{
     seq_join::seq_join,
 };
 
-#[derive(PartialEq, Eq, Debug)]
-pub(crate) enum Step {
+#[derive(Step)]
+pub(crate) enum ConvertSharesStep {
+    #[dynamic]
     ConvertBit(u32),
     Upgrade,
     Xor1,
     Xor2,
-}
-
-impl crate::protocol::step::Step for Step {}
-
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        const BIT: [&str; 64] = repeat64str!["mc"];
-        match self {
-            Self::ConvertBit(i) => BIT[usize::try_from(*i).unwrap()],
-            Self::Upgrade => "upgrade",
-            Self::Xor1 => "xor1",
-            Self::Xor2 => "xor2",
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -233,8 +220,8 @@ where
         &locally_converted_bits.0[1],
         &locally_converted_bits.0[2],
     );
-    let ctx1 = ctx.narrow(&Step::Xor1);
-    let ctx2 = ctx.narrow(&Step::Xor2);
+    let ctx1 = ctx.narrow(&ConvertSharesStep::Xor1);
+    let ctx2 = ctx.narrow(&ConvertSharesStep::Xor2);
     let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, ZeroPositions::AVZZ_BZVZ).await?;
     debug_assert_eq!(
         ZeroPositions::mul_output(ZeroPositions::AVZZ_BZVZ),
@@ -304,11 +291,11 @@ where
             let Some(triple) = locally_converted.next().await else {
                 return None;
             };
-            let bit_contexts = (0..).map(|i| ctx.narrow(&Step::ConvertBit(i)));
+            let bit_contexts = (0..).map(|i| ctx.narrow(&ConvertSharesStep::ConvertBit(i)));
             let converted =
                 ctx.parallel_join(zip(bit_contexts, triple).map(|(ctx, triple)| async move {
                     let upgraded = ctx
-                        .narrow(&Step::Upgrade)
+                        .narrow(&ConvertSharesStep::Upgrade)
                         .upgrade_for(record_id, triple)
                         .await?;
                     convert_bit(ctx, record_id, &upgraded).await

@@ -9,74 +9,51 @@ mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
-use std::fmt::Debug;
-
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{
-        context::Context,
-        step::{BitOpStep, Step},
-        BasicProtocols, RecordId,
-    },
-    repeat64str,
+    protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, SecretSharing},
 };
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum SortStep {
+#[derive(Step)]
+pub(crate) enum SortStep {
     ModulusConversion,
-    BitPermutationStep,
-    ComposeStep,
+    BitPermutation,
+    Compose,
     ShuffleRevealPermutation,
     SortKeys,
+    #[dynamic]
     MultiApplyInv(u32),
 }
 
-impl Step for SortStep {}
-
-impl AsRef<str> for SortStep {
-    fn as_ref(&self) -> &str {
-        const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
-        match self {
-            Self::ModulusConversion => "convert",
-            Self::BitPermutationStep => "bit_permute",
-            Self::ComposeStep => "compose",
-            Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
-            Self::SortKeys => "sort_keys",
-            Self::MultiApplyInv(i) => MULTI_APPLY_INV[usize::try_from(*i).unwrap()],
-        }
-    }
-}
-
-#[step]
+#[derive(Step, Clone, Copy)]
 pub(crate) enum ShuffleStep {
     Shuffle1,
     Shuffle2,
     Shuffle3,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ApplyInvStep {
     ShuffleInputs,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ComposeStep {
     UnshuffleRho,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ShuffleRevealPermutationStep {
     Generate,
     Reveal,
     Shuffle,
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,

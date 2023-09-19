@@ -5,6 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ipa_macros::Step;
 
 use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
@@ -186,15 +187,9 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
 }
 
 /// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct UpgradeStep;
-
-impl Step for UpgradeStep {}
-
-impl AsRef<str> for UpgradeStep {
-    fn as_ref(&self) -> &str {
-        "upgrade"
-    }
+#[derive(Step)]
+pub(crate) enum UpgradeStep {
+    Upgrade,
 }
 
 #[async_trait]
@@ -249,7 +244,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
             .upgrade(input)
             .await
     }
@@ -259,7 +254,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
             .upgrade(input)
             .await
     }
@@ -272,7 +267,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     ) -> Result<MaliciousReplicated<F>, Error> {
         use crate::protocol::{context::upgrade::UpgradeContext, NoRecord};
 
-        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
             .upgrade_sparse(input, zeros_at)
             .await
     }

@@ -1,8 +1,5 @@
-use std::fmt::Debug;
-
 use futures::future::try_join;
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -18,7 +15,7 @@ use crate::{
     },
 };
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,

@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 
+#[cfg(test)]
 use async_trait::async_trait;
+#[cfg(test)]
 use futures::future::try_join4;
-use ipa_macros::step;
-use strum::AsRefStr;
 
+#[cfg(test)]
 use crate::{
     error::Error,
-    ff::Field,
     helpers::Role,
     protocol::{basics::Reshare, context::Context, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::{ff::Field, secret_sharing::Linear as LinearSecretSharing};
 
 //
 // `apply_attribution_window` protocol
@@ -64,6 +64,7 @@ impl<F: Field, S: LinearSecretSharing<F>> AccumulateCreditInputRow<F, S> {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl<F, S, C> Reshare<C, RecordId> for AccumulateCreditInputRow<F, S>
 where
@@ -137,10 +138,35 @@ impl<F: Field, T: LinearSecretSharing<F>> CreditCappingInputRow<F, T> {
     }
 }
 
-#[step]
-pub enum AttributionResharableStep {
+// `Resharable` trait of the `AttributionResharableStep` is only used for testing.
+// For these steps that are not executed as a part of the main protocols, we can't
+// use `#[derive(Step)]` since the steps do not appear in `steps.txt`. Hide these
+// steps behind `test` and manually implement AsRef<str> and `NoCommsStep` for them.
+#[cfg(test)]
+pub(crate) enum AttributionResharableStep {
     IsTriggerReport,
     HelperBit,
     TriggerValue,
     ActiveBit,
+}
+#[cfg(test)]
+impl crate::protocol::step::Step for AttributionResharableStep {}
+#[cfg(test)]
+impl AsRef<str> for AttributionResharableStep {
+    fn as_ref(&self) -> &'static str {
+        match self {
+            AttributionResharableStep::IsTriggerReport => "is_trigger_report",
+            AttributionResharableStep::HelperBit => "helper_bit",
+            AttributionResharableStep::TriggerValue => "trigger_value",
+            AttributionResharableStep::ActiveBit => "active_bit",
+        }
+    }
+}
+#[cfg(all(feature = "compact-gate", test))]
+impl crate::protocol::step::StepNarrow<AttributionResharableStep>
+    for crate::protocol::step::Compact
+{
+    fn narrow(&self, _step: &AttributionResharableStep) -> Self {
+        unimplemented!("compact gate is not supported in unit tests")
+    }
 }

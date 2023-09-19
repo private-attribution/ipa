@@ -10,8 +10,7 @@ use futures::{
     future::try_join,
     stream::{iter as stream_iter, TryStreamExt},
 };
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use self::{
     accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
@@ -31,7 +30,6 @@ use crate::{
         sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{
             malicious::{DowngradeMalicious, ExtendableField},
@@ -161,7 +159,7 @@ where
     validator.validate(output).await
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum AttributionStep {
     ConvertHelperBits,
     ApplyAttributionWindow,
@@ -425,7 +423,7 @@ where
     .await
 }
 
-#[step]
+#[derive(Step)]
 #[allow(clippy::enum_variant_names)]
 pub(in crate::protocol) enum Step {
     CurrentStopBitTimesSuccessorCredit,
@@ -435,19 +433,14 @@ pub(in crate::protocol) enum Step {
     ComputeStopBits,
 }
 
-pub(crate) struct InteractionPatternStep(usize);
-
-impl crate::protocol::step::Step for InteractionPatternStep {}
-
-impl AsRef<str> for InteractionPatternStep {
-    fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 64] = repeat64str!["depth"];
-        DEPTH[self.0]
-    }
+#[derive(Step)]
+pub(crate) enum InteractionPatternStep {
+    #[dynamic]
+    Depth(usize),
 }
 
 impl From<usize> for InteractionPatternStep {
     fn from(v: usize) -> Self {
-        Self(v)
+        Self::Depth(v)
     }
 }

@@ -4,16 +4,11 @@ use std::{
     path::PathBuf,
 };
 
-use quote::format_ident;
-
 use crate::tree::Node;
 
 const TARGET_CRATE: &str = "ipa";
 const STEPS_FILE_PATH: &str = "/../src/protocol/step/";
-#[cfg(not(feature = "trybuild"))]
 pub(crate) const STEPS_FILE_NAME: &str = "steps.txt";
-#[cfg(feature = "trybuild")]
-pub(crate) const STEPS_FILE_NAME: &str = "steps.test.txt";
 
 #[derive(Clone, Debug)]
 pub(crate) struct StepMetaData {
@@ -122,33 +117,6 @@ pub(crate) fn split_step_module_and_name(input: &str) -> (String, String) {
     (path.join("::"), substep_name.to_owned())
 }
 
-/// Parse the input string as a module path, and output the module AST and the step's name.
-///
-/// # Panics
-/// If the given string is not a valid module path.
-pub(crate) fn module_string_to_ast(module: &str) -> syn::Path {
-    let mod_parts = module.split("::").map(|s| s.to_owned()).collect::<Vec<_>>();
-
-    let mut segments = syn::punctuated::Punctuated::new();
-    for (i, v) in mod_parts.iter().enumerate() {
-        // if the path segment starts with "ipa", replace it with "crate" to make it a relative path
-        let segment = if i == 0 && v == TARGET_CRATE {
-            "crate"
-        } else {
-            v
-        };
-
-        segments.push(syn::PathSegment {
-            ident: format_ident!("{}", segment),
-            arguments: syn::PathArguments::None,
-        });
-    }
-    syn::Path {
-        leading_colon: None,
-        segments,
-    }
-}
-
 /// Traverse the tree and group the nodes by their module paths. This is required because sub-steps
 /// that are defined in the same enum could be narrowed from different parents.
 ///
@@ -185,29 +153,4 @@ pub(crate) fn group_by_modules(
     }
 
     result
-}
-
-mod tests {
-    #[test]
-    fn parse_path() {
-        let path = super::module_string_to_ast("crate::protocol::attribution::Step::xor1");
-
-        assert_eq!(path.segments.len(), 5);
-        assert_eq!(path.segments[0].ident.to_string(), "crate");
-        assert_eq!(path.segments[1].ident.to_string(), "protocol");
-        assert_eq!(path.segments[2].ident.to_string(), "attribution");
-        assert_eq!(path.segments[3].ident.to_string(), "Step");
-        assert_eq!(path.segments[4].ident.to_string(), "xor1");
-
-        let path = super::module_string_to_ast("Step::xor1");
-        assert_eq!(path.segments.len(), 2);
-        assert_eq!(path.segments[0].ident.to_string(), "Step");
-        assert_eq!(path.segments[1].ident.to_string(), "xor1");
-    }
-
-    #[test]
-    #[should_panic]
-    fn invalid_path() {
-        let _ = super::module_string_to_ast("::Step");
-    }
 }

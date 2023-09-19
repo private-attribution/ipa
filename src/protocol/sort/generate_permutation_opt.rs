@@ -17,10 +17,7 @@ use crate::{
             generate_permutation::{shuffle_and_reveal_permutation, ShuffledPermutationWrapper},
             multi_bit_permutation::multi_bit_permutation,
             secureapplyinv::secureapplyinv_multi,
-            SortStep::{
-                BitPermutationStep, ComposeStep, ModulusConversion, MultiApplyInv,
-                ShuffleRevealPermutation,
-            },
+            SortStep,
         },
         step::IpaProtocolStep::Sort,
         BasicProtocols, RecordId,
@@ -114,7 +111,7 @@ where
     let chunk = 0..min(num_multi_bits, max_bits);
     let key_chunk = convert_bits(
         m_ctx
-            .narrow(&ModulusConversion)
+            .narrow(&SortStep::ModulusConversion)
             .set_total_records(sort_keys.len()),
         stream_iter(sort_keys.iter().cloned()),
         chunk,
@@ -123,7 +120,7 @@ where
     .await?;
 
     let lsb_permutation =
-        multi_bit_permutation(m_ctx.narrow(&BitPermutationStep), &key_chunk).await?;
+        multi_bit_permutation(m_ctx.narrow(&SortStep::BitPermutation), &key_chunk).await?;
     let mut composed_less_significant_bits_permutation = lsb_permutation;
 
     for (chunk_num, chunk_start) in (num_multi_bits..max_bits)
@@ -131,7 +128,7 @@ where
         .enumerate()
     {
         let revealed_and_random_permutations = shuffle_and_reveal_permutation::<C, _, _>(
-            m_ctx.narrow(&ShuffleRevealPermutation),
+            m_ctx.narrow(&SortStep::ShuffleRevealPermutation),
             composed_less_significant_bits_permutation,
             malicious_validator,
         )
@@ -146,7 +143,7 @@ where
         let chunk = chunk_start..min(chunk_start + num_multi_bits, max_bits);
         let key_chunk = convert_bits(
             m_ctx
-                .narrow(&ModulusConversion)
+                .narrow(&SortStep::ModulusConversion)
                 .set_total_records(sort_keys.len()),
             stream_iter(sort_keys.iter().cloned()),
             chunk,
@@ -167,7 +164,7 @@ where
         );
 
         let next_few_bits_sorted_by_less_significant_bits = secureapplyinv_multi(
-            m_ctx.narrow(&MultiApplyInv(chunk_num.try_into().unwrap())),
+            m_ctx.narrow(&SortStep::MultiApplyInv(chunk_num.try_into().unwrap())),
             key_chunk,
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
@@ -175,13 +172,13 @@ where
         .await?;
 
         let next_few_bits_permutation = multi_bit_permutation(
-            m_ctx.narrow(&BitPermutationStep),
+            m_ctx.narrow(&SortStep::BitPermutation),
             &next_few_bits_sorted_by_less_significant_bits,
         )
         .await?;
 
         composed_less_significant_bits_permutation = compose(
-            m_ctx.narrow(&ComposeStep),
+            m_ctx.narrow(&SortStep::Compose),
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
             next_few_bits_permutation,

@@ -1,4 +1,5 @@
 use embed_doc_image::embed_doc_image;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -13,23 +14,17 @@ use crate::{
         },
         NoRecord, RecordId,
     },
-    repeat64str,
 };
 
-pub struct InnerVectorElementStep(usize);
-
-impl crate::protocol::step::Step for InnerVectorElementStep {}
-
-impl AsRef<str> for InnerVectorElementStep {
-    fn as_ref(&self) -> &str {
-        const VEC_ELEM: [&str; 64] = repeat64str!["elem"];
-        VEC_ELEM[self.0]
-    }
+#[derive(Step)]
+pub(crate) enum InnerVectorElementStep {
+    #[dynamic]
+    Elem(usize),
 }
 
 impl From<usize> for InnerVectorElementStep {
     fn from(v: usize) -> Self {
-        Self(v)
+        Self::Elem(v)
     }
 }
 

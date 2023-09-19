@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -139,7 +138,7 @@ where
     Ok(true)
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     RandomBits,
     IsPLessThanB,
