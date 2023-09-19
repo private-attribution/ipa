@@ -6,7 +6,7 @@ pub use input::SparseAggregateInputRow;
 use ipa_macros::step;
 use strum::AsRefStr;
 
-use super::{context::Context, sort::check_everything, step::BitOpStep, RecordId};
+use super::{context::Context, sort::bitwise_to_onehot, step::BitOpStep, RecordId};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
@@ -71,9 +71,13 @@ where
 
     // convert the input from `[Z2]^u` into `[Zp]^u`
     let (converted_value_bits, converted_breakdown_key_bits) = (
-        upgrade_bit_shares(ctx.narrow(&Step::ConvertValueBits), contributions, CV::BITS),
         upgrade_bit_shares(
-            ctx.narrow(&Step::ConvertBreakdownKeyBits),
+            &ctx.narrow(&Step::ConvertValueBits),
+            contributions,
+            CV::BITS,
+        ),
+        upgrade_bit_shares(
+            &ctx.narrow(&Step::ConvertBreakdownKeyBits),
             breakdowns,
             BK::BITS,
         ),
@@ -109,9 +113,6 @@ where
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
 {
-    // TODO: use exactsizestream trait
-    // debug_assert!(contribution_values.len() == breakdown_keys.len());
-
     let equality_check_ctx = ctx.narrow(&Step::ComputeEqualityChecks);
 
     // Generate N streams for each bucket specified by the `num_buckets`.
@@ -126,7 +127,7 @@ where
                 let eq_ctx = &equality_check_ctx;
                 let c = ctx.clone();
                 async move {
-                    let equality_checks = check_everything(eq_ctx.clone(), i, &bk?).await?;
+                    let equality_checks = bitwise_to_onehot(eq_ctx.clone(), i, &bk?).await?;
                     equality_bits_times_value(&c, equality_checks, num_buckets, v?, i).await
                 }
             }),
@@ -173,7 +174,7 @@ where
 }
 
 fn upgrade_bit_shares<'a, F, C, S, I, G>(
-    ctx: C,
+    ctx: &C,
     input_rows: I,
     num_bits: u32,
 ) -> impl Stream<Item = Result<BitDecomposed<S>, Error>> + 'a

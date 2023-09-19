@@ -10,7 +10,7 @@ use crate::{
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
-        sort::{check_everything, generate_permutation::ShuffledPermutationWrapper},
+        sort::{bitwise_to_onehot, generate_permutation::ShuffledPermutationWrapper},
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
@@ -114,7 +114,7 @@ where
                 let ceq = &equality_check_context;
                 let cmul = &check_times_credit_context;
                 async move {
-                    let equality_checks = check_everything(ceq.clone(), i, &bk?).await?;
+                    let equality_checks = bitwise_to_onehot(ceq.clone(), i, &bk?).await?;
                     ceq.try_join(equality_checks.into_iter().take(to_take).enumerate().map(
                         |(check_idx, check)| {
                             let step = BitOpStep::from(check_idx);

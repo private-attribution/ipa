@@ -91,7 +91,7 @@ pub(crate) enum ReshareStep {
 ///
 /// # Errors
 /// If any multiplication fails, or if the record is too long (e.g. more than 64 multiplications required)
-pub async fn check_everything<F, C, S>(
+pub async fn bitwise_to_onehot<F, C, S>(
     ctx: C,
     record_idx: usize,
     record: &[S],
