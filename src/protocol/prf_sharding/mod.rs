@@ -622,12 +622,12 @@ pub mod tests {
             PreAggregationTestOutput {
                 attributed_breakdown_key: attributed_breakdown_key_bits
                     .iter()
-                    .map(ff::field::Field::as_u128)
+                    .map(Field::as_u128)
                     .enumerate()
                     .fold(0_u128, |acc, (i, x)| acc + (x << i)),
                 capped_attributed_trigger_value: capped_attributed_trigger_value_bits
                     .iter()
-                    .map(ff::field::Field::as_u128)
+                    .map(Field::as_u128)
                     .enumerate()
                     .fold(0_u128, |acc, (i, x)| acc + (x << i)),
             }
