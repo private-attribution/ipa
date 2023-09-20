@@ -1,8 +1,6 @@
 use std::iter::repeat;
 
 use futures_util::future::try_join_all;
-use ipa_macros::step;
-use strum::AsRefStr;
 
 use super::step::BitOpStep;
 use crate::{
@@ -37,9 +35,9 @@ struct InputsRequiredFromPrevRow {
 
 #[derive(Debug)]
 pub struct CappedAttributionOutputs {
-    did_trigger_get_attributed: Replicated<Gf2>,
-    attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
-    capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
+    pub did_trigger_get_attributed: Replicated<Gf2>,
+    pub attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
+    pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -340,7 +338,7 @@ where
     Ok(BitDecomposed::new(output))
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn compute_row_with_previous<C, BK, TV>(
     ctx: C,
     record_id: RecordId,
@@ -624,12 +622,12 @@ pub mod tests {
             PreAggregationTestOutput {
                 attributed_breakdown_key: attributed_breakdown_key_bits
                     .iter()
-                    .map(|x| x.as_u128())
+                    .map(ff::field::Field::as_u128)
                     .enumerate()
                     .fold(0_u128, |acc, (i, x)| acc + (x << i)),
                 capped_attributed_trigger_value: capped_attributed_trigger_value_bits
                     .iter()
-                    .map(|x| x.as_u128())
+                    .map(ff::field::Field::as_u128)
                     .enumerate()
                     .fold(0_u128, |acc, (i, x)| acc + (x << i)),
             }
