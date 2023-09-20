@@ -1,6 +1,9 @@
+use ipa_macros::step;
 use std::iter::repeat;
+use strum::AsRefStr;
 
 use futures_util::future::try_join_all;
+use metrics_util::registry::Storage;
 
 use super::step::BitOpStep;
 use crate::{
@@ -40,54 +43,81 @@ pub struct CappedAttributionOutputs {
     pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
-pub(crate) enum Step {
-    BinaryValidator,
-    EverEncounteredSourceEvent(usize),
-    DidTriggerGetAttributed(usize),
-    AttributedBreakdownKey(usize),
-    AttributedTriggerValue(usize),
-    ComputeSaturatingSum(usize),
-    IsSaturatedAndPrevRowNotSaturated(usize),
-    ComputeDifferenceToCap(usize),
-    ComputedCappedAttributedTriggerValueNotSaturatedCase(usize),
-    ComputedCappedAttributedTriggerValueJustSaturatedCase(usize),
+pub struct UserNthRowStep(usize);
+
+impl crate::protocol::step::Step for UserNthRowStep {}
+
+impl AsRef<str> for UserNthRowStep {
+    fn as_ref(&self) -> &str {
+        const ROW: [&str; 64] = repeat64str!["row"];
+        ROW[self.0]
+    }
 }
 
-impl crate::protocol::step::Step for Step {}
+impl From<usize> for UserNthRowStep {
+    fn from(v: usize) -> Self {
+        Self(v)
+    }
+}
 
-impl AsRef<str> for Step {
-    fn as_ref(&self) -> &str {
-        const EVER_ENCOUNTERED_SOURCE_EVENT: [&str; 64] = repeat64str!["eese_row"];
-        const DID_TRIGGER_GET_ATTRIBUTED: [&str; 64] = repeat64str!["dtga_row"];
-        const ATTRIBUTED_BREAKDOWN_KEY: [&str; 64] = repeat64str!["abk_row"];
-        const ATTRIBUTED_TRIGGER_VALUE: [&str; 64] = repeat64str!["atv_row"];
-        const COMPUTE_SATURATING_SUM: [&str; 64] = repeat64str!["css_row"];
-        const IS_SATURATED_AND_PREV_ROW_NOT_SATURATED: [&str; 64] = repeat64str!["isaprns_row"];
-        const COMPUTE_DIFFERENCE_TO_CAP: [&str; 64] = repeat64str!["cdtc_row"];
-        const COMPUTE_CAPPED_ATTRIBUTED_TRIGGER_VALUE_NOT_SATURATED_CASE: [&str; 64] =
-            repeat64str!["ccatvnsc_row"];
-        const COMPUTE_CAPPED_ATTRIBUTED_TRIGGER_VALUE_JUST_SATURATED_CASE: [&str; 64] =
-            repeat64str!["ccatvjsc_row"];
-        match self {
-            Self::BinaryValidator => "binary_validator",
-            Self::EverEncounteredSourceEvent(i) => EVER_ENCOUNTERED_SOURCE_EVENT[*i],
-            Self::DidTriggerGetAttributed(i) => DID_TRIGGER_GET_ATTRIBUTED[*i],
-            Self::AttributedBreakdownKey(i) => ATTRIBUTED_BREAKDOWN_KEY[*i],
-            Self::AttributedTriggerValue(i) => ATTRIBUTED_TRIGGER_VALUE[*i],
-            Self::ComputeSaturatingSum(i) => COMPUTE_SATURATING_SUM[*i],
-            Self::IsSaturatedAndPrevRowNotSaturated(i) => {
-                IS_SATURATED_AND_PREV_ROW_NOT_SATURATED[*i]
+#[step]
+pub(crate) enum Step {
+    BinaryValidator,
+    EverEncounteredSourceEvent,
+    DidTriggerGetAttributed,
+    AttributedBreakdownKey,
+    AttributedTriggerValue,
+    ComputeSaturatingSum,
+    IsSaturatedAndPrevRowNotSaturated,
+    ComputeDifferenceToCap,
+    ComputedCappedAttributedTriggerValueNotSaturatedCase,
+    ComputedCappedAttributedTriggerValueJustSaturatedCase,
+}
+
+fn compute_histogram_of_users_with_row_count<BK, TV>(
+    input_rows: &[PrfShardedIpaInputRow<BK, TV>],
+) -> Vec<usize>
+where
+    BK: GaloisField,
+    TV: GaloisField,
+{
+    let (_, _, hist) = input_rows.iter().fold(
+        (0, 0, vec![]),
+        |(last_prf, rows_for_user, mut histogram), input_row| {
+            if last_prf == input_row.prf_of_match_key {
+                if rows_for_user >= histogram.len() {
+                    histogram.push(0);
+                }
+                histogram[rows_for_user] += 1;
+                (input_row.prf_of_match_key, rows_for_user + 1, histogram)
+            } else {
+                if histogram.is_empty() {
+                    histogram.push(0);
+                }
+                histogram[0] += 1;
+                (input_row.prf_of_match_key, 1, histogram)
             }
-            Self::ComputeDifferenceToCap(i) => COMPUTE_DIFFERENCE_TO_CAP[*i],
-            Self::ComputedCappedAttributedTriggerValueNotSaturatedCase(i) => {
-                COMPUTE_CAPPED_ATTRIBUTED_TRIGGER_VALUE_NOT_SATURATED_CASE[*i]
-            }
-            Self::ComputedCappedAttributedTriggerValueJustSaturatedCase(i) => {
-                COMPUTE_CAPPED_ATTRIBUTED_TRIGGER_VALUE_JUST_SATURATED_CASE[*i]
-            }
+        },
+    );
+    hist
+}
+
+fn set_up_contexts<C>(root_ctx: C, histogram: Vec<usize>) -> Vec<C>
+where
+    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+{
+    let mut context_per_row_depth = vec![];
+    for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
+        if row_number == 0 {
+            // no multiplications needed for each user's row 0. No context needed
+        } else {
+            let ctx_for_row_number = root_ctx
+                .narrow(&UserNthRowStep::from(row_number))
+                .set_total_records(*num_users_having_that_row_number);
+            context_per_row_depth.push(ctx_for_row_number);
         }
     }
+    context_per_row_depth
 }
 
 /// Sub-protocol of the PRF-sharded IPA Protocol
@@ -127,7 +157,10 @@ where
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     // TODO: fix num total records to be not a hard-coded constant, but variable per step
     // based on the histogram of how many users have how many records a piece
-    let binary_m_ctx = binary_validator.context().set_total_records(1);
+    let binary_m_ctx = binary_validator.context();
+
+    let histogram = compute_histogram_of_users_with_row_count(input_rows);
+    let ctx_for_row_number = set_up_contexts(binary_m_ctx.clone(), histogram);
 
     let mut output = vec![];
 
@@ -142,17 +175,21 @@ where
         num_saturating_sum_bits,
     );
     let mut i: usize = 1;
-    let mut num_users_encountered = 0;
+    let mut num_users_who_encountered_row_depth = vec![];
     let mut row_for_user = 0;
     while i < input_rows.len() {
         let cur_row = &input_rows[i];
         if prev_prf == cur_row.prf_of_match_key {
+            if row_for_user >= num_users_who_encountered_row_depth.len() {
+                num_users_who_encountered_row_depth.push(0);
+            }
+
+            let ctx_for_this_row_depth = ctx_for_row_number[row_for_user].clone();
             // Do some actual computation
             let (inputs_required_for_next_row, capped_attribution_outputs) =
                 compute_row_with_previous(
-                    binary_m_ctx.clone(),
-                    RecordId(num_users_encountered),
-                    row_for_user,
+                    ctx_for_this_row_depth,
+                    RecordId(num_users_who_encountered_row_depth[row_for_user]),
                     cur_row,
                     &prev_row_inputs,
                     num_breakdown_key_bits,
@@ -162,6 +199,7 @@ where
                 .await?;
             output.push(capped_attribution_outputs);
             prev_row_inputs = inputs_required_for_next_row;
+            num_users_who_encountered_row_depth[row_for_user] += 1;
 
             row_for_user += 1;
         } else {
@@ -174,7 +212,6 @@ where
                 num_saturating_sum_bits,
             );
             row_for_user = 0;
-            num_users_encountered += 1;
         }
         i += 1;
     }
@@ -342,7 +379,6 @@ where
 async fn compute_row_with_previous<C, BK, TV>(
     ctx: C,
     record_id: RecordId,
-    row_for_user: usize,
     input_row: &PrfShardedIpaInputRow<BK, TV>,
     inputs_required_from_previous_row: &InputsRequiredFromPrevRow,
     num_breakdown_key_bits: usize,
@@ -383,14 +419,14 @@ where
         .is_trigger_bit
         .multiply(
             &inputs_required_from_previous_row.ever_encountered_a_source_event,
-            ctx.narrow(&Step::EverEncounteredSourceEvent(row_for_user)),
+            ctx.narrow(&Step::EverEncounteredSourceEvent),
             record_id,
         )
         .await?
         + &share_of_one
         - &input_row.is_trigger_bit;
 
-    let narrowed_ctx = ctx.narrow(&Step::AttributedBreakdownKey(row_for_user));
+    let narrowed_ctx = ctx.narrow(&Step::AttributedBreakdownKey);
     let attributed_breakdown_key_bits = BitDecomposed::new(
         try_join_all(
             bd_key
@@ -423,12 +459,12 @@ where
         .is_trigger_bit
         .multiply(
             &ever_encountered_a_source_event,
-            ctx.narrow(&Step::DidTriggerGetAttributed(row_for_user)),
+            ctx.narrow(&Step::DidTriggerGetAttributed),
             record_id,
         )
         .await?;
 
-    let narrowed_ctx = ctx.narrow(&Step::AttributedTriggerValue(row_for_user));
+    let narrowed_ctx = ctx.narrow(&Step::AttributedTriggerValue);
     let attributed_trigger_value = BitDecomposed::new(
         try_join_all(
             tv.iter()
@@ -447,7 +483,7 @@ where
     );
 
     let (saturating_sum, is_saturated) = compute_saturating_sum(
-        ctx.narrow(&Step::ComputeSaturatingSum(row_for_user)),
+        ctx.narrow(&Step::ComputeSaturatingSum),
         record_id,
         &attributed_trigger_value,
         &inputs_required_from_previous_row.saturating_sum,
@@ -461,14 +497,14 @@ where
     let is_saturated_and_prev_row_not_saturated = is_saturated
         .multiply(
             &(share_of_one - &inputs_required_from_previous_row.is_saturated),
-            ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated(row_for_user)),
+            ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
             record_id,
         )
         .await?;
 
     let difference_to_cap = BitDecomposed::new(
         compute_truncated_difference_to_cap(
-            ctx.narrow(&Step::ComputeDifferenceToCap(row_for_user)),
+            ctx.narrow(&Step::ComputeDifferenceToCap),
             record_id,
             &saturating_sum,
             num_trigger_value_bits,
@@ -477,11 +513,8 @@ where
         .await?,
     );
 
-    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase(
-        row_for_user,
-    ));
-    let narrowed_ctx2 =
-        ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase(row_for_user));
+    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
+    let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
     let capped_attributed_trigger_value = BitDecomposed::new(
         try_join_all(
             attributed_trigger_value
@@ -649,6 +682,10 @@ pub mod tests {
                 attributed_breakdown_key: 20,
                 capped_attributed_trigger_value: 3,
             },
+            PreAggregationTestOutput {
+                attributed_breakdown_key: 12,
+                capped_attributed_trigger_value: 5,
+            },
         ];
         const NUM_BREAKDOWN_KEY_BITS: usize = 5;
         const NUM_TRIGGER_VALUE_BITS: usize = 3;
@@ -681,6 +718,18 @@ pub mod tests {
                     is_trigger_bit: Gf2::ONE,
                     breakdown_key: Gf8Bit::truncate_from(0_u8),
                     trigger_value: Gf8Bit::truncate_from(3_u8),
+                },
+                PreShardedAndSortedOPRFTestInput {
+                    prf_of_match_key: 234,
+                    is_trigger_bit: Gf2::ZERO,
+                    breakdown_key: Gf8Bit::truncate_from(12_u8),
+                    trigger_value: Gf8Bit::truncate_from(3_u8),
+                },
+                PreShardedAndSortedOPRFTestInput {
+                    prf_of_match_key: 234,
+                    is_trigger_bit: Gf2::ONE,
+                    breakdown_key: Gf8Bit::truncate_from(0_u8),
+                    trigger_value: Gf8Bit::truncate_from(5_u8),
                 },
             ];
 
