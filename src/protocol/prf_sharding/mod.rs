@@ -4,7 +4,7 @@ use futures_util::future::try_join_all;
 use ipa_macros::step;
 use strum::AsRefStr;
 
-use super::step::BitOpStep;
+use super::{boolean::saturating_sum::SaturatingSum, step::BitOpStep};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2},
@@ -30,8 +30,7 @@ pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
 struct InputsRequiredFromPrevRow {
     ever_encountered_a_source_event: Replicated<Gf2>,
     attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
-    saturating_sum: BitDecomposed<Replicated<Gf2>>,
-    is_saturated: Replicated<Gf2>,
+    saturating_sum: SaturatingSum<Replicated<Gf2>>,
     difference_to_cap: BitDecomposed<Replicated<Gf2>>,
 }
 
@@ -275,81 +274,14 @@ where
                 Gf2::truncate_from(input_row.breakdown_key.right()[i]),
             )
         }),
-        saturating_sum: BitDecomposed::new(vec![Replicated::ZERO; num_saturating_sum_bits]),
-        is_saturated: Replicated::ZERO,
+        saturating_sum: SaturatingSum::new(
+            BitDecomposed::new(vec![Replicated::ZERO; num_saturating_sum_bits]),
+            Replicated::ZERO,
+        ),
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
         difference_to_cap: BitDecomposed::new(vec![Replicated::ZERO; num_trigger_value_bits]),
     }
-}
-
-///
-/// Returns (`sum_bit`, `carry_out`)
-///
-async fn one_bit_adder<C, SB>(
-    ctx: C,
-    record_id: RecordId,
-    x: &SB,
-    y: &SB,
-    carry_in: &SB,
-) -> Result<(SB, SB), Error>
-where
-    C: UpgradedContext<Gf2, Share = SB>,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-{
-    // compute sum bit as x XOR y XOR carry_in
-    let sum_bit = x.clone() + y + carry_in;
-
-    let x_xor_carry_in = x.clone() + carry_in;
-    let y_xor_carry_in = y.clone() + carry_in;
-    let carry_out = x_xor_carry_in
-        .multiply(&y_xor_carry_in, ctx, record_id)
-        .await?
-        + carry_in;
-
-    Ok((sum_bit, carry_out))
-}
-
-async fn compute_saturating_sum<C, SB>(
-    ctx: C,
-    record_id: RecordId,
-    cur_value: &BitDecomposed<SB>,
-    prev_sum: &BitDecomposed<SB>,
-    prev_is_saturated: &SB,
-    num_trigger_value_bits: usize,
-    num_saturating_sum_bits: usize,
-) -> Result<(BitDecomposed<SB>, SB), Error>
-where
-    C: UpgradedContext<Gf2, Share = SB>,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-{
-    assert!(cur_value.len() == num_trigger_value_bits);
-    assert!(prev_sum.len() == num_saturating_sum_bits);
-
-    let mut carry_in = SB::ZERO;
-    let mut output = vec![];
-    for i in 0..num_saturating_sum_bits {
-        let c = ctx.narrow(&BitOpStep::from(i));
-        let (sum_bit, carry_out) = if i < num_trigger_value_bits {
-            one_bit_adder(c, record_id, &cur_value[i], &prev_sum[i], &carry_in).await?
-        } else {
-            one_bit_adder(c, record_id, &SB::ZERO, &prev_sum[i], &carry_in).await?
-        };
-
-        output.push(sum_bit);
-        carry_in = carry_out;
-    }
-    let updated_is_saturated = -carry_in
-        .clone()
-        .multiply(
-            prev_is_saturated,
-            ctx.narrow(&BitOpStep::from(num_saturating_sum_bits)),
-            record_id,
-        )
-        .await?
-        + &carry_in
-        + prev_is_saturated;
-    Ok((BitDecomposed::new(output), updated_is_saturated))
 }
 
 ///
@@ -389,7 +321,7 @@ where
 async fn compute_truncated_difference_to_cap<C, SB>(
     ctx: C,
     record_id: RecordId,
-    cur_sum: &BitDecomposed<SB>,
+    cur_sum: &SaturatingSum<SB>,
     num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
 ) -> Result<BitDecomposed<SB>, Error>
@@ -397,11 +329,11 @@ where
     C: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
 {
-    assert!(cur_sum.len() == num_saturating_sum_bits);
+    assert!(cur_sum.sum.len() == num_saturating_sum_bits);
 
     let mut carry_in = SB::share_known_value(&ctx, Gf2::ONE);
     let mut output = vec![];
-    for (i, bit) in cur_sum.iter().enumerate().take(num_trigger_value_bits) {
+    for (i, bit) in cur_sum.sum.iter().enumerate().take(num_trigger_value_bits) {
         let c = ctx.narrow(&BitOpStep::from(i));
         let (difference_bit, carry_out) =
             one_bit_subtractor(c, record_id, &SB::ZERO, bit, &carry_in).await?;
@@ -447,7 +379,7 @@ where
             == num_breakdown_key_bits
     );
     assert!(tv.len() == num_trigger_value_bits);
-    assert!(inputs_required_from_previous_row.saturating_sum.len() == num_saturating_sum_bits);
+    assert!(inputs_required_from_previous_row.saturating_sum.sum.len() == num_saturating_sum_bits);
 
     let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
 
@@ -519,21 +451,23 @@ where
         .await?,
     );
 
-    let (saturating_sum, is_saturated) = compute_saturating_sum(
-        ctx.narrow(&Step::ComputeSaturatingSum),
-        record_id,
-        &attributed_trigger_value,
-        &inputs_required_from_previous_row.saturating_sum,
-        &inputs_required_from_previous_row.is_saturated,
-        num_trigger_value_bits,
-        num_saturating_sum_bits,
-    )
-    .await?;
+    let updated_sum = inputs_required_from_previous_row
+        .saturating_sum
+        .add(
+            ctx.narrow(&Step::ComputeSaturatingSum),
+            record_id,
+            &attributed_trigger_value,
+        )
+        .await?;
 
     // TODO: compute is_saturated_and_prev_row_not_saturated and difference_to_cap in parallel
-    let is_saturated_and_prev_row_not_saturated = is_saturated
+    let is_saturated_and_prev_row_not_saturated = updated_sum
+        .is_saturated
         .multiply(
-            &(share_of_one - &inputs_required_from_previous_row.is_saturated),
+            &(share_of_one
+                - &inputs_required_from_previous_row
+                    .saturating_sum
+                    .is_saturated),
             ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
             record_id,
         )
@@ -543,7 +477,7 @@ where
         compute_truncated_difference_to_cap(
             ctx.narrow(&Step::ComputeDifferenceToCap),
             record_id,
-            &saturating_sum,
+            &updated_sum,
             num_trigger_value_bits,
             num_saturating_sum_bits,
         )
@@ -557,7 +491,7 @@ where
             attributed_trigger_value
                 .iter()
                 .zip(inputs_required_from_previous_row.difference_to_cap.iter())
-                .zip(repeat(is_saturated.clone()))
+                .zip(repeat(updated_sum.is_saturated.clone()))
                 .zip(repeat(is_saturated_and_prev_row_not_saturated))
                 .enumerate()
                 .map(
@@ -589,8 +523,7 @@ where
     let inputs_required_for_next_row = InputsRequiredFromPrevRow {
         ever_encountered_a_source_event,
         attributed_breakdown_key_bits: BitDecomposed::new(attributed_breakdown_key_bits.clone()),
-        saturating_sum,
-        is_saturated,
+        saturating_sum: updated_sum,
         difference_to_cap,
     };
     let outputs_for_aggregation = CappedAttributionOutputs {
