@@ -13,6 +13,7 @@ use crate::{
         SharedValue,
     },
 };
+use crate::secret_sharing::scheme::RefLocalArithmeticOps;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: SharedValue>(V, V);
@@ -22,6 +23,8 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
 }
 
 impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
+
+// impl <'a, V: SharedValue> RefLocalArithmeticOps<'a, Self> for AdditiveShare<V> {}
 
 impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -73,10 +76,10 @@ where
     }
 }
 
-impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
+impl<'a, 'b, V: SharedValue> Add<&'b AdditiveShare<V>> for &'a AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: &'b AdditiveShare<V>) -> Self::Output {
         AdditiveShare(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
@@ -89,7 +92,7 @@ impl<V: SharedValue> Add<Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
+impl<'a, V: SharedValue> Add<AdditiveShare<V>> for &'a AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: AdditiveShare<V>) -> Self::Output {
@@ -97,10 +100,10 @@ impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
+impl<'a, V: SharedValue> Add<&'a AdditiveShare<V>> for AdditiveShare<V> {
     type Output = Self;
 
-    fn add(self, rhs: &Self) -> Self::Output {
+    fn add(self, rhs: &'a Self) -> Self::Output {
         Add::add(&self, rhs)
     }
 }
@@ -118,11 +121,19 @@ impl<V: SharedValue> AddAssign<Self> for AdditiveShare<V> {
     }
 }
 
+impl<V: SharedValue> Neg for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
+
+    fn neg(self) -> Self::Output {
+        AdditiveShare(-self.0, -self.1)
+    }
+}
+
 impl<V: SharedValue> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self(-self.0, -self.1)
+        Neg::neg(&self)
     }
 }
 

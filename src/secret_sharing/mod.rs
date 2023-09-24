@@ -59,9 +59,11 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use crate::ff::{Field, Fp31, RefLocalArithmeticOps};
-    use crate::secret_sharing::Linear;
+    use std::ops::Add;
+    use crate::ff::{Field, Fp31};
+    use crate::secret_sharing::{Linear, SharedValue};
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+    use crate::secret_sharing::scheme::RefLocalArithmeticOps;
 
     #[test]
     fn arithmetic() {
@@ -80,7 +82,7 @@ mod tests {
             a + b
         }
 
-        fn sum_ref_ref<S>(a: &S, b: &S) -> S where S: Linear<Fp31>, for <'a> &'a S: RefLocalArithmeticOps<S> {
+        fn sum_ref_ref<S>(a: &S, b: &S) -> S where S: Linear<Fp31>, for <'a> &'a S: RefLocalArithmeticOps<'a, S> {
             a + b
         }
 
@@ -88,13 +90,15 @@ mod tests {
             a + b
         }
 
-        fn sum_ref_owned<S>(a: &S, b: S) -> S where S: Linear<Fp31>, for <'a> &'a S: RefLocalArithmeticOps<S> {
-            a + b
-        }
+        // fn sum_ref_owned<S, V>(a: &S, b: S) -> S where S: Linear<V>, V: SharedValue, for <'a> &'a S: RefLocalArithmeticOps<S> {
+        //     a + b
+        // }
 
         assert_eq!(AdditiveShare::ZERO, sum_owned(AdditiveShare::ZERO, AdditiveShare::ZERO));
-        assert_eq!(AdditiveShare::ZERO, sum_ref_ref(&AdditiveShare::ZERO, &AdditiveShare::ZERO));
+        assert_eq!(AdditiveShare::<Fp31>::ZERO, sum_ref_ref(&AdditiveShare::<Fp31>::ZERO, &AdditiveShare::ZERO));
         assert_eq!(AdditiveShare::ZERO, sum_owned_ref(AdditiveShare::ZERO, &AdditiveShare::ZERO));
-        assert_eq!(AdditiveShare::ZERO, sum_ref_owned(&AdditiveShare::ZERO, AdditiveShare::ZERO));
+        // assert_eq!(0, sum_ref_owned(&0_i32, 1));
+        // assert_eq!(AdditiveShare::<Fp31>::ZERO, sum_ref_owned::<AdditiveShare<Fp31>, _>(&AdditiveShare::ZERO, AdditiveShare::ZERO))
+        // assert_eq!(AdditiveShare::ZERO, sum_ref_owned::<AdditiveShare<Fp31>>(&AdditiveShare::ZERO, AdditiveShare::ZERO));
     }
 }

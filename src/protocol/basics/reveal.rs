@@ -255,7 +255,7 @@ mod tests {
 
         let m_shares = join3v(
             zip(m_ctx.iter(), input.share_with(&mut rng))
-                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+                .map(|(m_ctx, share)| async move { m_ctx.upgrade(share).await }),
         )
         .await;
         let result = try_join3(

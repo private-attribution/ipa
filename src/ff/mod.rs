@@ -25,19 +25,38 @@ pub enum Error {
 /// locally.
 pub trait LocalArithmeticOps<Rhs = Self, Output = Self>:
 Add<Rhs, Output = Output>
-+ AddAssign<Rhs>
+// + AddAssign<Rhs>
 + Sub<Rhs, Output = Output>
-+ SubAssign<Rhs>
-+ Neg<Output = Output>
+// + SubAssign<Rhs>
+// + Neg<Output = Output>
 + Sized
 {
 }
 
+impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
+    T: Add<Rhs, Output = Output>
+    // + AddAssign<Rhs>
+    + Sub<Rhs, Output = Output>
+    // + SubAssign<Rhs>
+    // + Neg<Output = Output>
+    + Sized {}
+
+
+pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> + Neg<Output = Self> {}
+impl <T, Rhs> LocalAssignOps<Rhs> for T where T:AddAssign<Rhs> + SubAssign<Rhs> + Neg<Output = Self> {}
+
 /// TODO: add docs
 /// May or may not require communication, depending on the value. Multiplying field values is a
 /// local operation, while multiplying secret shares is not.
-pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Output>
+pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
 // TODO: make mul a trait and implement it for secret sharing
+    + Mul<Rhs, Output = Output>
+    + MulAssign<Rhs>
+{
+}
+
+impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
+    T: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
     + Mul<Rhs, Output = Output>
     + MulAssign<Rhs>
 {
@@ -47,23 +66,9 @@ pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Outp
 /// second operand either by value or by reference.
 ///
 /// This is automatically implemented for types which implement the operators.
-pub trait RefLocalArithmeticOps<Base>: LocalArithmeticOps<Base, Base> + for <'r> LocalArithmeticOps<&'r Base, Base> {}
-impl<T, Base> RefLocalArithmeticOps<Base> for T where T: LocalArithmeticOps<Base, Base> + for<'r> LocalArithmeticOps<&'r Base, Base> {}
+// pub trait RefLocalArithmeticOps<'a, Base: 'a>: LocalArithmeticOps<&'a Base, Base> {}
 
-impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
-    T: Add<Rhs, Output = Output>
-    + AddAssign<Rhs>
-    + Sub<Rhs, Output = Output>
-    + SubAssign<Rhs>
-    + Neg<Output = Output>
-    + Sized {}
-
-impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
-    T: LocalArithmeticOps<Rhs, Output>
-    + Mul<Rhs, Output = Output>
-    + MulAssign<Rhs>
-{
-}
+// impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<&'a Base, Base> + 'a {}
 
 // pub trait ArithmeticRefOps<V: SharedValue>:
 //     for<'a> Add<&'a Self, Output = Self>
