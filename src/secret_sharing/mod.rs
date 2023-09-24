@@ -27,6 +27,7 @@ pub trait Block: Sized + Copy + Debug {
 }
 
 pub trait SharedValue:
+// TODO: add reference operations
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + ArithmeticOps + Serializable + 'static
 {
     type Storage: Block;
@@ -52,5 +53,48 @@ where
             AdditiveShare::new(x2, x3),
             AdditiveShare::new(x3, x1),
         ]
+    }
+}
+
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use crate::ff::{Field, Fp31, RefLocalArithmeticOps};
+    use crate::secret_sharing::Linear;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+
+    #[test]
+    fn arithmetic() {
+        let a = AdditiveShare::<Fp31>::ZERO;
+        let b = AdditiveShare::<Fp31>::ZERO;
+
+        assert_eq!(AdditiveShare::ZERO, &a + &b);
+        assert_eq!(AdditiveShare::ZERO, a.clone() + &b);
+        assert_eq!(AdditiveShare::ZERO, &a + b.clone());
+        assert_eq!(AdditiveShare::ZERO, a + b);
+    }
+
+    #[test]
+    fn trait_bounds() {
+        fn sum_owned<S: Linear<Fp31>>(a: S, b: S) -> S {
+            a + b
+        }
+
+        fn sum_ref_ref<S>(a: &S, b: &S) -> S where S: Linear<Fp31>, for <'a> &'a S: RefLocalArithmeticOps<S> {
+            a + b
+        }
+
+        fn sum_owned_ref<S: Linear<Fp31>>(a: S, b: &S) -> S {
+            a + b
+        }
+
+        fn sum_ref_owned<S>(a: &S, b: S) -> S where S: Linear<Fp31>, for <'a> &'a S: RefLocalArithmeticOps<S> {
+            a + b
+        }
+
+        assert_eq!(AdditiveShare::ZERO, sum_owned(AdditiveShare::ZERO, AdditiveShare::ZERO));
+        assert_eq!(AdditiveShare::ZERO, sum_ref_ref(&AdditiveShare::ZERO, &AdditiveShare::ZERO));
+        assert_eq!(AdditiveShare::ZERO, sum_owned_ref(AdditiveShare::ZERO, &AdditiveShare::ZERO));
+        assert_eq!(AdditiveShare::ZERO, sum_ref_owned(&AdditiveShare::ZERO, AdditiveShare::ZERO));
     }
 }

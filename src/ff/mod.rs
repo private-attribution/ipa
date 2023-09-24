@@ -15,59 +15,77 @@ use generic_array::{ArrayLength, GenericArray};
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
 
-use crate::secret_sharing::SharedValue;
-
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     #[error("unknown field type {type_str}")]
     UnknownField { type_str: String },
 }
 
-pub trait ArithmeticOps:
-    Add<Output = Self>
-    + AddAssign
-    + Sub<Output = Self>
-    + SubAssign
-    + Mul<Output = Self>
-    + MulAssign
-    + Neg<Output = Self>
-    + Sized
+/// Arithmetic operations that do not require communication in our MPC setting and can be performed
+/// locally.
+pub trait LocalArithmeticOps<Rhs = Self, Output = Self>:
+Add<Rhs, Output = Output>
++ AddAssign<Rhs>
++ Sub<Rhs, Output = Output>
++ SubAssign<Rhs>
++ Neg<Output = Output>
++ Sized
 {
 }
 
-impl<T> ArithmeticOps for T where
-    T: Add<Output = Self>
-        + AddAssign
-        + Sub<Output = Self>
-        + SubAssign
-        + Mul<Output = Self>
-        + MulAssign
-        + Neg<Output = Self>
-        + Sized
+/// TODO: add docs
+/// May or may not require communication, depending on the value. Multiplying field values is a
+/// local operation, while multiplying secret shares is not.
+pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Output>
+// TODO: make mul a trait and implement it for secret sharing
+    + Mul<Rhs, Output = Output>
+    + MulAssign<Rhs>
 {
 }
 
-pub trait ArithmeticRefOps<V: SharedValue>:
-    for<'a> Add<&'a Self, Output = Self>
-    + for<'a> AddAssign<&'a Self>
-    + Neg<Output = Self>
-    + for<'a> Sub<&'a Self, Output = Self>
-    + for<'a> SubAssign<&'a Self>
-    + Mul<V, Output = Self>
+/// The trait for references which implement local arithmetic operations, taking the
+/// second operand either by value or by reference.
+///
+/// This is automatically implemented for types which implement the operators.
+pub trait RefLocalArithmeticOps<Base>: LocalArithmeticOps<Base, Base> + for <'r> LocalArithmeticOps<&'r Base, Base> {}
+impl<T, Base> RefLocalArithmeticOps<Base> for T where T: LocalArithmeticOps<Base, Base> + for<'r> LocalArithmeticOps<&'r Base, Base> {}
+
+impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
+    T: Add<Rhs, Output = Output>
+    + AddAssign<Rhs>
+    + Sub<Rhs, Output = Output>
+    + SubAssign<Rhs>
+    + Neg<Output = Output>
+    + Sized {}
+
+impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
+    T: LocalArithmeticOps<Rhs, Output>
+    + Mul<Rhs, Output = Output>
+    + MulAssign<Rhs>
 {
 }
 
-impl<T, V> ArithmeticRefOps<V> for T
-where
-    T: for<'a> Add<&'a Self, Output = Self>
-        + for<'a> AddAssign<&'a Self>
-        + Neg<Output = Self>
-        + for<'a> Sub<&'a Self, Output = Self>
-        + for<'a> SubAssign<&'a Self>
-        + Mul<V, Output = Self>,
-    V: SharedValue,
-{
-}
+// pub trait ArithmeticRefOps<V: SharedValue>:
+//     for<'a> Add<&'a Self, Output = Self>
+//     + for<'a> AddAssign<&'a Self>
+//     + Neg<Output = Self>
+//     + for<'a> Sub<&'a Self, Output = Self>
+//     + for<'a> SubAssign<&'a Self>
+//     + Mul<V, Output = Self>
+// {
+// }
+//
+// impl<T, V> ArithmeticRefOps<V> for T
+// where
+//     T: for<'a> Add<&'a Self, Output = Self>
+//         + for<'a> AddAssign<&'a Self>
+//         + Neg<Output = Self>
+//         + for<'a> Sub<&'a Self, Output = Self>
+//         + for<'a> SubAssign<&'a Self>
+//         + Mul<V, Output = Self>,
+//     V: SharedValue,
+// {
+// }
 
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {

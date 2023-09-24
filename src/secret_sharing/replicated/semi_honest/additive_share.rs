@@ -81,12 +81,27 @@ impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<&Self> for AdditiveShare<V> {
+impl<V: SharedValue> Add<Self> for AdditiveShare<V> {
     type Output = Self;
 
-    fn add(mut self, rhs: &Self) -> Self::Output {
-        self += rhs;
-        self
+    fn add(self, rhs: Self) -> Self::Output {
+        Add::add(&self, &rhs)
+    }
+}
+
+impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
+
+    fn add(self, rhs: AdditiveShare<V>) -> Self::Output {
+        Add::add(self, &rhs)
+    }
+}
+
+impl<V: SharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
+    type Output = Self;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        Add::add(&self, rhs)
     }
 }
 
@@ -94,6 +109,12 @@ impl<V: SharedValue> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
+    }
+}
+
+impl<V: SharedValue> AddAssign<Self> for AdditiveShare<V> {
+    fn add_assign(&mut self, rhs: Self) {
+        AddAssign::add_assign(self, &rhs)
     }
 }
 
@@ -113,12 +134,27 @@ impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
     }
 }
 
+impl<V: SharedValue> Sub<Self> for AdditiveShare<V> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Sub::sub(&self, &rhs)
+    }
+}
+
 impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
-    fn sub(mut self, rhs: &Self) -> Self::Output {
-        self -= rhs;
-        self
+    fn sub(self, rhs: &Self) -> Self::Output {
+        Sub::sub(&self, rhs)
+    }
+}
+
+impl<V: SharedValue> Sub<AdditiveShare<V>> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
+
+    fn sub(self, rhs: AdditiveShare<V>) -> Self::Output {
+        Sub::sub(self, &rhs)
     }
 }
 
@@ -126,6 +162,12 @@ impl<V: SharedValue> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.0 -= rhs.0;
         self.1 -= rhs.1;
+    }
+}
+
+impl<V: SharedValue> SubAssign<Self> for AdditiveShare<V> {
+    fn sub_assign(&mut self, rhs: Self) {
+        SubAssign::sub_assign(self, &rhs)
     }
 }
 
