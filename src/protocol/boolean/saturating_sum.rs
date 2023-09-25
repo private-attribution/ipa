@@ -33,13 +33,12 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
 
         let mut output_sum = Vec::with_capacity(self.sum.len());
         let mut carry_in = S::ZERO;
+        let zero = S::ZERO;
         for i in 0..self.sum.len() {
             let c = ctx.narrow(&BitOpStep::from(i));
-            let (sum_bit, carry_out) = if i < value.len() {
-                one_bit_adder(c, record_id, &value[i], &self.sum[i], &carry_in).await?
-            } else {
-                one_bit_adder(c, record_id, &S::ZERO, &self.sum[i], &carry_in).await?
-            };
+            let x = if i < value.len() { &value[i] } else { &zero };
+            let (sum_bit, carry_out) =
+                one_bit_adder(c, record_id, x, &self.sum[i], &carry_in).await?;
 
             output_sum.push(sum_bit);
             carry_in = carry_out;
