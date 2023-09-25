@@ -348,7 +348,7 @@ impl Default for SparseAggregateQueryConfig {
     fn default() -> Self {
         Self {
             contribution_bits: ContributionBits::default(),
-            num_contributions: 1,
+            num_contributions: 8,
         }
     }
 }

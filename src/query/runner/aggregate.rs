@@ -12,7 +12,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        aggregation::{aggregate, SparseAggregateInputRow},
+        aggregation::{sparse_aggregate, SparseAggregateInputRow},
         basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext},
         BasicProtocols, BreakdownKey, RecordId,
@@ -25,7 +25,7 @@ use crate::{
 };
 
 pub struct SparseAggregateQuery<F, C, S> {
-    _config: SparseAggregateQueryConfig,
+    config: SparseAggregateQueryConfig,
     _key_registry: Arc<KeyRegistry<KeyPair>>,
     phantom_data: PhantomData<(F, C, S)>,
 }
@@ -36,7 +36,7 @@ impl<F, C, S> SparseAggregateQuery<F, C, S> {
         key_registry: Arc<KeyRegistry<KeyPair>>,
     ) -> Self {
         Self {
-            _config: config,
+            config,
             _key_registry: key_registry,
             phantom_data: PhantomData,
         }
@@ -70,7 +70,7 @@ where
         input_stream: BodyStream,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let Self {
-            _config,
+            config,
             _key_registry,
             phantom_data: _,
         } = self;
@@ -92,6 +92,11 @@ where
             v
         };
 
-        aggregate(ctx, input.as_slice()).await
+        sparse_aggregate(
+            ctx,
+            input.as_slice(),
+            usize::try_from(config.num_contributions).unwrap(),
+        )
+        .await
     }
 }
