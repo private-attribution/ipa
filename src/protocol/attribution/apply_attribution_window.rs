@@ -19,6 +19,7 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::ff::RefLocalArithmeticOps;
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to
@@ -37,6 +38,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -90,6 +92,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for <'a> &'a T: RefLocalArithmeticOps<'a, T>,
 {
     let num_rows = input.len();
 
@@ -108,7 +111,7 @@ where
                     .map(|(i, ((prev, curr), b))| {
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
-                        let delta = curr.timestamp.clone() - &prev.timestamp;
+                        let delta = &curr.timestamp - &prev.timestamp;
                         async move { delta.multiply(b, c, record_id).await }
                     }),
             )
@@ -149,6 +152,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =

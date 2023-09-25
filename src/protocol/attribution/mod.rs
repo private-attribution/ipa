@@ -39,6 +39,7 @@ use crate::{
     },
     seq_join::assert_send,
 };
+use crate::ff::RefLocalArithmeticOps;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///
@@ -62,11 +63,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB> + Context,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
+    for <'a> &'a SB: RefLocalArithmeticOps<'a, SB>,
     F: PrimeField + ExtendableField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
@@ -403,6 +406,7 @@ async fn compute_helper_bits_gf2<C, S>(
 where
     C: Context,
     S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
 {
     let narrowed_ctx = ctx
         .narrow(&Step::ComputeHelperBits)

@@ -4,6 +4,7 @@ use crate::{
     protocol::{basics::SecureMul, context::Context, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::ff::RefLocalArithmeticOps;
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 /// # Errors
@@ -19,6 +20,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -30,6 +32,6 @@ where
     //   = false_value
     Ok(false_value.clone()
         + &condition
-            .multiply(&(true_value.clone() - false_value), ctx, record_id)
+            .multiply(&(true_value - false_value), ctx, record_id)
             .await?)
 }

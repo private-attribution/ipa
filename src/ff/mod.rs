@@ -66,7 +66,8 @@ impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
 /// second operand either by value or by reference.
 ///
 /// This is automatically implemented for types which implement the operators.
-// pub trait RefLocalArithmeticOps<'a, Base: 'a>: LocalArithmeticOps<&'a Base, Base> {}
+pub trait RefLocalArithmeticOps<'a, Base: 'a>: LocalArithmeticOps<Base, Base> + LocalArithmeticOps<&'a Base, Base> {}
+impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<Base, Base> + LocalArithmeticOps<&'a Base, Base> + 'a {}
 
 // impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<&'a Base, Base> + 'a {}
 

@@ -38,6 +38,7 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
+use crate::ff::RefLocalArithmeticOps;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -315,11 +316,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
+    for <'r> &'r S: RefLocalArithmeticOps<'r, S>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
+    for <'r> &'r SB: RefLocalArithmeticOps<'r, SB>,
     F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,

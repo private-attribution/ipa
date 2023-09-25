@@ -59,10 +59,9 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use crate::ff::{Fp31};
+    use crate::ff::{Fp31, RefLocalArithmeticOps};
     use crate::secret_sharing::{Linear, SharedValue};
     use crate::secret_sharing::replicated::{malicious, semi_honest};
-    use crate::secret_sharing::scheme::RefLocalArithmeticOps;
 
     fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L> {
         let a = L::ZERO;
