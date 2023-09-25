@@ -1,6 +1,6 @@
 use std::iter::repeat;
 
-use futures_util::future::try_join_all;
+use futures_util::future::{try_join, try_join_all};
 use ipa_macros::step;
 use strum::AsRefStr;
 
@@ -10,6 +10,7 @@ use crate::{
     ff::{Field, GaloisField, Gf2},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
+        boolean::or::or,
         context::{UpgradableContext, UpgradedContext, Validator},
         RecordId,
     },
@@ -232,11 +233,11 @@ where
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
         let record_id_for_this_row_depth = record_id_for_each_depth[i + 1]; // skip row 0
 
-        let (inputs_required_for_next_row, capped_attribution_outputs) = compute_row_with_previous(
+        let capped_attribution_outputs = compute_row_with_previous(
             ctx_for_this_row_depth,
             record_id_for_this_row_depth,
             row,
-            &prev_row_inputs,
+            &mut prev_row_inputs,
             num_breakdown_key_bits,
             num_trigger_value_bits,
             num_saturating_sum_bits,
@@ -244,7 +245,6 @@ where
         .await?;
 
         output.push(capped_attribution_outputs);
-        prev_row_inputs = inputs_required_for_next_row;
     }
 
     Ok(output)
@@ -264,10 +264,7 @@ where
     InputsRequiredFromPrevRow {
         ever_encountered_a_source_event: share_of_one - &input_row.is_trigger_bit,
         attributed_breakdown_key_bits: BitDecomposed::decompose(num_breakdown_key_bits, |i| {
-            Replicated::new(
-                Gf2::truncate_from(input_row.breakdown_key.left()[i]),
-                Gf2::truncate_from(input_row.breakdown_key.right()[i]),
-            )
+            input_row.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
         }),
         saturating_sum: SaturatingSum::new(
             BitDecomposed::new(vec![Replicated::ZERO; num_saturating_sum_bits]),
@@ -279,85 +276,155 @@ where
     }
 }
 
-#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+async fn breakdown_key_of_most_recent_source_event<C>(
+    ctx: C,
+    record_id: RecordId,
+    is_trigger_bit: &Replicated<Gf2>,
+    prev_row_breakdown_key_bits: &BitDecomposed<Replicated<Gf2>>,
+    cur_row_breakdown_key_bits: &BitDecomposed<Replicated<Gf2>>,
+) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+where
+    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+{
+    Ok(BitDecomposed::new(
+        try_join_all(
+            cur_row_breakdown_key_bits
+                .iter()
+                .zip(prev_row_breakdown_key_bits.iter())
+                .enumerate()
+                .map(|(i, (cur_bit, prev_bit))| {
+                    let c = ctx.narrow(&BitOpStep::from(i));
+                    async move {
+                        let maybe_diff = is_trigger_bit
+                            .multiply(&(prev_bit.clone() - cur_bit), c, record_id)
+                            .await?;
+                        Ok::<_, Error>(maybe_diff + cur_bit)
+                    }
+                }),
+        )
+        .await?,
+    ))
+}
+
+async fn zero_out_trigger_value_unless_attributed<C>(
+    ctx: C,
+    record_id: RecordId,
+    did_trigger_get_attributed: &Replicated<Gf2>,
+    trigger_value: &BitDecomposed<Replicated<Gf2>>,
+) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+where
+    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+{
+    Ok(BitDecomposed::new(
+        try_join_all(
+            trigger_value
+                .iter()
+                .zip(repeat(did_trigger_get_attributed))
+                .enumerate()
+                .map(|(i, (trigger_value_bit, did_trigger_get_attributed))| {
+                    let c = ctx.narrow(&BitOpStep::from(i));
+                    async move {
+                        trigger_value_bit
+                            .multiply(did_trigger_get_attributed, c, record_id)
+                            .await
+                    }
+                }),
+        )
+        .await?,
+    ))
+}
+
+async fn compute_capped_trigger_value<C>(
+    ctx: C,
+    record_id: RecordId,
+    is_saturated: &Replicated<Gf2>,
+    is_saturated_and_prev_row_not_saturated: &Replicated<Gf2>,
+    prev_row_diff_to_cap: &BitDecomposed<Replicated<Gf2>>,
+    attributed_trigger_value: &BitDecomposed<Replicated<Gf2>>,
+) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+where
+    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+{
+    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
+    let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
+
+    let one = &Replicated::share_known_value(&narrowed_ctx1, Gf2::ONE);
+
+    Ok(BitDecomposed::new(
+        try_join_all(
+            attributed_trigger_value
+                .iter()
+                .zip(prev_row_diff_to_cap.iter())
+                .enumerate()
+                .map(|(i, (bit, prev_bit))| {
+                    let c1 = narrowed_ctx1.narrow(&BitOpStep::from(i));
+                    let c2 = narrowed_ctx2.narrow(&BitOpStep::from(i));
+                    async move {
+                        let not_saturated_case =
+                            (one - is_saturated).multiply(bit, c1, record_id).await?;
+                        let just_saturated_case = is_saturated_and_prev_row_not_saturated
+                            .multiply(prev_bit, c2, record_id)
+                            .await?;
+                        Ok::<_, Error>(not_saturated_case + &just_saturated_case)
+                    }
+                }),
+        )
+        .await?,
+    ))
+}
+
 async fn compute_row_with_previous<C, BK, TV>(
     ctx: C,
     record_id: RecordId,
     input_row: &PrfShardedIpaInputRow<BK, TV>,
-    inputs_required_from_previous_row: &InputsRequiredFromPrevRow,
+    inputs_required_from_previous_row: &mut InputsRequiredFromPrevRow,
     num_breakdown_key_bits: usize,
     num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
-) -> Result<(InputsRequiredFromPrevRow, CappedAttributionOutputs), Error>
+) -> Result<CappedAttributionOutputs, Error>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
     BK: GaloisField,
     TV: GaloisField,
 {
     let bd_key = BitDecomposed::decompose(num_breakdown_key_bits, |i| {
-        Replicated::new(
-            Gf2::truncate_from(input_row.breakdown_key.left()[i]),
-            Gf2::truncate_from(input_row.breakdown_key.right()[i]),
-        )
+        input_row.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
     });
     let tv = BitDecomposed::decompose(num_trigger_value_bits, |i| {
-        Replicated::new(
-            Gf2::truncate_from(input_row.trigger_value.left()[i]),
-            Gf2::truncate_from(input_row.trigger_value.right()[i]),
-        )
+        input_row.trigger_value.map(|v| Gf2::truncate_from(v[i]))
     });
-    assert!(bd_key.len() == num_breakdown_key_bits);
-    assert!(
+    assert_eq!(bd_key.len(), num_breakdown_key_bits);
+    assert_eq!(
         inputs_required_from_previous_row
             .attributed_breakdown_key_bits
-            .len()
-            == num_breakdown_key_bits
+            .len(),
+        num_breakdown_key_bits
     );
-    assert!(tv.len() == num_trigger_value_bits);
-    assert!(inputs_required_from_previous_row.saturating_sum.sum.len() == num_saturating_sum_bits);
+    assert_eq!(tv.len(), num_trigger_value_bits);
+    assert_eq!(
+        inputs_required_from_previous_row.saturating_sum.sum.len(),
+        num_saturating_sum_bits
+    );
 
     let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
+    let is_source_event = &share_of_one - &input_row.is_trigger_bit;
 
-    // TODO: compute ever_encountered_a_source_event and attributed_breakdown_key_bits in parallel
-    let ever_encountered_a_source_event = input_row
-        .is_trigger_bit
-        .multiply(
-            &inputs_required_from_previous_row.ever_encountered_a_source_event,
+    let (ever_encountered_a_source_event, attributed_breakdown_key_bits) = try_join(
+        or(
             ctx.narrow(&Step::EverEncounteredSourceEvent),
             record_id,
-        )
-        .await?
-        + &share_of_one
-        - &input_row.is_trigger_bit;
-
-    let narrowed_ctx = ctx.narrow(&Step::AttributedBreakdownKey);
-    let attributed_breakdown_key_bits = BitDecomposed::new(
-        try_join_all(
-            bd_key
-                .iter()
-                .zip(
-                    inputs_required_from_previous_row
-                        .attributed_breakdown_key_bits
-                        .iter(),
-                )
-                .enumerate()
-                .map(|(i, (bd_key_bit, prev_row_attributed_bd_key_bit))| {
-                    let c = narrowed_ctx.narrow(&BitOpStep::from(i));
-                    async move {
-                        let maybe_diff = input_row
-                            .is_trigger_bit
-                            .multiply(
-                                &(prev_row_attributed_bd_key_bit.clone() - bd_key_bit),
-                                c,
-                                record_id,
-                            )
-                            .await?;
-                        Ok::<_, Error>(maybe_diff + bd_key_bit)
-                    }
-                }),
-        )
-        .await?,
-    );
+            &is_source_event,
+            &inputs_required_from_previous_row.ever_encountered_a_source_event,
+        ),
+        breakdown_key_of_most_recent_source_event(
+            ctx.narrow(&Step::AttributedBreakdownKey),
+            record_id,
+            &input_row.is_trigger_bit,
+            &inputs_required_from_previous_row.attributed_breakdown_key_bits,
+            &bd_key,
+        ),
+    )
+    .await?;
 
     let did_trigger_get_attributed = input_row
         .is_trigger_bit
@@ -368,23 +435,13 @@ where
         )
         .await?;
 
-    let narrowed_ctx = ctx.narrow(&Step::AttributedTriggerValue);
-    let attributed_trigger_value = BitDecomposed::new(
-        try_join_all(
-            tv.iter()
-                .zip(repeat(did_trigger_get_attributed.clone()))
-                .enumerate()
-                .map(|(i, (trigger_value_bit, did_trigger_get_attributed))| {
-                    let c = narrowed_ctx.narrow(&BitOpStep::from(i));
-                    async move {
-                        trigger_value_bit
-                            .multiply(&did_trigger_get_attributed, c, record_id)
-                            .await
-                    }
-                }),
-        )
-        .await?,
-    );
+    let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
+        ctx.narrow(&Step::AttributedTriggerValue),
+        record_id,
+        &did_trigger_get_attributed,
+        &tv,
+    )
+    .await?;
 
     let updated_sum = inputs_required_from_previous_row
         .saturating_sum
@@ -395,64 +452,34 @@ where
         )
         .await?;
 
-    // TODO: compute is_saturated_and_prev_row_not_saturated and difference_to_cap in parallel
-    let is_saturated_and_prev_row_not_saturated = updated_sum
-        .is_saturated
-        .multiply(
+    let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
+        updated_sum.is_saturated.multiply(
             &(share_of_one
                 - &inputs_required_from_previous_row
                     .saturating_sum
                     .is_saturated),
             ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
             record_id,
-        )
-        .await?;
-
-    let difference_to_cap = updated_sum
-        .truncated_delta_to_saturation_point(
+        ),
+        updated_sum.truncated_delta_to_saturation_point(
             ctx.narrow(&Step::ComputeDifferenceToCap),
             record_id,
             num_trigger_value_bits,
-        )
-        .await?;
+        ),
+    )
+    .await?;
 
-    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
-    let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
-    let capped_attributed_trigger_value = BitDecomposed::new(
-        try_join_all(
-            attributed_trigger_value
-                .iter()
-                .zip(inputs_required_from_previous_row.difference_to_cap.iter())
-                .zip(repeat(updated_sum.is_saturated.clone()))
-                .zip(repeat(is_saturated_and_prev_row_not_saturated))
-                .enumerate()
-                .map(
-                    |(
-                        i,
-                        (
-                            ((attributed_tv_bit, prev_row_diff_to_cap_bit), is_saturated),
-                            is_saturated_and_prev_row_not_saturated,
-                        ),
-                    )| {
-                        let c1 = narrowed_ctx1.narrow(&BitOpStep::from(i));
-                        let c2 = narrowed_ctx2.narrow(&BitOpStep::from(i));
-                        async move {
-                            let not_saturated_case = (Replicated::share_known_value(&c1, Gf2::ONE)
-                                - &is_saturated)
-                                .multiply(attributed_tv_bit, c1, record_id)
-                                .await?;
-                            let just_saturated_case = is_saturated_and_prev_row_not_saturated
-                                .multiply(prev_row_diff_to_cap_bit, c2, record_id)
-                                .await?;
-                            Ok::<_, Error>(not_saturated_case + &just_saturated_case)
-                        }
-                    },
-                ),
-        )
-        .await?,
-    );
+    let capped_attributed_trigger_value = compute_capped_trigger_value(
+        ctx,
+        record_id,
+        &updated_sum.is_saturated,
+        &is_saturated_and_prev_row_not_saturated,
+        &inputs_required_from_previous_row.difference_to_cap,
+        &attributed_trigger_value,
+    )
+    .await?;
 
-    let inputs_required_for_next_row = InputsRequiredFromPrevRow {
+    *inputs_required_from_previous_row = InputsRequiredFromPrevRow {
         ever_encountered_a_source_event,
         attributed_breakdown_key_bits: BitDecomposed::new(attributed_breakdown_key_bits.clone()),
         saturating_sum: updated_sum,
@@ -463,10 +490,10 @@ where
         attributed_breakdown_key_bits,
         capped_attributed_trigger_value,
     };
-    Ok((inputs_required_for_next_row, outputs_for_aggregation))
+    Ok(outputs_for_aggregation)
 }
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 pub mod tests {
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
