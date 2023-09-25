@@ -13,7 +13,6 @@ use crate::{
         SharedValue,
     },
 };
-use crate::secret_sharing::scheme::RefLocalArithmeticOps;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: SharedValue>(V, V);

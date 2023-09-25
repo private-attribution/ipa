@@ -21,8 +21,8 @@ SecretSharing<V>
 + Neg<Output = Self>
 {}
 
-pub trait RefLocalArithmeticOps<'a, Base: 'a>: LocalArithmeticOps<&'a Base, Base> {}
-impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<&'a Base, Base> + 'a {}
+pub trait RefLocalArithmeticOps<'a, Base: 'a>: LocalArithmeticOps<Base, Base> + LocalArithmeticOps<&'a Base, Base> {}
+impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<Base, Base> + LocalArithmeticOps<&'a Base, Base> + 'a {}
 
 /// Secret share of a secret in bits. It has additive and multiplicative properties.
 pub trait Bitwise<V: GaloisField>: SecretSharing<V> + Linear<V> {}
