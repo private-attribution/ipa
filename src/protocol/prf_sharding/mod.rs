@@ -89,7 +89,7 @@ fn set_up_contexts<C>(root_ctx: C, histogram: Vec<usize>) -> Vec<C>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
-    let mut context_per_row_depth = vec![];
+    let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
@@ -168,16 +168,11 @@ where
 
     let rows_chunked_by_user = chunk_rows_by_user(input_rows);
     let histogram = compute_histogram_of_users_with_row_count(&rows_chunked_by_user);
-
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
-    // TODO: fix num total records to be not a hard-coded constant, but variable per step
-    // based on the histogram of how many users have how many records a piece
     let binary_m_ctx = binary_validator.context();
-
+    let mut num_users_who_encountered_row_depth = Vec::with_capacity(histogram.len());
     let ctx_for_row_number = set_up_contexts(binary_m_ctx.clone(), histogram);
-
     let mut futures = Vec::with_capacity(rows_chunked_by_user.len());
-    let mut num_users_who_encountered_row_depth = vec![];
     for rows_for_user in rows_chunked_by_user {
         for i in 0..rows_for_user.len() {
             if i >= num_users_who_encountered_row_depth.len() {
