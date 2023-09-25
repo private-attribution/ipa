@@ -635,14 +635,14 @@ pub mod tests {
                 test_output(12, 7),
                 test_output(12, 4),
             ];
-            const NUM_SATURATING_SUM_BITS: usize = 5;
+            let num_saturating_bits: usize = 5;
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping::<_, Gf5Bit, Gf3Bit>(
                         ctx,
                         input_rows,
-                        NUM_SATURATING_SUM_BITS,
+                        num_saturating_bits,
                     )
                     .await
                     .unwrap()
