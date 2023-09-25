@@ -61,23 +61,22 @@ where
 mod tests {
     use crate::ff::{Fp31};
     use crate::secret_sharing::{Linear, SharedValue};
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+    use crate::secret_sharing::replicated::{malicious, semi_honest};
     use crate::secret_sharing::scheme::RefLocalArithmeticOps;
 
-    #[test]
-    fn arithmetic() {
-        let a = AdditiveShare::<Fp31>::ZERO;
-        let b = AdditiveShare::<Fp31>::ZERO;
+    fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L> {
+        let a = L::ZERO;
+        let b = L::ZERO;
 
-        assert_eq!(AdditiveShare::ZERO, &a + &b);
-        assert_eq!(AdditiveShare::ZERO, a.clone() + &b);
-        assert_eq!(AdditiveShare::ZERO, &a + b.clone());
-        assert_eq!(AdditiveShare::ZERO, a + b);
+        assert_eq!(L::ZERO, &a + &b);
+        assert_eq!(L::ZERO, a.clone() + &b);
+        assert_eq!(L::ZERO, &a + b.clone());
+        assert_eq!(L::ZERO, a + b);
     }
 
-    #[test]
-    fn trait_bounds() {
-        fn sum_owned<S: Linear<Fp31>>(a: S, b: S) -> S {
+    fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L> {
+
+        fn sum_owned<S: Linear<V>, V: SharedValue>(a: S, b: S) -> S {
             a + b
         }
 
@@ -93,9 +92,21 @@ mod tests {
             a + b
         }
 
-        assert_eq!(AdditiveShare::ZERO, sum_owned(AdditiveShare::ZERO, AdditiveShare::ZERO));
-        assert_eq!(AdditiveShare::<Fp31>::ZERO, sum_ref_ref(&AdditiveShare::<Fp31>::ZERO, &AdditiveShare::ZERO));
-        assert_eq!(AdditiveShare::<Fp31>::ZERO, sum_owned_ref(AdditiveShare::ZERO, &AdditiveShare::ZERO));
-        assert_eq!(AdditiveShare::<Fp31>::ZERO, sum_ref_owned(&AdditiveShare::ZERO, AdditiveShare::ZERO))
+        assert_eq!(L::ZERO, sum_owned(L::ZERO, L::ZERO));
+        assert_eq!(L::ZERO, sum_ref_ref(&L::ZERO, &L::ZERO));
+        assert_eq!(L::ZERO, sum_owned_ref(L::ZERO, &L::ZERO));
+        assert_eq!(L::ZERO, sum_ref_owned(&L::ZERO, L::ZERO))
+    }
+
+    #[test]
+    fn semi_honest() {
+        arithmetic::<semi_honest::AdditiveShare<Fp31>, _>();
+        trait_bounds::<semi_honest::AdditiveShare<Fp31>, _>();
+    }
+
+    #[test]
+    fn malicious() {
+        arithmetic::<malicious::AdditiveShare<Fp31>, _>();
+        trait_bounds::<malicious::AdditiveShare<Fp31>, _>();
     }
 }
