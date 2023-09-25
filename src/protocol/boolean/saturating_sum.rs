@@ -19,6 +19,12 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
         }
     }
 
+    ///
+    /// # Errors
+    /// If one of the multiplications errors
+    ///
+    /// # Panics
+    /// If something try to add a bit decomposed value larger than this `SaturatingSum` can accomodate
     pub async fn add<C>(
         &self,
         ctx: C,
@@ -63,24 +69,30 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
     ///
     /// Only returns the least significant `num_bits` of the delta.
     ///
+    /// # Errors
+    /// If one of the multiplications errors
+    ///
+    /// # Panics
+    /// If you ask for more bits than the `SaturatingSum` is using
+    ///
     pub async fn truncated_delta_to_saturation_point<C>(
         &self,
         ctx: C,
         record_id: RecordId,
-        num_bits: usize,
+        num_bits: u32,
     ) -> Result<BitDecomposed<S>, Error>
     where
         C: Context,
         S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
     {
-        assert!(num_bits <= self.sum.len());
+        assert!(num_bits as usize <= self.sum.len());
 
         let mut carry_in = S::share_known_value(&ctx, Gf2::ONE);
         let mut output = vec![];
-        for (i, bit) in self.sum.iter().enumerate().take(num_bits) {
+        for (i, bit) in self.sum.iter().enumerate().take(num_bits as usize) {
             let c = ctx.narrow(&BitOpStep::from(i));
 
-            let compute_carry_out = i < num_bits - 1;
+            let compute_carry_out = i < (num_bits as usize) - 1;
             let difference_bit = one_bit_subtractor(
                 c,
                 record_id,
@@ -310,7 +322,7 @@ mod tests {
                 a.truncated_delta_to_saturation_point(
                     ctx.set_total_records(1),
                     RecordId(0),
-                    num_b_bits as usize,
+                    num_b_bits,
                 )
                 .await
                 .unwrap()

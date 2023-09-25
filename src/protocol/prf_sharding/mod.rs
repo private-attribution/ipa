@@ -1,6 +1,6 @@
 use std::iter::repeat;
 
-use futures_util::future::{try_join, try_join_all};
+use futures_util::future::try_join;
 use ipa_macros::step;
 use strum::AsRefStr;
 
@@ -19,6 +19,7 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed,
     },
+    seq_join::seq_try_join_all,
 };
 
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
@@ -86,7 +87,7 @@ fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>])
     output
 }
 
-fn set_up_contexts<C>(root_ctx: C, histogram: Vec<usize>) -> Vec<C>
+fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
@@ -111,19 +112,15 @@ where
     BK: GaloisField,
     TV: GaloisField,
 {
-    let mut rows_for_user = vec![];
+    let mut rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV>> = vec![];
 
     let mut rows_chunked_by_user = vec![];
     for row in input_rows {
-        if rows_for_user.is_empty() {
+        if rows_for_user.is_empty() || row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
             rows_for_user.push(row);
         } else {
-            if row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
-                rows_for_user.push(row);
-            } else {
-                rows_chunked_by_user.push(rows_for_user);
-                rows_for_user = vec![row];
-            }
+            rows_chunked_by_user.push(rows_for_user);
+            rows_for_user = vec![row];
         }
     }
     if !rows_for_user.is_empty() {
@@ -153,8 +150,6 @@ where
 pub async fn attribution_and_capping<C, BK, TV>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV>>,
-    num_breakdown_key_bits: usize,
-    num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
 ) -> Result<Vec<CappedAttributionOutputs>, Error>
 where
@@ -163,16 +158,16 @@ where
     BK: GaloisField,
     TV: GaloisField,
 {
-    assert!(num_saturating_sum_bits > num_trigger_value_bits);
-    assert!(num_trigger_value_bits > 0);
-    assert!(num_breakdown_key_bits > 0);
+    assert!(num_saturating_sum_bits > TV::BITS as usize);
+    assert!(TV::BITS > 0);
+    assert!(BK::BITS > 0);
 
     let rows_chunked_by_user = chunk_rows_by_user(input_rows);
     let histogram = compute_histogram_of_users_with_row_count(&rows_chunked_by_user);
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     let binary_m_ctx = binary_validator.context();
     let mut num_users_who_encountered_row_depth = Vec::with_capacity(histogram.len());
-    let ctx_for_row_number = set_up_contexts(binary_m_ctx.clone(), histogram);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, &histogram);
     let mut futures = Vec::with_capacity(rows_chunked_by_user.len());
     for rows_for_user in rows_chunked_by_user {
         for i in 0..rows_for_user.len() {
@@ -190,12 +185,10 @@ where
                 .map(|x| RecordId(x - 1))
                 .collect(),
             rows_for_user,
-            num_breakdown_key_bits,
-            num_trigger_value_bits,
             num_saturating_sum_bits,
         ));
     }
-    let outputs_chunked_by_user = try_join_all(futures).await?;
+    let outputs_chunked_by_user = seq_try_join_all(sh_ctx.active_work(), futures).await?;
     Ok(outputs_chunked_by_user
         .into_iter()
         .flatten()
@@ -206,8 +199,6 @@ async fn evaluate_per_user_attribution_circuit<C, BK, TV>(
     ctx_for_row_number: &[C],
     record_id_for_each_depth: Vec<RecordId>,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV>>,
-    num_breakdown_key_bits: usize,
-    num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
 ) -> Result<Vec<CappedAttributionOutputs>, Error>
 where
@@ -223,8 +214,6 @@ where
     let mut prev_row_inputs = initialize_new_device_attribution_variables(
         Replicated::share_known_value(&ctx_for_row_number[0], Gf2::ONE),
         first_row,
-        num_breakdown_key_bits,
-        num_trigger_value_bits,
         num_saturating_sum_bits,
     );
 
@@ -238,8 +227,6 @@ where
             record_id_for_this_row_depth,
             row,
             &mut prev_row_inputs,
-            num_breakdown_key_bits,
-            num_trigger_value_bits,
             num_saturating_sum_bits,
         )
         .await?;
@@ -253,8 +240,6 @@ where
 fn initialize_new_device_attribution_variables<BK, TV>(
     share_of_one: Replicated<Gf2>,
     input_row: &PrfShardedIpaInputRow<BK, TV>,
-    num_breakdown_key_bits: usize,
-    num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
 ) -> InputsRequiredFromPrevRow
 where
@@ -263,7 +248,7 @@ where
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_source_event: share_of_one - &input_row.is_trigger_bit,
-        attributed_breakdown_key_bits: BitDecomposed::decompose(num_breakdown_key_bits, |i| {
+        attributed_breakdown_key_bits: BitDecomposed::decompose(BK::BITS, |i| {
             input_row.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
         }),
         saturating_sum: SaturatingSum::new(
@@ -272,7 +257,7 @@ where
         ),
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
-        difference_to_cap: BitDecomposed::new(vec![Replicated::ZERO; num_trigger_value_bits]),
+        difference_to_cap: BitDecomposed::new(vec![Replicated::ZERO; TV::BITS as usize]),
     }
 }
 
@@ -287,7 +272,7 @@ where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
     Ok(BitDecomposed::new(
-        try_join_all(
+        ctx.parallel_join(
             cur_row_breakdown_key_bits
                 .iter()
                 .zip(prev_row_breakdown_key_bits.iter())
@@ -316,7 +301,7 @@ where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
     Ok(BitDecomposed::new(
-        try_join_all(
+        ctx.parallel_join(
             trigger_value
                 .iter()
                 .zip(repeat(did_trigger_get_attributed))
@@ -351,7 +336,7 @@ where
     let one = &Replicated::share_known_value(&narrowed_ctx1, Gf2::ONE);
 
     Ok(BitDecomposed::new(
-        try_join_all(
+        ctx.parallel_join(
             attributed_trigger_value
                 .iter()
                 .zip(prev_row_diff_to_cap.iter())
@@ -378,8 +363,6 @@ async fn compute_row_with_previous<C, BK, TV>(
     record_id: RecordId,
     input_row: &PrfShardedIpaInputRow<BK, TV>,
     inputs_required_from_previous_row: &mut InputsRequiredFromPrevRow,
-    num_breakdown_key_bits: usize,
-    num_trigger_value_bits: usize,
     num_saturating_sum_bits: usize,
 ) -> Result<CappedAttributionOutputs, Error>
 where
@@ -387,20 +370,12 @@ where
     BK: GaloisField,
     TV: GaloisField,
 {
-    let bd_key = BitDecomposed::decompose(num_breakdown_key_bits, |i| {
+    let bd_key = BitDecomposed::decompose(BK::BITS, |i| {
         input_row.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
     });
-    let tv = BitDecomposed::decompose(num_trigger_value_bits, |i| {
+    let tv = BitDecomposed::decompose(TV::BITS, |i| {
         input_row.trigger_value.map(|v| Gf2::truncate_from(v[i]))
     });
-    assert_eq!(bd_key.len(), num_breakdown_key_bits);
-    assert_eq!(
-        inputs_required_from_previous_row
-            .attributed_breakdown_key_bits
-            .len(),
-        num_breakdown_key_bits
-    );
-    assert_eq!(tv.len(), num_trigger_value_bits);
     assert_eq!(
         inputs_required_from_previous_row.saturating_sum.sum.len(),
         num_saturating_sum_bits
@@ -464,7 +439,7 @@ where
         updated_sum.truncated_delta_to_saturation_point(
             ctx.narrow(&Step::ComputeDifferenceToCap),
             record_id,
-            num_trigger_value_bits,
+            TV::BITS,
         ),
     )
     .await?;
@@ -497,7 +472,7 @@ where
 pub mod tests {
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, GaloisField, Gf2, Gf8Bit},
+        ff::{Field, GaloisField, Gf2, Gf3Bit, Gf5Bit},
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
@@ -644,110 +619,106 @@ pub mod tests {
                 capped_attributed_trigger_value: 4,
             },
         ];
-        const NUM_BREAKDOWN_KEY_BITS: usize = 5;
-        const NUM_TRIGGER_VALUE_BITS: usize = 3;
         const NUM_SATURATING_SUM_BITS: usize = 5;
 
         run(|| async {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf8Bit, Gf8Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit>> = vec![
                 /* First User */
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 123,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(17_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(17_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 123,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 123,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(20_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(20_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 123,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(3_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(3_u8),
                 },
                 /* Second User */
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 234,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(12_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(12_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 234,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(5_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(5_u8),
                 },
                 /* Third User */
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(20_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(20_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(18_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(18_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf8Bit::truncate_from(12_u8),
-                    trigger_value: Gf8Bit::truncate_from(0_u8),
+                    breakdown_key: Gf5Bit::truncate_from(12_u8),
+                    trigger_value: Gf3Bit::truncate_from(0_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
                 PreShardedAndSortedOPRFTestInput {
                     prf_of_match_key: 345,
                     is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf8Bit::truncate_from(0_u8),
-                    trigger_value: Gf8Bit::truncate_from(7_u8),
+                    breakdown_key: Gf5Bit::truncate_from(0_u8),
+                    trigger_value: Gf3Bit::truncate_from(7_u8),
                 },
             ];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribution_and_capping(
+                    attribution_and_capping::<_, Gf5Bit, Gf3Bit>(
                         ctx,
                         input_rows,
-                        NUM_BREAKDOWN_KEY_BITS,
-                        NUM_TRIGGER_VALUE_BITS,
                         NUM_SATURATING_SUM_BITS,
                     )
                     .await
