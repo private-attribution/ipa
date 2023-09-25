@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::Gf2,
-    protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
+    protocol::{boolean::or::or, context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing},
 };
 
@@ -36,23 +36,23 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
         let zero = S::ZERO;
         for i in 0..self.sum.len() {
             let c = ctx.narrow(&BitOpStep::from(i));
-            let x = if i < value.len() { &value[i] } else { &zero };
+            // When adding a value with fewer bits than the saturating sum can express
+            // we still must compute the carries, which still requires a single multiplication
+            // so there is no savings
+            let x = value.get(i).unwrap_or(&zero);
             let (sum_bit, carry_out) =
                 one_bit_adder(c, record_id, x, &self.sum[i], &carry_in).await?;
 
             output_sum.push(sum_bit);
             carry_in = carry_out;
         }
-        let is_saturated = -carry_in
-            .clone()
-            .multiply(
-                &self.is_saturated,
-                ctx.narrow(&BitOpStep::from(self.sum.len())),
-                record_id,
-            )
-            .await?
-            + &carry_in
-            + &self.is_saturated;
+        let is_saturated = or(
+            ctx.narrow(&BitOpStep::from(self.sum.len())),
+            record_id,
+            &carry_in,
+            &self.is_saturated,
+        )
+        .await?;
 
         Ok(SaturatingSum::new(
             BitDecomposed::new(output_sum),
@@ -61,6 +61,18 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
     }
 }
 
+///
+/// This improved one-bit adder that only requires a single multiplication was taken from:
+/// "Improved Garbled Circuit Building Blocks and Applications to Auctions and Computing Minima"
+/// `https://encrypto.de/papers/KSS09.pdf`
+///
+/// Section 3.1 Integer Addition, Subtraction and Multiplication
+///
+/// For each bit, the `sum_bit` can be efficiently computed as just `s_i = x_i ⊕ y_i ⊕ c_i`
+/// This can be computed "for free" in Gf2
+///
+/// The `carry_out` bit can be efficiently computed with just a single multiplication as:
+/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) ∧ (y_i ⊕ c_i))`
 ///
 /// Returns (`sum_bit`, `carry_out`)
 ///
@@ -80,6 +92,11 @@ where
 
     let x_xor_carry_in = x.clone() + carry_in;
     let y_xor_carry_in = y.clone() + carry_in;
+
+    // There are two cases when the `carry_out` bit is different from the `carry_in` bit
+    // (1) When the `carry_in` bit is 0 and both `x` and `y` are 1
+    // (2) When the `carry_in` bit is 1 and both `x` and `y` are 0
+    // So by computing `(x ⊕ c) ∧ (y ⊕ c)` we isolate those cases with a single multiplication
     let carry_out = x_xor_carry_in
         .multiply(&y_xor_carry_in, ctx, record_id)
         .await?
@@ -150,7 +167,6 @@ mod tests {
         let world = TestWorld::default();
 
         let a_bits = get_bits::<Gf2>(a, num_a_bits);
-        //let a_saturated = Gf2::ZERO;
         let b_bits = get_bits::<Gf2>(b, num_b_bits);
 
         let foo = world
