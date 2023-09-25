@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::Gf2,
+    ff::{Field, Gf2},
     protocol::{boolean::or::or, context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::{BitDecomposed, Linear as LinearSecretSharing},
 };
@@ -59,6 +59,39 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
             is_saturated,
         ))
     }
+
+    ///
+    /// NOTE: ignores the `is_saturated` flag. The return value is non-sensical if `is_saturated` is true
+    ///
+    /// Only returns the least significant `num_bits` of the delta.
+    ///
+    pub async fn truncated_delta_to_saturation_point<C>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        num_bits: usize,
+    ) -> Result<BitDecomposed<S>, Error>
+    where
+        C: Context,
+        S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+    {
+        assert!(num_bits <= self.sum.len());
+
+        let mut carry_in = S::share_known_value(&ctx, Gf2::ONE);
+        let mut output = vec![];
+        for (i, bit) in self.sum.iter().enumerate().take(num_bits) {
+            let c = ctx.narrow(&BitOpStep::from(i));
+
+            let compute_carry_out = i < num_bits - 1;
+            let (difference_bit, carry_out) =
+                one_bit_subtractor(c, record_id, &S::ZERO, bit, &carry_in, compute_carry_out)
+                    .await?;
+
+            output.push(difference_bit);
+            carry_in = carry_out;
+        }
+        Ok(BitDecomposed::new(output))
+    }
 }
 
 ///
@@ -103,6 +136,51 @@ where
         + carry_in;
 
     Ok((sum_bit, carry_out))
+}
+
+///
+/// This improved one-bit subtractor that only requires a single multiplication was taken from:
+/// "Improved Garbled Circuit Building Blocks and Applications to Auctions and Computing Minima"
+/// `https://encrypto.de/papers/KSS09.pdf`
+///
+/// Section 3.1 Integer Addition, Subtraction and Multiplication
+///
+/// For each bit, the `difference_bit` can be efficiently computed as just `d_i = x_i ⊕ !y_i ⊕ c_i`
+/// This can be computed "for free" in Gf2
+///
+/// The `carry_out` bit can be efficiently computed with just a single multiplication as:
+/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) ∧ !(y_i ⊕ c_i))`
+///
+/// Returns (`difference_bit`, `carry_out`)
+///
+async fn one_bit_subtractor<C, SB>(
+    ctx: C,
+    record_id: RecordId,
+    x: &SB,
+    y: &SB,
+    carry_in: &SB,
+    compute_carry_out: bool,
+) -> Result<(SB, SB), Error>
+where
+    C: Context,
+    SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+{
+    // compute difference bit as not_y XOR x XOR carry_in
+    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) - y + x + carry_in;
+    if compute_carry_out {
+        let x_xor_carry_in = x.clone() + carry_in;
+        let y_xor_carry_in = y.clone() + carry_in;
+        let not_y_xor_carry_in = SB::share_known_value(&ctx, Gf2::ONE) - &y_xor_carry_in;
+
+        let carry_out = x_xor_carry_in
+            .multiply(&not_y_xor_carry_in, ctx, record_id)
+            .await?
+            + carry_in;
+
+        Ok((difference_bit, carry_out))
+    } else {
+        Ok((difference_bit, SB::ZERO))
+    }
 }
 
 #[cfg(all(test, unit_test))]

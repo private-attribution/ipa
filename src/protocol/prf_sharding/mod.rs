@@ -11,12 +11,12 @@ use crate::{
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext, Validator},
-        BasicProtocols, RecordId,
+        RecordId,
     },
     repeat64str,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, Linear as LinearSecretSharing,
+        BitDecomposed,
     },
 };
 
@@ -279,66 +279,6 @@ where
     }
 }
 
-///
-/// Returns (`difference_bit`, `carry_out`)
-///
-async fn one_bit_subtractor<C, SB>(
-    ctx: C,
-    record_id: RecordId,
-    x: &SB,
-    y: &SB,
-    carry_in: &SB,
-) -> Result<(SB, SB), Error>
-where
-    C: UpgradedContext<Gf2, Share = SB>,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-{
-    // compute difference bit as not_y XOR x XOR carry_in
-    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) - y + x + carry_in;
-
-    let x_xor_carry_in = x.clone() + carry_in;
-    let y_xor_carry_in = y.clone() + carry_in;
-    let not_y_xor_carry_in = SB::share_known_value(&ctx, Gf2::ONE) - &y_xor_carry_in;
-
-    let carry_out = x_xor_carry_in
-        .multiply(&not_y_xor_carry_in, ctx, record_id)
-        .await?
-        + carry_in;
-
-    Ok((difference_bit, carry_out))
-}
-
-///
-/// TODO: optimize this
-/// We can avoid doing this many multiplications given the foreknowledge that we are always subtracting from zero
-/// There's also no reason to compute the `carry_out` for the final bit since it will go unused
-///
-async fn compute_truncated_difference_to_cap<C, SB>(
-    ctx: C,
-    record_id: RecordId,
-    cur_sum: &SaturatingSum<SB>,
-    num_trigger_value_bits: usize,
-    num_saturating_sum_bits: usize,
-) -> Result<BitDecomposed<SB>, Error>
-where
-    C: UpgradedContext<Gf2, Share = SB>,
-    SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-{
-    assert!(cur_sum.sum.len() == num_saturating_sum_bits);
-
-    let mut carry_in = SB::share_known_value(&ctx, Gf2::ONE);
-    let mut output = vec![];
-    for (i, bit) in cur_sum.sum.iter().enumerate().take(num_trigger_value_bits) {
-        let c = ctx.narrow(&BitOpStep::from(i));
-        let (difference_bit, carry_out) =
-            one_bit_subtractor(c, record_id, &SB::ZERO, bit, &carry_in).await?;
-
-        output.push(difference_bit);
-        carry_in = carry_out;
-    }
-    Ok(BitDecomposed::new(output))
-}
-
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn compute_row_with_previous<C, BK, TV>(
     ctx: C,
@@ -468,16 +408,13 @@ where
         )
         .await?;
 
-    let difference_to_cap = BitDecomposed::new(
-        compute_truncated_difference_to_cap(
+    let difference_to_cap = updated_sum
+        .truncated_delta_to_saturation_point(
             ctx.narrow(&Step::ComputeDifferenceToCap),
             record_id,
-            &updated_sum,
             num_trigger_value_bits,
-            num_saturating_sum_bits,
         )
-        .await?,
-    );
+        .await?;
 
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
