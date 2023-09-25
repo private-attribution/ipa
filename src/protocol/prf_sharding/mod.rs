@@ -489,6 +489,32 @@ pub mod tests {
         trigger_value: TV,
     }
 
+    fn test_input(
+        prf_of_match_key: u64,
+        is_trigger: bool,
+        breakdown_key: u8,
+        trigger_value: u8,
+    ) -> PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit> {
+        let is_trigger_bit = if is_trigger { Gf2::ONE } else { Gf2::ZERO };
+
+        PreShardedAndSortedOPRFTestInput {
+            prf_of_match_key,
+            is_trigger_bit,
+            breakdown_key: Gf5Bit::truncate_from(breakdown_key),
+            trigger_value: Gf3Bit::truncate_from(trigger_value),
+        }
+    }
+
+    fn test_output(
+        attributed_breakdown_key: u128,
+        capped_attributed_trigger_value: u128,
+    ) -> PreAggregationTestOutput {
+        PreAggregationTestOutput {
+            attributed_breakdown_key,
+            capped_attributed_trigger_value,
+        }
+    }
+
     #[derive(Debug, PartialEq)]
     struct PreAggregationTestOutput {
         attributed_breakdown_key: u128,
@@ -573,146 +599,43 @@ pub mod tests {
 
     #[test]
     fn semi_honest() {
-        const EXPECTED: &[PreAggregationTestOutput] = &[
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 17,
-                capped_attributed_trigger_value: 7,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 20,
-                capped_attributed_trigger_value: 0,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 20,
-                capped_attributed_trigger_value: 3,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 5,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 20,
-                capped_attributed_trigger_value: 7,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 18,
-                capped_attributed_trigger_value: 0,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 0,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 7,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 7,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 7,
-            },
-            PreAggregationTestOutput {
-                attributed_breakdown_key: 12,
-                capped_attributed_trigger_value: 4,
-            },
-        ];
-        const NUM_SATURATING_SUM_BITS: usize = 5;
-
-        run(|| async {
+        run(|| async move {
             let world = TestWorld::default();
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit>> = vec![
                 /* First User */
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 123,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(17_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 123,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 123,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(20_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 123,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(3_u8),
-                },
+                test_input(123, false, 17, 0),
+                test_input(123, true, 0, 7),
+                test_input(123, false, 20, 0),
+                test_input(123, true, 0, 3),
                 /* Second User */
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 234,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(12_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 234,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(5_u8),
-                },
+                test_input(234, false, 12, 0),
+                test_input(234, true, 0, 5),
                 /* Third User */
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(20_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(18_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ZERO,
-                    breakdown_key: Gf5Bit::truncate_from(12_u8),
-                    trigger_value: Gf3Bit::truncate_from(0_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
-                PreShardedAndSortedOPRFTestInput {
-                    prf_of_match_key: 345,
-                    is_trigger_bit: Gf2::ONE,
-                    breakdown_key: Gf5Bit::truncate_from(0_u8),
-                    trigger_value: Gf3Bit::truncate_from(7_u8),
-                },
+                test_input(345, false, 20, 0),
+                test_input(345, true, 0, 7),
+                test_input(345, false, 18, 0),
+                test_input(345, false, 12, 0),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
             ];
+
+            let expected: [PreAggregationTestOutput; 11] = [
+                test_output(17, 7),
+                test_output(20, 0),
+                test_output(20, 3),
+                test_output(12, 5),
+                test_output(20, 7),
+                test_output(18, 0),
+                test_output(12, 0),
+                test_output(12, 7),
+                test_output(12, 7),
+                test_output(12, 7),
+                test_output(12, 4),
+            ];
+            const NUM_SATURATING_SUM_BITS: usize = 5;
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -726,7 +649,7 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            assert_eq!(result, EXPECTED);
+            assert_eq!(result, &expected);
         });
     }
 }

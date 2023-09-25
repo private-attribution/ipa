@@ -232,7 +232,7 @@ mod tests {
                     .enumerate()
                     .fold(0_u128, |acc, (i, x)| acc + (x << i))
             } else {
-                2_u128.pow(s0.sum.len() as u32)
+                2_u128.pow(u32::try_from(s0.sum.len()).unwrap())
             }
         }
     }
