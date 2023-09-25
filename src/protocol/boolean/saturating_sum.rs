@@ -221,8 +221,26 @@ mod tests {
         }
     }
 
+    impl Reconstruct<u128> for [BitDecomposed<Replicated<Gf2>>; 3] {
+        fn reconstruct(&self) -> u128 {
+            let [s0, s1, s2] = self;
+
+            let bits: BitDecomposed<Gf2> = BitDecomposed::new(
+                s0.iter()
+                    .zip(s1.iter())
+                    .zip(s2.iter())
+                    .map(|((a, b), c)| [a, b, c].reconstruct()),
+            );
+
+            bits.iter()
+                .map(Field::as_u128)
+                .enumerate()
+                .fold(0_u128, |acc, (i, x)| acc + (x << i))
+        }
+    }
+
     #[tokio::test]
-    pub async fn simple() {
+    pub async fn addition() {
         assert_eq!(2, saturating_add(1, 2, 1, 2).await);
         assert_eq!(3, saturating_add(2, 2, 1, 2).await);
         assert_eq!(4, saturating_add(3, 2, 1, 2).await);
@@ -241,6 +259,21 @@ mod tests {
         assert_eq!(64, saturating_add(60, 6, 5, 3).await);
     }
 
+    #[tokio::test]
+    pub async fn truncated_delta() {
+        assert_eq!(2, truncated_delta_to_saturation_point(30, 5, 3).await);
+        assert_eq!(2, truncated_delta_to_saturation_point(30, 5, 2).await);
+        assert_eq!(0, truncated_delta_to_saturation_point(30, 5, 1).await);
+        assert_eq!(1, truncated_delta_to_saturation_point(31, 5, 1).await);
+        assert_eq!(0, truncated_delta_to_saturation_point(32, 5, 1).await);
+        assert_eq!(7, truncated_delta_to_saturation_point(25, 5, 3).await);
+        assert_eq!(3, truncated_delta_to_saturation_point(61, 6, 3).await);
+        assert_eq!(1, truncated_delta_to_saturation_point(15, 4, 1).await);
+        assert_eq!(1, truncated_delta_to_saturation_point(15, 4, 2).await);
+        assert_eq!(1, truncated_delta_to_saturation_point(15, 4, 2).await);
+        assert_eq!(1, truncated_delta_to_saturation_point(15, 4, 4).await);
+    }
+
     async fn saturating_add(a: u32, num_a_bits: u32, b: u32, num_b_bits: u32) -> u128 {
         let world = TestWorld::default();
 
@@ -257,6 +290,27 @@ mod tests {
                         .unwrap()
                 },
             )
+            .await;
+
+        foo.reconstruct()
+    }
+
+    async fn truncated_delta_to_saturation_point(a: u32, num_a_bits: u32, num_b_bits: u32) -> u128 {
+        let world = TestWorld::default();
+
+        let a_bits = get_bits::<Gf2>(a, num_a_bits);
+
+        let foo = world
+            .semi_honest(a_bits, |ctx, a_bits: BitDecomposed<_>| async move {
+                let a = SaturatingSum::new(a_bits, Replicated::ZERO);
+                a.truncated_delta_to_saturation_point(
+                    ctx.set_total_records(1),
+                    RecordId(0),
+                    num_b_bits as usize,
+                )
+                .await
+                .unwrap()
+            })
             .await;
 
         foo.reconstruct()
