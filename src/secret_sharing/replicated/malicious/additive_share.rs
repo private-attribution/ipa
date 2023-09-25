@@ -143,10 +143,10 @@ impl<V: SharedValue + ExtendableField> AdditiveShare<V> {
     };
 }
 
-impl<V: SharedValue + ExtendableField> Add<Self> for &AdditiveShare<V> {
+impl<'a, 'b, V: SharedValue + ExtendableField> Add<&'b AdditiveShare<V>> for &'a AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: &'b AdditiveShare<V>) -> Self::Output {
         AdditiveShare {
             x: &self.x + &rhs.x,
             rx: &self.rx + &rhs.rx,
