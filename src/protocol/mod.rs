@@ -6,6 +6,7 @@ pub mod context;
 pub mod dp;
 pub mod ipa;
 pub mod modulus_conversion;
+#[cfg(feature = "descriptive-gate")]
 pub mod prf_sharding;
 pub mod prss;
 pub mod sort;
