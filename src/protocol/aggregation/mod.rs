@@ -40,6 +40,9 @@ impl AsRef<str> for Step {
         match self {
             Step::Validator => "validator",
             Step::ConvertValueBits => "convert_value_bits",
+            Step::ConvertBreakdownKeyBits => "convert_breakdown_key_bits",
+            Step::ComputeEqualityChecks => "convert_equality_key_bits",
+            Step::CheckTimesValue => "check_times_values",
         }
     }
 }
