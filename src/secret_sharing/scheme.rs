@@ -12,16 +12,17 @@ pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
 }
 
 /// Secret share of a secret that has additive and multiplicative properties.
-pub trait Linear<V: SharedValue>: SecretSharing<V>
+pub trait Linear<V: SharedValue>:
+    SecretSharing<V>
     + LocalArithmeticOps
     + LocalAssignOps
     + for<'r> LocalArithmeticOps<&'r Self>
     + for<'r> LocalAssignOps<&'r Self>
-    // TODO: add reference
-    + Mul<V, Output=Self>
+    + Mul<V, Output = Self>
     + for<'r> Mul<&'r V, Output = Self>
-    + Neg<Output=Self>
-{}
+    + Neg<Output = Self>
+{
+}
 
 /// Secret share of a secret in bits. It has additive and multiplicative properties.
 pub trait Bitwise<V: GaloisField>: SecretSharing<V> + Linear<V> {}

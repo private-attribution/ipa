@@ -27,7 +27,6 @@ pub trait Block: Sized + Copy + Debug {
 }
 
 pub trait SharedValue:
-// TODO: add reference operations
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + ArithmeticOps + Serializable + 'static
 {
     type Storage: Block;

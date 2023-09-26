@@ -23,8 +23,6 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
 
 impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
-// impl <'a, V: SharedValue> RefLocalArithmeticOps<'a, Self> for AdditiveShare<V> {}
-
 impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
