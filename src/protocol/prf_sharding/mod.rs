@@ -230,6 +230,10 @@ where
     Ok(output)
 }
 
+///
+/// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
+/// this function encapsulates the variables that must be initialized. No communication is required for this first row.
+///
 fn initialize_new_device_attribution_variables<BK, TV>(
     share_of_one: Replicated<Gf2>,
     input_row: &PrfShardedIpaInputRow<BK, TV>,
@@ -254,6 +258,14 @@ where
     }
 }
 
+///
+/// To support "Last Touch Attribution" we move the `breakdown_key` of the most recent source event
+/// down to all of trigger events that follow it.
+///
+/// The logic here is extremely simple. For each row:
+/// (a) if it is a source event, take the breakdown key bits.
+/// (b) if it is a trigger event, take the breakdown key bits from the preceding line
+///
 async fn breakdown_key_of_most_recent_source_event<C>(
     ctx: C,
     record_id: RecordId,
@@ -284,6 +296,14 @@ where
     ))
 }
 
+///
+/// In this simple "Last Touch Attribution" model, the `trigger_value` of a trigger event is either
+/// (a) Attributed to a single `breakdown_key`
+/// (b) Not attributed, and thus zeroed out
+///
+/// The logic here is extremely simple. There is a secret-shared bit indicating if a given row is an "attributed trigger event"
+/// The bits of the `trigger_value` are all multiplied by this bit in order to zero out contributions from unattributed trigger events
+///
 async fn zero_out_trigger_value_unless_attributed<C>(
     ctx: C,
     record_id: RecordId,
@@ -312,6 +332,25 @@ where
     ))
 }
 
+///
+/// To provide a differential privacy guarantee, we need to bound the maximum contribution from any given user to some cap.
+///
+/// The following values are computed for each row:
+/// (1) The uncapped "Attributed trigger value" (which is either the original `trigger_value` bits or zero if it was unattributed)
+/// (2) The cumulative sum of "Attributed trigger value" thus far (which "saturates" at a given power of two as indicated by the `is_saturated` flag)
+/// (3) The "delta to cap", which is the difference between the "cap" and the cumulative sum (this value is meaningless once the cumulative sum is saturated)
+///
+/// To perfectly cap each user's contributions at precisely the cap, the "attributed trigger value" will sometimes need to be lowered,
+/// such that the total cumulative sum adds up to exactly the cap.
+///
+/// This oblivious algorithm computes the "capped attributed trigger value" in the following way:
+/// IF the cumulative is NOT YET saturated:
+///     - just return the attributed trigger value
+/// ELSE IF the cumulative sum JUST became saturated (that is, it was NOT saturated on the preceding line but IS on this line):
+///     - return the "delta to cap" from the preceding line
+/// ELSE
+///     - return zero
+///
 async fn compute_capped_trigger_value<C>(
     ctx: C,
     record_id: RecordId,
@@ -351,6 +390,30 @@ where
     ))
 }
 
+///
+/// This function contains the main logic for the per-user attribution circuit.
+/// Multiple rows of data about a single user are processed in-order from oldest to newest.
+///
+/// Summary:
+/// - Last touch attribution
+///     - Every trigger event which is preceded by a source event is attributed
+///     - Trigger events are attributed to the `breakdown_key` of the most recent preceding source event
+/// - Per user capping
+///     - A cumulative sum of "Attributed Trigger Value" is maintained
+///     - Bitwise addition is used, and a single bit indicates if the sum is "saturated"
+///     - The only available values for "cap" are powers of 2 (i.e. 1, 2, 4, 8, 16, 32, ...)
+///     - Prior to the cumulative sum reaching saturation, attributed trigger values are passed along
+///     - The row which puts the cumulative sum over the cap is "capped" to the delta between the cumulative sum of the last row and the cap
+///     - All subsequent rows contribute zero
+/// - Outputs
+///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
+///     - Each output row has two main values:
+///         - `capped_attributed_trigger_value` - the value to contribute to the output (bitwise secret-shared),
+///         - `attributed_breakdown_key` - the breakdown to which this contribution applies (bitwise secret-shared),
+///     - Additional output:
+///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
+///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
+///           the amount of processing work that must be done in the Aggregation stage.
 async fn compute_row_with_previous<C, BK, TV>(
     ctx: C,
     record_id: RecordId,
