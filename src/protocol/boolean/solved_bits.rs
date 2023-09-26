@@ -113,6 +113,7 @@ where
     //
     // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
     let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
+        // todo: fix multiplication
         acc + &(x.clone() * F::try_from(1 << i).unwrap())
     });
 

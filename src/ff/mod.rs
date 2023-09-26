@@ -23,35 +23,33 @@ pub enum Error {
 
 /// Arithmetic operations that do not require communication in our MPC setting and can be performed
 /// locally.
+///
+/// Note: Neg operation is also local, but is causing issues when added as a bound to this trait.
+/// The problem is that it does not use `Rhs` generic and rustc overflows trying to compile functions
+/// that use HRTB generics bounded by `LocalArithmeticOps`.
 pub trait LocalArithmeticOps<Rhs = Self, Output = Self>:
 Add<Rhs, Output = Output>
-// + AddAssign<Rhs>
 + Sub<Rhs, Output = Output>
-// + SubAssign<Rhs>
-// + Neg<Output = Output>
 + Sized
 {
 }
 
 impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
     T: Add<Rhs, Output = Output>
-    // + AddAssign<Rhs>
     + Sub<Rhs, Output = Output>
-    // + SubAssign<Rhs>
-    // + Neg<Output = Output>
     + Sized {}
 
 
-pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> + Neg<Output = Self> {}
-impl <T, Rhs> LocalAssignOps<Rhs> for T where T:AddAssign<Rhs> + SubAssign<Rhs> + Neg<Output = Self> {}
+pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
+impl <T, Rhs> LocalAssignOps<Rhs> for T where T:AddAssign<Rhs> + SubAssign<Rhs> {}
 
 /// TODO: add docs
 /// May or may not require communication, depending on the value. Multiplying field values is a
 /// local operation, while multiplying secret shares is not.
 pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
-// TODO: make mul a trait and implement it for secret sharing
     + Mul<Rhs, Output = Output>
     + MulAssign<Rhs>
+    + Neg<Output = Output>
 {
 }
 
@@ -59,6 +57,7 @@ impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
     T: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
     + Mul<Rhs, Output = Output>
     + MulAssign<Rhs>
+    + Neg<Output = Output>
 {
 }
 

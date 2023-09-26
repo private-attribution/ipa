@@ -17,6 +17,7 @@ pub trait Linear<V: SharedValue>: SecretSharing<V>
     + for<'r> LocalAssignOps<&'r Self>
     // TODO: add reference
     + Mul<V, Output=Self>
+    + for<'r> Mul<&'r V, Output = Self>
     + Neg<Output=Self>
 {}
 
