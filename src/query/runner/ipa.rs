@@ -56,13 +56,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for <'r> &'r S: RefLocalArithmeticOps<'r, S>,
+    for <'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
-    for <'r> &'r SB: RefLocalArithmeticOps<'r, SB>,
+    for <'r> &'r SB: RefLocalArithmeticOps<'r, SB, Gf2>,
     F: PrimeField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,

@@ -181,16 +181,32 @@ impl<V: SharedValue> SubAssign<Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Mul<&V> for AdditiveShare<V> {
-    type Output = Self;
+impl<'a, 'b, V: SharedValue> Mul<&'b V> for &'a AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
 
-    fn mul(self, rhs: &V) -> Self::Output {
-        Self(self.0 * *rhs, self.1 * *rhs)
+    fn mul(self, rhs: &'b V) -> Self::Output {
+        AdditiveShare(self.0 * *rhs, self.1 * *rhs)
     }
 }
 
 impl<V: SharedValue> Mul<V> for AdditiveShare<V> {
     type Output = Self;
+
+    fn mul(self, rhs: V) -> Self::Output {
+        Mul::mul(&self, &rhs)
+    }
+}
+
+impl<V: SharedValue> Mul<&V> for AdditiveShare<V> {
+    type Output = Self;
+
+    fn mul(self, rhs: &V) -> Self::Output {
+        Mul::mul(&self, rhs)
+    }
+}
+
+impl<V: SharedValue> Mul<V> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
 
     fn mul(self, rhs: V) -> Self::Output {
         Mul::mul(self, &rhs)

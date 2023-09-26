@@ -21,6 +21,7 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
+use crate::ff::RefLocalArithmeticOps;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
@@ -94,6 +95,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     //
     // step 1 & 2

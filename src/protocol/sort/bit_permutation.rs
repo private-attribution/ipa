@@ -41,7 +41,7 @@ pub async fn bit_permutation<
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, Error>
-    where for<'r> &'r S: RefLocalArithmeticOps<'r, S> {
+    where for<'r> &'r S: RefLocalArithmeticOps<'r, S, F> {
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(2 * input.len());
     let share_of_one = S::share_known_value(&ctx, F::ONE);

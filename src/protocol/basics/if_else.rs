@@ -20,7 +20,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)

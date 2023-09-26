@@ -63,7 +63,7 @@ mod tests {
     use crate::secret_sharing::{Linear, SharedValue};
     use crate::secret_sharing::replicated::{malicious, semi_honest};
 
-    fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L> {
+    fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L, V> {
         let a = L::ZERO;
         let b = L::ZERO;
 
@@ -73,13 +73,13 @@ mod tests {
         assert_eq!(L::ZERO, a + b);
     }
 
-    fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L> {
+    fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>() where for <'a> &'a L: RefLocalArithmeticOps<'a, L, V> {
 
         fn sum_owned<S: Linear<V>, V: SharedValue>(a: S, b: S) -> S {
             a + b
         }
 
-        fn sum_ref_ref<S, V>(a: &S, b: &S) -> S where S: Linear<V>, V: SharedValue, for <'a> &'a S: RefLocalArithmeticOps<'a, S> {
+        fn sum_ref_ref<S, V>(a: &S, b: &S) -> S where S: Linear<V>, V: SharedValue, for <'a> &'a S: RefLocalArithmeticOps<'a, S, V> {
             a + b
         }
 
@@ -87,7 +87,7 @@ mod tests {
             a + b
         }
 
-        fn sum_ref_owned<S, V>(a: &S, b: S) -> S where S: Linear<V>, V: SharedValue, for <'a> &'a S: RefLocalArithmeticOps<'a, S> {
+        fn sum_ref_owned<S, V>(a: &S, b: S) -> S where S: Linear<V>, V: SharedValue, for <'a> &'a S: RefLocalArithmeticOps<'a, S, V> {
             a + b
         }
 

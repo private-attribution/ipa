@@ -38,7 +38,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -92,7 +92,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a T: RefLocalArithmeticOps<'a, T>,
+    for <'a> &'a T: RefLocalArithmeticOps<'a, T, F>,
 {
     let num_rows = input.len();
 
@@ -152,7 +152,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =

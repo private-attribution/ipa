@@ -25,7 +25,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     assert!(a.len() <= 128);
 
@@ -58,7 +58,7 @@ pub async fn bitwise_equal_gf2<C, S>(
 where
     C: Context,
     S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, Gf2>
 {
     debug_assert!(a.len() == b.len());
     let c = zip(a.iter(), b.iter())

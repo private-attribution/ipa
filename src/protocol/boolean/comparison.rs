@@ -74,7 +74,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     use GreaterThanConstantStep as Step;
 
@@ -176,7 +176,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     assert!(a.len() <= 128);
 
@@ -209,7 +209,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     assert!(a.len() <= 128);
 
@@ -240,7 +240,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S>
+    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
 {
     let one = S::share_known_value(ctx, F::ONE);
 
