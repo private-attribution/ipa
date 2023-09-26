@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, RefLocalArithmeticOps},
     protocol::{
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
         context::{Context, UpgradedContext},
@@ -19,7 +19,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use crate::ff::RefLocalArithmeticOps;
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to
@@ -38,7 +37,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -92,7 +91,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a T: RefLocalArithmeticOps<'a, T, F>,
+    for<'a> &'a T: RefLocalArithmeticOps<'a, T, F>,
 {
     let num_rows = input.len();
 
@@ -152,7 +151,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =

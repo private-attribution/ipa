@@ -28,25 +28,24 @@ pub enum Error {
 /// The problem is that it does not use `Rhs` generic and rustc overflows trying to compile functions
 /// that use HRTB generics bounded by `LocalArithmeticOps`.
 pub trait LocalArithmeticOps<Rhs = Self, Output = Self>:
-Add<Rhs, Output = Output>
-+ Sub<Rhs, Output = Output>
-+ Sized
+    Add<Rhs, Output = Output> + Sub<Rhs, Output = Output> + Sized
 {
 }
 
 impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
-    T: Add<Rhs, Output = Output>
-    + Sub<Rhs, Output = Output>
-    + Sized {}
-
+    T: Add<Rhs, Output = Output> + Sub<Rhs, Output = Output> + Sized
+{
+}
 
 pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
-impl <T, Rhs> LocalAssignOps<Rhs> for T where T:AddAssign<Rhs> + SubAssign<Rhs> {}
+impl<T, Rhs> LocalAssignOps<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 
 /// TODO: add docs
 /// May or may not require communication, depending on the value. Multiplying field values is a
 /// local operation, while multiplying secret shares is not.
-pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
+pub trait ArithmeticOps<Rhs = Self, Output = Self>:
+    LocalArithmeticOps<Rhs, Output>
+    + LocalAssignOps<Rhs>
     + Mul<Rhs, Output = Output>
     + MulAssign<Rhs>
     + Neg<Output = Output>
@@ -54,10 +53,11 @@ pub trait ArithmeticOps<Rhs = Self, Output = Self>: LocalArithmeticOps<Rhs, Outp
 }
 
 impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
-    T: LocalArithmeticOps<Rhs, Output> + LocalAssignOps<Rhs>
-    + Mul<Rhs, Output = Output>
-    + MulAssign<Rhs>
-    + Neg<Output = Output>
+    T: LocalArithmeticOps<Rhs, Output>
+        + LocalAssignOps<Rhs>
+        + Mul<Rhs, Output = Output>
+        + MulAssign<Rhs>
+        + Neg<Output = Output>
 {
 }
 
@@ -70,37 +70,16 @@ pub trait RefLocalArithmeticOps<'a, Base: 'a, R: 'a>:
     + LocalArithmeticOps<&'a Base, Base>
     + Mul<R, Output = Base>
     + Mul<&'a R, Output = Base>
-{}
-impl<'a, T, Base: 'a, R: 'a> RefLocalArithmeticOps<'a, Base, R> for T
-    where T: LocalArithmeticOps<Base, Base>
-    + LocalArithmeticOps<&'a Base, Base> + 'a
-    + Mul<R, Output = Base>
-    + Mul<&'a R, Output = Base>
-{}
-
-// impl<'a, T, Base: 'a> RefLocalArithmeticOps<'a, Base> for T where T: LocalArithmeticOps<&'a Base, Base> + 'a {}
-
-// pub trait ArithmeticRefOps<V: SharedValue>:
-//     for<'a> Add<&'a Self, Output = Self>
-//     + for<'a> AddAssign<&'a Self>
-//     + Neg<Output = Self>
-//     + for<'a> Sub<&'a Self, Output = Self>
-//     + for<'a> SubAssign<&'a Self>
-//     + Mul<V, Output = Self>
-// {
-// }
-//
-// impl<T, V> ArithmeticRefOps<V> for T
-// where
-//     T: for<'a> Add<&'a Self, Output = Self>
-//         + for<'a> AddAssign<&'a Self>
-//         + Neg<Output = Self>
-//         + for<'a> Sub<&'a Self, Output = Self>
-//         + for<'a> SubAssign<&'a Self>
-//         + Mul<V, Output = Self>,
-//     V: SharedValue,
-// {
-// }
+{
+}
+impl<'a, T, Base: 'a, R: 'a> RefLocalArithmeticOps<'a, Base, R> for T where
+    T: LocalArithmeticOps<Base, Base>
+        + LocalArithmeticOps<&'a Base, Base>
+        + 'a
+        + Mul<R, Output = Base>
+        + Mul<&'a R, Output = Base>
+{
+}
 
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {

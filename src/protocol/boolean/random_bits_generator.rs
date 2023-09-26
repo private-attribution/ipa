@@ -7,7 +7,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::PrimeField,
+    ff::{PrimeField, RefLocalArithmeticOps},
     helpers::TotalRecords,
     protocol::{
         boolean::solved_bits::{solved_bits, RandomBitsShare},
@@ -16,7 +16,6 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
-use crate::ff::RefLocalArithmeticOps;
 
 /// A struct that generates random sharings of bits from the
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
@@ -45,7 +44,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     #[must_use]
     pub fn new(ctx: C) -> Self {

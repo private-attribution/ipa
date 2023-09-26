@@ -9,7 +9,7 @@ use ipa_macros::Step;
 use super::{do_the_binary_tree_thing, input::CreditCappingInputRow, prefix_or_binary_tree_style};
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, RefLocalArithmeticOps},
     protocol::{
         basics::{if_else, SecureMul},
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
@@ -19,7 +19,6 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
-use crate::ff::RefLocalArithmeticOps;
 
 /// User-level credit capping protocol.
 ///
@@ -36,7 +35,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -243,7 +242,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     let share_of_cap = S::share_known_value(&ctx, F::truncate_from(cap));
     let cap_ref = &share_of_cap;
@@ -298,7 +297,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(prefix_summed_credits.len());
@@ -361,7 +360,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a T: RefLocalArithmeticOps<'a, T, F>
+    for<'a> &'a T: RefLocalArithmeticOps<'a, T, F>,
 {
     let num_rows = input.len();
     let cap_share = T::share_known_value(&ctx, F::try_from(cap.into()).unwrap());

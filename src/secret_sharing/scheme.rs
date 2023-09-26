@@ -1,5 +1,7 @@
-use std::fmt::Debug;
-use std::ops::{Mul, Neg};
+use std::{
+    fmt::Debug,
+    ops::{Mul, Neg},
+};
 
 use super::SharedValue;
 use crate::ff::{GaloisField, LocalArithmeticOps, LocalAssignOps};
@@ -20,7 +22,6 @@ pub trait Linear<V: SharedValue>: SecretSharing<V>
     + for<'r> Mul<&'r V, Output = Self>
     + Neg<Output=Self>
 {}
-
 
 /// Secret share of a secret in bits. It has additive and multiplicative properties.
 pub trait Bitwise<V: GaloisField>: SecretSharing<V> + Linear<V> {}

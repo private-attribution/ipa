@@ -11,7 +11,7 @@ use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, RefLocalArithmeticOps, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::secure_attribution,
@@ -38,7 +38,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
-use crate::ff::RefLocalArithmeticOps;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -316,13 +315,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for <'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
-    for <'r> &'r SB: RefLocalArithmeticOps<'r, SB, Gf2>,
+    for<'r> &'r SB: RefLocalArithmeticOps<'r, SB, Gf2>,
     F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,

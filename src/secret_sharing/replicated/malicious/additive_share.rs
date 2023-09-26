@@ -187,7 +187,7 @@ impl<V: SharedValue + ExtendableField> AddAssign<&Self> for AdditiveShare<V> {
 
 impl<V: SharedValue + ExtendableField> AddAssign<Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: Self) {
-        AddAssign::add_assign(self, &rhs)
+        AddAssign::add_assign(self, &rhs);
     }
 }
 
@@ -246,7 +246,7 @@ impl<V: SharedValue + ExtendableField> SubAssign<&Self> for AdditiveShare<V> {
 
 impl<V: SharedValue + ExtendableField> SubAssign<Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: Self) {
-        SubAssign::sub_assign(self, &rhs)
+        SubAssign::sub_assign(self, &rhs);
     }
 }
 
@@ -256,7 +256,7 @@ impl<'a, 'b, V: SharedValue + ExtendableField> Mul<&'b V> for &'a AdditiveShare<
     fn mul(self, rhs: &'b V) -> Self::Output {
         AdditiveShare {
             x: &self.x * rhs,
-            rx: &self.rx * &rhs.to_extended()
+            rx: &self.rx * rhs.to_extended(),
         }
     }
 }

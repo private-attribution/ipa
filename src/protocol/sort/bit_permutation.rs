@@ -4,11 +4,10 @@ use embed_doc_image::embed_doc_image;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, RefLocalArithmeticOps},
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use crate::ff::RefLocalArithmeticOps;
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
@@ -41,7 +40,9 @@ pub async fn bit_permutation<
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, Error>
-    where for<'r> &'r S: RefLocalArithmeticOps<'r, S, F> {
+where
+    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+{
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(2 * input.len());
     let share_of_one = S::share_known_value(&ctx, F::ONE);

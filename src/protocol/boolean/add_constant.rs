@@ -1,10 +1,9 @@
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, RefLocalArithmeticOps},
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
-use crate::ff::RefLocalArithmeticOps;
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -53,7 +52,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -97,12 +96,9 @@ where
         // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
         // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
-            -(&next_carry * &two)
-                + &S::share_known_value(&ctx, F::ONE)
-                + bit
-                + &last_carry
+            -(&next_carry * two) + &S::share_known_value(&ctx, F::ONE) + bit + &last_carry
         } else {
-            -(&next_carry * &two) + bit + &last_carry
+            -(&next_carry * two) + bit + &last_carry
         };
         output.push(result_bit);
 

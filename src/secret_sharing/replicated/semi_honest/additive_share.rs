@@ -116,7 +116,7 @@ impl<V: SharedValue> AddAssign<&Self> for AdditiveShare<V> {
 
 impl<V: SharedValue> AddAssign<Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: Self) {
-        AddAssign::add_assign(self, &rhs)
+        AddAssign::add_assign(self, &rhs);
     }
 }
 
@@ -177,7 +177,7 @@ impl<V: SharedValue> SubAssign<&Self> for AdditiveShare<V> {
 
 impl<V: SharedValue> SubAssign<Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: Self) {
-        SubAssign::sub_assign(self, &rhs)
+        SubAssign::sub_assign(self, &rhs);
     }
 }
 

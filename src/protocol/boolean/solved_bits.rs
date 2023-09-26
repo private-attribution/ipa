@@ -5,7 +5,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{Field, PrimeField},
+    ff::{Field, PrimeField, RefLocalArithmeticOps},
     protocol::{
         boolean::{
             bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
@@ -21,7 +21,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
-use crate::ff::RefLocalArithmeticOps;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
@@ -95,7 +94,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for <'a> &'a S: RefLocalArithmeticOps<'a, S, F>
+    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
 {
     //
     // step 1 & 2
