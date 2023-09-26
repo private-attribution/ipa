@@ -1,8 +1,7 @@
 use std::iter::repeat;
 
 use futures_util::future::try_join;
-use ipa_macros::step;
-use strum::AsRefStr;
+use ipa_macros::Step;
 
 use super::{boolean::saturating_sum::SaturatingSum, step::BitOpStep};
 use crate::{
@@ -14,7 +13,6 @@ use crate::{
         context::{UpgradableContext, UpgradedContext, Validator},
         RecordId,
     },
-    repeat64str,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed,
@@ -43,24 +41,19 @@ pub struct CappedAttributionOutputs {
     pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
 }
 
-pub struct UserNthRowStep(usize);
-
-impl crate::protocol::step::Step for UserNthRowStep {}
-
-impl AsRef<str> for UserNthRowStep {
-    fn as_ref(&self) -> &str {
-        const ROW: [&str; 64] = repeat64str!["row"];
-        ROW[self.0]
-    }
+#[derive(Step)]
+pub enum UserNthRowStep {
+    #[dynamic]
+    Row(usize),
 }
 
 impl From<usize> for UserNthRowStep {
     fn from(v: usize) -> Self {
-        Self(v)
+        Self::Row(v)
     }
 }
 
-#[step]
+#[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
     EverEncounteredSourceEvent,
