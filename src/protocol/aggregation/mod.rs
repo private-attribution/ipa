@@ -174,6 +174,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     let check_times_value_ctx = ctx.narrow(&Step::CheckTimesValue);
 
