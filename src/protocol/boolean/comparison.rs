@@ -3,7 +3,7 @@ use ipa_macros::Step;
 use super::or::or;
 use crate::{
     error::Error,
-    ff::{PrimeField, RefLocalArithmeticOps},
+    ff::{PrimeField, RefOps},
     protocol::{
         boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, UpgradedContext},
@@ -73,7 +73,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     use GreaterThanConstantStep as Step;
 
@@ -175,7 +175,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -208,7 +208,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -239,7 +239,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     let one = S::share_known_value(ctx, F::ONE);
 

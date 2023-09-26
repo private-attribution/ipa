@@ -59,7 +59,7 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Fp31, RefLocalArithmeticOps},
+        ff::{Fp31, RefOps},
         secret_sharing::{
             replicated::{malicious, semi_honest},
             Linear, SharedValue,
@@ -68,7 +68,7 @@ mod tests {
 
     fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>()
     where
-        for<'a> &'a L: RefLocalArithmeticOps<'a, L, V>,
+        for<'a> &'a L: RefOps<'a, L, V>,
     {
         let a = L::ZERO;
         let b = L::ZERO;
@@ -81,7 +81,7 @@ mod tests {
 
     fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>()
     where
-        for<'a> &'a L: RefLocalArithmeticOps<'a, L, V>,
+        for<'a> &'a L: RefOps<'a, L, V>,
     {
         fn sum_owned<S: Linear<V>, V: SharedValue>(a: S, b: S) -> S {
             a + b
@@ -91,7 +91,7 @@ mod tests {
         where
             S: Linear<V>,
             V: SharedValue,
-            for<'a> &'a S: RefLocalArithmeticOps<'a, S, V>,
+            for<'a> &'a S: RefOps<'a, S, V>,
         {
             a + b
         }
@@ -104,7 +104,7 @@ mod tests {
         where
             S: Linear<V>,
             V: SharedValue,
-            for<'a> &'a S: RefLocalArithmeticOps<'a, S, V>,
+            for<'a> &'a S: RefOps<'a, S, V>,
         {
             a + b
         }

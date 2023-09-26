@@ -7,7 +7,7 @@ pub use input::SparseAggregateInputRow;
 use super::{context::Context, sort::bitwise_to_onehot, step::BitOpStep, RecordId};
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, RefLocalArithmeticOps, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, RefOps, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
@@ -76,7 +76,7 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+    for<'r> &'r S: RefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
     F: PrimeField + ExtendableField,
@@ -131,7 +131,7 @@ where
     I2: Stream<Item = Result<BitDecomposed<S>, Error>> + Send,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     let equality_check_ctx = ctx.narrow(&Step::ComputeEqualityChecks);
 

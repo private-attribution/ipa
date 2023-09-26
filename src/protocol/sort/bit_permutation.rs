@@ -4,7 +4,7 @@ use embed_doc_image::embed_doc_image;
 
 use crate::{
     error::Error,
-    ff::{Field, RefLocalArithmeticOps},
+    ff::{Field, RefOps},
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -41,7 +41,7 @@ pub async fn bit_permutation<
     input: &[S],
 ) -> Result<Vec<S>, Error>
 where
-    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+    for<'r> &'r S: RefOps<'r, S, F>,
 {
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(2 * input.len());

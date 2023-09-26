@@ -40,9 +40,8 @@ impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
 pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
 impl<T, Rhs> LocalAssignOps<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 
-/// TODO: add docs
-/// May or may not require communication, depending on the value. Multiplying field values is a
-/// local operation, while multiplying secret shares is not.
+/// Arithmetic operations that may or may not require communication.
+/// for example, multiplying field values is a local operation, while multiplying secret shares is not.
 pub trait ArithmeticOps<Rhs = Self, Output = Self>:
     LocalArithmeticOps<Rhs, Output>
     + LocalAssignOps<Rhs>
@@ -64,15 +63,19 @@ impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
 /// The trait for references which implement local arithmetic operations, taking the
 /// second operand either by value or by reference.
 ///
-/// This is automatically implemented for types which implement the operators.
-pub trait RefLocalArithmeticOps<'a, Base: 'a, R: 'a>:
+/// This is automatically implemented for types which implement the operators. The idea is borrowed
+/// from [`RefNum`] trait, but I couldn't really make it work with HRTB and secret shares. Primitive
+/// types worked just fine though, so it is possible that it is another compiler issue.
+///
+/// [`RefNum`]: https://docs.rs/num/0.4.1/num/traits/trait.RefNum.html
+pub trait RefOps<'a, Base: 'a, R: 'a>:
     LocalArithmeticOps<Base, Base>
     + LocalArithmeticOps<&'a Base, Base>
     + Mul<R, Output = Base>
     + Mul<&'a R, Output = Base>
 {
 }
-impl<'a, T, Base: 'a, R: 'a> RefLocalArithmeticOps<'a, Base, R> for T where
+impl<'a, T, Base: 'a, R: 'a> RefOps<'a, Base, R> for T where
     T: LocalArithmeticOps<Base, Base>
         + LocalArithmeticOps<&'a Base, Base>
         + 'a

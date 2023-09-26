@@ -7,7 +7,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{PrimeField, RefLocalArithmeticOps},
+    ff::{PrimeField, RefOps},
     helpers::TotalRecords,
     protocol::{
         boolean::solved_bits::{solved_bits, RandomBitsShare},
@@ -44,7 +44,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefLocalArithmeticOps<'a, S, F>,
+    for<'a> &'a S: RefOps<'a, S, F>,
 {
     #[must_use]
     pub fn new(ctx: C) -> Self {

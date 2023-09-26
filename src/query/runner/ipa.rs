@@ -7,7 +7,7 @@ use futures::{
 
 use crate::{
     error::Error,
-    ff::{Gf2, PrimeField, RefLocalArithmeticOps, Serializable},
+    ff::{Gf2, PrimeField, RefOps, Serializable},
     helpers::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
@@ -55,13 +55,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+    for<'r> &'r S: RefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
-    for<'r> &'r SB: RefLocalArithmeticOps<'r, SB, Gf2>,
+    for<'r> &'r SB: RefOps<'r, SB, Gf2>,
     F: PrimeField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,

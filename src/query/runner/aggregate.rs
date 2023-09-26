@@ -5,7 +5,7 @@ use futures_util::TryStreamExt;
 use super::ipa::assert_stream_send;
 use crate::{
     error::Error,
-    ff::{Gf2, Gf8Bit, PrimeField, RefLocalArithmeticOps, Serializable},
+    ff::{Gf2, Gf8Bit, PrimeField, RefOps, Serializable},
     helpers::{
         query::{QuerySize, SparseAggregateQueryConfig},
         BodyStream, RecordsStream,
@@ -53,7 +53,7 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for<'r> &'r S: RefLocalArithmeticOps<'r, S, F>,
+    for<'r> &'r S: RefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
