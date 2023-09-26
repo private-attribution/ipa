@@ -59,7 +59,7 @@ impl<S> BitDecomposed<S> {
         F: PrimeField,
     {
         self.iter().enumerate().fold(S::ZERO, |acc, (i, b)| {
-            acc + &(b.clone() * F::truncate_from(1_u128 << i))
+            acc + (b * F::truncate_from(1_u128 << i))
         })
     }
 }
