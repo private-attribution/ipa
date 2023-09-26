@@ -63,11 +63,15 @@ impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
 /// The trait for references which implement local arithmetic operations, taking the
 /// second operand either by value or by reference.
 ///
+/// The need for this trait is dictated by [`rust-issue`] that causes us not being able to constrain
+/// references to `Self`. Once this issue is fixed, we can simply get rid of it.
+///
 /// This is automatically implemented for types which implement the operators. The idea is borrowed
 /// from [`RefNum`] trait, but I couldn't really make it work with HRTB and secret shares. Primitive
 /// types worked just fine though, so it is possible that it is another compiler issue.
 ///
 /// [`RefNum`]: https://docs.rs/num/0.4.1/num/traits/trait.RefNum.html
+/// [`rust-issue`]: https://github.com/rust-lang/rust/issues/20671
 pub trait RefOps<'a, Base: 'a, R: 'a>:
     LocalArithmeticOps<Base, Base>
     + LocalArithmeticOps<&'a Base, Base>
