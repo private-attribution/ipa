@@ -1,12 +1,15 @@
 use std::iter::repeat;
 
-use futures_util::future::try_join;
+use futures_util::{future::try_join, StreamExt, TryStreamExt};
 use ipa_macros::Step;
 
-use super::{boolean::saturating_sum::SaturatingSum, step::BitOpStep};
+use super::{
+    boolean::saturating_sum::SaturatingSum, context::Context, modulus_conversion::convert_bits,
+    sort::bitwise_to_onehot, step::BitOpStep,
+};
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2},
+    ff::{Field, Fp32BitPrime, GaloisField, Gf2},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::or::or,
@@ -17,8 +20,9 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed,
     },
-    seq_join::seq_try_join_all,
+    seq_join::{self, seq_join, seq_try_join_all, SeqJoin},
 };
+use futures::stream::iter as stream_iter;
 
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
     prf_of_match_key: u64,
@@ -65,6 +69,10 @@ pub(crate) enum Step {
     ComputeDifferenceToCap,
     ComputedCappedAttributedTriggerValueNotSaturatedCase,
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
+    ComputedAttributedBreakdownKey,
+    ComputedAttributedValue,
+    ComputeEqualityChecks,
+    CheckTimesCredit,
 }
 
 fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>]) -> Vec<usize> {
@@ -123,6 +131,93 @@ where
     rows_chunked_by_user
 }
 
+pub async fn attribution_and_capping_and_aggregation<C, BK, TV, F>(
+    sh_ctx: C,
+    input_rows: Vec<PrfShardedIpaInputRow<BK, TV>>,
+    num_saturating_sum_bits: usize,
+) -> Result</*Vec<Replicated<F>>, */ (), Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    BK: GaloisField,
+    TV: GaloisField,
+    F: Field,
+{
+    // Call attribution_and_capping
+    let result: Vec<CappedAttributionOutputs> =
+        attribution_and_capping(sh_ctx, input_rows, num_saturating_sum_bits).await?;
+
+    let validator = &sh_ctx.validator::<Fp32BitPrime>();
+    let ctx = validator.context(); 
+
+    // Transpose breakdown keys and attributed trigger values into separate vectors so they can be interleaved
+    let (mut capped_attributed_trigger_value, mut attributed_breakdown_key_bits) = (vec![], vec![]);
+    result.into_iter().map(|one| {
+        capped_attributed_trigger_value.push(one.capped_attributed_trigger_value);
+        attributed_breakdown_key_bits.push(one.attributed_breakdown_key_bits);
+    });
+    // convert breakdown key
+    let converted_bk = convert_bits(
+        ctx.narrow(&Step::ComputedAttributedBreakdownKey)
+            .set_total_records(BK::BITS.into()),
+        stream_iter(attributed_breakdown_key_bits),
+        0..BK::BITS,
+    );
+
+    // convert attributed value
+    let converted_values = convert_bits(
+        ctx.narrow(&Step::ComputedAttributedValue)
+            .set_total_records(TV::BITS.into()),
+        stream_iter(capped_attributed_trigger_value),
+        0..TV::BITS,
+    );
+
+    let equality_check_context = ctx
+        .narrow(&Step::ComputeEqualityChecks)
+        .set_total_records(result.len());
+
+    let check_times_credit_context = ctx
+        .narrow(&Step::CheckTimesCredit)
+        .set_total_records(result.len());
+
+    let increments = seq_join(
+        c.active_work(),
+        converted_bk
+            .zip(converted_values)
+            .enumerate()
+            .map(|(i, (bk, cred))| {
+                let ceq = &equality_check_context;
+                let cmul = &check_times_credit_context;
+                async move {
+                    let equality_checks = bitwise_to_onehot(ceq.clone(), i, &bk?).await?;
+                    ceq.try_join(equality_checks.into_iter().enumerate().map(
+                        |(check_idx, check)| {
+                            let step = BitOpStep::from(check_idx);
+                            let c = cmul.narrow(&step);
+                            let record_id = RecordId::from(i);
+                            let credit = &cred;
+                            async move { check.multiply(credit, c, record_id).await }
+                        },
+                    ))
+                    .await
+                }
+            }),
+    );
+    let aggregate = increments
+        .try_fold(
+            vec![S::ZERO; 1 << BK::BITS as usize],
+            |mut acc, row| async move {
+                for (i, incr) in row.into_iter().enumerate() {
+                    acc[i] += &incr;
+                }
+                Ok(acc)
+            },
+        )
+        .await?;
+    Ok(aggregate)
+
+    // call aggregation protocol which checks onehot and multiplies value to each bucket
+}
 /// Sub-protocol of the PRF-sharded IPA Protocol
 ///
 /// After the computation of the per-user PRF, addition of dummy records and shuffling,
