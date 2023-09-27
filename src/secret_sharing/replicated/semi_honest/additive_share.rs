@@ -89,7 +89,7 @@ impl<V: SharedValue> Add<Self> for AdditiveShare<V> {
     }
 }
 
-impl<'a, V: SharedValue> Add<AdditiveShare<V>> for &'a AdditiveShare<V> {
+impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: AdditiveShare<V>) -> Self::Output {
@@ -97,10 +97,10 @@ impl<'a, V: SharedValue> Add<AdditiveShare<V>> for &'a AdditiveShare<V> {
     }
 }
 
-impl<'a, V: SharedValue> Add<&'a AdditiveShare<V>> for AdditiveShare<V> {
+impl<V: SharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
     type Output = Self;
 
-    fn add(self, rhs: &'a Self) -> Self::Output {
+    fn add(self, rhs: &Self) -> Self::Output {
         Add::add(&self, rhs)
     }
 }
