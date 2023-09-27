@@ -561,6 +561,16 @@ bit_array_impl!(
 );
 
 bit_array_impl!(
+    bit_array_5,
+    Gf5Bit,
+    U8_1,
+    5,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0),
+    // x^5 + x^4 + x^3 + x^2 + x + 1
+    0b111_111_u128
+);
+
+bit_array_impl!(
     bit_array_3,
     Gf3Bit,
     U8_1,
