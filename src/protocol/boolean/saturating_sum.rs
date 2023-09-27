@@ -120,7 +120,7 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
 /// This can be computed "for free" in Gf2
 ///
 /// The `carry_out` bit can be efficiently computed with just a single multiplication as:
-/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) ∧ (y_i ⊕ c_i))`
+/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) & (y_i ⊕ c_i))`
 ///
 /// Returns `sum_bit`
 ///
@@ -185,11 +185,11 @@ where
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
 {
     // compute difference bit as not_y XOR x XOR carry_in
-    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) - y + x + carry_in;
+    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) + y + x + carry_in;
     if compute_carry_out {
         let x_xor_carry_in = x.clone() + carry_in;
         let y_xor_carry_in = y.clone() + carry_in;
-        let not_y_xor_carry_in = SB::share_known_value(&ctx, Gf2::ONE) - &y_xor_carry_in;
+        let not_y_xor_carry_in = SB::share_known_value(&ctx, Gf2::ONE) + &y_xor_carry_in;
 
         *carry_in = x_xor_carry_in
             .multiply(&not_y_xor_carry_in, ctx, record_id)
