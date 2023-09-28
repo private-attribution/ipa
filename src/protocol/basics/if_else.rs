@@ -29,7 +29,7 @@ where
     // If `condition` is a share of 0 (false), then
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
-    Ok(false_value.clone()
+    Ok(false_value
         + &condition
             .multiply(&(true_value - false_value), ctx, record_id)
             .await?)
