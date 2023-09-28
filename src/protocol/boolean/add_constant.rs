@@ -1,10 +1,9 @@
 use crate::{
     error::Error,
-    ff::{Field, },
+    ff::Field,
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
-use crate::secret_sharing::RefOps;
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -53,7 +52,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 

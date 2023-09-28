@@ -2,11 +2,10 @@ use std::iter::zip;
 
 use crate::{
     error::Error,
-    ff::{Field, Gf2, },
+    ff::{Field, Gf2},
     protocol::{boolean::all_zeroes, context::Context, BasicProtocols, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
-use crate::secret_sharing::RefOps;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
 ///
@@ -25,7 +24,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -58,7 +57,7 @@ pub async fn bitwise_equal_gf2<C, S>(
 where
     C: Context,
     S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-    for<'a> &'a S: RefOps<'a, S, Gf2>,
+    for<'a> &'a S: LinearRefOps<'a, S, Gf2>,
 {
     debug_assert!(a.len() == b.len());
     let c = zip(a.iter(), b.iter())

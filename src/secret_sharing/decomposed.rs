@@ -2,10 +2,9 @@ use std::{fmt::Debug, ops::Deref};
 
 use crate::{
     error::Error,
-    ff::{PrimeField, },
-    secret_sharing::Linear as LinearSecretSharing,
+    ff::PrimeField,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
-use crate::secret_sharing::RefOps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {
@@ -61,7 +60,7 @@ impl<S> BitDecomposed<S> {
     pub fn to_additive_sharing_in_large_field<F>(&self) -> S
     where
         S: LinearSecretSharing<F>,
-        for<'a> &'a S: RefOps<'a, S, F>,
+        for<'a> &'a S: LinearRefOps<'a, S, F>,
         F: PrimeField,
     {
         self.iter().enumerate().fold(S::ZERO, |acc, (i, b)| {

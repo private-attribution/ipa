@@ -6,7 +6,7 @@ mod field;
 mod galois_field;
 mod prime_field;
 
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit};
@@ -21,45 +21,19 @@ pub enum Error {
     UnknownField { type_str: String },
 }
 
-/// Arithmetic operations that do not require communication in our MPC setting and can be performed
-/// locally.
-///
-/// Note: Neg operation is also local, but is causing issues when added as a bound to this trait.
-/// The problem is that it does not use `Rhs` generic and rustc overflows trying to compile functions
-/// that use HRTB generics bounded by `LocalArithmeticOps`.
-pub trait LocalArithmeticOps<Rhs = Self, Output = Self>:
+/// Addition and subtraction operations that are supported by secret sharings and shared values.
+pub trait AddSub<Rhs = Self, Output = Self>:
     Add<Rhs, Output = Output> + Sub<Rhs, Output = Output> + Sized
 {
 }
 
-impl<T, Rhs, Output> LocalArithmeticOps<Rhs, Output> for T where
+impl<T, Rhs, Output> AddSub<Rhs, Output> for T where
     T: Add<Rhs, Output = Output> + Sub<Rhs, Output = Output> + Sized
 {
 }
 
-pub trait LocalAssignOps<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
-impl<T, Rhs> LocalAssignOps<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
-
-/// Arithmetic operations that may or may not require communication.
-/// for example, multiplying field values is a local operation, while multiplying secret shares is not.
-pub trait ArithmeticOps<Rhs = Self, Output = Self>:
-    LocalArithmeticOps<Rhs, Output>
-    + LocalAssignOps<Rhs>
-    + Mul<Rhs, Output = Output>
-    + MulAssign<Rhs>
-    + Neg<Output = Output>
-{
-}
-
-impl<T, Rhs, Output> ArithmeticOps<Rhs, Output> for T where
-    T: LocalArithmeticOps<Rhs, Output>
-        + LocalAssignOps<Rhs>
-        + Mul<Rhs, Output = Output>
-        + MulAssign<Rhs>
-        + Neg<Output = Output>
-{
-}
-
+pub trait AddSubAssign<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
+impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {

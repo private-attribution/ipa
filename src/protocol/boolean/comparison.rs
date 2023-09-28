@@ -3,16 +3,15 @@ use ipa_macros::Step;
 use super::or::or;
 use crate::{
     error::Error,
-    ff::{PrimeField, },
+    ff::PrimeField,
     protocol::{
         boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, UpgradedContext},
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
-use crate::secret_sharing::RefOps;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //
@@ -74,7 +73,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     use GreaterThanConstantStep as Step;
 
@@ -176,7 +175,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -209,7 +208,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -240,7 +239,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
-    for<'a> &'a S: RefOps<'a, S, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let one = S::share_known_value(ctx, F::ONE);
 

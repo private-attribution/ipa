@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::SharedValue;
-use crate::ff::{GaloisField, LocalArithmeticOps, LocalAssignOps};
+use crate::ff::{AddSub, AddSubAssign, GaloisField};
 
 /// Secret sharing scheme i.e. Replicated secret sharing
 pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
@@ -14,10 +14,10 @@ pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
 /// Secret share of a secret that has additive and multiplicative properties.
 pub trait Linear<V: SharedValue>:
     SecretSharing<V>
-    + LocalArithmeticOps
-    + LocalAssignOps
-    + for<'r> LocalArithmeticOps<&'r Self>
-    + for<'r> LocalAssignOps<&'r Self>
+    + AddSub
+    + AddSubAssign
+    + for<'r> AddSub<&'r Self>
+    + for<'r> AddSubAssign<&'r Self>
     + Mul<V, Output = Self>
     + for<'r> Mul<&'r V, Output = Self>
     + Neg<Output = Self>
@@ -37,19 +37,16 @@ pub trait Linear<V: SharedValue>:
 ///
 /// [`RefNum`]: https://docs.rs/num/0.4.1/num/traits/trait.RefNum.html
 /// [`rust-issue`]: https://github.com/rust-lang/rust/issues/20671
-pub trait RefOps<'a, Base: 'a, R: 'a>:
-LocalArithmeticOps<Base, Base>
-+ LocalArithmeticOps<&'a Base, Base>
-+ Mul<R, Output = Base>
-+ Mul<&'a R, Output = Base>
+pub trait LinearRefOps<'a, Base: 'a, R: 'a>:
+    AddSub<Base, Base> + AddSub<&'a Base, Base> + Mul<R, Output = Base> + Mul<&'a R, Output = Base>
 {
 }
-impl<'a, T, Base: 'a, R: 'a> RefOps<'a, Base, R> for T where
-    T: LocalArithmeticOps<Base, Base>
-    + LocalArithmeticOps<&'a Base, Base>
-    + 'a
-    + Mul<R, Output = Base>
-    + Mul<&'a R, Output = Base>
+impl<'a, T, Base: 'a, R: 'a> LinearRefOps<'a, Base, R> for T where
+    T: AddSub<Base, Base>
+        + AddSub<&'a Base, Base>
+        + 'a
+        + Mul<R, Output = Base>
+        + Mul<&'a R, Output = Base>
 {
 }
 

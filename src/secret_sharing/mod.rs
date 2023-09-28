@@ -4,7 +4,10 @@ mod decomposed;
 mod into_shares;
 mod scheme;
 
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    ops::{Mul, MulAssign, Neg},
+};
 
 pub use decomposed::BitDecomposed;
 use generic_array::ArrayLength;
@@ -16,9 +19,28 @@ use rand::{
 };
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 use replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing};
-pub use scheme::{Bitwise, Linear, SecretSharing, RefOps};
+pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 
-use crate::ff::{ArithmeticOps, Serializable};
+use crate::ff::{AddSub, AddSubAssign, Serializable};
+
+/// Operations supported for shared values.
+pub trait Arithmetic<Rhs = Self, Output = Self>:
+    AddSub<Rhs, Output>
+    + AddSubAssign<Rhs>
+    + Mul<Rhs, Output = Output>
+    + MulAssign<Rhs>
+    + Neg<Output = Output>
+{
+}
+
+impl<T, Rhs, Output> Arithmetic<Rhs, Output> for T where
+    T: AddSub<Rhs, Output>
+        + AddSubAssign<Rhs>
+        + Mul<Rhs, Output = Output>
+        + MulAssign<Rhs>
+        + Neg<Output = Output>
+{
+}
 
 // Trait for primitive integer types used to represent the underlying type for shared values
 pub trait Block: Sized + Copy + Debug {
@@ -27,7 +49,7 @@ pub trait Block: Sized + Copy + Debug {
 }
 
 pub trait SharedValue:
-    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + ArithmeticOps + Serializable + 'static
+    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Arithmetic + Serializable + 'static
 {
     type Storage: Block;
 
@@ -58,17 +80,16 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Fp31, },
+        ff::Fp31,
         secret_sharing::{
             replicated::{malicious, semi_honest},
-            Linear, SharedValue,
+            Linear, LinearRefOps, SharedValue,
         },
     };
-    use crate::secret_sharing::RefOps;
 
     fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>()
     where
-        for<'a> &'a L: RefOps<'a, L, V>,
+        for<'a> &'a L: LinearRefOps<'a, L, V>,
     {
         let a = L::ZERO;
         let b = L::ZERO;
@@ -81,7 +102,7 @@ mod tests {
 
     fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>()
     where
-        for<'a> &'a L: RefOps<'a, L, V>,
+        for<'a> &'a L: LinearRefOps<'a, L, V>,
     {
         fn sum_owned<S: Linear<V>, V: SharedValue>(a: S, b: S) -> S {
             a + b
@@ -91,7 +112,7 @@ mod tests {
         where
             S: Linear<V>,
             V: SharedValue,
-            for<'a> &'a S: RefOps<'a, S, V>,
+            for<'a> &'a S: LinearRefOps<'a, S, V>,
         {
             a + b
         }
@@ -104,7 +125,7 @@ mod tests {
         where
             S: Linear<V>,
             V: SharedValue,
-            for<'a> &'a S: RefOps<'a, S, V>,
+            for<'a> &'a S: LinearRefOps<'a, S, V>,
         {
             a + b
         }

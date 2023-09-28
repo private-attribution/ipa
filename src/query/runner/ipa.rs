@@ -24,11 +24,10 @@ use crate::{
     report::{EncryptedReport, EventType, InvalidReportError},
     secret_sharing::{
         replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing, LinearRefOps,
     },
     sync::Arc,
 };
-use crate::secret_sharing::RefOps;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,
@@ -56,13 +55,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
-    for<'r> &'r S: RefOps<'r, S, F>,
+    for<'r> &'r S: LinearRefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
-    for<'r> &'r SB: RefOps<'r, SB, Gf2>,
+    for<'r> &'r SB: LinearRefOps<'r, SB, Gf2>,
     F: PrimeField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
     IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
