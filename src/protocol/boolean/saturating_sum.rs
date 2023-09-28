@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::{Field, Gf2},
     protocol::{boolean::or::or, context::Context, step::BitOpStep, BasicProtocols, RecordId},
-    secret_sharing::{BitDecomposed, Linear as LinearSecretSharing},
+    secret_sharing::{BitDecomposed, Linear as LinearSecretSharing, LinearRefOps},
 };
 
 #[derive(Debug)]
@@ -34,6 +34,7 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
     where
         C: Context,
         S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+        for<'a> &'a S: LinearRefOps<'a, S, Gf2>,
     {
         assert!(self.sum.len() >= value.len());
 
@@ -84,6 +85,7 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
     where
         C: Context,
         S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+        for<'a> &'a S: LinearRefOps<'a, S, Gf2>,
     {
         assert!(num_bits as usize <= self.sum.len());
 
@@ -136,12 +138,13 @@ async fn one_bit_adder<C, SB>(
 where
     C: Context,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+    for<'a> &'a SB: LinearRefOps<'a, SB, Gf2>,
 {
     // compute sum bit as x XOR y XOR carry_in
-    let sum_bit = x.clone() + y + carry_in;
+    let sum_bit = x + y + &*carry_in;
 
-    let x_xor_carry_in = x.clone() + carry_in;
-    let y_xor_carry_in = y.clone() + carry_in;
+    let x_xor_carry_in = x + &*carry_in;
+    let y_xor_carry_in = y + &*carry_in;
 
     // There are two cases when the `carry_out` bit is different from the `carry_in` bit
     // (1) When the `carry_in` bit is 0 and both `x` and `y` are 1
@@ -150,7 +153,7 @@ where
     *carry_in = x_xor_carry_in
         .multiply(&y_xor_carry_in, ctx, record_id)
         .await?
-        + carry_in;
+        + &*carry_in;
 
     Ok(sum_bit)
 }
@@ -183,18 +186,19 @@ async fn one_bit_subtractor<C, SB>(
 where
     C: Context,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
+    for<'a> &'a SB: LinearRefOps<'a, SB, Gf2>,
 {
     // compute difference bit as not_y XOR x XOR carry_in
-    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) + y + x + carry_in;
+    let difference_bit = SB::share_known_value(&ctx, Gf2::ONE) + y + x + &*carry_in;
     if compute_carry_out {
-        let x_xor_carry_in = x.clone() + carry_in;
-        let y_xor_carry_in = y.clone() + carry_in;
+        let x_xor_carry_in = x + &*carry_in;
+        let y_xor_carry_in = y + &*carry_in;
         let not_y_xor_carry_in = SB::share_known_value(&ctx, Gf2::ONE) + &y_xor_carry_in;
 
         *carry_in = x_xor_carry_in
             .multiply(&not_y_xor_carry_in, ctx, record_id)
             .await?
-            + carry_in;
+            + &*carry_in;
     }
     Ok(difference_bit)
 }
