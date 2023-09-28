@@ -5,7 +5,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{Field, PrimeField, RefOps},
+    ff::{Field, PrimeField, },
     protocol::{
         boolean::{
             bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
@@ -21,6 +21,7 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
     },
 };
+use crate::secret_sharing::RefOps;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>

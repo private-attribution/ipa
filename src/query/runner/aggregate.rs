@@ -5,7 +5,7 @@ use futures_util::TryStreamExt;
 use super::ipa::assert_stream_send;
 use crate::{
     error::Error,
-    ff::{Gf2, Gf8Bit, PrimeField, RefOps, Serializable},
+    ff::{Gf2, Gf8Bit, PrimeField, Serializable},
     helpers::{
         query::{QuerySize, SparseAggregateQueryConfig},
         BodyStream, RecordsStream,
@@ -23,6 +23,7 @@ use crate::{
     },
     sync::Arc,
 };
+use crate::secret_sharing::RefOps;
 
 pub struct SparseAggregateQuery<F, C, S> {
     config: SparseAggregateQueryConfig,

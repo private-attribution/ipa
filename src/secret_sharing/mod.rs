@@ -16,7 +16,7 @@ use rand::{
 };
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 use replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing};
-pub use scheme::{Bitwise, Linear, SecretSharing};
+pub use scheme::{Bitwise, Linear, SecretSharing, RefOps};
 
 use crate::ff::{ArithmeticOps, Serializable};
 
@@ -58,12 +58,13 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Fp31, RefOps},
+        ff::{Fp31, },
         secret_sharing::{
             replicated::{malicious, semi_honest},
             Linear, SharedValue,
         },
     };
+    use crate::secret_sharing::RefOps;
 
     fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>()
     where

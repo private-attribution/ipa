@@ -1,9 +1,10 @@
 use crate::{
     error::Error,
-    ff::{Field, RefOps},
+    ff::{Field, },
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///

@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::{Field, PrimeField, RefOps},
+    ff::{Field, PrimeField, },
     protocol::{
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
         context::{Context, UpgradedContext},
@@ -19,6 +19,7 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
 /// events that are outside the window will be replaced with 0, hence will not be attributed to

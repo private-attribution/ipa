@@ -19,7 +19,7 @@ use self::{
 };
 use crate::{
     error::Error,
-    ff::{Field, Gf2, PrimeField, RefOps, Serializable},
+    ff::{Field, Gf2, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     protocol::{
         basics::SecureMul,
@@ -39,6 +39,7 @@ use crate::{
     },
     seq_join::assert_send,
 };
+use crate::secret_sharing::RefOps;
 
 /// Performs a set of attribution protocols on the sorted IPA input.
 ///

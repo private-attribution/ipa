@@ -2,10 +2,11 @@ use std::iter::zip;
 
 use crate::{
     error::Error,
-    ff::{Field, Gf2, RefOps},
+    ff::{Field, Gf2, },
     protocol::{boolean::all_zeroes, context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 /// Compares `[a]` and `c`, and returns 1 iff `a == c`
 ///

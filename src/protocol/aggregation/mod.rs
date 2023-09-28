@@ -7,7 +7,7 @@ pub use input::SparseAggregateInputRow;
 use super::{context::Context, sort::bitwise_to_onehot, step::BitOpStep, RecordId};
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, RefOps, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
@@ -23,6 +23,7 @@ use crate::{
     },
     seq_join::seq_join,
 };
+use crate::secret_sharing::RefOps;
 
 // TODO: Use `#[derive(Step)]` once the protocol is implemented and the bench test is enabled.
 //       Once that is done, run `collect_steps.py` to generate `steps.txt` that includes these steps.

@@ -7,7 +7,7 @@ use futures::{
 
 use crate::{
     error::Error,
-    ff::{Gf2, PrimeField, RefOps, Serializable},
+    ff::{Gf2, PrimeField, Serializable},
     helpers::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, LengthDelimitedStream, RecordsStream,
@@ -28,6 +28,7 @@ use crate::{
     },
     sync::Arc,
 };
+use crate::secret_sharing::RefOps;
 
 pub struct IpaQuery<F, C, S> {
     config: IpaQueryConfig,

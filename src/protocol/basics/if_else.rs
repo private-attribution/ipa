@@ -1,9 +1,10 @@
 use crate::{
     error::Error,
-    ff::{Field, RefOps},
+    ff::{Field, },
     protocol::{basics::SecureMul, context::Context, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 /// # Errors

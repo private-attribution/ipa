@@ -9,7 +9,7 @@ use ipa_macros::Step;
 use super::{do_the_binary_tree_thing, input::CreditCappingInputRow, prefix_or_binary_tree_style};
 use crate::{
     error::Error,
-    ff::{Field, PrimeField, RefOps},
+    ff::{Field, PrimeField, },
     protocol::{
         basics::{if_else, SecureMul},
         boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator},
@@ -19,6 +19,7 @@ use crate::{
     secret_sharing::Linear as LinearSecretSharing,
     seq_join::seq_join,
 };
+use crate::secret_sharing::RefOps;
 
 /// User-level credit capping protocol.
 ///

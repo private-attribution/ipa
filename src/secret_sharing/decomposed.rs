@@ -2,9 +2,10 @@ use std::{fmt::Debug, ops::Deref};
 
 use crate::{
     error::Error,
-    ff::{PrimeField, RefOps},
+    ff::{PrimeField, },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {

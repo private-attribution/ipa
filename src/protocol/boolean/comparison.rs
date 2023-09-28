@@ -3,7 +3,7 @@ use ipa_macros::Step;
 use super::or::or;
 use crate::{
     error::Error,
-    ff::{PrimeField, RefOps},
+    ff::{PrimeField, },
     protocol::{
         boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, UpgradedContext},
@@ -12,6 +12,7 @@ use crate::{
     },
     secret_sharing::Linear as LinearSecretSharing,
 };
+use crate::secret_sharing::RefOps;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //

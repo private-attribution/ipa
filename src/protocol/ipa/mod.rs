@@ -11,7 +11,7 @@ use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, RefOps, Serializable},
+    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::secure_attribution,
@@ -38,6 +38,7 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing,
     },
 };
+use crate::secret_sharing::RefOps;
 
 #[derive(Step)]
 pub(crate) enum Step {
