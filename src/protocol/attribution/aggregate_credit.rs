@@ -68,7 +68,7 @@ where
     }
 }
 
-async fn simple_aggregate_credit<F, C, IC, IB, S>(
+pub async fn simple_aggregate_credit<F, C, IC, IB, S>(
     ctx: C,
     breakdown_keys: IB,
     capped_credits: IC,

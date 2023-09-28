@@ -1,12 +1,20 @@
 use std::iter::{repeat, zip};
 
-use futures_util::future::try_join;
+use futures_util::{future::try_join, StreamExt};
 use ipa_macros::Step;
 
-use super::{basics::if_else, boolean::saturating_sum::SaturatingSum, step::BitOpStep};
+use super::{
+    basics::{if_else, mul::malicious::multiply},
+    boolean::saturating_sum::SaturatingSum,
+    modulus_conversion::convert_bits,
+    step::BitOpStep,
+    BasicProtocols,
+};
+use futures::stream::unfold;
+
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2},
+    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
         boolean::or::or,
@@ -14,12 +22,15 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, SharedValue,
+        replicated::{
+            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
+        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
     },
-    seq_join::seq_try_join_all,
+    seq_join::{seq_join, seq_try_join_all},
 };
-
+use futures::stream::iter as stream_iter;
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Gf2>,
@@ -170,6 +181,11 @@ pub struct CappedAttributionOutputs {
     pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
 }
 
+pub struct PrimeFieldAggregationInputs<F: Field> {
+    pub attributed_breakdown_key_bits: BitDecomposed<Replicated<F>>,
+    pub capped_attributed_trigger_value: Replicated<F>,
+}
+
 #[derive(Step)]
 pub enum UserNthRowStep {
     #[dynamic]
@@ -194,6 +210,11 @@ pub(crate) enum Step {
     ComputeDifferenceToCap,
     ComputedCappedAttributedTriggerValueNotSaturatedCase,
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
+    ComputedAttributedBreakdownKey,
+    ComputedAttributedValue,
+    ComputeEqualityChecks,
+    CheckTimesCredit,
+    AttributionAndCapping,
 }
 
 fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>]) -> Vec<usize> {
@@ -252,6 +273,96 @@ where
     rows_chunked_by_user
 }
 
+pub async fn attribution_and_capping_and_aggregation<C, BK, TV, F, S, SB>(
+    sh_ctx: C,
+    input_rows: Vec<PrfShardedIpaInputRow<BK, TV>>,
+    num_saturating_sum_bits: usize,
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + Serializable + BasicProtocols<C, F>,
+    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    F: PrimeField + ExtendableField,
+    TV: GaloisField,
+    BK: GaloisField,
+    //for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
+{
+    // Call attribution_and_capping
+    let user_level_attributions: Vec<CappedAttributionOutputs> =
+        attribution_and_capping(sh_ctx.clone(), input_rows, num_saturating_sum_bits).await?;
+
+    let prime_field_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<F>();
+    let prime_field_m_ctx = prime_field_validator.context();
+
+    // call aggregation protocol which checks onehot and multiplies value to each bucket
+
+    do_aggregation::<_, BK, TV, F, S>(prime_field_m_ctx, user_level_attributions).await
+}
+
+async fn do_aggregation<C, BK, TV, F, S>(
+    ctx: C,
+    user_level_attributions: Vec<CappedAttributionOutputs>,
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + Serializable + BasicProtocols<C, F>,
+    BK: GaloisField,
+    TV: GaloisField,
+    F: PrimeField + ExtendableField,
+{
+    let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
+        .into_iter()
+        .map(|row| {
+            (
+                row.attributed_breakdown_key_bits,
+                row.capped_attributed_trigger_value,
+            )
+        })
+        .unzip();
+
+    // convert bk
+    // TODO fix set_total_records
+    let converted_bks = convert_bits(
+        ctx.narrow(&Step::ComputedAttributedBreakdownKey),
+        // .set_total_records(BK::BITS.into()),
+        stream_iter(bk_vec),
+        0..BK::BITS,
+    );
+    // convert attributed value
+    // TODO fix set_total_records
+
+    let converted_values = convert_bits(
+        ctx.narrow(&Step::ComputedAttributedValue),
+        // .set_total_records(TV::BITS.into()),
+        stream_iter(tv_vec),
+        0..TV::BITS,
+    );
+    let large_field_value =
+        converted_values.map(|val| val.unwrap().to_additive_sharing_in_large_field());
+
+    // let stream = unfold(
+    //     (ctx, converted_bks, large_field_value, RecordId(0)),
+    //     |(ctx, mut converted_bks, mut large_field_value, record_id)| async move {
+    //         let Some(bk_bits) = converted_bks.next().await else {
+    //             return None;
+    //         };
+    //         let Some(val) = large_field_value.next().await else {
+    //             return None;
+    //         };
+    //         let output = bk_bits.unwrap()[0].multiply(val, ctx, record_id);
+
+    //         Some((
+    //             output,
+    //             (ctx, converted_bks, large_field_value, record_id + 1),
+    //         ))
+    //     },
+    // );
+    // seq_join(ctx.active_work(), stream).await;
+    // Some((converted, (ctx, locally_converted, record_id + 1)))
+    Ok(vec![])
+    // tree_aggregate_credit(ctx, converted_bks, large_field_value, 1 << BK::BITS).await
+}
 /// Sub-protocol of the PRF-sharded IPA Protocol
 ///
 /// After the computation of the per-user PRF, addition of dummy records and shuffling,
