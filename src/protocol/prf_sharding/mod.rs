@@ -1,14 +1,13 @@
 use std::iter::{repeat, zip};
 
-use futures_util::{future::try_join, StreamExt};
+use futures_util::{future::try_join, Stream, StreamExt};
 use ipa_macros::Step;
 
 use super::{
-    basics::{if_else, mul::malicious::multiply},
+    basics::{if_else},
     boolean::saturating_sum::SaturatingSum,
-    modulus_conversion::convert_bits,
+    modulus_conversion::{convert_bits, ToBitConversionTriples},
     step::BitOpStep,
-    BasicProtocols,
 };
 use futures::stream::unfold;
 
@@ -281,7 +280,7 @@ pub async fn attribution_and_capping_and_aggregation<C, BK, TV, F, S, SB>(
 where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F> >,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
     F: PrimeField + ExtendableField,
     TV: GaloisField,
@@ -295,8 +294,7 @@ where
     let prime_field_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<F>();
     let prime_field_m_ctx = prime_field_validator.context();
 
-    // call aggregation protocol which checks onehot and multiplies value to each bucket
-
+   
     do_aggregation::<_, BK, TV, F, S>(prime_field_m_ctx, user_level_attributions).await
 }
 
@@ -306,20 +304,22 @@ async fn do_aggregation<C, BK, TV, F, S>(
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
     BK: GaloisField,
     TV: GaloisField,
     F: PrimeField + ExtendableField,
 {
-    let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
-        .into_iter()
-        .map(|row| {
-            (
-                row.attributed_breakdown_key_bits,
-                row.capped_attributed_trigger_value,
-            )
-        })
-        .unzip();
+     // call aggregation protocol which checks onehot and multiplies value to each bucket
+
+     let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
+     .into_iter()
+     .map(|row| {
+         (
+             row.attributed_breakdown_key_bits,
+             row.capped_attributed_trigger_value,
+         )
+     })
+     .unzip();
 
     // convert bk
     // TODO fix set_total_records
@@ -341,25 +341,25 @@ where
     let large_field_value =
         converted_values.map(|val| val.unwrap().to_additive_sharing_in_large_field());
 
-    // let stream = unfold(
-    //     (ctx, converted_bks, large_field_value, RecordId(0)),
-    //     |(ctx, mut converted_bks, mut large_field_value, record_id)| async move {
-    //         let Some(bk_bits) = converted_bks.next().await else {
-    //             return None;
-    //         };
-    //         let Some(val) = large_field_value.next().await else {
-    //             return None;
-    //         };
-    //         let output = bk_bits.unwrap()[0].multiply(val, ctx, record_id);
+    let stream = unfold(
+        (ctx, converted_bks, RecordId(0)),
+        |(ctx, mut converted_bks, record_id)| async move {
+            let Some(bk_bits) = converted_bks.next().await else {
+                return None;
+            };
+            let Some(val) = large_field_value.next().await else {
+                return None;
+            };
+            let output = bk_bits.unwrap()[0].multiply(&S::ZERO, ctx, record_id).await.unwrap();
 
-    //         Some((
-    //             output,
-    //             (ctx, converted_bks, large_field_value, record_id + 1),
-    //         ))
-    //     },
-    // );
-    // seq_join(ctx.active_work(), stream).await;
-    // Some((converted, (ctx, locally_converted, record_id + 1)))
+            Some((
+                output,
+                (ctx, converted_bks, record_id + 1)
+            ))
+        },
+    );
+    seq_join(ctx.active_work(), stream).await;
+    
     Ok(vec![])
     // tree_aggregate_credit(ctx, converted_bks, large_field_value, 1 << BK::BITS).await
 }
