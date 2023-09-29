@@ -17,7 +17,7 @@ use crate::{
         context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
@@ -37,6 +37,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + 'static,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let mut t_deltas = prefix_sum_time_deltas(&ctx, input, stop_bits).await?;
@@ -90,6 +91,7 @@ where
     F: Field,
     C: Context,
     T: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a T: LinearRefOps<'a, T, F>,
 {
     let num_rows = input.len();
 
@@ -108,7 +110,7 @@ where
                     .map(|(i, ((prev, curr), b))| {
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
-                        let delta = curr.timestamp.clone() - &prev.timestamp;
+                        let delta = &curr.timestamp - &prev.timestamp;
                         async move { delta.multiply(b, c, record_id).await }
                     }),
             )
@@ -149,6 +151,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let ctx = ctx.set_total_records(input.len());
     let random_bits_generator =

@@ -19,7 +19,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::DowngradeMalicious, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing, LinearRefOps,
     },
     sync::Arc,
 };
@@ -53,6 +53,7 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
+    for<'r> &'r S: LinearRefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>

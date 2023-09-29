@@ -199,7 +199,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
         MaliciousReplicated::new(
             Replicated::share_known_value(&self.clone().base_context(), value),
-            self.inner.r_share.clone() * value.to_extended(),
+            &self.inner.r_share * value.to_extended(),
         )
     }
 

@@ -19,7 +19,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps,
     },
     seq_join::seq_join,
 };
@@ -76,6 +76,7 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
+    for<'r> &'r S: LinearRefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2> + BasicProtocols<C::UpgradedContext<Gf2>, Gf2> + 'static,
     F: PrimeField + ExtendableField,
@@ -130,6 +131,7 @@ where
     I2: Stream<Item = Result<BitDecomposed<S>, Error>> + Send,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let equality_check_ctx = ctx.narrow(&Step::ComputeEqualityChecks);
 
@@ -172,6 +174,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let check_times_value_ctx = ctx.narrow(&Step::CheckTimesValue);
 
