@@ -22,7 +22,7 @@ use crate::{
             malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SharedValue,
     },
     seq_join::{seq_join, seq_try_join_all},
 };
@@ -277,6 +277,7 @@ where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
     F: PrimeField + ExtendableField,
     TV: GaloisField,
@@ -311,6 +312,7 @@ async fn do_aggregation<C, BK, TV, F, S>(
 where
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
     BK: GaloisField,
     TV: GaloisField,
     F: PrimeField + ExtendableField,
