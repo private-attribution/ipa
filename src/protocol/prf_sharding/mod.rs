@@ -1,5 +1,6 @@
 use std::iter::{repeat, zip};
 
+use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{future::try_join, StreamExt};
 use ipa_macros::Step;
 
@@ -7,8 +8,6 @@ use super::{
     basics::if_else, boolean::saturating_sum::SaturatingSum, modulus_conversion::convert_bits,
     step::BitOpStep,
 };
-use futures::{stream::iter as stream_iter, TryStreamExt};
-
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},

@@ -18,7 +18,7 @@ use crate::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
             UnauthorizedDowngradeWrapper,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SecretSharing,
     },
 };
 
@@ -94,6 +94,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     //
     // step 1 & 2
@@ -113,7 +114,7 @@ where
     //
     // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
     let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
-        acc + &(x.clone() * F::try_from(1 << i).unwrap())
+        acc + &(x * F::try_from(1 << i).unwrap())
     });
 
     Ok(Some(RandomBitsShare {

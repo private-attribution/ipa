@@ -35,7 +35,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps,
     },
 };
 
@@ -315,11 +315,13 @@ where
         + Serializable
         + DowngradeMalicious<Target = Replicated<F>>
         + 'static,
+    for<'r> &'r S: LinearRefOps<'r, S, F>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = SB>,
     SB: LinearSecretSharing<Gf2>
         + BasicProtocols<C::UpgradedContext<Gf2>, Gf2>
         + DowngradeMalicious<Target = Replicated<Gf2>>
         + 'static,
+    for<'r> &'r SB: LinearRefOps<'r, SB, Gf2>,
     F: PrimeField + ExtendableField,
     MK: GaloisField,
     BK: GaloisField,

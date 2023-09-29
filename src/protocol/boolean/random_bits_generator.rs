@@ -14,7 +14,7 @@ use crate::{
         context::UpgradedContext,
         BasicProtocols, RecordId,
     },
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
 /// A struct that generates random sharings of bits from the
@@ -44,6 +44,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     #[must_use]
     pub fn new(ctx: C) -> Self {
