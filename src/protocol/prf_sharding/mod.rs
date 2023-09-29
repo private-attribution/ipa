@@ -1,15 +1,13 @@
 use std::iter::{repeat, zip};
 
-use futures_util::{future::try_join, Stream, StreamExt};
+use futures_util::{future::try_join, StreamExt};
 use ipa_macros::Step;
 
 use super::{
-    basics::{if_else},
-    boolean::saturating_sum::SaturatingSum,
-    modulus_conversion::{convert_bits, ToBitConversionTriples},
+    basics::if_else, boolean::saturating_sum::SaturatingSum, modulus_conversion::convert_bits,
     step::BitOpStep,
 };
-use futures::stream::unfold;
+use futures::{stream::iter as stream_iter, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -29,7 +27,6 @@ use crate::{
     },
     seq_join::{seq_join, seq_try_join_all},
 };
-use futures::stream::iter as stream_iter;
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Gf2>,
@@ -211,9 +208,7 @@ pub(crate) enum Step {
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
     ComputedAttributedBreakdownKey,
     ComputedAttributedValue,
-    ComputeEqualityChecks,
-    CheckTimesCredit,
-    AttributionAndCapping,
+    MoveValueToCorrectBreakdown,
 }
 
 fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>]) -> Vec<usize> {
@@ -272,20 +267,21 @@ where
     rows_chunked_by_user
 }
 
+/// # Errors
+/// If there is an issue in multiplication, it will error
 pub async fn attribution_and_capping_and_aggregation<C, BK, TV, F, S, SB>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV>>,
     num_saturating_sum_bits: usize,
-) -> Result<Vec<Replicated<F>>, Error>
+) -> Result<Vec<S>, Error>
 where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F> >,
+    S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
     C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
     F: PrimeField + ExtendableField,
     TV: GaloisField,
     BK: GaloisField,
-    //for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
 {
     // Call attribution_and_capping
     let user_level_attributions: Vec<CappedAttributionOutputs> =
@@ -294,14 +290,25 @@ where
     let prime_field_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<F>();
     let prime_field_m_ctx = prime_field_validator.context();
 
-   
     do_aggregation::<_, BK, TV, F, S>(prime_field_m_ctx, user_level_attributions).await
+}
+
+#[derive(Step)]
+pub enum BinaryTreeDepthStep {
+    #[dynamic]
+    Depth(usize),
+}
+
+impl From<usize> for BinaryTreeDepthStep {
+    fn from(v: usize) -> Self {
+        Self::Depth(v)
+    }
 }
 
 async fn do_aggregation<C, BK, TV, F, S>(
     ctx: C,
     user_level_attributions: Vec<CappedAttributionOutputs>,
-) -> Result<Vec<Replicated<F>>, Error>
+) -> Result<Vec<S>, Error>
 where
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
@@ -309,60 +316,87 @@ where
     TV: GaloisField,
     F: PrimeField + ExtendableField,
 {
-     // call aggregation protocol which checks onehot and multiplies value to each bucket
-
-     let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
-     .into_iter()
-     .map(|row| {
-         (
-             row.attributed_breakdown_key_bits,
-             row.capped_attributed_trigger_value,
-         )
-     })
-     .unzip();
+    let num_records = user_level_attributions.len();
+    let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
+        .into_iter()
+        .map(|row| {
+            (
+                row.attributed_breakdown_key_bits,
+                row.capped_attributed_trigger_value,
+            )
+        })
+        .unzip();
 
     // convert bk
-    // TODO fix set_total_records
     let converted_bks = convert_bits(
-        ctx.narrow(&Step::ComputedAttributedBreakdownKey),
-        // .set_total_records(BK::BITS.into()),
+        ctx.narrow(&Step::ComputedAttributedBreakdownKey)
+            .set_total_records(num_records),
         stream_iter(bk_vec),
         0..BK::BITS,
     );
     // convert attributed value
-    // TODO fix set_total_records
-
     let converted_values = convert_bits(
-        ctx.narrow(&Step::ComputedAttributedValue),
-        // .set_total_records(TV::BITS.into()),
+        ctx.narrow(&Step::ComputedAttributedValue)
+            .set_total_records(num_records),
         stream_iter(tv_vec),
         0..TV::BITS,
     );
     let large_field_value =
         converted_values.map(|val| val.unwrap().to_additive_sharing_in_large_field());
 
-    let stream = unfold(
-        (ctx, converted_bks, RecordId(0)),
-        |(ctx, mut converted_bks, record_id)| async move {
-            let Some(bk_bits) = converted_bks.next().await else {
-                return None;
-            };
-            let Some(val) = large_field_value.next().await else {
-                return None;
-            };
-            let output = bk_bits.unwrap()[0].multiply(&S::ZERO, ctx, record_id).await.unwrap();
+    let row_contributions_stream = converted_bks
+        .zip(large_field_value)
+        .zip(futures::stream::repeat(
+            ctx.narrow(&Step::MoveValueToCorrectBreakdown)
+                .set_total_records(num_records),
+        ))
+        .enumerate()
+        .map(|(i, ((bk_bits, cred), ctx))| {
+            let mut row_contribution = vec![cred.clone(); 1 << BK::BITS];
+            let mut step: usize = 1 << BK::BITS;
+            let record_id: RecordId = RecordId::from(i);
+            let bd_key = bk_bits.unwrap();
+            async move {
+                for (tree_depth, bit_of_bdkey) in bd_key.iter().rev().enumerate() {
+                    let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
+                    let span = step >> 1;
+                    let mut futures = vec![];
+                    for i in (0..1 << BK::BITS).step_by(step) {
+                        let bit_c = depth_c.narrow(&BitOpStep::from(i));
 
-            Some((
-                output,
-                (ctx, converted_bks, record_id + 1)
-            ))
-        },
-    );
-    seq_join(ctx.active_work(), stream).await;
-    
-    Ok(vec![])
-    // tree_aggregate_credit(ctx, converted_bks, large_field_value, 1 << BK::BITS).await
+                        if i + span < 1 << BK::BITS {
+                            let vb = row_contribution[i].multiply(bit_of_bdkey, bit_c, record_id);
+                            futures.push(vb);
+                        }
+                    }
+                    let vbs = ctx.parallel_join(futures).await?;
+
+                    for (index, vb) in vbs.into_iter().enumerate() {
+                        let left_index = index * step;
+                        let right_index = left_index + span;
+
+                        row_contribution[left_index] -= &vb;
+                        row_contribution[right_index] = vb;
+                    }
+                    step = span;
+                }
+                Ok(row_contribution)
+            }
+        });
+    let row_contributions = seq_join(ctx.active_work(), row_contributions_stream);
+    row_contributions
+        .try_fold(
+            vec![S::ZERO; 1 << BK::BITS],
+            |mut running_sums, row_contribution| async move {
+                for (i, contribution) in row_contribution.iter().enumerate() {
+                    running_sums[i] += contribution;
+                }
+                Ok(running_sums)
+            },
+        )
+        .await
 }
+
 /// Sub-protocol of the PRF-sharded IPA Protocol
 ///
 /// After the computation of the per-user PRF, addition of dummy records and shuffling,
@@ -633,7 +667,8 @@ where
 pub mod tests {
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, GaloisField, Gf2, Gf3Bit, Gf5Bit},
+        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit},
+        protocol::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
@@ -805,6 +840,57 @@ pub mod tests {
                         input_rows,
                         num_saturating_bits,
                     )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_aggregation() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit>> = vec![
+                /* First User */
+                test_input(123, false, 17, 0),
+                test_input(123, true, 0, 7),
+                test_input(123, false, 20, 0),
+                test_input(123, true, 0, 3),
+                /* Second User */
+                test_input(234, false, 12, 0),
+                test_input(234, true, 0, 5),
+                /* Third User */
+                test_input(345, false, 20, 0),
+                test_input(345, true, 0, 7),
+                test_input(345, false, 18, 0),
+                test_input(345, false, 12, 0),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
+                test_input(345, true, 0, 7),
+            ];
+
+            let mut expected = [0_u128; 32];
+            expected[12] = 30;
+            expected[17] = 7;
+            expected[20] = 10;
+
+            let num_saturating_bits: usize = 5;
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    attribution_and_capping_and_aggregation::<
+                        _,
+                        Gf5Bit,
+                        Gf3Bit,
+                        Fp32BitPrime,
+                        _,
+                        Replicated<Gf2>,
+                    >(ctx, input_rows, num_saturating_bits)
                     .await
                     .unwrap()
                 })
