@@ -24,6 +24,12 @@ impl SharedValue for Fp25519 {
     const ZERO: Self = Self(Scalar::ZERO);
 }
 
+impl Into<Scalar> for Fp25519 {
+    fn into(self) -> Scalar {
+        self.0
+    }
+}
+
 impl Serializable for Fp25519 {
     type Size = <<Fp25519 as SharedValue>::Storage as Block>::Size;
 
