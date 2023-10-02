@@ -10,7 +10,7 @@ use crate::{
         step::BitOpStep,
         BasicProtocols, RecordId,
     },
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
@@ -73,6 +73,7 @@ where
     F: PrimeField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     use GreaterThanConstantStep as Step;
 
@@ -81,7 +82,7 @@ where
     let r = rbg.generate(record_id).await?;
 
     // Mask `a` with random `r` and reveal.
-    let b = (r.b_p.clone() + a)
+    let b = (r.b_p + a)
         .reveal(ctx.narrow(&Step::Reveal), record_id)
         .await?;
 
@@ -174,6 +175,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -206,6 +208,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     assert!(a.len() <= 128);
 
@@ -236,6 +239,7 @@ where
     F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let one = S::share_known_value(ctx, F::ONE);
 
@@ -248,7 +252,7 @@ where
             if ((b >> i) & 1) == 0 {
                 a_bit.clone()
             } else {
-                one.clone() - a_bit
+                &one - a_bit
             }
         })
         .collect::<Vec<_>>();
@@ -278,7 +282,7 @@ where
         // differing bit. Note that at the index where the transition from 0 to 1 happens,
         // `prefix_or[i + 1] > prefix_or[i]`. Do not change the order of the subtraction
         // unless we use Fp2, or the result will be `[p-1]`.
-        first_diff_bit.push(result.clone() - &previous_bit);
+        first_diff_bit.push(&result - &previous_bit);
 
         previous_bit = result;
     }

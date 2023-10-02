@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
@@ -52,6 +52,7 @@ where
     F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -67,6 +68,7 @@ where
         S::share_known_value(&ctx, F::ONE) - &a[0]
     };
     output.push(result_bit);
+    let two = F::truncate_from(2_u8);
 
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
         let mult_result = if last_carry_known_to_be_zero {
@@ -94,12 +96,9 @@ where
         // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
         // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
-            -next_carry.clone() * F::truncate_from(2_u128)
-                + &S::share_known_value(&ctx, F::ONE)
-                + bit
-                + &last_carry
+            -(&next_carry * two) + &S::share_known_value(&ctx, F::ONE) + bit + &last_carry
         } else {
-            -next_carry.clone() * F::truncate_from(2_u128) + bit + &last_carry
+            -(&next_carry * two) + bit + &last_carry
         };
         output.push(result_bit);
 

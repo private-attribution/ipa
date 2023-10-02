@@ -19,6 +19,7 @@ pub mod comparison;
 pub mod generate_random_bits;
 pub mod or;
 pub mod random_bits_generator;
+pub mod saturating_sum;
 pub mod solved_bits;
 mod xor;
 

@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
 #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
@@ -39,7 +39,10 @@ pub async fn bit_permutation<
 >(
     ctx: C,
     input: &[S],
-) -> Result<Vec<S>, Error> {
+) -> Result<Vec<S>, Error>
+where
+    for<'r> &'r S: LinearRefOps<'r, S, F>,
+{
     let ctx_ref = &ctx;
     let ctx = ctx.set_total_records(2 * input.len());
     let share_of_one = S::share_known_value(&ctx, F::ONE);
@@ -67,7 +70,7 @@ pub async fn bit_permutation<
     for i in 0..len {
         // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
         // protocols expect 0-indexed permutation
-        let less_one = mult_output[i + len].clone() - &share_of_one;
+        let less_one = &mult_output[i + len] - &share_of_one;
         mult_output[i] = less_one + &mult_output[i];
     }
     mult_output.truncate(len);
