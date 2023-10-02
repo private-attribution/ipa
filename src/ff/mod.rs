@@ -5,6 +5,7 @@
 mod field;
 mod galois_field;
 mod prime_field;
+mod ec_prime_field;
 
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
