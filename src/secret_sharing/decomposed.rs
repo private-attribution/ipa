@@ -67,6 +67,18 @@ impl<S> BitDecomposed<S> {
             acc + (b * F::truncate_from(1_u128 << i))
         })
     }
+
+    // Same as above, but without the need to HRTB, as this doesn't used references
+    // but rather takes ownership over the BitDecomposed
+    pub fn to_additive_sharing_in_large_field_consuming<F>(bits: BitDecomposed<S>) -> S
+    where
+        S: LinearSecretSharing<F>,
+        F: PrimeField,
+    {
+        bits.into_iter().enumerate().fold(S::ZERO, |acc, (i, b)| {
+            acc + (b * F::truncate_from(1_u128 << i))
+        })
+    }
 }
 
 impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {

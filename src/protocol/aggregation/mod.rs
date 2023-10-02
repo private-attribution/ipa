@@ -148,7 +148,7 @@ where
                 let c = ctx.clone();
                 async move {
                     let equality_checks = bitwise_to_onehot(eq_ctx.clone(), i, &bk?).await?;
-                    equality_bits_times_value(&c, equality_checks, num_buckets, v?, i).await
+                    equality_bits_times_value(&c, equality_checks, num_buckets, &mut v?, i).await
                 }
             }),
     );
@@ -167,7 +167,7 @@ async fn equality_bits_times_value<F, C, S>(
     ctx: &C,
     check_bits: BitDecomposed<S>,
     num_buckets: usize,
-    value_bits: BitDecomposed<S>,
+    value_bits: &mut BitDecomposed<S>,
     record_id: usize,
 ) -> Result<Vec<S>, Error>
 where
