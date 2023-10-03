@@ -117,6 +117,12 @@ impl Fp25519 {
     }
 }
 
+impl From<Scalar> for Fp25519 {
+    fn from(s: Scalar) -> Self {
+        Fp25519(s)
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;
