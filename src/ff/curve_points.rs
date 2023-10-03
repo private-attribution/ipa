@@ -180,7 +180,19 @@ mod test {
 
     #[test]
     fn curve_arithmetics() {
-
+        let mut rng = rand::thread_rng();
+        let a = rng.gen::<Fp25519>();
+        let b = rng.gen::<Fp25519>();
+        let c = a+b;
+        let d = RP25519::from(a)+RP25519::from(b);
+        assert_eq!(d, RP25519::from(c));
+        assert_ne!(d, RP25519::ZERO);
+        let e = rng.gen::<Fp25519>();
+        let f=rng.gen::<Fp25519>();
+        let g =e*f;
+        let h = RP25519::from(e).s_mul(f);
+        assert_eq!(h,RP25519::from(g));
+        assert_ne!(h, RP25519::ZERO);
     }
 
 }
