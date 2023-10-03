@@ -93,7 +93,7 @@ fn sub_assign(&mut self, rhs: Self) {
 ///<'a, 'b> std::ops::Mul<&'b Fp25519> for &'a
 impl RP25519 {
 
-fn smul(self, rhs: Fp25519) -> RP25519 {
+fn s_mul(self, rhs: Fp25519) -> RP25519 {
     RP25519((self.0.decompress().unwrap() * <Fp25519 as Into<Scalar>>::into(rhs)).compress())
 }
 }
@@ -101,8 +101,8 @@ fn smul(self, rhs: Fp25519) -> RP25519 {
 ///<'a> std::ops::MulAssign<&'a Fp25519> for
 impl RP25519 {
 #[allow(clippy::assign_op_pattern)]
-fn smul_assign(&mut self, rhs: Fp25519) {
-    *self = self.smul(rhs);
+fn s_mul_assign(&mut self, rhs: Fp25519) {
+    *self = self.s_mul(rhs);
 }
 }
 
@@ -149,6 +149,7 @@ mod test {
     use typenum::U32;
     use curve25519_dalek::scalar::Scalar;
     use rand::{thread_rng, Rng};
+    use crate::ff::ec_prime_field::Fp25519;
     use crate::secret_sharing::SharedValue;
 
     #[test]
@@ -165,6 +166,21 @@ mod test {
         a.serialize(&mut output);
         assert_eq!(a.0.as_bytes()[..32],output.as_slice()[..32]);
         assert_eq!(input,output.as_slice()[..32]);
+    }
+
+    #[test]
+    fn scalar_to_point() {
+        let a = Scalar::ONE;
+        let b : RP25519 = a.clone().into();
+        let d : Fp25519 = a.into();
+        let c : RP25519 = RP25519::from(d);
+        assert_eq!(b,RP25519::ZERO);
+        assert_eq!(c,RP25519::ZERO);
+    }
+
+    #[test]
+    fn curve_arithmetics() {
+
     }
 
 }
