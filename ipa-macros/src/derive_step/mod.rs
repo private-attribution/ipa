@@ -254,8 +254,9 @@ fn get_meta_data_for(
                 ident,
                 "ipa_macros::step expects an enum with variants that match the steps in \
             steps.txt. If you've made a change to steps, make sure to run `collect_steps.py` \
-            and replace steps.txt with the output. If the step is not a part of the protocol, \
-            consider removing it.",
+            and replace steps.txt with the output. If the step is not a part of the protocol \
+            yet, you can temporarily hide the step or the module containing the step with \
+            `#[cfg(feature = \"descriptive-gate\")]`.",
             ))
         }
         1 => {
