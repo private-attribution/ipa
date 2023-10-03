@@ -630,10 +630,8 @@ where
         .map(|(i, ((bk_bits, value), ctx))| {
             let record_id: RecordId = RecordId::from(i);
             let bd_key = bk_bits.unwrap();
-            let row_contribution = vec![value.clone(); 1 << BK::BITS];
             async move {
-                move_single_value_to_bucket::<BK, _, _, _>(ctx, record_id, bd_key, row_contribution)
-                    .await
+                move_single_value_to_bucket::<BK, _, _, _>(ctx, record_id, bd_key, value).await
             }
         });
 
@@ -660,17 +658,17 @@ where
 /// ![Tree propagation][tree-aggregation]
 ///
 /// This value is propagated through the tree, with each subsequent iteration doubling the number of multiplications.
-/// In the first round,  r=BK-1, multiply the most significant bit ,[`bd_key`]r by the value to get [`bd_key`]r.[`value`]. From that,
-/// produce [`row_contribution`]r,0 =[`value`]-[`bd_key`]r.[`value`] and [`row_contribution`]r,1=[`bd_key`]r.[`value`].
+/// In the first round,  r=BK-1, multiply the most significant bit ,[`bd_key`]_r by the value to get [`bd_key`]_r.[`value`]. From that,
+/// produce [`row_contribution`]_r,0 =[`value`]-[`bd_key`]_r.[`value`] and [`row_contribution`]_r,1=[`bd_key`]_r.[`value`].
 /// This takes the most significant bit of `bd_key` and places value in one of the two child nodes of the binary tree.
 /// At each successive round, the next most significant bit is propagated from the leaf nodes of the tree into further leaf nodes:
-/// [`row_contribution`]r+1,q,0 =[`row_contribution`]r,q - [`bd_key`]r+1.[`row_contribution`]r,q and [`row_contribution`]r+1,q,1 =[`bd_key`]r+1.[`row_contribution`]r,q.  
+/// [`row_contribution`]_r+1,q,0 =[`row_contribution`]_r,q - [`bd_key`]_r+1.[`row_contribution`]_r,q and [`row_contribution`]_r+1,q,1 =[`bd_key`]_r+1.[`row_contribution`]_r,q.  
 /// The work of each iteration therefore doubles relative to the one preceding.
 async fn move_single_value_to_bucket<BK, C, S, F>(
     ctx: C,
     record_id: RecordId,
     bd_key: BitDecomposed<S>,
-    mut row_contribution: Vec<S>,
+    value: S,
 ) -> Result<Vec<S>, Error>
 where
     BK: GaloisField,
@@ -679,11 +677,12 @@ where
     F: PrimeField + ExtendableField,
 {
     let mut step: usize = 1 << BK::BITS;
+    let mut row_contribution = vec![value; 1 << BK::BITS];
 
     for (tree_depth, bit_of_bdkey) in bd_key.iter().rev().enumerate() {
         let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
         let span = step >> 1;
-        let mut futures = vec![];
+        let mut futures = Vec::with_capacity((1 << BK::BITS) / step);
         for i in (0..1 << BK::BITS).step_by(step) {
             let bit_c = depth_c.narrow(&BitOpStep::from(i));
 
