@@ -49,10 +49,11 @@ impl Serializable for Fp25519 {
 
 impl rand::distributions::Distribution<Fp25519> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> Fp25519 {
-        //Fp25519(Scalar::random(rng: &mut R))
-        let mut scalar_bytes = [0u8; 64];
+        let mut scalar_bytes = [0u8; 32];
         rng.fill_bytes(&mut scalar_bytes);
-        Fp25519(Scalar::from_bytes_mod_order_wide(&scalar_bytes))
+        Fp25519(Scalar::from_bytes_mod_order(scalar_bytes))
+        //not needed since above has sufficiently small bias
+        //Fp25519(Scalar::from_bytes_mod_order(&scalar_bytes))
     }
 }
 

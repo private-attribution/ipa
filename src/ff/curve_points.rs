@@ -1,4 +1,3 @@
-use std::ops::Mul;
 use generic_array::GenericArray;
 use curve25519_dalek::{ristretto::{CompressedRistretto, RistrettoPoint},constants, Scalar};
 use rand_core::RngCore;
@@ -180,7 +179,7 @@ mod test {
 
     #[test]
     fn curve_arithmetics() {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let a = rng.gen::<Fp25519>();
         let b = rng.gen::<Fp25519>();
         let c = a+b;
