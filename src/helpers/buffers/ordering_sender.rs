@@ -403,8 +403,11 @@ mod test {
         stream::StreamExt,
         FutureExt,
     };
+    use futures_util::future::try_join_all;
     use generic_array::GenericArray;
     use rand::Rng;
+    #[cfg(feature = "shuttle")]
+    use shuttle::future as tokio;
     use typenum::Unsigned;
 
     use super::OrderingSender;
@@ -579,6 +582,29 @@ mod test {
             for (&v, b) in zip(values.iter(), buf.chunks(SZ)) {
                 assert_eq!(v, Fp31::deserialize(GenericArray::from_slice(b)));
             }
+        });
+    }
+
+    /// This test is supposed to eventually hang if there is a concurrency bug inside `OrderingSender`.
+    #[test]
+    fn parallel_send() {
+        const PARALLELISM: usize = 1000;
+        run(|| async {
+            let sender = Arc::new(OrderingSender::new(
+                NonZeroUsize::new(PARALLELISM * <Fp31 as Serializable>::Size::USIZE).unwrap(),
+                NonZeroUsize::new(5).unwrap(),
+            ));
+
+            try_join_all((0..PARALLELISM).map(|i| {
+                tokio::spawn({
+                    let sender = Arc::clone(&sender);
+                    async move {
+                        sender.send(i, Fp31::truncate_from(i as u128)).await;
+                    }
+                })
+            }))
+            .await
+            .unwrap();
         });
     }
 }
