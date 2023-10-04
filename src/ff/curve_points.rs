@@ -1,7 +1,9 @@
 use generic_array::GenericArray;
 use curve25519_dalek::{ristretto::{CompressedRistretto, RistrettoPoint},constants, Scalar};
-use rand_core::RngCore;
 use typenum::U32;
+use sha2::Sha256;
+use hkdf::Hkdf;
+
 
 use crate::{
     ff::{Serializable,ec_prime_field::Fp25519},
@@ -93,32 +95,25 @@ fn sub_assign(&mut self, rhs: Self) {
 impl RP25519 {
 
 fn s_mul(self, rhs: Fp25519) -> RP25519 {
-    RP25519((self.0.decompress().unwrap() * <Fp25519 as Into<Scalar>>::into(rhs)).compress())
+    RP25519((self.0.decompress().unwrap() * Scalar::from(rhs)).compress())
 }
 }
 
-///<'a> std::ops::MulAssign<&'a Fp25519> for
-impl RP25519 {
-#[allow(clippy::assign_op_pattern)]
-fn s_mul_assign(&mut self, rhs: Fp25519) {
-    *self = self.s_mul(rhs);
-}
-}
 
 ///do not use
 impl std::ops::Mul for RP25519 {
     type Output = Self;
 
-    fn mul(self, rhs: RP25519) -> Self::Output {
-        Self::ZERO
+    fn mul(self, _rhs: RP25519) -> Self::Output {
+        panic!("Two curve points cannot be multiplied! Do not use *, *= for RP25519 or secret shares of RP25519");
     }
 }
 
 ///do not use
 impl std::ops::MulAssign for RP25519 {
 
-    fn mul_assign(& mut self, rhs: RP25519)  {
-        *self=Self::ZERO;
+    fn mul_assign(& mut self, _rhs: RP25519)  {
+        panic!("Two curve points cannot be multiplied! Do not use *, *= for RP25519 or secret shares of RP25519");
     }
 }
 
@@ -134,11 +129,36 @@ impl From<Fp25519> for RP25519 {
     }
 }
 
-// impl Into<RP25519> for Fp25519 {
-//     fn into(self) -> RP25519 {
-//         RP25519(RistrettoPoint::mul_base(self.into()).compress())
-//     }
-// }
+macro_rules! cp_hash_impl {
+    ( $u_type:ty, $byte_size:literal) => {
+        impl From<RP25519> for $u_type {
+            fn from(s: RP25519) -> Self {
+                let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
+                let mut okm = [0u8; $byte_size];
+                //error invalid length from expand only happens when okm is very large
+                hk.expand(&[], &mut okm).unwrap();
+                <$u_type>::from_le_bytes(okm)
+            }
+        }
+    }
+}
+
+cp_hash_impl!(
+    u128,
+    16
+);
+
+cp_hash_impl!(
+    u64,
+    8
+);
+
+cp_hash_impl!(
+    u32,
+    4
+);
+
+
 
 #[cfg(all(test, unit_test))]
 mod test {
@@ -192,6 +212,15 @@ mod test {
         let h = RP25519::from(e).s_mul(f);
         assert_eq!(h,RP25519::from(g));
         assert_ne!(h, RP25519::ZERO);
+    }
+
+    #[test]
+    fn curve_point_to_hash() {
+        let mut rng = thread_rng();
+        let a = rng.gen::<RP25519>();
+        assert_ne!(0u128,u128::from(a));
+        assert_ne!(0u64,u64::from(a));
+        assert_ne!(0u32,u32::from(a));
     }
 
 }

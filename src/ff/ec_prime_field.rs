@@ -15,7 +15,16 @@ impl Block for Scalar {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Fp25519(<Self as SharedValue>::Storage);
 
-//how to add const ONE: Self = Self(Scalar::ONE); within the struct, do I need to do it via a trait?
+
+impl Fp25519 {
+    const ONE: Self = Self(Scalar::ONE);
+
+    //must not use with ZERO
+    pub fn invert(&self) -> Fp25519 {
+        Fp25519(self.0.invert())
+    }
+
+}
 
 
 impl SharedValue for Fp25519 {
@@ -24,9 +33,9 @@ impl SharedValue for Fp25519 {
     const ZERO: Self = Self(Scalar::ZERO);
 }
 
-impl Into<Scalar> for Fp25519 {
-    fn into(self) -> Scalar {
-        self.0
+impl From<Fp25519> for Scalar {
+    fn from(s: Fp25519) -> Self {
+        s.0
     }
 }
 
@@ -111,12 +120,6 @@ fn mul_assign(&mut self, rhs: Self) {
 }
 }
 
-//must not use with ZERO
-impl Fp25519 {
-    pub fn invert(&self) -> Fp25519 {
-        Fp25519(self.0.invert())
-    }
-}
 
 impl From<Scalar> for Fp25519 {
     fn from(s: Scalar) -> Self {
@@ -165,12 +168,6 @@ mod test {
             0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
             0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00
         ]));
-        let c = Fp25519(Scalar::from_bytes_mod_order([
-            0x01, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
-            0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
-            0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
-            0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00
-        ]));
         let d = Fp25519(Scalar::from_bytes_mod_order([
             0x05, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
             0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,
@@ -186,7 +183,7 @@ mod test {
         let cc = b-a;
         let dc = a+b;
         let ec = a*b;
-        assert_eq!(cc,c);
+        assert_eq!(cc,Fp25519::ONE);
         assert_eq!(dc,d);
         assert_eq!(ec,e);
     }
