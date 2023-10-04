@@ -1,6 +1,6 @@
 use generic_array::GenericArray;
 use curve25519_dalek::scalar::Scalar;
-use rand_core::RngCore;
+//use rand_core::RngCore;
 use typenum::U32;
 
 use crate::{
