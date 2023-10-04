@@ -1,10 +1,19 @@
 use crate::{
     error::Error,
     helpers::Direction,
-    ff::ec_prime_field::Fp25519,
+    ff::{ec_prime_field::Fp25519, curve_points::RP25519},
     protocol::{context::Context, step::BitOpStep, BasicProtocols, RecordId},
-    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
+    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps, SharedValue, replicated::{semi_honest::AdditiveShare,ReplicatedSecretSharing}},
 };
+
+
+impl Into<AdditiveShare<RP25519>> for AdditiveShare<Fp25519> {
+    fn into(self) -> AdditiveShare<RP25519>
+    {
+        AdditiveShare::new(RP25519::from(self.left()),RP25519::from(self.right()))
+    }
+}
+
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))
 /// the input x and k are secret shared over finite field Fp25519, i.e. the scalar field of curve 25519
