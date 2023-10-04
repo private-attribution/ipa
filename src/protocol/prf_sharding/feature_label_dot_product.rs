@@ -1,6 +1,8 @@
 use futures::{stream::iter as stream_iter, TryStreamExt};
-use futures_util::future::try_join;
+use futures_util::{future::try_join, StreamExt};
 use ipa_macros::Step;
+
+use stream_flatten_iters::StreamExt as _;
 
 use crate::{
     error::Error,
@@ -20,7 +22,7 @@ use crate::{
         },
         BitDecomposed, Linear as LinearSecretSharing,
     },
-    seq_join::seq_try_join_all,
+    seq_join::seq_join,
 };
 
 pub struct PrfShardedIpaInputRow<FV: GaloisField> {
@@ -223,36 +225,34 @@ where
 {
     assert!(FV::BITS > 0);
 
+    let mut num_outputs = input_rows.len();
     let rows_chunked_by_user = chunk_rows_by_user(input_rows);
+    num_outputs -= rows_chunked_by_user.len();
     let histogram = compute_histogram_of_users_with_row_count(&rows_chunked_by_user);
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     let binary_m_ctx = binary_validator.context();
-    let mut num_users_who_encountered_row_depth = Vec::with_capacity(histogram.len());
+    let mut num_users_who_encountered_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, &histogram);
     let mut futures = Vec::with_capacity(rows_chunked_by_user.len());
     for rows_for_user in rows_chunked_by_user {
-        for i in 0..rows_for_user.len() {
-            if i >= num_users_who_encountered_row_depth.len() {
-                num_users_who_encountered_row_depth.push(0);
-            }
-            num_users_who_encountered_row_depth[i] += 1;
-        }
-
+        let num_user_rows = rows_for_user.len();
         futures.push(evaluate_per_user_attribution_circuit(
             &ctx_for_row_number,
             num_users_who_encountered_row_depth
                 .iter()
-                .take(rows_for_user.len())
-                .map(|x| RecordId(x - 1))
+                .take(num_user_rows)
+                .map(|x| RecordId(*x))
                 .collect(),
             rows_for_user,
         ));
+        for i in 0..num_user_rows {
+            num_users_who_encountered_row_depth[i] += 1;
+        }
     }
-    let outputs_chunked_by_user = seq_try_join_all(sh_ctx.active_work(), futures)
-        .await?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<BitDecomposed<Replicated<Gf2>>>>();
+
+    let flattenned_stream = seq_join(sh_ctx.active_work(), stream_iter(futures))
+        .map(|x| x.unwrap().into_iter())
+        .flatten_iters();
 
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
     let prime_field_ctx = prime_field_validator.context();
@@ -261,14 +261,14 @@ where
     let converted_feature_vector_bits = convert_bits(
         prime_field_ctx
             .narrow(&Step::ModulusConvertFeatureVectorBits)
-            .set_total_records(outputs_chunked_by_user.len()),
-        stream_iter(outputs_chunked_by_user),
+            .set_total_records(num_outputs),
+        flattenned_stream,
         0..FV::BITS,
     );
 
     converted_feature_vector_bits
         .try_fold(
-            vec![S::ZERO; 1 << FV::BITS],
+            vec![S::ZERO; usize::try_from(FV::BITS).unwrap()],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -440,7 +440,7 @@ pub mod tests {
                 test_input(345, false, 0b1000_1001_0100_0011_0111_0010_0000_1101), // this source does not receive attribution (capped)
             ];
 
-            let expected: [u128; 32] = [
+            let mut expected: [u128; 32] = [
                 //     1101_0100_1111_0001_0111_0010_1010_1011
                 //     0001_1010_0011_0111_0110_0010_1111_0000
                 // +   0111_0101_0001_0000_0111_0100_0101_0011
@@ -449,6 +449,7 @@ pub mod tests {
                 1, 2, 1, 3, 1, 2, 1, 1, 1, 1, 2, 3, 0, 1, 1, 2, 0, 3, 3, 2, 0, 1, 2, 0, 2, 2, 2, 2,
                 1, 0, 2, 2,
             ];
+            expected.reverse(); // convert to little-endian order
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
