@@ -2,9 +2,11 @@ use generic_array::GenericArray;
 use curve25519_dalek::scalar::Scalar;
 //use rand_core::RngCore;
 use typenum::U32;
+use sha2::Sha256;
+use hkdf::Hkdf;
 
 use crate::{
-    ff::Serializable,
+    ff::{Serializable, Field},
     secret_sharing::{Block, SharedValue},
 };
 
@@ -17,7 +19,7 @@ pub struct Fp25519(<Self as SharedValue>::Storage);
 
 
 impl Fp25519 {
-    const ONE: Self = Self(Scalar::ONE);
+    pub const ONE: Self = Self(Scalar::ONE);
 
     //must not use with ZERO
     pub fn invert(&self) -> Fp25519 {
@@ -124,6 +126,79 @@ fn mul_assign(&mut self, rhs: Self) {
 impl From<Scalar> for Fp25519 {
     fn from(s: Scalar) -> Self {
         Fp25519(s)
+    }
+}
+
+macro_rules! sc_hash_impl {
+    ( $u_type:ty, $byte_size:literal) => {
+        impl From<Fp25519> for $u_type {
+            fn from(s: Fp25519) -> Self {
+                let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
+                let mut okm = [0u8; $byte_size];
+                //error invalid length from expand only happens when okm is very large
+                hk.expand(&[], &mut okm).unwrap();
+                <$u_type>::from_le_bytes(okm)
+            }
+        }
+
+        impl From<$u_type> for Fp25519  {
+            fn from(s: $u_type) -> Self {
+                let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
+                let mut okm = [0u8; 32];
+                //error invalid length from expand only happens when okm is very large
+                hk.expand(&[], &mut okm).unwrap();
+                Fp25519::deserialize(&okm.into())
+            }
+        }
+    }
+}
+
+
+sc_hash_impl!(
+    u64,
+    8
+);
+
+sc_hash_impl!(
+    u32,
+    4
+);
+
+
+/// Daniel had to implement this since PRSS wants it, prefer not to
+impl Field for Fp25519 {
+    const ONE: Fp25519= Fp25519::ONE;
+
+    ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
+    /// from or into u128. However it is sufficient to generate random elements in Fp25519
+    fn as_u128(&self) -> u128 {
+        let hk = Hkdf::<Sha256>::new(None, self.0.as_bytes());
+        let mut okm = [0u8; 16];
+        //error invalid length from expand only happens when okm is very large
+        hk.expand(&[], &mut okm).unwrap();
+        u128::from_le_bytes(okm)
+    }
+
+    ///PRSS uses truncate_from function, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
+    fn truncate_from<T: Into<u128>>(v: T) -> Self {
+        let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
+        let mut okm = [0u8; 32];
+        //error invalid length from expand only happens when okm is very large
+        hk.expand(&[], &mut okm).unwrap();
+        Fp25519::deserialize(&okm.into())
+    }
+
+}
+
+impl TryFrom<u128> for Fp25519 {
+    type Error = crate::error::Error;
+
+    fn try_from(v: u128) -> Result<Self, Self::Error> {
+        let mut bits = [0u8; 32];
+        bits[..].copy_from_slice(&v.to_le_bytes());
+        let f: Fp25519=Fp25519::ONE;
+        f.serialize((&mut bits).into());
+        Ok(f)
     }
 }
 
