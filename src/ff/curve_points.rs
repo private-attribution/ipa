@@ -6,7 +6,7 @@ use hkdf::Hkdf;
 
 
 use crate::{
-    ff::{Serializable,ec_prime_field::Fp25519},
+    ff::{Serializable,ec_prime_field::Fp25519,Field},
     secret_sharing::{Block, SharedValue},
 };
 
@@ -93,8 +93,9 @@ fn sub_assign(&mut self, rhs: Self) {
 ///Scalar Multiplication
 ///<'a, 'b> std::ops::Mul<&'b Fp25519> for &'a
 impl RP25519 {
+    pub const ONE: Self = Self(constants::RISTRETTO_BASEPOINT_COMPRESSED);
 
-fn s_mul(self, rhs: Fp25519) -> RP25519 {
+pub fn s_mul(self, rhs: Fp25519) -> RP25519 {
     RP25519((self.0.decompress().unwrap() * Scalar::from(rhs)).compress())
 }
 }
@@ -129,6 +130,18 @@ impl From<Fp25519> for RP25519 {
     }
 }
 
+impl From<CompressedRistretto> for RP25519 {
+    fn from(s: CompressedRistretto) -> Self {
+        RP25519(s)
+    }
+}
+
+impl From<RP25519> for CompressedRistretto {
+    fn from(s: RP25519) -> Self {
+        s.0
+    }
+}
+
 macro_rules! cp_hash_impl {
     ( $u_type:ty, $byte_size:literal) => {
         impl From<RP25519> for $u_type {
@@ -140,13 +153,18 @@ macro_rules! cp_hash_impl {
                 <$u_type>::from_le_bytes(okm)
             }
         }
+
+        impl From<$u_type> for RP25519  {
+            fn from(s: $u_type) -> Self {
+                let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
+                let mut okm = [0u8; 32];
+                //error invalid length from expand only happens when okm is very large
+                hk.expand(&[], &mut okm).unwrap();
+                RP25519::deserialize(&okm.into())
+            }
+        }
     }
 }
-
-cp_hash_impl!(
-    u128,
-    16
-);
 
 cp_hash_impl!(
     u64,
@@ -157,6 +175,45 @@ cp_hash_impl!(
     u32,
     4
 );
+
+/// Daniel had to implement this since Reveal wants it, prefer not to, I dont understand why it is
+/// actually needed there, maybe to upgrade it to malicious? but it still shouldn't be needed
+impl Field for RP25519 {
+    const ONE: RP25519= RP25519::ONE;
+
+    ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
+    /// from or into u128. However it is sufficient to generate random elements in Fp25519
+    fn as_u128(&self) -> u128 {
+        let hk = Hkdf::<Sha256>::new(None, self.0.as_bytes());
+        let mut okm = [0u8; 16];
+        //error invalid length from expand only happens when okm is very large
+        hk.expand(&[], &mut okm).unwrap();
+        u128::from_le_bytes(okm)
+    }
+
+    ///PRSS uses truncate_from function, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
+    fn truncate_from<T: Into<u128>>(v: T) -> Self {
+        let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
+        let mut okm = [0u8; 32];
+        //error invalid length from expand only happens when okm is very large
+        hk.expand(&[], &mut okm).unwrap();
+        RP25519::deserialize(&okm.into())
+    }
+
+}
+
+impl TryFrom<u128> for RP25519 {
+    type Error = crate::error::Error;
+
+    fn try_from(v: u128) -> Result<Self, Self::Error> {
+        let mut bits = [0u8; 32];
+        bits[..].copy_from_slice(&v.to_le_bytes());
+        let f: RP25519=RP25519::ONE;
+        f.serialize((&mut bits).into());
+        Ok(f)
+    }
+}
+
 
 
 
@@ -218,7 +275,6 @@ mod test {
     fn curve_point_to_hash() {
         let mut rng = thread_rng();
         let a = rng.gen::<RP25519>();
-        assert_ne!(0u128,u128::from(a));
         assert_ne!(0u64,u64::from(a));
         assert_ne!(0u32,u32::from(a));
     }
