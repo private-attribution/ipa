@@ -709,14 +709,21 @@ pub mod tests {
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit},
-        protocol::prf_sharding::attribution_and_capping_and_aggregation,
+        protocol::{
+            context::{Context, UpgradableContext, Validator},
+            prf_sharding::{
+                attribution_and_capping_and_aggregation, do_aggregation,
+                move_single_value_to_bucket,
+            },
+            RecordId,
+        },
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
             SharedValue,
         },
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
     struct PreShardedAndSortedOPRFTestInput<BK: GaloisField, TV: GaloisField> {
@@ -742,20 +749,30 @@ pub mod tests {
         }
     }
 
-    fn test_output(
+    fn test_output<BK, TV>(
         attributed_breakdown_key: u128,
         capped_attributed_trigger_value: u128,
-    ) -> PreAggregationTestOutput {
+    ) -> PreAggregationTestOutput
+    where
+        BK: GaloisField,
+        TV: GaloisField,
+    {
         PreAggregationTestOutput {
-            attributed_breakdown_key,
-            capped_attributed_trigger_value,
+            attributed_breakdown_key: get_bits::<Gf2>(
+                attributed_breakdown_key.try_into().unwrap(),
+                BK::BITS,
+            ),
+            capped_attributed_trigger_value: get_bits::<Gf2>(
+                capped_attributed_trigger_value.try_into().unwrap(),
+                TV::BITS,
+            ),
         }
     }
 
     #[derive(Debug, PartialEq)]
     struct PreAggregationTestOutput {
-        attributed_breakdown_key: u128,
-        capped_attributed_trigger_value: u128,
+        attributed_breakdown_key: BitDecomposed<Gf2>,
+        capped_attributed_trigger_value: BitDecomposed<Gf2>,
     }
 
     impl<BK, TV> IntoShares<PrfShardedIpaInputRow<BK, TV>> for PreShardedAndSortedOPRFTestInput<BK, TV>
@@ -799,6 +816,40 @@ pub mod tests {
         }
     }
 
+    impl IntoShares<CappedAttributionOutputs> for PreAggregationTestOutput {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [CappedAttributionOutputs; 3] {
+            let PreAggregationTestOutput {
+                attributed_breakdown_key,
+                capped_attributed_trigger_value,
+            } = self;
+
+            let did_trigger_get_attributed = Gf2::ONE;
+            let [attributed_breakdown_key0, attributed_breakdown_key1, attributed_breakdown_key2] =
+                attributed_breakdown_key.share_with(rng);
+            let [capped_attributed_trigger_value0, capped_attributed_trigger_value1, capped_attributed_trigger_value2] =
+                capped_attributed_trigger_value.share_with(rng);
+            let [did_trigger_get_attributed0, did_trigger_get_attributed1, did_trigger_get_attributed2] =
+                did_trigger_get_attributed.share_with(rng);
+
+            [
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed0,
+                    attributed_breakdown_key_bits: attributed_breakdown_key0,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value0,
+                },
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed1,
+                    attributed_breakdown_key_bits: attributed_breakdown_key1,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value1,
+                },
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed2,
+                    attributed_breakdown_key_bits: attributed_breakdown_key2,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value2,
+                },
+            ]
+        }
+    }
     impl Reconstruct<PreAggregationTestOutput> for [&CappedAttributionOutputs; 3] {
         fn reconstruct(&self) -> PreAggregationTestOutput {
             let [s0, s1, s2] = self;
@@ -820,16 +871,8 @@ pub mod tests {
             );
 
             PreAggregationTestOutput {
-                attributed_breakdown_key: attributed_breakdown_key_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
-                capped_attributed_trigger_value: capped_attributed_trigger_value_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
+                attributed_breakdown_key: attributed_breakdown_key_bits,
+                capped_attributed_trigger_value: capped_attributed_trigger_value_bits,
             }
         }
     }
@@ -860,17 +903,17 @@ pub mod tests {
             ];
 
             let expected: [PreAggregationTestOutput; 11] = [
-                test_output(17, 7),
-                test_output(20, 0),
-                test_output(20, 3),
-                test_output(12, 5),
-                test_output(20, 7),
-                test_output(18, 0),
-                test_output(12, 0),
-                test_output(12, 7),
-                test_output(12, 7),
-                test_output(12, 7),
-                test_output(12, 4),
+                test_output::<Gf5Bit, Gf3Bit>(17, 7),
+                test_output::<Gf5Bit, Gf3Bit>(20, 0),
+                test_output::<Gf5Bit, Gf3Bit>(20, 3),
+                test_output::<Gf5Bit, Gf3Bit>(12, 5),
+                test_output::<Gf5Bit, Gf3Bit>(20, 7),
+                test_output::<Gf5Bit, Gf3Bit>(18, 0),
+                test_output::<Gf5Bit, Gf3Bit>(12, 0),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 4),
             ];
             let num_saturating_bits: usize = 5;
 
@@ -935,6 +978,79 @@ pub mod tests {
                     .await
                     .unwrap()
                 })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_aggregation() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreAggregationTestOutput> = vec![
+                test_output::<Gf5Bit, Gf3Bit>(17, 7),
+                test_output::<Gf5Bit, Gf3Bit>(20, 0),
+                test_output::<Gf5Bit, Gf3Bit>(20, 3),
+                test_output::<Gf5Bit, Gf3Bit>(12, 5),
+                test_output::<Gf5Bit, Gf3Bit>(20, 7),
+                test_output::<Gf5Bit, Gf3Bit>(18, 0),
+                test_output::<Gf5Bit, Gf3Bit>(12, 0),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 7),
+                test_output::<Gf5Bit, Gf3Bit>(12, 4),
+            ];
+
+            let mut expected = [0_u128; 32];
+            expected[12] = 30;
+            expected[17] = 7;
+            expected[20] = 10;
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    let validator = ctx.validator();
+                    let ctx = validator.context();
+                    do_aggregation::<_, Gf5Bit, Gf3Bit, Fp32BitPrime, _>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_move_value_to_single_bucket() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let breakdown_key = 5_u128;
+            let value = Fp32BitPrime::truncate_from(10_u128);
+            let mut expected = [0_u128; 8];
+            expected[5] = 10;
+
+            let result: Vec<_> = world
+                .semi_honest(
+                    (
+                        get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf3Bit::BITS),
+                        value,
+                    ),
+                    |ctx, (breakdown_key_share, value_share)| async move {
+                        let validator = ctx.validator();
+                        let ctx = validator.context();
+                        move_single_value_to_bucket::<Gf3Bit, _, _, Fp32BitPrime>(
+                            ctx.set_total_records(1),
+                            RecordId::from(0),
+                            breakdown_key_share,
+                            value_share,
+                        )
+                        .await
+                        .unwrap()
+                    },
+                )
                 .await
                 .reconstruct();
             assert_eq!(result, &expected);
