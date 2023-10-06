@@ -297,6 +297,8 @@ mod fixture {
 
     #[async_trait]
     impl TestSender for OrderingMpscSender<Fp32BitPrime> {
+        // I don't understand what triggers this warning, maybe https://github.com/rust-lang/rust-clippy/issues/11403
+        #[allow(clippy::ignored_unit_patterns)]
         async fn send_test(&self, i: usize) {
             self.send(
                 i,
@@ -383,7 +385,7 @@ mod unit {
         let send = async move {
             tx_a.send(0, input).await.unwrap();
         };
-        let (_, output) = join(send, rx.take_next(1)).await;
+        let ((), output) = join(send, rx.take_next(1)).await;
         assert_eq!(
             input,
             Fp31::deserialize(GenericArray::from_slice(output.as_ref().unwrap()))
@@ -506,6 +508,7 @@ mod proptests {
 
     proptest::proptest! {
         #[test]
+        #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
         fn arbitrary_size_seq(cap in 2..1000_usize) {
             let indices = (0..cap).collect::<Vec<_>>();
             tokio::runtime::Builder::new_multi_thread()
@@ -516,6 +519,7 @@ mod proptests {
         }
 
         #[test]
+        #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
         fn arbitrary_size_shuffle(indices in shuffled(), excess in 0..10_usize) {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
