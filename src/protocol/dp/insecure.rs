@@ -197,6 +197,7 @@ mod test {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(50))]
         #[test]
+        #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
         fn output_differentially_private(
             rng_seed: u64,
             epsilon in 1..255_u8,

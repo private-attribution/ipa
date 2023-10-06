@@ -533,7 +533,7 @@ mod test {
             values.resize_with(COUNT, || rng.gen::<Fp32BitPrime>());
 
             let sender = sender();
-            let (_, _, output) = join3(
+            let (_, (), output) = join3(
                 join_all(values.iter().enumerate().map(|(i, &v)| sender.send(i, v))),
                 sender.close(values.len()),
                 sender.as_stream().collect::<Vec<_>>(),
@@ -568,7 +568,7 @@ mod test {
             let indices = shuffle_indices(COUNT);
 
             let sender = sender();
-            let (_, _, output) = join3(
+            let (_, (), output) = join3(
                 join_all(indices.into_iter().map(|i| sender.send(i, values[i]))),
                 sender.close(values.len()),
                 sender.as_stream().collect::<Vec<_>>(),
