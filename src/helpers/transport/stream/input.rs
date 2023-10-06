@@ -712,6 +712,7 @@ mod test {
 
         proptest::proptest! {
             #[test]
+            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn test_records_stream_works_with_any_chunks(
                 (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(30, 100)
             ) {
@@ -820,6 +821,7 @@ mod test {
 
         proptest::proptest! {
             #[test]
+            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn test_delimited_stream_works_with_any_chunks(
                 (expected_items, chunked_bytes, _seed) in arb_expected_and_chunked_body(100)
             ) {

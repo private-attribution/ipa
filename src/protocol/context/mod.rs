@@ -352,7 +352,7 @@ mod tests {
 
         let send_channel = ctx.send_channel(left_peer);
         let recv_channel = ctx.recv_channel::<F>(right_peer);
-        let (_, right_share) = try_join!(
+        let ((), right_share) = try_join!(
             send_channel.send(record_id, share.l() - l - seq_l),
             recv_channel.receive(record_id),
         )
