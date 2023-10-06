@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use dashmap::DashMap;
+use dashmap::{mapref::entry::Entry, DashMap};
 use futures::Stream;
 
 use crate::{
@@ -65,13 +65,15 @@ impl<T: Transport> Default for GatewayReceivers<T> {
 
 impl<T: Transport> GatewayReceivers<T> {
     pub fn get_or_create<F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
-        let receivers = &self.inner;
-        if let Some(recv) = receivers.get(channel_id) {
-            recv.clone()
-        } else {
-            let stream = ctr();
-            receivers.insert(channel_id.clone(), stream.clone());
-            stream
+        // TODO: raw entry API if it becomes available to avoid cloning the key
+        match self.inner.entry(channel_id.clone()) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let stream = ctr();
+                entry.insert(stream.clone());
+
+                stream
+            }
         }
     }
 }
