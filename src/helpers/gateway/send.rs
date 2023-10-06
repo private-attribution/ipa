@@ -5,8 +5,9 @@ use std::{
     task::{Context, Poll},
 };
 
-use dashmap::DashMap;
+use dashmap::{mapref::entry::Entry, DashMap};
 use futures::Stream;
+use tracing::Instrument;
 use typenum::Unsigned;
 
 use crate::{
@@ -99,7 +100,11 @@ impl<M: Message> SendingEnd<M> {
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
-        let r = self.inner.send(record_id, msg).await;
+        let r = self
+            .inner
+            .send(record_id, msg)
+            .instrument(tracing::info_span!( "send", my_role = ?self.sender_role))
+            .await;
         metrics::increment_counter!(RECORDS_SENT,
             STEP => self.channel_id.gate.as_ref().to_string(),
             ROLE => self.sender_role.as_static_str()
@@ -127,42 +132,40 @@ impl GatewaySenders {
             total_records.is_specified(),
             "unspecified total records for {channel_id:?}"
         );
-        let senders = &self.inner;
-        if let Some(sender) = senders.get(channel_id) {
-            (Arc::clone(&sender), None)
-        } else {
-            const SPARE: Option<NonZeroUsize> = NonZeroUsize::new(64);
-            // a little trick - if number of records is indeterminate, set the capacity to 1.
-            // Any send will wake the stream reader then, effectively disabling buffering.
-            // This mode is clearly inefficient, so avoid using this mode.
-            let write_size = if total_records.is_indeterminate() {
-                NonZeroUsize::new(1).unwrap()
-            } else {
-                // capacity is defined in terms of number of elements, while sender wants bytes
-                // so perform the conversion here
-                capacity
-                    .checked_mul(
-                        NonZeroUsize::new(M::Size::USIZE)
-                            .expect("Message size should be greater than 0"),
-                    )
-                    .expect("capacity should not overflow")
-            };
 
-            let sender = Arc::new(GatewaySender::new(
-                channel_id.clone(),
-                OrderingSender::new(write_size, SPARE.unwrap()),
-                total_records,
-            ));
-            if senders
-                .insert(channel_id.clone(), Arc::clone(&sender))
-                .is_some()
-            {
-                panic!("TODO - make sender creation contention less dangerous");
+        // TODO: raw entry API would be nice to have here but it's not exposed yet
+        match self.inner.entry(channel_id.clone()) {
+            Entry::Occupied(entry) => (Arc::clone(entry.get()), None),
+            Entry::Vacant(entry) => {
+                const SPARE: Option<NonZeroUsize> = NonZeroUsize::new(64);
+                // a little trick - if number of records is indeterminate, set the capacity to 1.
+                // Any send will wake the stream reader then, effectively disabling buffering.
+                // This mode is clearly inefficient, so avoid using this mode.
+                let write_size = if total_records.is_indeterminate() {
+                    NonZeroUsize::new(1).unwrap()
+                } else {
+                    // capacity is defined in terms of number of elements, while sender wants bytes
+                    // so perform the conversion here
+                    capacity
+                        .checked_mul(
+                            NonZeroUsize::new(M::Size::USIZE)
+                                .expect("Message size should be greater than 0"),
+                        )
+                        .expect("capacity should not overflow")
+                };
+
+                let sender = Arc::new(GatewaySender::new(
+                    channel_id.clone(),
+                    OrderingSender::new(write_size, SPARE.unwrap()),
+                    total_records,
+                ));
+                entry.insert(Arc::clone(&sender));
+
+                (
+                    Arc::clone(&sender),
+                    Some(GatewaySendStream { inner: sender }),
+                )
             }
-            let stream = GatewaySendStream {
-                inner: Arc::clone(&sender),
-            };
-            (sender, Some(stream))
         }
     }
 }

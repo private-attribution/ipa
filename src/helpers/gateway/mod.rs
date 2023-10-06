@@ -252,7 +252,7 @@ mod tests {
                     .narrow("send_contention")
                     .set_total_records(TOTAL_RECORDS);
 
-                tokio::spawn({
+                let receive_handle = tokio::spawn({
                     let ctx = ctx.clone();
                     async move {
                         for record in 0..TOTAL_RECORDS {
@@ -262,6 +262,7 @@ mod tests {
                                 .receive(record.into())
                                 .await
                                 .unwrap();
+
                             assert_eq!(v, r, "Bad value for record {record}");
                         }
                     }
@@ -278,6 +279,8 @@ mod tests {
                 }))
                 .await
                 .unwrap();
+
+                receive_handle.await.unwrap();
             })
         }))
         .await
