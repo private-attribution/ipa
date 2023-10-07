@@ -18,7 +18,7 @@ use crate::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        SecretSharing,
+        SecretSharing, SharedValue,
     },
 };
 
@@ -47,10 +47,10 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<C: Context, F: Field> Reveal<C, RecordId> for Replicated<F> {
-    type Output = F;
+impl<C: Context, V: SharedValue> Reveal<C, RecordId> for Replicated<V> {
+    type Output = V;
 
-    async fn reveal<'fut>(&self, ctx: C, record_id: RecordId) -> Result<F, Error>
+    async fn reveal<'fut>(&self, ctx: C, record_id: RecordId) -> Result<V, Error>
     where
         C: 'fut,
     {
