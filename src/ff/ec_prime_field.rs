@@ -22,6 +22,7 @@ impl Fp25519 {
     pub const ONE: Self = Self(Scalar::ONE);
 
     //must not use with ZERO
+    #[must_use]
     pub fn invert(&self) -> Fp25519 {
         Fp25519(self.0.invert())
     }
@@ -179,7 +180,7 @@ impl Field for Fp25519 {
         u128::from_le_bytes(okm)
     }
 
-    ///PRSS uses truncate_from function, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
+    ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
         let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
         let mut okm = [0u8; 32];
