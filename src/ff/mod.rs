@@ -2,11 +2,11 @@
 //
 // This is where we store arithmetic shared secret data models.
 
+pub mod curve_points;
+pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
-pub mod ec_prime_field;
-pub mod curve_points;
 
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
