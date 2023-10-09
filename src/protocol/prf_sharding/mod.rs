@@ -631,8 +631,14 @@ where
             let record_id: RecordId = RecordId::from(i);
             let bd_key = bk_bits.unwrap();
             async move {
-                move_single_value_to_bucket::<BK, _, _, _>(ctx, record_id, bd_key, value, None)
-                    .await
+                move_single_value_to_bucket::<BK, _, _, _>(
+                    ctx,
+                    record_id,
+                    bd_key,
+                    value,
+                    1 << BK::BITS,
+                )
+                .await
             }
         });
 
@@ -670,7 +676,7 @@ async fn move_single_value_to_bucket<BK, C, S, F>(
     record_id: RecordId,
     bd_key: BitDecomposed<S>,
     value: S,
-    breakdown_count: Option<usize>,
+    breakdown_count: usize,
 ) -> Result<Vec<S>, Error>
 where
     BK: GaloisField,
@@ -679,21 +685,18 @@ where
     F: PrimeField + ExtendableField,
 {
     let mut step: usize = 1 << BK::BITS;
-    let total_breakdowns = match breakdown_count {
-        Some(x) => x,
-        None => 1 << BK::BITS,
-    };
-    assert!(total_breakdowns <= 1 << BK::BITS);
-    let mut row_contribution = vec![value; total_breakdowns];
+
+    assert!(breakdown_count <= 1 << BK::BITS);
+    let mut row_contribution = vec![value; breakdown_count];
 
     for (tree_depth, bit_of_bdkey) in bd_key.iter().rev().enumerate() {
         let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
         let span = step >> 1;
-        let mut futures = Vec::with_capacity(bd_key.len() / step);
-        for i in (0..total_breakdowns).step_by(step) {
+        let mut futures = Vec::with_capacity(breakdown_count / step);
+        for i in (0..breakdown_count).step_by(step) {
             let bit_c = depth_c.narrow(&BitOpStep::from(i));
 
-            if i + span < total_breakdowns {
+            if i + span < breakdown_count {
                 futures.push(row_contribution[i].multiply(bit_of_bdkey, bit_c, record_id));
             }
         }
@@ -701,11 +704,9 @@ where
 
         for (index, bdbit_contribution) in contributions.into_iter().enumerate() {
             let left_index = index * step;
-            if left_index + span < total_breakdowns {
-                let right_index = left_index + span;
-                row_contribution[left_index] -= &bdbit_contribution;
-                row_contribution[right_index] = bdbit_contribution;
-            }
+            let right_index = left_index + span;
+            row_contribution[left_index] -= &bdbit_contribution;
+            row_contribution[right_index] = bdbit_contribution;
         }
         step = span;
     }
@@ -1034,78 +1035,42 @@ pub mod tests {
 
     #[test]
     fn semi_honest_move_value_to_single_bucket() {
-        run(|| async move {
-            let world = TestWorld::default();
-            let mut rng: rand::rngs::ThreadRng = thread_rng();
+        const MAX_BREAKDOWN_COUNT: usize = 63;
+        for _ in 1..10 {
+            run(|| async move {
+                let world = TestWorld::default();
+                let mut rng: rand::rngs::ThreadRng = thread_rng();
+                let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
+                let breakdown_key = rng.gen_range(0..count);
 
-            let breakdown_key = rng.gen_range(0..32);
+                let value = Fp32BitPrime::truncate_from(10_u128);
+                let mut expected = vec![Fp32BitPrime::truncate_from(0_u128); count];
+                expected[breakdown_key] = value;
 
-            let value = Fp32BitPrime::truncate_from(10_u128);
-            let mut expected = [Fp32BitPrime::truncate_from(0_u128); 32];
-            expected[breakdown_key] = value;
+                let breakdown_key_bits =
+                    get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
 
-            let result: Vec<_> = world
-                .semi_honest(
-                    (
-                        get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf5Bit::BITS),
-                        value,
-                    ),
-                    |ctx, (breakdown_key_share, value_share)| async move {
-                        let validator = ctx.validator();
-                        let ctx = validator.context();
-                        move_single_value_to_bucket::<Gf5Bit, _, _, Fp32BitPrime>(
-                            ctx.set_total_records(1),
-                            RecordId::from(0),
-                            breakdown_key_share,
-                            value_share,
-                            None,
-                        )
-                        .await
-                        .unwrap()
-                    },
-                )
-                .await
-                .reconstruct();
-            assert_eq!(result, &expected);
-        });
-    }
-
-    #[test]
-    fn semi_honest_move_value_to_single_bucket_not_power_two() {
-        const BREAKDOWN_COUNT: usize = 50;
-
-        run(|| async move {
-            let world = TestWorld::default();
-            let mut rng: rand::rngs::ThreadRng = thread_rng();
-
-            let breakdown_key = rng.gen_range(0..BREAKDOWN_COUNT);
-            let value = Fp32BitPrime::truncate_from(10_u128);
-            let mut expected = [Fp32BitPrime::truncate_from(0_u128); BREAKDOWN_COUNT];
-            expected[breakdown_key] = value;
-
-            let result: Vec<_> = world
-                .semi_honest(
-                    (
-                        get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS),
-                        value,
-                    ),
-                    |ctx, (breakdown_key_share, value_share)| async move {
-                        let validator = ctx.validator();
-                        let ctx = validator.context();
-                        move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
-                            ctx.set_total_records(1),
-                            RecordId::from(0),
-                            breakdown_key_share,
-                            value_share,
-                            Some(BREAKDOWN_COUNT),
-                        )
-                        .await
-                        .unwrap()
-                    },
-                )
-                .await
-                .reconstruct();
-            assert_eq!(result, &expected);
-        });
+                let result: Vec<_> = world
+                    .semi_honest(
+                        (breakdown_key_bits, value),
+                        |ctx, (breakdown_key_share, value_share)| async move {
+                            let validator = ctx.validator();
+                            let ctx = validator.context();
+                            move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                                ctx.set_total_records(1),
+                                RecordId::from(0),
+                                breakdown_key_share,
+                                value_share,
+                                count,
+                            )
+                            .await
+                            .unwrap()
+                        },
+                    )
+                    .await
+                    .reconstruct();
+                assert_eq!(result, expected);
+            });
+        }
     }
 }
