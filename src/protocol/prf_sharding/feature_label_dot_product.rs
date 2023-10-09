@@ -1,9 +1,8 @@
+use std::{iter::zip, pin::pin};
+
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use ipa_macros::Step;
-
-use std::{iter::zip, pin::pin};
-
 use stream_flatten_iters::StreamExt as _;
 
 use crate::{
