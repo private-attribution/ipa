@@ -28,6 +28,7 @@ use crate::{
     seq_join::{seq_join, seq_try_join_all},
 };
 
+#[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {
