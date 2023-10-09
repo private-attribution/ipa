@@ -208,6 +208,7 @@ macro_rules! field_impl {
             proptest! {
 
                 #[test]
+                #[allow(clippy::ignored_unit_patterns)]
                 fn serde(v in 0..$field::PRIME) {
                     let field_v = $field(v);
                     let mut buf = GenericArray::default();

@@ -147,7 +147,7 @@ mod tests {
 
         for _ in 0..OUTER {
             let v = world
-                .semi_honest((), |ctx, _| async move {
+                .semi_honest((), |ctx, ()| async move {
                     let validator = ctx.validator();
                     let ctx = validator
                         .context()
