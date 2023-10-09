@@ -1,8 +1,8 @@
 use futures::{stream::iter as stream_iter, TryStreamExt};
-use futures_util::{future::try_join, stream, StreamExt};
+use futures_util::{future::try_join, stream::unfold, StreamExt};
 use ipa_macros::Step;
 
-use std::iter::zip;
+use std::{iter::zip, pin::pin};
 
 use stream_flatten_iters::StreamExt as _;
 
@@ -141,19 +141,6 @@ pub(crate) enum Step {
     ModulusConvertFeatureVectorBits,
 }
 
-fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>]) -> Vec<usize> {
-    let mut output = vec![];
-    for user_rows in rows_chunked_by_user {
-        for j in 0..user_rows.len() {
-            if j >= output.len() {
-                output.push(0);
-            }
-            output[j] += 1;
-        }
-    }
-    output
-}
-
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
@@ -170,30 +157,6 @@ where
         }
     }
     context_per_row_depth
-}
-
-fn chunk_rows_by_user<FV>(
-    input_rows: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Vec<Vec<PrfShardedIpaInputRow<FV>>>
-where
-    FV: GaloisField,
-{
-    let mut rows_for_user: Vec<PrfShardedIpaInputRow<FV>> = vec![];
-
-    let mut rows_chunked_by_user = vec![];
-    for row in input_rows {
-        if rows_for_user.is_empty() || row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
-            rows_for_user.push(row);
-        } else {
-            rows_chunked_by_user.push(rows_for_user);
-            rows_for_user = vec![row];
-        }
-    }
-    if !rows_for_user.is_empty() {
-        rows_chunked_by_user.push(rows_for_user);
-    }
-
-    rows_chunked_by_user
 }
 
 /// Sub-protocol of the PRF-sharded IPA Protocol
@@ -216,6 +179,7 @@ where
 pub async fn compute_feature_label_dot_product<C, FV, F, S>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<FV>>,
+    histogram: &[usize],
 ) -> Result<Vec<S>, Error>
 where
     C: UpgradableContext,
@@ -227,42 +191,40 @@ where
 {
     assert!(FV::BITS > 0);
 
-    let mut num_outputs = input_rows.len();
-    let rows_chunked_by_user = chunk_rows_by_user(input_rows);
-    num_outputs -= rows_chunked_by_user.len();
-    let histogram = compute_histogram_of_users_with_row_count(&rows_chunked_by_user);
+    let num_outputs = input_rows.len() - histogram[0];
+    let mut input_stream = stream_iter(input_rows);
+    let first_row = input_stream.next().await.unwrap();
+    let rows_chunked_by_user = unfold(Some((input_stream, first_row)), |state| async move {
+        if state.is_none() {
+            return None;
+        }
+        let (mut s, last_row) = state.unwrap();
+        let last_row_prf = last_row.prf_of_match_key;
+        let mut current_chunk = vec![last_row];
+        while let Some(row) = s.next().await {
+            if row.prf_of_match_key == last_row_prf {
+                current_chunk.push(row);
+            } else {
+                return Some((current_chunk, Some((s, row))));
+            }
+        }
+        Some((current_chunk, None))
+    });
+
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     let binary_m_ctx = binary_validator.context();
     let mut num_users_who_encountered_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, &histogram);
-    let stream_of_per_user_circuits = stream::unfold(
-        (
-            num_users_who_encountered_row_depth,
-            ctx_for_row_number,
-            stream_iter(rows_chunked_by_user),
-        ),
-        |state| async move {
-            let (mut count_by_row_depth, contexts, s) = state;
-            if let Some(rows_for_user) = s.next().await {
-                let num_user_rows = rows_for_user.len();
-                let yielded = evaluate_per_user_attribution_circuit(
-                    contexts[..num_user_rows - 1].to_owned(),
-                    num_users_who_encountered_row_depth
-                        .iter()
-                        .take(num_user_rows)
-                        .map(|x| RecordId(*x))
-                        .collect(),
-                    rows_for_user,
-                );
-                for i in 0..num_user_rows {
-                    count_by_row_depth[i] += 1;
-                }
-                Some((yielded, (count_by_row_depth, contexts, s)))
-            } else {
-                None
-            }
-        },
-    );
+    let stream_of_per_user_circuits = pin!(rows_chunked_by_user.then(|rows_for_user| {
+        let num_user_rows = rows_for_user.len();
+        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+        let record_ids = num_users_who_encountered_row_depth[..num_user_rows].to_owned();
+
+        for i in 0..rows_for_user.len() {
+            num_users_who_encountered_row_depth[i] += 1;
+        }
+        async move { evaluate_per_user_attribution_circuit(contexts, record_ids, rows_for_user) }
+    }));
 
     let flattenned_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
         .map(|x| x.unwrap().into_iter())
@@ -295,7 +257,7 @@ where
 
 async fn evaluate_per_user_attribution_circuit<C, FV>(
     ctx_for_row_number: Vec<C>,
-    record_id_for_each_depth: Vec<RecordId>,
+    record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
 ) -> Result<Vec<BitDecomposed<Replicated<Gf2>>>, Error>
 where
@@ -315,7 +277,7 @@ where
     for (i, (row, ctx)) in
         zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()).enumerate()
     {
-        let record_id_for_this_row_depth = record_id_for_each_depth[i + 1]; // skip row 0
+        let record_id_for_this_row_depth = RecordId(record_id_for_each_depth[i + 1]); // skip row 0
 
         let capped_attribution_outputs = prev_row_inputs
             .compute_row_with_previous(ctx, record_id_for_this_row_depth, row)
@@ -468,16 +430,21 @@ pub mod tests {
             ];
             expected.reverse(); // convert to little-endian order
 
-            let result: Vec<_> = world
-                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    compute_feature_label_dot_product::<
-                        _,
-                        Gf32Bit,
-                        Fp32BitPrime,
-                        Replicated<Fp32BitPrime>,
-                    >(ctx, input_rows)
-                    .await
-                    .unwrap()
+            let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
+
+            let result: Vec<Fp32BitPrime> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| {
+                    let h = histogram.as_slice();
+                    async move {
+                        compute_feature_label_dot_product::<
+                            _,
+                            Gf32Bit,
+                            Fp32BitPrime,
+                            Replicated<Fp32BitPrime>,
+                        >(ctx, input_rows, h)
+                        .await
+                        .unwrap()
+                    }
                 })
                 .await
                 .reconstruct();
