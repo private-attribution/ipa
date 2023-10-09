@@ -16,6 +16,8 @@ pub(crate) enum Step {
     Revealz,
 }
 
+/// # Errors
+/// Propagates errors from multiplications
 pub async fn compute_match_key_pseudonym<C>(
     sh_ctx: C,
     prf_key: AdditiveShare<Fp25519>,
@@ -26,7 +28,7 @@ pub async fn compute_match_key_pseudonym<C>(
 {
     let ctx =sh_ctx.set_total_records(input_match_keys.len());
     let futures=input_match_keys.iter().enumerate().map(|(i,x)|eval_dy_prf(ctx.clone(),i.into(),&prf_key,x));
-    Ok(seq_try_join_all(sh_ctx.active_work(), futures).await?.iter().map(|&x|u64::from(x)).collect())
+    seq_try_join_all(sh_ctx.active_work(), futures).await
 }
 
 
@@ -37,7 +39,7 @@ impl From<AdditiveShare<Fp25519>> for AdditiveShare<RP25519> {
 }
 
 /// generates PRF key k as secret sharing over Fp25519
-pub fn gen_prf_key<C> (ctx: C) -> AdditiveShare<Fp25519>
+pub fn gen_prf_key<C> (ctx: &C) -> AdditiveShare<Fp25519>
     where
         C: Context,
 {
@@ -49,7 +51,10 @@ pub fn gen_prf_key<C> (ctx: C) -> AdditiveShare<Fp25519>
 /// the input x and k are secret shared over finite field Fp25519, i.e. the scalar field of curve 25519
 /// PRF key k is generated using keygen
 /// In 3IPA, x is the match key
-/// eval_DY outputs a u64 as specified in protocol/prf_sharding/mod.rs, all parties learn the output
+/// outputs a u64 as specified in `protocol/prf_sharding/mod.rs`, all parties learn the output
+/// # Errors
+/// Propagates errors from multiplications, reveal and scalar multiplication
+
 pub async fn eval_dy_prf<C>(
     ctx: C,
     record_id: RecordId,
@@ -77,7 +82,7 @@ pub async fn eval_dy_prf<C>(
 
 
     //compute R^(1/z) to u64
-    Ok(u64::from(gr.s_mul(z.invert())))
+    Ok(u64::from(gr.s_mul(z.invert())?))
 }
 
 #[cfg(all(test, unit_test))]
@@ -133,18 +138,18 @@ mod test {
             let records: Vec<ShuffledTestInput> = vec![
                 test_input(3),
                 test_input(3),
-                test_input(23443524523),
+                test_input(23_443_524_523),
                 test_input(56),
-                test_input(895764542),
-                test_input(456764576),
+                test_input(895_764_542),
+                test_input(456_764_576),
                 test_input(56),
                 test_input(3),
                 test_input(56),
-                test_input(23443524523),
+                test_input(23_443_524_523),
                 ];
 
             //PRF Key Gen
-            let u = 3216412445u64;
+            let u = 3_216_412_445u64;
             let k:Fp25519 = Fp25519::from(u);
 
             let expected: Vec<TestOutput>=records.iter().map(|&x| TestOutput{match_key_pseudonym: (RP25519::from((x.match_key+k).invert())).into()} ).collect();

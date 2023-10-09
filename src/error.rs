@@ -58,6 +58,8 @@ pub enum Error {
     InvalidReport(#[from] InvalidReportError),
     #[error("unsupported: {0}")]
     Unsupported(String),
+    #[error("Decompressing invalid elliptic curve point")]
+    DecompressingInvalidCurvePoint,
 }
 
 impl Default for Error {

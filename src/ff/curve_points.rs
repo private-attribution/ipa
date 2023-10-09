@@ -5,7 +5,9 @@ use sha2::Sha256;
 use hkdf::Hkdf;
 
 
+
 use crate::{
+    error::Error,
     ff::{Serializable,ec_prime_field::Fp25519,Field},
     secret_sharing::{Block, SharedValue},
 };
@@ -91,12 +93,17 @@ fn sub_assign(&mut self, rhs: Self) {
 
 
 ///Scalar Multiplication
-///<'a, 'b> std::ops::Mul<&'b Fp25519> for &'a
+///<'a, 'b> `std::ops::Mul<&'b"` Fp25519 for &'a
 impl RP25519 {
     pub const ONE: Self = Self(constants::RISTRETTO_BASEPOINT_COMPRESSED);
 
-pub fn s_mul(self, rhs: Fp25519) -> RP25519 {
-    RP25519((self.0.decompress().unwrap() * Scalar::from(rhs)).compress())
+    /// # Errors
+    /// Propagates errors from decompressing invalid curve point
+pub fn s_mul(self, rhs: Fp25519) -> Result<RP25519,Error> {
+    self.0.decompress().map_or(
+        Err(Error::DecompressingInvalidCurvePoint),
+        |x| Ok((x * Scalar::from(rhs)).compress().into())
+    )
 }
 }
 
@@ -191,7 +198,7 @@ impl Field for RP25519 {
         u128::from_le_bytes(okm)
     }
 
-    ///PRSS uses truncate_from function, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
+    ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
         let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
         let mut okm = [0u8; 32];
@@ -247,7 +254,7 @@ mod test {
     #[test]
     fn scalar_to_point() {
         let a = Scalar::ONE;
-        let b : RP25519 = a.clone().into();
+        let b : RP25519 = a.into();
         let d : Fp25519 = a.into();
         let c : RP25519 = RP25519::from(d);
         assert_eq!(b,RP25519::ZERO);
@@ -257,26 +264,26 @@ mod test {
     #[test]
     fn curve_arithmetics() {
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp25519>();
-        let b = rng.gen::<Fp25519>();
-        let c = a+b;
-        let d = RP25519::from(a)+RP25519::from(b);
-        assert_eq!(d, RP25519::from(c));
-        assert_ne!(d, RP25519::ZERO);
-        let e = rng.gen::<Fp25519>();
-        let f=rng.gen::<Fp25519>();
-        let g =e*f;
-        let h = RP25519::from(e).s_mul(f);
-        assert_eq!(h,RP25519::from(g));
-        assert_ne!(h, RP25519::ZERO);
+        let fp_a = rng.gen::<Fp25519>();
+        let fp_b = rng.gen::<Fp25519>();
+        let fp_c = fp_a+fp_b;
+        let fp_d = RP25519::from(fp_a)+RP25519::from(fp_b);
+        assert_eq!(fp_d, RP25519::from(fp_c));
+        assert_ne!(fp_d, RP25519::ZERO);
+        let fp_e = rng.gen::<Fp25519>();
+        let fp_f=rng.gen::<Fp25519>();
+        let fp_g =fp_e*fp_f;
+        let fp_h = RP25519::from(fp_e).s_mul(fp_f).unwrap();
+        assert_eq!(fp_h,RP25519::from(fp_g));
+        assert_ne!(fp_h, RP25519::ZERO);
     }
 
     #[test]
     fn curve_point_to_hash() {
         let mut rng = thread_rng();
-        let a = rng.gen::<RP25519>();
-        assert_ne!(0u64,u64::from(a));
-        assert_ne!(0u32,u32::from(a));
+        let fp_a = rng.gen::<RP25519>();
+        assert_ne!(0u64,u64::from(fp_a));
+        assert_ne!(0u32,u32::from(fp_a));
     }
 
 }
