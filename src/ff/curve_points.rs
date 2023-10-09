@@ -20,8 +20,6 @@ impl Block for CompressedRistretto {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct RP25519(<Self as SharedValue>::Storage);
 
-//how to add const ONE: Self = Self(Scalar::ONE); within the struct, do I need to do it via a trait?
-
 /// using compressed ristretto point, Zero is generator of the curve, i.e. g^0
 impl SharedValue for RP25519 {
     type Storage = CompressedRistretto;
