@@ -693,8 +693,8 @@ where
         let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
         let span = step >> 1;
         let mut futures = Vec::with_capacity(breakdown_count / step);
-        for i in (0..breakdown_count).step_by(step) {
-            let bit_c = depth_c.narrow(&BitOpStep::from(i));
+        for (step_no, i) in (0..breakdown_count).step_by(step).enumerate() {
+            let bit_c = depth_c.narrow(&BitOpStep::from(step_no));
 
             if i + span < breakdown_count {
                 futures.push(row_contribution[i].multiply(bit_of_bdkey, bit_c, record_id));
@@ -1035,7 +1035,7 @@ pub mod tests {
 
     #[test]
     fn semi_honest_move_value_to_single_bucket() {
-        const MAX_BREAKDOWN_COUNT: usize = 63;
+        const MAX_BREAKDOWN_COUNT: usize = 127;
         for _ in 1..10 {
             run(|| async move {
                 let world = TestWorld::default();
