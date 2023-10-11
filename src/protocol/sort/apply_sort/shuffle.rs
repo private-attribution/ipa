@@ -5,10 +5,12 @@ use crate::{
     error::Error,
     helpers::Direction,
     protocol::{
-        basics::Reshare,
+        basics::{
+            apply_permutation::{apply, apply_inv},
+            Reshare,
+        },
         context::Context,
         sort::{
-            apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
             ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
         },

@@ -16,6 +16,8 @@ pub mod error;
 pub mod ff;
 pub mod helpers;
 pub mod hpke;
+pub mod one_off_fns;
+
 #[cfg(feature = "web-app")]
 pub mod net;
 pub mod protocol;

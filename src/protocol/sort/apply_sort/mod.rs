@@ -5,12 +5,9 @@ pub use shuffle::shuffle_shares;
 use crate::{
     error::Error,
     protocol::{
-        basics::Reshare,
+        basics::{apply_permutation::apply_inv, Reshare},
         context::Context,
-        sort::{
-            apply::apply_inv, generate_permutation::RevealedAndRandomPermutations,
-            ApplyInvStep::ShuffleInputs,
-        },
+        sort::{generate_permutation::RevealedAndRandomPermutations, ApplyInvStep::ShuffleInputs},
         RecordId,
     },
 };
