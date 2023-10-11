@@ -139,6 +139,10 @@ pub mod query {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::MaliciousSparseAggregate(q))
                 }
+                QueryType::OPRF_SHUFFLE_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::OPRFShuffle(q))
+                }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
@@ -186,6 +190,10 @@ pub mod query {
                         config.contribution_bits, config.num_contributions,
                     )?;
 
+                    Ok(())
+                }
+                QueryType::OPRFShuffle(config) => {
+                    write!(f, "&bk_size={}&tv_size={}", config.bk_size, config.tv_size)?;
                     Ok(())
                 }
             }

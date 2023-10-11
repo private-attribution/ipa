@@ -1,3 +1,5 @@
+pub mod oprf_shuffle;
+
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
@@ -206,6 +208,7 @@ pub enum QueryType {
     MaliciousIpa(IpaQueryConfig),
     SemiHonestSparseAggregate(SparseAggregateQueryConfig),
     MaliciousSparseAggregate(SparseAggregateQueryConfig),
+    OPRFShuffle(oprf_shuffle::QueryConfig),
 }
 
 impl QueryType {
@@ -214,6 +217,7 @@ impl QueryType {
     pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
     pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-sparse-aggregate";
     pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-sparse-aggregate";
+    pub const OPRF_SHUFFLE_STR: &'static str = "oprf-shuffle";
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
@@ -226,6 +230,7 @@ impl AsRef<str> for QueryType {
             QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
             QueryType::SemiHonestSparseAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
             QueryType::MaliciousSparseAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
+            QueryType::OPRFShuffle(_) => Self::OPRF_SHUFFLE_STR,
         }
     }
 }
