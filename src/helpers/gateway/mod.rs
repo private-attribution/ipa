@@ -181,7 +181,7 @@ mod tests {
 
         let world = TestWorld::new_with(config);
         world
-            .semi_honest((), |ctx, _| async move {
+            .semi_honest((), |ctx, ()| async move {
                 let fp2_ctx = ctx.narrow("fp2").set_total_records(100);
                 let fp32_ctx = ctx.narrow("fp32").set_total_records(100);
                 let role = ctx.role();

@@ -46,10 +46,7 @@ impl CounterDetails {
         };
         for label in key.key().labels() {
             let (label_key, label_val) = label.clone().into_parts();
-            let dimension_values = self
-                .dimensions
-                .entry(label_key)
-                .or_insert_with(HashMap::new);
+            let dimension_values = self.dimensions.entry(label_key).or_default();
 
             *dimension_values.entry(label_val).or_insert(0) += val;
         }
@@ -85,10 +82,7 @@ impl Metrics {
             if !filter_fn(labels.as_slice()) {
                 continue;
             }
-            let entry = this
-                .counters
-                .entry(key_name.clone())
-                .or_insert_with(CounterDetails::default);
+            let entry = this.counters.entry(key_name.clone()).or_default();
 
             if let Some(descr) = descr {
                 this.metric_description.insert(key_name, descr);
