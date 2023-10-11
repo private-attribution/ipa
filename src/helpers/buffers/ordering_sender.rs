@@ -2,7 +2,7 @@ use std::{
     borrow::Borrow,
     cmp::Ordering,
     collections::VecDeque,
-    fmt::{Debug, Formatter},
+    fmt::Debug,
     mem::drop,
     num::NonZeroUsize,
     pin::Pin,
@@ -217,7 +217,7 @@ impl Waiting {
     ///
     /// ## Errors
     /// If `current` is behind the current position recorded in this shard.
-    fn add(&self, current: usize, i: usize, w: &Waker) -> Result<(), WakerRejected> {
+    fn add(&self, current: usize, i: usize, w: &Waker) -> Result<(), ()> {
         self.shard(i).add(current, i, w)
     }
 
