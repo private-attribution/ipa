@@ -126,7 +126,7 @@ struct WakerItem {
 #[derive(Default, Debug)]
 struct WaitingShard {
     /// The maximum index that was used to wake a task that belongs to this shard.
-    /// Updates to this shard will be rejected if th supplied index is less than this value.
+    /// Updates to this shard will be rejected if the supplied index is less than this value.
     /// See [`Add`] for more details.
     ///
     /// [`Add`]: WaitingShard::add
@@ -136,45 +136,17 @@ struct WaitingShard {
     wakers: VecDeque<WakerItem>,
 }
 
-/// Error returned when adding a waker is rejected by `WaitingShard`.
-struct WakerRejected(usize, usize);
-
-impl WakerRejected {
-    fn new(expected_pos: usize, actual_pos: usize) -> Self {
-        Self(expected_pos, actual_pos)
-    }
-}
-
-impl std::fmt::Display for WakerRejected {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-impl Debug for WakerRejected {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Adding waker is rejected because the expected position {} is behind actual {}. \
-        Refresh your view and try again.",
-            self.0, self.1
-        )
-    }
-}
-
-impl std::error::Error for WakerRejected {}
-
 impl WaitingShard {
     /// Add a waker that will be used to wake up a write to `i`.
     ///
     /// ## Errors
     /// If `current` is behind the current position recorded in this shard.
-    fn add(&mut self, current: usize, i: usize, w: &Waker) -> Result<(), WakerRejected> {
+    fn add(&mut self, current: usize, i: usize, w: &Waker) -> Result<(), ()> {
         if current < self.woken_at {
             // this means this thread is out of sync and there was an update to channel's current
             // position. Accepting a waker could mean it will never be awakened. Rejecting this operation
             // will let the current thread to read the position again.
-            Err(WakerRejected::new(current, self.woken_at))?;
+            Err(())?;
         }
 
         // Each new addition will tend to have a larger index, so search backwards and
@@ -362,7 +334,7 @@ impl OrderingSender {
                     // * Waiting thread attempts to add a waker after writer tried to wake it. This attempt will
                     // be rejected because writer has moved the waiting shard position ahead and it won't match
                     // the value of `self.next` read by the waiting thread.
-                    if let Ok(()) = self.waiting.add(curr, i, cx.waker()) {
+                    if self.waiting.add(curr, i, cx.waker()).is_ok() {
                         break Poll::Pending;
                     }
                 }
