@@ -149,12 +149,13 @@ impl GatewayConfig {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use futures_util::future::{join, try_join};
+    use std::iter::{repeat, zip};
 
-    use super::*;
+    use futures_util::future::{join, try_join, try_join_all};
+
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Gf2},
-        helpers::{Direction, GatewayConfig, SendingEnd},
+        helpers::{Direction, GatewayConfig, Role, SendingEnd},
         protocol::{context::Context, RecordId},
         test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
@@ -236,5 +237,111 @@ mod tests {
         );
         spawned.await.unwrap();
         let _world = unsafe { Box::from_raw(world_ptr) };
+    }
+
+    /// this test requires quite a few threads to simulate send contention and will panic if
+    /// there is more than one sender channel created per step.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 20)]
+    pub async fn send_contention() {
+        let (world, world_ptr) = make_world();
+
+        try_join_all(world.contexts().map(|ctx| {
+            tokio::spawn(async move {
+                const TOTAL_RECORDS: usize = 10;
+                let ctx = ctx
+                    .narrow("send_contention")
+                    .set_total_records(TOTAL_RECORDS);
+
+                let receive_handle = tokio::spawn({
+                    let ctx = ctx.clone();
+                    async move {
+                        for record in 0..TOTAL_RECORDS {
+                            let v = Fp31::truncate_from(u128::try_from(record).unwrap());
+                            let r = ctx
+                                .recv_channel::<Fp31>(ctx.role().peer(Direction::Left))
+                                .receive(record.into())
+                                .await
+                                .unwrap();
+
+                            assert_eq!(v, r, "Bad value for record {record}");
+                        }
+                    }
+                });
+
+                try_join_all(zip(0..TOTAL_RECORDS, repeat(ctx)).map(|(record, ctx)| {
+                    tokio::spawn(async move {
+                        let r = Fp31::truncate_from(u128::try_from(record).unwrap());
+                        ctx.send_channel(ctx.role().peer(Direction::Right))
+                            .send(RecordId::from(record), r)
+                            .await
+                            .unwrap();
+                    })
+                }))
+                .await
+                .unwrap();
+
+                receive_handle.await.unwrap();
+            })
+        }))
+        .await
+        .unwrap();
+
+        let _world = unsafe { Box::from_raw(world_ptr) };
+    }
+
+    /// This test should hang if receiver channel is not created atomically. It may occasionally
+    /// pass, but it will not give false negatives.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 20)]
+    pub async fn receive_contention() {
+        let (world, world_ptr) = make_world();
+        let contexts = world.contexts();
+
+        try_join_all(contexts.map(|ctx| {
+            tokio::spawn(async move {
+                const TOTAL_RECORDS: u32 = 20;
+                let ctx = ctx
+                    .narrow("receive_contention")
+                    .set_total_records(usize::try_from(TOTAL_RECORDS).unwrap());
+
+                tokio::spawn({
+                    let ctx = ctx.clone();
+                    async move {
+                        for record in 0..TOTAL_RECORDS {
+                            ctx.send_channel(ctx.role().peer(Direction::Right))
+                                .send(RecordId::from(record), Fp31::truncate_from(record))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                });
+
+                try_join_all((0..TOTAL_RECORDS).zip(repeat(ctx)).map(|(record, ctx)| {
+                    tokio::spawn(async move {
+                        let r = ctx
+                            .recv_channel::<Fp31>(ctx.role().peer(Direction::Left))
+                            .receive(RecordId::from(record))
+                            .await
+                            .unwrap();
+                        assert_eq!(
+                            Fp31::truncate_from(record),
+                            r,
+                            "received bad value for record {record}"
+                        );
+                    })
+                }))
+                .await
+                .unwrap();
+            })
+        }))
+        .await
+        .unwrap();
+
+        let _world = unsafe { Box::from_raw(world_ptr) };
+    }
+
+    fn make_world() -> (&'static TestWorld, *mut TestWorld) {
+        let world = Box::leak(Box::<TestWorld>::default());
+        let world_ptr = world as *mut _;
+        (world, world_ptr)
     }
 }
