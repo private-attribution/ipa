@@ -25,7 +25,7 @@ pub(crate) enum SortStep {
     Compose,
     ShuffleRevealPermutation,
     SortKeys,
-    #[dynamic]
+    #[dynamic(64)]
     MultiApplyInv(u32),
 }
 

@@ -18,7 +18,7 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum InnerVectorElementStep {
-    #[dynamic]
+    #[dynamic(64)]
     Elem(usize),
 }
 

@@ -183,7 +183,7 @@ pub struct CappedAttributionOutputs {
 
 #[derive(Step)]
 pub enum UserNthRowStep {
-    #[dynamic]
+    #[dynamic(64)]
     Row(usize),
 }
 
@@ -195,7 +195,7 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(Step)]
 pub enum BinaryTreeDepthStep {
-    #[dynamic]
+    #[dynamic(64)]
     Depth(usize),
 }
 

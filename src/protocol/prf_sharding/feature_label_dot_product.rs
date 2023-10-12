@@ -117,7 +117,7 @@ impl InputsRequiredFromPrevRow {
 
 #[derive(Step)]
 pub enum UserNthRowStep {
-    #[dynamic]
+    #[dynamic(64)]
     Row(usize),
 }
 
