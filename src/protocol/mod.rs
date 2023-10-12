@@ -22,11 +22,13 @@ pub use basics::BasicProtocols;
 
 use crate::{
     error::Error,
-    ff::{Gf40Bit, Gf8Bit},
+    ff::{Gf20Bit, Gf3Bit, Gf40Bit, Gf8Bit},
 };
 
 pub type MatchKey = Gf40Bit;
 pub type BreakdownKey = Gf8Bit;
+pub type TriggerValue = Gf3Bit;
+pub type Timestamp = Gf20Bit;
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and

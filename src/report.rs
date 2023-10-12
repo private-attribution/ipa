@@ -11,7 +11,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
+    ff::{GaloisField, Gf2, Gf3Bit, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
@@ -283,6 +283,22 @@ where
     fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
         EncryptedReport::from_bytes(bytes)
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OprfReport<TS, BK, TV>
+where
+    TS: GaloisField,
+    BK: GaloisField,
+    TV: GaloisField,
+{
+    pub timestamp: Replicated<TS>,
+    pub mk_oprf: u64,
+    pub event_type: EventType,
+    pub breakdown_key: Replicated<BK>,
+    pub trigger_value: Replicated<TV>,
+    pub epoch: Epoch,
+    pub site_domain: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

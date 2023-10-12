@@ -103,6 +103,8 @@ enum ReportCollectorCommand {
     },
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
+    /// Execute OPRF IPA in a semi-honest majority setting
+    ExecuteOprfIpa(IpaQueryConfig),
 }
 
 #[derive(Debug, clap::Args)]
@@ -134,6 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 config,
                 &clients,
+                false,
             )
             .await?
         }
@@ -144,6 +147,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::Malicious,
                 config,
                 &clients,
+                false,
             )
             .await?
         }
@@ -153,6 +157,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
+        ReportCollectorCommand::ExecuteOprfIpa(config) => {
+            ipa(
+                &args,
+                &network,
+                IpaSecurityModel::SemiHonest,
+                config,
+                &clients,
+                true,
+            )
+            .await?
+        }
     };
 
     Ok(())
@@ -221,6 +236,7 @@ async fn ipa(
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
+    oprf_algorithm: bool,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
@@ -265,6 +281,7 @@ async fn ipa(
         query_id,
         ipa_query_config,
         key_registries.init_from(network),
+        oprf_algorithm,
     )
     .await;
 

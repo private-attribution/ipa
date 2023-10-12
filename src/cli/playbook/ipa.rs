@@ -38,6 +38,7 @@ pub async fn playbook_ipa<F, MK, BK, KR>(
     query_id: QueryId,
     query_config: IpaQueryConfig,
     encryption: Option<(KeyIdentifier, [&KR; 3])>,
+    oprf_algorithm: bool,
 ) -> IpaQueryResult
 where
     F: PrimeField + IntoShares<AdditiveShare<F>>,
@@ -77,24 +78,33 @@ where
             buffer.resize(query_size * sz, 0u8);
         }
 
-        let inputs = records.iter().map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MatchKey, BreakdownKey)
-            )
-        });
-        let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
-        zip(&mut buffers, shares).for_each(|(buf, shares)| {
-            for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
-                share.serialize(GenericArray::from_mut_slice(chunk));
-            }
-        });
+        if oprf_algorithm {
+            let shares: [Vec<IPAInputRowOprfVersion>; 3] = records.iter().share();
+            zip(&mut buffers, shares).for_each(|(buf, shares)| {
+                for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
+                    share.serialize(GenericArray::from_mut_slice(chunk));
+                }
+            });
+        } else {
+            let inputs = records.iter().map(|x| {
+                ipa_test_input!(
+                    {
+                        timestamp: x.timestamp,
+                        match_key: x.user_id,
+                        is_trigger_report: x.is_trigger_report,
+                        breakdown_key: x.breakdown_key,
+                        trigger_value: x.trigger_value,
+                    };
+                    (F, MatchKey, BreakdownKey)
+                )
+            });
+            let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
+            zip(&mut buffers, shares).for_each(|(buf, shares)| {
+                for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
+                    share.serialize(GenericArray::from_mut_slice(chunk));
+                }
+            });
+        }
     }
 
     let inputs = buffers.map(BodyStream::from);

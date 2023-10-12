@@ -3,16 +3,16 @@ use std::iter::zip;
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, Gf2, Gf20Bit, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
         },
         ipa::IPAInputRow,
-        BreakdownKey, MatchKey,
+        BreakdownKey, MatchKey, Timestamp, TriggerValue,
     },
     rand::Rng,
-    report::{EventType, Report},
+    report::{EventType, OprfReport, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -266,6 +266,38 @@ where
                 event_type,
                 breakdown_key,
                 trigger_value,
+                epoch,
+                site_domain: site_domain.clone(),
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+}
+
+impl IntoShares<OprfReport<Timestamp, BreakdownKey, TriggerValue>> for TestRawDataRecord {
+    fn share_with<R: Rng>(
+        self,
+        rng: &mut R,
+    ) -> [OprfReport<Timestamp, BreakdownKey, TriggerValue>; 3] {
+        let event_type = if self.is_trigger_report {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        };
+        let timestamp = Timestamp::truncate_from(self.timestamp).share_with(rng);
+        let breakdown_key = BreakdownKey::truncate_from(self.breakdown_key).share_with(rng);
+        let trigger_value = TriggerValue::truncate_from(self.trigger_value).share_with(rng);
+        let epoch = 1;
+        let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
+
+        zip(zip(timestamp, breakdown_key), trigger_value)
+            .map(|((ts_share, bk_share), tv_share)| OprfReport {
+                timestamp: ts_share,
+                mk_oprf: self.user_id,
+                event_type,
+                breakdown_key: bk_share,
+                trigger_value: tv_share,
                 epoch,
                 site_domain: site_domain.clone(),
             })
