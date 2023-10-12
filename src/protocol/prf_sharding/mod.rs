@@ -635,7 +635,15 @@ where
             let record_id: RecordId = RecordId::from(i);
             let bd_key = bk_bits.unwrap();
             async move {
-                move_single_value_to_bucket::<BK, _, _, _>(ctx, record_id, bd_key, value).await
+                move_single_value_to_bucket::<BK, _, _, _>(
+                    ctx,
+                    record_id,
+                    bd_key,
+                    value,
+                    1 << BK::BITS,
+                    false,
+                )
+                .await
             }
         });
 
@@ -668,11 +676,18 @@ where
 /// At each successive round, the next most significant bit is propagated from the leaf nodes of the tree into further leaf nodes:
 /// [`row_contribution`]_r+1,q,0 =[`row_contribution`]_r,q - [`bd_key`]_r+1.[`row_contribution`]_r,q and [`row_contribution`]_r+1,q,1 =[`bd_key`]_r+1.[`row_contribution`]_r,q.  
 /// The work of each iteration therefore doubles relative to the one preceding.
+///
+/// In case a malicious entity sends a out of range breakdown key (i.e. greater than the max count) to this function, we need to do some
+/// extra processing to ensure contribution doesn't end up in a wrong bucket. However, this requires extra multiplications.
+/// This would potentially not be needed in IPA (as aggregation is done after pre-processing which should be able to throw such input) but useful for PAM.
+/// This can be by passing `robust_for_breakdown_key_gt_count as true
 async fn move_single_value_to_bucket<BK, C, S, F>(
     ctx: C,
     record_id: RecordId,
     bd_key: BitDecomposed<S>,
     value: S,
+    breakdown_count: usize,
+    robust_for_breakdown_key_gt_count: bool,
 ) -> Result<Vec<S>, Error>
 where
     BK: GaloisField,
@@ -681,17 +696,20 @@ where
     F: PrimeField + ExtendableField,
 {
     let mut step: usize = 1 << BK::BITS;
-    let mut row_contribution = vec![value; 1 << BK::BITS];
+
+    assert!(breakdown_count <= 1 << BK::BITS);
+    let mut row_contribution = vec![value; breakdown_count];
 
     for (tree_depth, bit_of_bdkey) in bd_key.iter().rev().enumerate() {
         let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
         let span = step >> 1;
-        let mut futures = Vec::with_capacity((1 << BK::BITS) / step);
-        for i in (0..1 << BK::BITS).step_by(step) {
+        let mut futures = Vec::with_capacity(breakdown_count / step);
+
+        for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
             let bit_c = depth_c.narrow(&BitOpStep::from(i));
 
-            if i + span < 1 << BK::BITS {
-                futures.push(row_contribution[i].multiply(bit_of_bdkey, bit_c, record_id));
+            if robust_for_breakdown_key_gt_count || tree_index + span < breakdown_count {
+                futures.push(row_contribution[tree_index].multiply(bit_of_bdkey, bit_c, record_id));
             }
         }
         let contributions = ctx.parallel_join(futures).await?;
@@ -701,7 +719,9 @@ where
             let right_index = left_index + span;
 
             row_contribution[left_index] -= &bdbit_contribution;
-            row_contribution[right_index] = bdbit_contribution;
+            if right_index < breakdown_count {
+                row_contribution[right_index] = bdbit_contribution;
+            }
         }
         step = span;
     }
@@ -710,17 +730,26 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use rand::thread_rng;
+
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit},
-        protocol::prf_sharding::attribution_and_capping_and_aggregation,
+        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit, Gf8Bit},
+        protocol::{
+            context::{Context, UpgradableContext, Validator},
+            prf_sharding::{
+                attribution_and_capping_and_aggregation, do_aggregation,
+                move_single_value_to_bucket,
+            },
+            RecordId,
+        },
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
             SharedValue,
         },
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
     struct PreShardedAndSortedOPRFTestInput<BK: GaloisField, TV: GaloisField> {
@@ -730,7 +759,7 @@ pub mod tests {
         trigger_value: TV,
     }
 
-    fn test_input(
+    fn oprf_test_input(
         prf_of_match_key: u64,
         is_trigger: bool,
         breakdown_key: u8,
@@ -746,20 +775,46 @@ pub mod tests {
         }
     }
 
-    fn test_output(
+    fn bitwise_bd_key_and_value<BK, TV>(
         attributed_breakdown_key: u128,
         capped_attributed_trigger_value: u128,
-    ) -> PreAggregationTestOutput {
-        PreAggregationTestOutput {
+    ) -> PreAggregationTestInputInBits
+    where
+        BK: GaloisField,
+        TV: GaloisField,
+    {
+        PreAggregationTestInputInBits {
+            attributed_breakdown_key: get_bits::<Gf2>(
+                attributed_breakdown_key.try_into().unwrap(),
+                BK::BITS,
+            ),
+            capped_attributed_trigger_value: get_bits::<Gf2>(
+                capped_attributed_trigger_value.try_into().unwrap(),
+                TV::BITS,
+            ),
+        }
+    }
+
+    fn decimal_bd_key_and_value(
+        attributed_breakdown_key: u128,
+        capped_attributed_trigger_value: u128,
+    ) -> PreAggregationTestOutputInDecimal {
+        PreAggregationTestOutputInDecimal {
             attributed_breakdown_key,
             capped_attributed_trigger_value,
         }
     }
 
     #[derive(Debug, PartialEq)]
-    struct PreAggregationTestOutput {
+    struct PreAggregationTestOutputInDecimal {
         attributed_breakdown_key: u128,
         capped_attributed_trigger_value: u128,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct PreAggregationTestInputInBits {
+        attributed_breakdown_key: BitDecomposed<Gf2>,
+        capped_attributed_trigger_value: BitDecomposed<Gf2>,
     }
 
     impl<BK, TV> IntoShares<PrfShardedIpaInputRow<BK, TV>> for PreShardedAndSortedOPRFTestInput<BK, TV>
@@ -803,10 +858,44 @@ pub mod tests {
         }
     }
 
-    impl Reconstruct<PreAggregationTestOutput> for [&CappedAttributionOutputs; 3] {
-        fn reconstruct(&self) -> PreAggregationTestOutput {
-            let [s0, s1, s2] = self;
+    impl IntoShares<CappedAttributionOutputs> for PreAggregationTestInputInBits {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [CappedAttributionOutputs; 3] {
+            let PreAggregationTestInputInBits {
+                attributed_breakdown_key,
+                capped_attributed_trigger_value,
+            } = self;
 
+            let did_trigger_get_attributed = Gf2::ONE;
+            let [attributed_breakdown_key0, attributed_breakdown_key1, attributed_breakdown_key2] =
+                attributed_breakdown_key.share_with(rng);
+            let [capped_attributed_trigger_value0, capped_attributed_trigger_value1, capped_attributed_trigger_value2] =
+                capped_attributed_trigger_value.share_with(rng);
+            let [did_trigger_get_attributed0, did_trigger_get_attributed1, did_trigger_get_attributed2] =
+                did_trigger_get_attributed.share_with(rng);
+
+            [
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed0,
+                    attributed_breakdown_key_bits: attributed_breakdown_key0,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value0,
+                },
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed1,
+                    attributed_breakdown_key_bits: attributed_breakdown_key1,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value1,
+                },
+                CappedAttributionOutputs {
+                    did_trigger_get_attributed: did_trigger_get_attributed2,
+                    attributed_breakdown_key_bits: attributed_breakdown_key2,
+                    capped_attributed_trigger_value: capped_attributed_trigger_value2,
+                },
+            ]
+        }
+    }
+
+    impl Reconstruct<PreAggregationTestOutputInDecimal> for [&CappedAttributionOutputs; 3] {
+        fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
+            let [s0, s1, s2] = self;
             let attributed_breakdown_key_bits: BitDecomposed<Gf2> = BitDecomposed::new(
                 s0.attributed_breakdown_key_bits
                     .iter()
@@ -814,7 +903,6 @@ pub mod tests {
                     .zip(s2.attributed_breakdown_key_bits.iter())
                     .map(|((a, b), c)| [a, b, c].reconstruct()),
             );
-
             let capped_attributed_trigger_value_bits: BitDecomposed<Gf2> = BitDecomposed::new(
                 s0.capped_attributed_trigger_value
                     .iter()
@@ -823,7 +911,7 @@ pub mod tests {
                     .map(|((a, b), c)| [a, b, c].reconstruct()),
             );
 
-            PreAggregationTestOutput {
+            PreAggregationTestOutputInDecimal {
                 attributed_breakdown_key: attributed_breakdown_key_bits
                     .iter()
                     .map(Field::as_u128)
@@ -839,42 +927,42 @@ pub mod tests {
     }
 
     #[test]
-    fn semi_honest() {
+    fn semi_honest_attribution_and_capping() {
         run(|| async move {
             let world = TestWorld::default();
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit>> = vec![
                 /* First User */
-                test_input(123, false, 17, 0),
-                test_input(123, true, 0, 7),
-                test_input(123, false, 20, 0),
-                test_input(123, true, 0, 3),
+                oprf_test_input(123, false, 17, 0),
+                oprf_test_input(123, true, 0, 7),
+                oprf_test_input(123, false, 20, 0),
+                oprf_test_input(123, true, 0, 3),
                 /* Second User */
-                test_input(234, false, 12, 0),
-                test_input(234, true, 0, 5),
+                oprf_test_input(234, false, 12, 0),
+                oprf_test_input(234, true, 0, 5),
                 /* Third User */
-                test_input(345, false, 20, 0),
-                test_input(345, true, 0, 7),
-                test_input(345, false, 18, 0),
-                test_input(345, false, 12, 0),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 20, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 18, 0),
+                oprf_test_input(345, false, 12, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
             ];
 
-            let expected: [PreAggregationTestOutput; 11] = [
-                test_output(17, 7),
-                test_output(20, 0),
-                test_output(20, 3),
-                test_output(12, 5),
-                test_output(20, 7),
-                test_output(18, 0),
-                test_output(12, 0),
-                test_output(12, 7),
-                test_output(12, 7),
-                test_output(12, 7),
-                test_output(12, 4),
+            let expected: [PreAggregationTestOutputInDecimal; 11] = [
+                decimal_bd_key_and_value(17, 7),
+                decimal_bd_key_and_value(20, 0),
+                decimal_bd_key_and_value(20, 3),
+                decimal_bd_key_and_value(12, 5),
+                decimal_bd_key_and_value(20, 7),
+                decimal_bd_key_and_value(18, 0),
+                decimal_bd_key_and_value(12, 0),
+                decimal_bd_key_and_value(12, 7),
+                decimal_bd_key_and_value(12, 7),
+                decimal_bd_key_and_value(12, 7),
+                decimal_bd_key_and_value(12, 4),
             ];
             let num_saturating_bits: usize = 5;
 
@@ -901,22 +989,22 @@ pub mod tests {
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit>> = vec![
                 /* First User */
-                test_input(123, false, 17, 0),
-                test_input(123, true, 0, 7),
-                test_input(123, false, 20, 0),
-                test_input(123, true, 0, 3),
+                oprf_test_input(123, false, 17, 0),
+                oprf_test_input(123, true, 0, 7),
+                oprf_test_input(123, false, 20, 0),
+                oprf_test_input(123, true, 0, 3),
                 /* Second User */
-                test_input(234, false, 12, 0),
-                test_input(234, true, 0, 5),
+                oprf_test_input(234, false, 12, 0),
+                oprf_test_input(234, true, 0, 5),
                 /* Third User */
-                test_input(345, false, 20, 0),
-                test_input(345, true, 0, 7),
-                test_input(345, false, 18, 0),
-                test_input(345, false, 12, 0),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
-                test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 20, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 18, 0),
+                oprf_test_input(345, false, 12, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
             ];
 
             let mut expected = [0_u128; 32];
@@ -943,5 +1031,132 @@ pub mod tests {
                 .reconstruct();
             assert_eq!(result, &expected);
         });
+    }
+
+    #[test]
+    fn semi_honest_aggregation() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreAggregationTestInputInBits> = vec![
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(17, 7),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(20, 0),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(20, 3),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 5),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(20, 7),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(18, 0),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 0),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 7),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 7),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 7),
+                bitwise_bd_key_and_value::<Gf5Bit, Gf3Bit>(12, 4),
+            ];
+
+            let mut expected = [0_u128; 32];
+            expected[12] = 30;
+            expected[17] = 7;
+            expected[20] = 10;
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    let validator = ctx.validator();
+                    let ctx = validator.context();
+                    do_aggregation::<_, Gf5Bit, Gf3Bit, Fp32BitPrime, _>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_move_value_to_single_bucket_in_range() {
+        const MAX_BREAKDOWN_COUNT: usize = 127;
+        for _ in 1..10 {
+            run(|| async move {
+                let world = TestWorld::default();
+                let mut rng: rand::rngs::ThreadRng = thread_rng();
+                let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
+                let breakdown_key = rng.gen_range(1..count);
+
+                let value: Fp32BitPrime = Fp32BitPrime::truncate_from(10_u128);
+                let mut expected = vec![Fp32BitPrime::truncate_from(0_u128); count];
+                expected[breakdown_key] = value;
+
+                let breakdown_key_bits =
+                    get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
+
+                let result: Vec<_> = world
+                    .semi_honest(
+                        (breakdown_key_bits, value),
+                        |ctx, (breakdown_key_share, value_share)| async move {
+                            let validator = ctx.validator();
+                            let ctx = validator.context();
+                            move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                                ctx.set_total_records(1),
+                                RecordId::from(0),
+                                breakdown_key_share,
+                                value_share,
+                                count,
+                                false,
+                            )
+                            .await
+                            .unwrap()
+                        },
+                    )
+                    .await
+                    .reconstruct();
+                assert_eq!(result, expected);
+            });
+        }
+    }
+
+    #[test]
+    fn semi_honest_move_value_to_single_bucket_out_of_range() {
+        const MAX_BREAKDOWN_COUNT: usize = 127;
+        for robust_for_breakdown_key_gt_count in [true, false] {
+            for _ in 1..10 {
+                run(move || async move {
+                    let world = TestWorld::default();
+                    let mut rng: rand::rngs::ThreadRng = thread_rng();
+                    let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
+                    let breakdown_key = rng.gen_range(count..MAX_BREAKDOWN_COUNT);
+
+                    let value: Fp32BitPrime = Fp32BitPrime::truncate_from(10_u128);
+                    let expected = vec![Fp32BitPrime::truncate_from(0_u128); count];
+
+                    let breakdown_key_bits =
+                        get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
+
+                    let result: Vec<_> = world
+                        .semi_honest(
+                            (breakdown_key_bits, value),
+                            |ctx, (breakdown_key_share, value_share)| async move {
+                                let validator = ctx.validator();
+                                let ctx = validator.context();
+                                move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                                    ctx.set_total_records(1),
+                                    RecordId::from(0),
+                                    breakdown_key_share,
+                                    value_share,
+                                    count,
+                                    robust_for_breakdown_key_gt_count,
+                                )
+                                .await
+                                .unwrap()
+                            },
+                        )
+                        .await
+                        .reconstruct();
+                    if robust_for_breakdown_key_gt_count {
+                        assert_eq!(result, expected);
+                    } else {
+                        assert_ne!(result, expected);
+                    }
+                });
+            }
+        }
     }
 }
