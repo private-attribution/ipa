@@ -250,6 +250,7 @@ pub struct IpaQueryConfig {
     /// input report format in which all fields are secret-shared. This option is provided
     /// only for development and testing purposes and may be removed in the future.
     #[cfg_attr(feature = "clap", arg(long))]
+    #[serde(default)]
     pub plaintext_match_keys: bool,
 }
 
