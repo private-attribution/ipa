@@ -125,7 +125,7 @@ impl From<&Scalar> for RP25519 {
     }
 }
 
-impl From<Fp25519> for RP25519 {
+impl From<&Fp25519> for RP25519 {
     fn from(s: Fp25519) -> Self {
         RP25519(RistrettoPoint::mul_base(&s.into()).compress())
     }
