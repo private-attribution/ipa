@@ -188,8 +188,7 @@ pub fn test_multiply(config_dir: &Path, https: bool) {
 }
 
 pub fn test_network(https: bool) {
-    // set to true to always keep the temp dir after test finishes
-    let dir = TempDir::new(false);
+    let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
@@ -206,7 +205,7 @@ pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
 pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQueryConfig) {
     const INPUT_SIZE: usize = 10;
     // set to true to always keep the temp dir after test finishes
-    let dir = TempDir::new(false);
+    let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
     println!("generating configuration in {}", path.display());
