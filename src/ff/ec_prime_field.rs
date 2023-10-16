@@ -19,7 +19,8 @@ pub struct Fp25519(<Self as SharedValue>::Storage);
 impl Fp25519 {
     pub const ONE: Self = Self(Scalar::ONE);
 
-    //must not use with ZERO
+    ///# Panics
+    /// Panics when self is zero
     #[must_use]
     pub fn invert(&self) -> Fp25519 {
         assert_ne!(*self, Fp25519::ZERO);
@@ -43,7 +44,7 @@ impl Serializable for Fp25519 {
     type Size = <<Fp25519 as SharedValue>::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        *buf.as_mut() = self.0.to_bytes()
+        *buf.as_mut() = self.0.to_bytes();
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
