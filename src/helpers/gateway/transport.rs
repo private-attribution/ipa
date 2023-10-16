@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         buffers::UnorderedReceiver,
         gateway::{receive::UR, send::GatewaySendStream},
-        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport,
+        ChannelId, GatewayConfig, Role, RoleAssignment, RouteId, Transport, TransportImpl,
     },
     protocol::QueryId,
 };
@@ -12,19 +12,19 @@ use crate::{
 ///
 /// [`HelperIdentity`]: crate::helpers::HelperIdentity
 #[derive(Clone)]
-pub(super) struct RoleResolvingTransport<T> {
+pub(super) struct RoleResolvingTransport {
     pub query_id: QueryId,
     pub roles: RoleAssignment,
     pub config: GatewayConfig,
-    pub inner: T,
+    pub inner: TransportImpl,
 }
 
-impl<T: Transport> RoleResolvingTransport<T> {
+impl RoleResolvingTransport {
     pub(crate) async fn send(
         &self,
         channel_id: &ChannelId,
         data: GatewaySendStream,
-    ) -> Result<(), T::Error> {
+    ) -> Result<(), <TransportImpl as Transport>::Error> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
             dest_identity,
@@ -41,7 +41,7 @@ impl<T: Transport> RoleResolvingTransport<T> {
             .await
     }
 
-    pub(crate) fn receive(&self, channel_id: &ChannelId) -> UR<T> {
+    pub(crate) fn receive(&self, channel_id: &ChannelId) -> UR {
         let peer = self.roles.identity(channel_id.role);
         assert_ne!(
             peer,

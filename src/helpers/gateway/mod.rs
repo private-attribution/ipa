@@ -1,19 +1,22 @@
 mod receive;
 mod send;
+#[cfg(feature = "stall-detection")]
+pub(super) mod stall_detection;
 mod transport;
 
-use std::{fmt::Debug, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
-pub use send::SendingEnd;
-#[cfg(all(feature = "shuttle", test))]
+pub(super) use receive::ReceivingEnd;
+pub(super) use send::SendingEnd;
+#[cfg(all(test, feature = "shuttle"))]
 use shuttle::future as tokio;
+#[cfg(feature = "stall-detection")]
+pub(super) use stall_detection::InstrumentedGateway;
 
 use crate::{
     helpers::{
         gateway::{
-            receive::{GatewayReceivers, ReceivingEnd as ReceivingEndBase},
-            send::GatewaySenders,
-            transport::RoleResolvingTransport,
+            receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
         },
         ChannelId, Message, Role, RoleAssignment, TotalRecords, Transport,
     },
@@ -31,18 +34,21 @@ pub type TransportImpl = super::transport::InMemoryTransport;
 pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
 
 pub type TransportError = <TransportImpl as Transport>::Error;
-pub type ReceivingEnd<M> = ReceivingEndBase<TransportImpl, M>;
 
-/// Gateway into IPA Infrastructure systems. This object allows sending and receiving messages.
-/// As it is generic over network/transport layer implementation, type alias [`Gateway`] should be
-/// used to avoid carrying `T` over.
-///
-/// [`Gateway`]: crate::helpers::Gateway
-pub struct Gateway<T: Transport = TransportImpl> {
+/// Gateway into IPA Network infrastructure. It allows helpers send and receive messages.
+pub struct Gateway {
     config: GatewayConfig,
-    transport: RoleResolvingTransport<T>,
+    transport: RoleResolvingTransport,
+    #[cfg(feature = "stall-detection")]
+    inner: crate::sync::Arc<State>,
+    #[cfg(not(feature = "stall-detection"))]
+    inner: State,
+}
+
+#[derive(Default)]
+pub struct State {
     senders: GatewaySenders,
-    receivers: GatewayReceivers<T>,
+    receivers: GatewayReceivers,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,16 +56,23 @@ pub struct GatewayConfig {
     /// The number of items that can be active at the one time.
     /// This is used to determine the size of sending and receiving buffers.
     active: NonZeroUsize,
+
+    /// Time to wait before checking gateway progress. If no progress has been made between
+    /// checks, the gateway is considered to be stalled and will create a report with outstanding
+    /// send/receive requests
+    #[cfg(feature = "stall-detection")]
+    pub progress_check_interval: std::time::Duration,
 }
 
-impl<T: Transport> Gateway<T> {
+impl Gateway {
     #[must_use]
     pub fn new(
         query_id: QueryId,
         config: GatewayConfig,
         roles: RoleAssignment,
-        transport: T,
+        transport: TransportImpl,
     ) -> Self {
+        #[allow(clippy::useless_conversion)]
         Self {
             config,
             transport: RoleResolvingTransport {
@@ -68,8 +81,7 @@ impl<T: Transport> Gateway<T> {
                 inner: transport,
                 config,
             },
-            senders: GatewaySenders::default(),
-            receivers: GatewayReceivers::default(),
+            inner: State::default().into(),
         }
     }
 
@@ -91,10 +103,12 @@ impl<T: Transport> Gateway<T> {
         &self,
         channel_id: &ChannelId,
         total_records: TotalRecords,
-    ) -> SendingEnd<M> {
-        let (tx, maybe_stream) =
-            self.senders
-                .get_or_create::<M>(channel_id, self.config.active_work(), total_records);
+    ) -> send::SendingEnd<M> {
+        let (tx, maybe_stream) = self.inner.senders.get_or_create::<M>(
+            channel_id,
+            self.config.active_work(),
+            total_records,
+        );
         if let Some(stream) = maybe_stream {
             tokio::spawn({
                 let channel_id = channel_id.clone();
@@ -109,14 +123,15 @@ impl<T: Transport> Gateway<T> {
             });
         }
 
-        SendingEnd::new(tx, self.role(), channel_id)
+        send::SendingEnd::new(tx, self.role(), channel_id)
     }
 
     #[must_use]
-    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEndBase<T, M> {
-        ReceivingEndBase::new(
+    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> receive::ReceivingEnd<M> {
+        receive::ReceivingEnd::new(
             channel_id.clone(),
-            self.receivers
+            self.inner
+                .receivers
                 .get_or_create(channel_id, || self.transport.receive(channel_id)),
         )
     }
@@ -135,8 +150,18 @@ impl GatewayConfig {
     /// If `active` is 0.
     #[must_use]
     pub fn new(active: usize) -> Self {
+        // In-memory tests are fast, so progress check intervals can be lower.
+        // Real world scenarios currently over-report stalls because of inefficiencies inside
+        // infrastructure and actual networking issues. This checks is only valuable to report
+        // bugs, so keeping it large enough to avoid false positives.
         Self {
             active: NonZeroUsize::new(active).unwrap(),
+            #[cfg(feature = "stall-detection")]
+            progress_check_interval: std::time::Duration::from_secs(if cfg!(test) {
+                5
+            } else {
+                30
+            }),
         }
     }
 

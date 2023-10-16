@@ -5,7 +5,7 @@ use ipa_macros::Gate;
 use super::StepNarrow;
 use crate::helpers::{prss_protocol::PrssExchangeStep, query::QueryType};
 
-#[derive(Gate, Clone, Hash, PartialEq, Eq, Default)]
+#[derive(Gate, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),

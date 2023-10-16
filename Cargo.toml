@@ -12,7 +12,8 @@ default = [
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
     "descriptive-gate",
-    "aggregate-circuit"
+    "aggregate-circuit",
+    "stall-detection",
 ]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
@@ -21,6 +22,10 @@ disable-metrics = []
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "base64", "clap", "comfy-table", "enable-serde", "hyper", "hyper-rustls", "rcgen", "rustls", "rustls-pemfile", "time", "tokio-rustls", "toml", "tower", "tower-http"]
 test-fixture = ["enable-serde", "weak-field"]
+# Include observability instruments that detect lack of progress inside MPC. If there is a bug that leads to helper
+# miscommunication, this feature helps to detect it. Turning it on has some cost.
+# If "shuttle" feature is enabled, turning this on has no effect.
+stall-detection = []
 shuttle = ["shuttle-crate", "test-fixture"]
 debug-trace = ["tracing/max_level_trace", "tracing/release_max_level_debug"]
 # TODO: we may want to use in-memory-bench and real-world-bench some time after
@@ -55,6 +60,7 @@ comfy-table = { version = "7.0", optional = true }
 config = "0.13.2"
 criterion = { version = "0.5.1", optional = true, default-features = false, features = ["async_tokio", "plotters", "html_reports"] }
 dashmap = "5.4"
+delegate = "0.10.0"
 dhat = "0.3.2"
 embed-doc-image = "0.1.4"
 futures = "0.3.28"
