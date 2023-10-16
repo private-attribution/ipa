@@ -33,8 +33,7 @@ impl Serializable for RP25519 {
     type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.0.as_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
+        *buf.as_mut() = self.0.to_bytes();
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {

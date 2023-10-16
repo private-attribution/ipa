@@ -43,15 +43,11 @@ impl Serializable for Fp25519 {
     type Size = <<Fp25519 as SharedValue>::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.0.as_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
+        *buf.as_mut() = self.0.to_bytes()
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mut buf_to = [0u8; 32];
-        buf_to[..buf.len()].copy_from_slice(buf);
-
-        Fp25519(Scalar::from_bytes_mod_order(buf_to))
+        Fp25519(Scalar::from_bytes_mod_order((*buf).into()))
     }
 }
 
