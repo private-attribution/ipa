@@ -50,10 +50,8 @@ impl<T: Transport> RoleResolvingTransport<T> {
         );
 
         UnorderedReceiver::new(
-            Box::pin(
-                self.inner
-                    .receive(peer, (self.query_id, channel_id.gate.clone())),
-            ),
+            self.inner
+                .receive(peer, (self.query_id, channel_id.gate.clone())),
             self.config.active_work(),
         )
     }
