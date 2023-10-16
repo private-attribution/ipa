@@ -238,12 +238,14 @@ where
                     }
                 }
 
+                self.wake_next();
                 Poll::Ready(Ok(m))
             }
             None => loop {
                 match ready!(self.stream.as_mut().poll_next(cx)) {
                     Some(bytes) => {
                         if let Some(m) = self.spare.extend(bytes.as_ref()) {
+                            self.wake_next();
                             break Poll::Ready(Ok(m));
                         }
                     }
@@ -255,10 +257,6 @@ where
                 }
             },
         };
-
-        if next.is_ready() {
-            self.wake_next();
-        }
 
         next
     }
