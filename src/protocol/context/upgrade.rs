@@ -165,7 +165,7 @@ where
 
 #[derive(Step)]
 pub(crate) enum Upgrade2DVectors {
-    #[dynamic]
+    #[dynamic(64)]
     Upgrade2d(usize),
 }
 

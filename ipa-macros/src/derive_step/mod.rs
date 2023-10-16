@@ -47,6 +47,8 @@ use crate::{
     tree::Node,
 };
 
+const MAX_DYNAMIC_STEPS: usize = 1024;
+
 trait CaseStyle {
     fn to_snake_case(&self) -> String;
 }
@@ -113,19 +115,24 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
     let mut const_arrays = Vec::new();
     let mut arms = Vec::new();
 
-    data.variants.iter().for_each(|v| {
+    for v in data.variants.iter() {
         let ident = &v.ident;
         let ident_snake_case = ident.to_string().to_snake_case();
         let ident_upper_case = ident_snake_case.to_uppercase();
 
         if is_dynamic_step(v) {
-            // create an array of 64 strings and use the variant index as array index
-            let steps = (0..64)
+            let num_steps = match get_dynamic_step_count(v) {
+                Ok(n) => n,
+                Err(e) => return Err(e),
+            };
+
+            // create an array of `num_steps` strings and use the variant index as array index
+            let steps = (0..num_steps)
                 .map(|i| format!("{}{}", ident_snake_case, i))
                 .collect::<Vec<_>>();
             let steps_array_ident = format_ident!("{}_DYNAMIC_STEP", ident_upper_case);
             const_arrays.extend(quote!(
-                const #steps_array_ident: [&str; 64] = [#(#steps),*];
+                const #steps_array_ident: [&str; #num_steps] = [#(#steps),*];
             ));
             arms.extend(quote!(
                 Self::#ident(i) => #steps_array_ident[usize::try_from(*i).unwrap()],
@@ -136,7 +143,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
                 Self::#ident => #ident_snake_case,
             ));
         }
-    });
+    }
 
     Ok(quote!(
         impl AsRef<str> for #ident {
@@ -212,7 +219,10 @@ fn get_meta_data_for(
         .iter()
         .flat_map(|v| {
             if is_dynamic_step(v) {
-                (0..64)
+                // using `unwrap()` here since we have already validated the
+                // format in `impl_as_ref()`.
+                let num_steps = get_dynamic_step_count(v).unwrap();
+                (0..num_steps)
                     .map(|i| format!("{}{}", v.ident.to_string().to_snake_case(), i))
                     .collect::<Vec<_>>()
             } else {
@@ -280,4 +290,35 @@ fn get_meta_data_for(
 
 fn is_dynamic_step(variant: &syn::Variant) -> bool {
     variant.attrs.iter().any(|x| x.path().is_ident("dynamic"))
+}
+
+/// Returns the number literal argument passed to #[dynamic(...)] attribute.
+///
+/// # Errors
+/// Returns an error if the argument format is invalid or the number of steps
+/// exceeds `MAX_DYNAMIC_STEPS`. The error can be used to generate a compile
+/// time error. The function assumes that `is_dynamic_step()` returns true for
+/// the given variant.
+fn get_dynamic_step_count(variant: &syn::Variant) -> Result<usize, syn::Error> {
+    let dynamic_attr = variant
+        .attrs
+        .iter()
+        .find(|x| x.path().is_ident("dynamic"))
+        .unwrap();
+    let arg = dynamic_attr
+        .parse_args::<syn::LitInt>()
+        .map(|x| x.base10_parse::<usize>().unwrap())
+        .ok();
+    match arg {
+        // guard against gigantic code generation
+        Some(n) if n <= MAX_DYNAMIC_STEPS => Ok(n),
+        _ => Err(syn::Error::new_spanned(
+            dynamic_attr,
+            format!(
+                "ipa_macros::step \"dynamic\" attribute expects a number of steps \
+                            (<= {}) in parentheses: #[dynamic(...)].",
+                MAX_DYNAMIC_STEPS,
+            ),
+        )),
+    }
 }

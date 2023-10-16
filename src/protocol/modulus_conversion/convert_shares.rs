@@ -51,7 +51,7 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum ConvertSharesStep {
-    #[dynamic]
+    #[dynamic(64)]
     ConvertBit(u32),
     Upgrade,
     Xor1,

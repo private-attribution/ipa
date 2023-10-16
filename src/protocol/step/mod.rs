@@ -53,7 +53,7 @@ impl Step for str {}
 /// updated with a new step scheme.
 #[derive(Step)]
 pub enum BitOpStep {
-    #[dynamic]
+    #[dynamic(64)]
     Bit(usize),
 }
 
@@ -79,6 +79,6 @@ impl From<usize> for BitOpStep {
 #[derive(Step)]
 pub(crate) enum IpaProtocolStep {
     /// Sort shares by the match key
-    #[dynamic]
+    #[dynamic(64)]
     Sort(usize),
 }
