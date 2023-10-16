@@ -121,11 +121,11 @@ impl From<Scalar> for Fp25519 {
 }
 
 macro_rules! sc_hash_impl {
-    ( $u_type:ty, $byte_size:literal) => {
+    ( $u_type:ty) => {
         impl From<Fp25519> for $u_type {
             fn from(s: Fp25519) -> Self {
                 let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
-                let mut okm = [0u8; $byte_size];
+                let mut okm = <$u_type>::MIN.to_le_bytes();
                 //error invalid length from expand only happens when okm is very large
                 hk.expand(&[], &mut okm).unwrap();
                 <$u_type>::from_le_bytes(okm)
@@ -144,9 +144,9 @@ macro_rules! sc_hash_impl {
     };
 }
 
-sc_hash_impl!(u64, 8);
+sc_hash_impl!(u64);
 
-sc_hash_impl!(u32, 4);
+sc_hash_impl!(u32);
 
 /// Daniel had to implement this since PRSS wants it, prefer not to
 impl Field for Fp25519 {

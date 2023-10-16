@@ -144,11 +144,11 @@ impl From<RP25519> for CompressedRistretto {
 }
 
 macro_rules! cp_hash_impl {
-    ( $u_type:ty, $byte_size:literal) => {
+    ( $u_type:ty) => {
         impl From<RP25519> for $u_type {
             fn from(s: RP25519) -> Self {
                 let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
-                let mut okm = [0u8; $byte_size];
+                let mut okm = <$u_type>::MIN.to_le_bytes();
                 //error invalid length from expand only happens when okm is very large
                 hk.expand(&[], &mut okm).unwrap();
                 <$u_type>::from_le_bytes(okm)
@@ -167,9 +167,9 @@ macro_rules! cp_hash_impl {
     };
 }
 
-cp_hash_impl!(u64, 8);
+cp_hash_impl!(u64);
 
-cp_hash_impl!(u32, 4);
+cp_hash_impl!(u32);
 
 /// Daniel had to implement this since Reveal wants it, prefer not to, I dont understand why it is
 /// actually needed there, maybe to upgrade it to malicious? but it still shouldn't be needed
