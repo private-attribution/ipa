@@ -114,9 +114,8 @@ pub fn expand(input: TokenStream) -> TokenStream {
 fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2, syn::Error> {
     let mut const_arrays = Vec::new();
     let mut arms = Vec::new();
-    let mut res = Ok(());
 
-    data.variants.iter().for_each(|v| {
+    for v in data.variants.iter() {
         let ident = &v.ident;
         let ident_snake_case = ident.to_string().to_snake_case();
         let ident_upper_case = ident_snake_case.to_uppercase();
@@ -124,11 +123,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
         if is_dynamic_step(v) {
             let num_steps = match get_dynamic_step_count(v) {
                 Ok(n) => n,
-                Err(e) => {
-                    // we can't return from a closure, so we need to set the result and break
-                    res = Err(e);
-                    return;
-                }
+                Err(e) => return Err(e),
             };
 
             // create an array of `num_steps` strings and use the variant index as array index
@@ -148,9 +143,9 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
                 Self::#ident => #ident_snake_case,
             ));
         }
-    });
+    }
 
-    res.and(Ok(quote!(
+    Ok(quote!(
         impl AsRef<str> for #ident {
             fn as_ref(&self) -> &str {
                 #(#const_arrays)*
@@ -159,7 +154,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
                 }
             }
         }
-    )))
+    ))
 }
 
 /// Build a state transition map for the enum variants, and use it to generate
