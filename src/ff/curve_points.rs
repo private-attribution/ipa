@@ -119,7 +119,7 @@ impl std::ops::MulAssign for RP25519 {
     }
 }
 
-impl From<Scalar> for RP25519 {
+impl From<&Scalar> for RP25519 {
     fn from(s: Scalar) -> Self {
         RP25519(RistrettoPoint::mul_base(&s).compress())
     }
