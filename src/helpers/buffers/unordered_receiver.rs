@@ -6,7 +6,11 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use futures::{stream::Fuse, task::Waker, Future, Stream};
+use futures::{
+    stream::Fuse,
+    task::{noop_waker_ref, Waker},
+    Future, Stream,
+};
 use futures_util::StreamExt;
 use generic_array::GenericArray;
 use typenum::Unsigned;
@@ -213,7 +217,7 @@ where
         // otherwise, poll the underlying stream until it returns pending or it provides enough
         // data to return a value.
 
-        let message = self.spare.read::<M>();
+        let message = self.spare.read();
         let next = match message {
             Some(m) => {
                 // this check exists to make sure the inner stream is eventually moved to
@@ -224,7 +228,7 @@ where
                     // They decide when they want the next message and must issue a `poll` for it.
 
                     // TODO: https://github.com/rust-lang/rust/issues/98286
-                    let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+                    let mut cx = Context::from_waker(noop_waker_ref());
                     match self.stream.as_mut().poll_next(&mut cx) {
                         Poll::Ready(Some(bytes)) => {
                             // Spare is empty because of the check above.
