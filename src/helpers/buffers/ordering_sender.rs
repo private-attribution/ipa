@@ -1,13 +1,11 @@
-#![allow(dead_code)] // TODO remove
-
 use std::{
     borrow::Borrow,
     cmp::Ordering,
     collections::VecDeque,
+    fmt::Debug,
     mem::drop,
     num::NonZeroUsize,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -116,6 +114,7 @@ impl State {
 }
 
 /// An saved waker for a given index.
+#[derive(Debug)]
 struct WakerItem {
     /// The index.
     i: usize,
@@ -124,37 +123,59 @@ struct WakerItem {
 }
 
 /// A collection of saved wakers.
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct WaitingShard {
+    /// The maximum index that was used to wake a task that belongs to this shard.
+    /// Updates to this shard will be rejected if the supplied index is less than this value.
+    /// See [`Add`] for more details.
+    ///
+    /// [`Add`]: WaitingShard::add
+    woken_at: usize,
     /// The saved wakers.  These are sorted on insert (see `add`) and
     /// presumably removed constantly, so a circular buffer is used.
     wakers: VecDeque<WakerItem>,
 }
 
 impl WaitingShard {
-    fn add(&mut self, i: usize, w: Waker) {
+    /// Add a waker that will be used to wake up a write to `i`.
+    ///
+    /// ## Errors
+    /// If `current` is behind the current position recorded in this shard.
+    fn add(&mut self, current: usize, i: usize, w: &Waker) -> Result<(), ()> {
+        if current < self.woken_at {
+            // this means this thread is out of sync and there was an update to channel's current
+            // position. Accepting a waker could mean it will never be awakened. Rejecting this operation
+            // will let the current thread to read the position again.
+            Err(())?;
+        }
+
         // Each new addition will tend to have a larger index, so search backwards and
         // replace an equal index or insert after a smaller index.
         // TODO: consider a binary search if the item cannot be added to the end.
-        let item = WakerItem { i, w };
+        let item = WakerItem { i, w: w.clone() };
         for j in (0..self.wakers.len()).rev() {
             match self.wakers[j].i.cmp(&i) {
                 Ordering::Greater => (),
                 Ordering::Equal => {
                     assert!(item.w.will_wake(&self.wakers[j].w));
                     self.wakers[j] = item;
-                    return;
+                    return Ok(());
                 }
                 Ordering::Less => {
                     self.wakers.insert(j + 1, item);
-                    return;
+                    return Ok(());
                 }
             }
         }
         self.wakers.insert(0, item);
+        Ok(())
     }
 
     fn wake(&mut self, i: usize) {
+        // Waking thread may have lost the race and got the lock after the successful write
+        // to the next element. Moving `woken_at` back will introduce a concurrency bug.
+        self.woken_at = std::cmp::max(self.woken_at, i);
+
         if let Some(idx) = self
             .wakers
             .iter()
@@ -192,8 +213,12 @@ impl Waiting {
         self.shards[idx].lock().unwrap()
     }
 
-    fn add(&self, i: usize, w: Waker) {
-        self.shard(i).add(i, w);
+    /// Add a waker that will be used to wake up a write to `i`.
+    ///
+    /// ## Errors
+    /// If `current` is behind the current position recorded in this shard.
+    fn add(&self, current: usize, i: usize, w: &Waker) -> Result<(), ()> {
+        self.shard(i).add(current, i, w)
     }
 
     fn wake(&self, i: usize) {
@@ -276,26 +301,43 @@ impl OrderingSender {
     {
         // This load here is on the hot path.
         // Don't acquire the state mutex unless this test passes.
-        match self.next.load(Acquire).cmp(&i) {
-            Ordering::Greater => {
-                panic!("attempt to write/close at index {i} twice");
-            }
-            Ordering::Equal => {
-                // OK, now it is our turn, so we need to hold a lock.
-                // No one else should be incrementing this atomic, so
-                // there should be no contention on this lock except for
-                // any calls to `take()`, which is tolerable.
-                let res = f(&mut self.state.lock().unwrap());
-                if res.is_ready() {
-                    let curr = self.next.fetch_add(1, AcqRel);
-                    debug_assert_eq!(i, curr, "we just checked this");
+        loop {
+            let curr = self.next.load(Acquire);
+            match curr.cmp(&i) {
+                Ordering::Greater => {
+                    panic!("attempt to write/close at index {i} twice");
                 }
-                res
-            }
-            Ordering::Less => {
-                // This is the hot path. Wait our turn.
-                self.waiting.add(i, cx.waker().clone());
-                Poll::Pending
+                Ordering::Equal => {
+                    // OK, now it is our turn, so we need to hold a lock.
+                    // No one else should be incrementing this atomic, so
+                    // there should be no contention on this lock except for
+                    // any calls to `take()`, which is tolerable.
+                    let res = f(&mut self.state.lock().unwrap());
+                    if res.is_ready() {
+                        let curr = self.next.fetch_add(1, AcqRel);
+                        debug_assert_eq!(i, curr, "we just checked this");
+                    }
+                    break res;
+                }
+                Ordering::Less => {
+                    // This is the hot path. Wait our turn. If our view of the world is obsolete
+                    // we won't be able to add a waker and need to read the atomic again.
+                    //
+                    // Here is why it works:
+                    // * The only thread updating the atomic is the one that is writing to `i`.
+                    // * If the write to `i` is successful, it wakes up the thread waiting to write `i` + 1.
+                    // * Adding a waker and waking it is within a critical section.
+                    //
+                    // There are two possible scenarios for two threads competing for `i` + 1 waker.
+                    // * Waiting thread adds a waker before writer thread attempts to wake it. This is a normal case
+                    // scenario and things work as expected
+                    // * Waiting thread attempts to add a waker after writer tried to wake it. This attempt will
+                    // be rejected because writer has moved the waiting shard position ahead and it won't match
+                    // the value of `self.next` read by the waiting thread.
+                    if self.waiting.add(curr, i, cx.waker()).is_ok() {
+                        break Poll::Pending;
+                    }
+                }
             }
         }
     }
@@ -322,11 +364,15 @@ impl OrderingSender {
     /// The stream interface requires a mutable reference to the stream itself.
     /// That's not possible here as we create a ton of immutable references to this.
     /// This wrapper takes a trivial reference so that we can implement `Stream`.
-    pub(crate) fn as_stream(&self) -> OrderedStream<&Self> {
+    #[cfg(all(test, any(unit_test, feature = "shuttle")))]
+    fn as_stream(&self) -> OrderedStream<&Self> {
         OrderedStream { sender: self }
     }
 
-    pub(crate) fn as_rc_stream(self: Arc<Self>) -> OrderedStream<Arc<Self>> {
+    #[cfg(all(test, unit_test))]
+    pub(crate) fn as_rc_stream(
+        self: crate::sync::Arc<Self>,
+    ) -> OrderedStream<crate::sync::Arc<Self>> {
         OrderedStream { sender: self }
     }
 }
@@ -403,8 +449,11 @@ mod test {
         stream::StreamExt,
         FutureExt,
     };
+    use futures_util::future::try_join_all;
     use generic_array::GenericArray;
     use rand::Rng;
+    #[cfg(feature = "shuttle")]
+    use shuttle::future as tokio;
     use typenum::Unsigned;
 
     use super::OrderingSender;
@@ -579,6 +628,30 @@ mod test {
             for (&v, b) in zip(values.iter(), buf.chunks(SZ)) {
                 assert_eq!(v, Fp31::deserialize(GenericArray::from_slice(b)));
             }
+        });
+    }
+
+    /// This test is supposed to eventually hang if there is a concurrency bug inside `OrderingSender`.
+    #[test]
+    fn parallel_send() {
+        const PARALLELISM: usize = 100;
+
+        run(|| async {
+            let sender = Arc::new(OrderingSender::new(
+                NonZeroUsize::new(PARALLELISM * <Fp31 as Serializable>::Size::USIZE).unwrap(),
+                NonZeroUsize::new(5).unwrap(),
+            ));
+
+            try_join_all((0..PARALLELISM).map(|i| {
+                tokio::spawn({
+                    let sender = Arc::clone(&sender);
+                    async move {
+                        sender.send(i, Fp31::truncate_from(i as u128)).await;
+                    }
+                })
+            }))
+            .await
+            .unwrap();
         });
     }
 }
