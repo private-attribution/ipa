@@ -106,7 +106,7 @@ cfg_aliases = "0.1.1"
 command-fds = "0.2.2"
 hex = "0.4"
 permutation = "0.4.1"
-proptest = "1.3"
+proptest = "1"
 tempfile = "3"
 tokio-rustls = { version = "0.24.0", features = ["dangerous_configuration"] }
 
