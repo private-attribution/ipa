@@ -2,7 +2,6 @@ use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
 use hkdf::Hkdf;
 use sha2::Sha256;
-//use rand_core::RngCore;
 use typenum::U32;
 
 use crate::{
@@ -23,6 +22,7 @@ impl Fp25519 {
     //must not use with ZERO
     #[must_use]
     pub fn invert(&self) -> Fp25519 {
+        assert_ne!(*self, Fp25519::ZERO);
         Fp25519(self.0.invert())
     }
 }
@@ -56,8 +56,6 @@ impl rand::distributions::Distribution<Fp25519> for rand::distributions::Standar
         let mut scalar_bytes = [0u8; 32];
         rng.fill_bytes(&mut scalar_bytes);
         Fp25519(Scalar::from_bytes_mod_order(scalar_bytes))
-        //not needed since above has sufficiently small bias
-        //Fp25519(Scalar::from_bytes_mod_order(&scalar_bytes))
     }
 }
 
@@ -144,8 +142,10 @@ macro_rules! sc_hash_impl {
     };
 }
 
+#[cfg(test)]
 sc_hash_impl!(u64);
 
+#[cfg(test)]
 sc_hash_impl!(u32);
 
 /// Daniel had to implement this since PRSS wants it, prefer not to
@@ -198,17 +198,12 @@ mod test {
 
     #[test]
     fn serde_25519() {
-        let input: [u8; 32] = [
-            0x01, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-            0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        let mut output: GenericArray<u8, U32> = [0u8; 32].into();
-        let a = Fp25519::deserialize(&input.into());
-        assert_eq!(a.0.as_bytes()[..32], input);
-        a.serialize(&mut output);
-        assert_eq!(a.0.as_bytes()[..32], output.as_slice()[..32]);
-        assert_eq!(input, output.as_slice()[..32]);
+        let mut rng = thread_rng();
+        let input = rng.gen::<Fp25519>();
+        let mut a: GenericArray<u8, U32> = [0u8; 32].into();
+        input.serialize(&mut a);
+        let output = Fp25519::deserialize(&a);
+        assert_eq!(input, output);
     }
 
     // These are just simple arithmetic tests since arithmetics are checked by curve25519_dalek

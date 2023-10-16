@@ -10,7 +10,7 @@ use typenum::U32;
 
 use crate::{
     error::Error,
-    ff::{ec_prime_field::Fp25519, Field, Serializable},
+    ff::{ec_prime_field::Fp25519, Serializable},
     secret_sharing::{Block, SharedValue},
 };
 
@@ -37,16 +37,7 @@ impl Serializable for RP25519 {
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        RP25519(CompressedRistretto::from_slice(buf).unwrap())
-    }
-}
-
-impl rand::distributions::Distribution<RP25519> for rand::distributions::Standard {
-    fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> RP25519 {
-        //Fp25519(Scalar::random(rng: &mut R))
-        let mut scalar_bytes = [0u8; 64];
-        rng.fill_bytes(&mut scalar_bytes);
-        RP25519(RistrettoPoint::from_uniform_bytes(&scalar_bytes).compress())
+        RP25519(CompressedRistretto((*buf).into()))
     }
 }
 
@@ -91,7 +82,6 @@ impl std::ops::SubAssign for RP25519 {
 ///Scalar Multiplication
 ///<'a, 'b> `std::ops::Mul<&'b"` Fp25519 for &'a
 impl RP25519 {
-
     /// # Errors
     /// Propagates errors from decompressing invalid curve point
     pub fn s_mul(self, rhs: Fp25519) -> Result<RP25519, Error> {
@@ -119,13 +109,13 @@ impl std::ops::MulAssign for RP25519 {
     }
 }
 
-impl From<&Scalar> for RP25519 {
+impl From<Scalar> for RP25519 {
     fn from(s: Scalar) -> Self {
         RP25519(RistrettoPoint::mul_base(&s).compress())
     }
 }
 
-impl From<&Fp25519> for RP25519 {
+impl From<Fp25519> for RP25519 {
     fn from(s: Fp25519) -> Self {
         RP25519(RistrettoPoint::mul_base(&s.into()).compress())
     }
@@ -154,84 +144,42 @@ macro_rules! cp_hash_impl {
                 <$u_type>::from_le_bytes(okm)
             }
         }
-
-        impl From<$u_type> for RP25519 {
-            fn from(s: $u_type) -> Self {
-                let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
-                let mut okm = [0u8; 32];
-                //error invalid length from expand only happens when okm is very large
-                hk.expand(&[], &mut okm).unwrap();
-                RP25519::deserialize(&okm.into())
-            }
-        }
     };
 }
 
+cp_hash_impl!(u128);
+
 cp_hash_impl!(u64);
 
+#[cfg(test)]
 cp_hash_impl!(u32);
 
-/// Daniel had to implement this since Reveal wants it, prefer not to, I dont understand why it is
-/// actually needed there, maybe to upgrade it to malicious? but it still shouldn't be needed
-impl Field for RP25519 {
-    const ONE: RP25519 = Self(constants::RISTRETTO_BASEPOINT_COMPRESSED);
-
-    ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
-    /// from or into u128. However it is sufficient to generate random elements in Fp25519
-    fn as_u128(&self) -> u128 {
-        let hk = Hkdf::<Sha256>::new(None, self.0.as_bytes());
-        let mut okm = [0u8; 16];
-        //error invalid length from expand only happens when okm is very large
-        hk.expand(&[], &mut okm).unwrap();
-        u128::from_le_bytes(okm)
-    }
-
-    ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
-    fn truncate_from<T: Into<u128>>(v: T) -> Self {
-        let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
-        let mut okm = [0u8; 32];
-        //error invalid length from expand only happens when okm is very large
-        hk.expand(&[], &mut okm).unwrap();
-        RP25519::deserialize(&okm.into())
-    }
-}
-
-impl TryFrom<u128> for RP25519 {
-    type Error = crate::error::Error;
-
-    fn try_from(v: u128) -> Result<Self, Self::Error> {
-        let mut bits = [0u8; 32];
-        bits[..].copy_from_slice(&v.to_le_bytes());
-        let f: RP25519 = RP25519::ONE;
-        f.serialize((&mut bits).into());
-        Ok(f)
+#[cfg(test)]
+impl rand::distributions::Distribution<RP25519> for rand::distributions::Standard {
+    fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> RP25519 {
+        let mut scalar_bytes = [0u8; 64];
+        rng.fill_bytes(&mut scalar_bytes);
+        RP25519(RistrettoPoint::from_uniform_bytes(&scalar_bytes).compress())
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use curve25519_dalek::scalar::Scalar;
+    use curve25519_dalek::{constants, scalar::Scalar};
     use generic_array::GenericArray;
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
-    use crate::{
-        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable, field::Field},
-    };
+    use crate::ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable};
 
     #[test]
     fn serde_25519() {
-        let input: [u8; 32] = [
-            0x01, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-            0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        let mut output: GenericArray<u8, U32> = [0u8; 32].into();
-        let a = RP25519::deserialize(&input.into());
-        assert_eq!(a.0.as_bytes()[..32], input);
-        a.serialize(&mut output);
-        assert_eq!(a.0.as_bytes()[..32], output.as_slice()[..32]);
-        assert_eq!(input, output.as_slice()[..32]);
+        let mut rng = thread_rng();
+        let input = rng.gen::<RP25519>();
+        let mut a: GenericArray<u8, U32> = [0u8; 32].into();
+        input.serialize(&mut a);
+        let output = RP25519::deserialize(&a);
+        assert_eq!(input, output);
     }
 
     #[test]
@@ -240,8 +188,8 @@ mod test {
         let b: RP25519 = a.into();
         let d: Fp25519 = a.into();
         let c: RP25519 = RP25519::from(d);
-        assert_eq!(b, RP25519::ONE);
-        assert_eq!(c, RP25519::ONE);
+        assert_eq!(b, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
+        assert_eq!(c, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
     }
 
     #[test]
@@ -252,13 +200,13 @@ mod test {
         let fp_c = fp_a + fp_b;
         let fp_d = RP25519::from(fp_a) + RP25519::from(fp_b);
         assert_eq!(fp_d, RP25519::from(fp_c));
-        assert_ne!(fp_d, RP25519::ONE);
+        assert_ne!(fp_d, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
         let fp_e = rng.gen::<Fp25519>();
         let fp_f = rng.gen::<Fp25519>();
         let fp_g = fp_e * fp_f;
         let fp_h = RP25519::from(fp_e).s_mul(fp_f).unwrap();
         assert_eq!(fp_h, RP25519::from(fp_g));
-        assert_ne!(fp_h, RP25519::ONE);
+        assert_ne!(fp_h, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
     }
 
     #[test]
