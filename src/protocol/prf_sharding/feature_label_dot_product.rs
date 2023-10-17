@@ -117,7 +117,7 @@ impl InputsRequiredFromPrevRow {
 
 #[derive(Step)]
 pub enum UserNthRowStep {
-    #[dynamic]
+    #[dynamic(64)]
     Row(usize),
 }
 
@@ -261,10 +261,10 @@ where
         let num_user_rows = rows_for_user.len();
         let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
         let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
+        record_id_for_row_depth[..num_user_rows]
+            .iter_mut()
+            .for_each(|count| *count += 1);
 
-        for count in &mut record_id_for_row_depth[..num_user_rows] {
-            *count += 1;
-        }
         #[allow(clippy::async_yields_async)]
         // this is ok, because seq join wants a stream of futures
         async move {
@@ -273,7 +273,7 @@ where
     }));
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattenned_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
+    let flattened_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
         .flat_map(|x| stream_iter(x.unwrap()));
 
     // modulus convert feature vector bits from shares in `Z_2` to shares in `Z_p`
@@ -281,7 +281,7 @@ where
         prime_field_ctx
             .narrow(&Step::ModulusConvertFeatureVectorBits)
             .set_total_records(num_outputs),
-        flattenned_stream,
+        flattened_stream,
         0..FV::BITS,
     );
 

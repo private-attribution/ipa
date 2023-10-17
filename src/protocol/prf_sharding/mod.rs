@@ -1,21 +1,18 @@
 use std::iter::{repeat, zip};
 
-use embed_doc_image::embed_doc_image;
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{future::try_join, StreamExt};
 use ipa_macros::Step;
 
-use super::{
-    basics::if_else, boolean::saturating_sum::SaturatingSum, modulus_conversion::convert_bits,
-    step::BitOpStep,
-};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
-        basics::{SecureMul, ShareKnownValue},
-        boolean::or::or,
+        basics::{if_else, SecureMul, ShareKnownValue},
+        boolean::{or::or, saturating_sum::SaturatingSum},
         context::{UpgradableContext, UpgradedContext, Validator},
+        modulus_conversion::convert_bits,
+        step::BitOpStep,
         RecordId,
     },
     secret_sharing::{
@@ -28,6 +25,7 @@ use crate::{
     seq_join::{seq_join, seq_try_join_all},
 };
 
+pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
@@ -183,7 +181,7 @@ pub struct CappedAttributionOutputs {
 
 #[derive(Step)]
 pub enum UserNthRowStep {
-    #[dynamic]
+    #[dynamic(64)]
     Row(usize),
 }
 
@@ -195,7 +193,7 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(Step)]
 pub enum BinaryTreeDepthStep {
-    #[dynamic]
+    #[dynamic(64)]
     Depth(usize),
 }
 
@@ -635,7 +633,7 @@ where
             let record_id: RecordId = RecordId::from(i);
             let bd_key = bk_bits.unwrap();
             async move {
-                move_single_value_to_bucket::<BK, _, _, _>(
+                bucket::move_single_value_to_bucket::<BK, _, _, _>(
                     ctx,
                     record_id,
                     bd_key,
@@ -662,86 +660,14 @@ where
         .await
 }
 
-#[embed_doc_image("tree-aggregation", "images/tree_aggregation.png")]
-/// This function moves a single value to a correct bucket using tree aggregation approach
-///
-/// Here is how it works
-/// The combined value,  [`value`] forms the root of a binary tree as follows:
-/// ![Tree propagation][tree-aggregation]
-///
-/// This value is propagated through the tree, with each subsequent iteration doubling the number of multiplications.
-/// In the first round,  r=BK-1, multiply the most significant bit ,[`bd_key`]_r by the value to get [`bd_key`]_r.[`value`]. From that,
-/// produce [`row_contribution`]_r,0 =[`value`]-[`bd_key`]_r.[`value`] and [`row_contribution`]_r,1=[`bd_key`]_r.[`value`].
-/// This takes the most significant bit of `bd_key` and places value in one of the two child nodes of the binary tree.
-/// At each successive round, the next most significant bit is propagated from the leaf nodes of the tree into further leaf nodes:
-/// [`row_contribution`]_r+1,q,0 =[`row_contribution`]_r,q - [`bd_key`]_r+1.[`row_contribution`]_r,q and [`row_contribution`]_r+1,q,1 =[`bd_key`]_r+1.[`row_contribution`]_r,q.  
-/// The work of each iteration therefore doubles relative to the one preceding.
-///
-/// In case a malicious entity sends a out of range breakdown key (i.e. greater than the max count) to this function, we need to do some
-/// extra processing to ensure contribution doesn't end up in a wrong bucket. However, this requires extra multiplications.
-/// This would potentially not be needed in IPA (as aggregation is done after pre-processing which should be able to throw such input) but useful for PAM.
-/// This can be by passing `robust_for_breakdown_key_gt_count as true
-async fn move_single_value_to_bucket<BK, C, S, F>(
-    ctx: C,
-    record_id: RecordId,
-    bd_key: BitDecomposed<S>,
-    value: S,
-    breakdown_count: usize,
-    robust_for_breakdown_key_gt_count: bool,
-) -> Result<Vec<S>, Error>
-where
-    BK: GaloisField,
-    C: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
-    F: PrimeField + ExtendableField,
-{
-    let mut step: usize = 1 << BK::BITS;
-
-    assert!(breakdown_count <= 1 << BK::BITS);
-    let mut row_contribution = vec![value; breakdown_count];
-
-    for (tree_depth, bit_of_bdkey) in bd_key.iter().rev().enumerate() {
-        let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
-        let span = step >> 1;
-        let mut futures = Vec::with_capacity(breakdown_count / step);
-
-        for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
-            let bit_c = depth_c.narrow(&BitOpStep::from(i));
-
-            if robust_for_breakdown_key_gt_count || tree_index + span < breakdown_count {
-                futures.push(row_contribution[tree_index].multiply(bit_of_bdkey, bit_c, record_id));
-            }
-        }
-        let contributions = ctx.parallel_join(futures).await?;
-
-        for (index, bdbit_contribution) in contributions.into_iter().enumerate() {
-            let left_index = index * step;
-            let right_index = left_index + span;
-
-            row_contribution[left_index] -= &bdbit_contribution;
-            if right_index < breakdown_count {
-                row_contribution[right_index] = bdbit_contribution;
-            }
-        }
-        step = span;
-    }
-    Ok(row_contribution)
-}
-
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use rand::thread_rng;
-
     use super::{attribution_and_capping, CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit, Gf8Bit},
+        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit},
         protocol::{
-            context::{Context, UpgradableContext, Validator},
-            prf_sharding::{
-                attribution_and_capping_and_aggregation, do_aggregation,
-                move_single_value_to_bucket,
-            },
-            RecordId,
+            context::{UpgradableContext, Validator},
+            prf_sharding::{attribution_and_capping_and_aggregation, do_aggregation},
         },
         rand::Rng,
         secret_sharing::{
@@ -1069,94 +995,5 @@ pub mod tests {
                 .reconstruct();
             assert_eq!(result, &expected);
         });
-    }
-
-    #[test]
-    fn semi_honest_move_value_to_single_bucket_in_range() {
-        const MAX_BREAKDOWN_COUNT: usize = 127;
-        for _ in 1..10 {
-            run(|| async move {
-                let world = TestWorld::default();
-                let mut rng: rand::rngs::ThreadRng = thread_rng();
-                let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
-                let breakdown_key = rng.gen_range(1..count);
-
-                let value: Fp32BitPrime = Fp32BitPrime::truncate_from(10_u128);
-                let mut expected = vec![Fp32BitPrime::truncate_from(0_u128); count];
-                expected[breakdown_key] = value;
-
-                let breakdown_key_bits =
-                    get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
-
-                let result: Vec<_> = world
-                    .semi_honest(
-                        (breakdown_key_bits, value),
-                        |ctx, (breakdown_key_share, value_share)| async move {
-                            let validator = ctx.validator();
-                            let ctx = validator.context();
-                            move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
-                                ctx.set_total_records(1),
-                                RecordId::from(0),
-                                breakdown_key_share,
-                                value_share,
-                                count,
-                                false,
-                            )
-                            .await
-                            .unwrap()
-                        },
-                    )
-                    .await
-                    .reconstruct();
-                assert_eq!(result, expected);
-            });
-        }
-    }
-
-    #[test]
-    fn semi_honest_move_value_to_single_bucket_out_of_range() {
-        const MAX_BREAKDOWN_COUNT: usize = 127;
-        for robust_for_breakdown_key_gt_count in [true, false] {
-            for _ in 1..10 {
-                run(move || async move {
-                    let world = TestWorld::default();
-                    let mut rng: rand::rngs::ThreadRng = thread_rng();
-                    let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
-                    let breakdown_key = rng.gen_range(count..MAX_BREAKDOWN_COUNT);
-
-                    let value: Fp32BitPrime = Fp32BitPrime::truncate_from(10_u128);
-                    let expected = vec![Fp32BitPrime::truncate_from(0_u128); count];
-
-                    let breakdown_key_bits =
-                        get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
-
-                    let result: Vec<_> = world
-                        .semi_honest(
-                            (breakdown_key_bits, value),
-                            |ctx, (breakdown_key_share, value_share)| async move {
-                                let validator = ctx.validator();
-                                let ctx = validator.context();
-                                move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
-                                    ctx.set_total_records(1),
-                                    RecordId::from(0),
-                                    breakdown_key_share,
-                                    value_share,
-                                    count,
-                                    robust_for_breakdown_key_gt_count,
-                                )
-                                .await
-                                .unwrap()
-                            },
-                        )
-                        .await
-                        .reconstruct();
-                    if robust_for_breakdown_key_gt_count {
-                        assert_eq!(result, expected);
-                    } else {
-                        assert_ne!(result, expected);
-                    }
-                });
-            }
-        }
     }
 }

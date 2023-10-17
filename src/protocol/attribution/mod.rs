@@ -438,7 +438,7 @@ pub(in crate::protocol) enum Step {
 
 #[derive(Step)]
 pub(crate) enum InteractionPatternStep {
-    #[dynamic]
+    #[dynamic(64)]
     Depth(usize),
 }
 
