@@ -12,7 +12,8 @@ default = [
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
     "descriptive-gate",
-    "aggregate-circuit"
+    "aggregate-circuit",
+    "ipa-prf"
 ]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
@@ -41,6 +42,7 @@ compact-gate = ["ipa-macros/compact-gate"]
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
 aggregate-circuit = []
+ipa-prf = ["descriptive-gate"]
 
 [dependencies]
 aes = "0.8.3"
