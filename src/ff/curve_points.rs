@@ -9,11 +9,10 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    error::Error,
     ff::{ec_prime_field::Fp25519, Serializable},
     secret_sharing::{Block, WeakSharedValue},
 };
-use crate::secret_sharing::Additive;
+
 
 impl Block for CompressedRistretto {
     type Size = U32;
@@ -23,7 +22,7 @@ impl Block for CompressedRistretto {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct RP25519(CompressedRistretto);
 
-/// using compressed ristretto point, Zero is generator of the curve, i.e. g^0
+/// using compressed ristretto point
 impl WeakSharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
@@ -42,6 +41,10 @@ impl Serializable for RP25519 {
     }
 }
 
+
+///## Panics
+/// Panics when decompressing invalid curve point. This can happen when deserialize curve point
+/// from bit array that does not have a valid representation on the curve
 impl std::ops::Add for RP25519 {
     type Output = Self;
 
@@ -57,6 +60,9 @@ impl std::ops::AddAssign for RP25519 {
     }
 }
 
+///## Panics
+/// Panics when decompressing invalid curve point. This can happen when deserialize curve point
+/// from bit array that does not have a valid representation on the curve
 impl std::ops::Neg for RP25519 {
     type Output = Self;
 
@@ -65,6 +71,9 @@ impl std::ops::Neg for RP25519 {
     }
 }
 
+///## Panics
+/// Panics when decompressing invalid curve point. This can happen when deserialize curve point
+/// from bit array that does not have a valid representation on the curve
 impl std::ops::Sub for RP25519 {
     type Output = Self;
 
@@ -82,33 +91,22 @@ impl std::ops::SubAssign for RP25519 {
 
 ///Scalar Multiplication
 ///<'a, 'b> `std::ops::Mul<&'b"` Fp25519 for &'a
-impl RP25519 {
-    /// # Errors
-    /// Propagates errors from decompressing invalid curve point
-    pub fn s_mul(self, rhs: Fp25519) -> Result<RP25519, Error> {
-        self.0
-            .decompress()
-            .map_or(Err(Error::DecompressingInvalidCurvePoint), |x| {
-                Ok((x * Scalar::from(rhs)).compress().into())
-            })
-    }
-}
-
-///do not use
-impl std::ops::Mul for RP25519 {
+///## Panics
+/// Panics when decompressing invalid curve point. This can happen when deserialize curve point
+/// from bit array that does not have a valid representation on the curve
+impl  std::ops::Mul< Fp25519> for RP25519 {
     type Output = Self;
 
-    fn mul(self, _rhs: RP25519) -> Self::Output {
-        panic!("Two curve points cannot be multiplied! Do not use *, *= for RP25519 or secret shares of RP25519");
+    fn mul(self,  rhs: Fp25519) ->  RP25519 {
+        (self.0.decompress().unwrap() * Scalar::from(rhs)).compress().into()
     }
 }
 
-///do not use
-impl std::ops::MulAssign for RP25519 {
-    fn mul_assign(&mut self, _rhs: RP25519) {
-        panic!("Two curve points cannot be multiplied! Do not use *, *= for RP25519 or secret shares of RP25519");
-    }
+impl  std::ops::MulAssign< Fp25519> for RP25519 {
+    #[allow(clippy::assign_op_pattern)]
+    fn mul_assign(&mut self,  rhs: Fp25519) {*self = *self * rhs}
 }
+
 
 impl From<Scalar> for RP25519 {
     fn from(s: Scalar) -> Self {
@@ -205,7 +203,7 @@ mod test {
         let fp_e = rng.gen::<Fp25519>();
         let fp_f = rng.gen::<Fp25519>();
         let fp_g = fp_e * fp_f;
-        let fp_h = RP25519::from(fp_e).s_mul(fp_f).unwrap();
+        let fp_h = RP25519::from(fp_e) * fp_f;
         assert_eq!(fp_h, RP25519::from(fp_g));
         assert_ne!(fp_h, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
     }

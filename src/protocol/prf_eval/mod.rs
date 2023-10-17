@@ -94,7 +94,7 @@ where
     let z = y.reveal(ctx.narrow(&Step::Revealz), record_id).await?;
 
     //compute R^(1/z) to u64
-    Ok(u64::from(gr.s_mul(z.invert())?))
+    Ok(u64::from(gr * (z.invert())))
 }
 
 #[cfg(all(test, unit_test))]
