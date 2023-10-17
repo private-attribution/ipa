@@ -3,11 +3,11 @@ use std::{
     ops::{Mul, Neg},
 };
 
-use super::SharedValue;
+use super::{SharedValue,WeakSharedValue};
 use crate::ff::{AddSub, AddSubAssign, GaloisField};
 
 /// Secret sharing scheme i.e. Replicated secret sharing
-pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
+pub trait SecretSharing<V: WeakSharedValue>: Clone + Debug + Sized + Send + Sync {
     const ZERO: Self;
 }
 

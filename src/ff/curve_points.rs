@@ -11,7 +11,7 @@ use typenum::U32;
 use crate::{
     error::Error,
     ff::{ec_prime_field::Fp25519, Serializable},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, WeakSharedValue},
 };
 
 impl Block for CompressedRistretto {
@@ -20,17 +20,17 @@ impl Block for CompressedRistretto {
 
 ///ristretto point for curve 25519
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct RP25519(<Self as SharedValue>::Storage);
+pub struct RP25519(<Self as WeakSharedValue>::Storage);
 
 /// using compressed ristretto point, Zero is generator of the curve, i.e. g^0
-impl SharedValue for RP25519 {
+impl WeakSharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
     const ZERO: Self = Self(constants::RISTRETTO_BASEPOINT_COMPRESSED);
 }
 
 impl Serializable for RP25519 {
-    type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
+    type Size = <<RP25519 as WeakSharedValue>::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
