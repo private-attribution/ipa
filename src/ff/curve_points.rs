@@ -1,5 +1,4 @@
 use curve25519_dalek::{
-    constants,
     ristretto::{CompressedRistretto, RistrettoPoint},
     Scalar,
 };
@@ -26,7 +25,7 @@ pub struct RP25519(CompressedRistretto);
 impl WeakSharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
-    const ZERO: Self = Self(constants::RISTRETTO_BASEPOINT_COMPRESSED);
+    const ZERO: Self = Self(CompressedRistretto([0_u8;32]));
 }
 
 impl Serializable for RP25519 {
@@ -169,7 +168,10 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
-    use crate::ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable};
+    use crate::{
+        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
+        secret_sharing::WeakSharedValue,
+    };
 
     #[test]
     fn serde_25519() {
@@ -206,6 +208,7 @@ mod test {
         let fp_h = RP25519::from(fp_e) * fp_f;
         assert_eq!(fp_h, RP25519::from(fp_g));
         assert_ne!(fp_h, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
+        assert_eq!(RP25519::ZERO,fp_h*Scalar::ZERO.into());
     }
 
     #[test]
