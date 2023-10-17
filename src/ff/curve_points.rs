@@ -104,7 +104,7 @@ impl std::ops::Mul<Fp25519> for RP25519 {
 impl std::ops::MulAssign<Fp25519> for RP25519 {
     #[allow(clippy::assign_op_pattern)]
     fn mul_assign(&mut self, rhs: Fp25519) {
-        *self = *self * rhs
+        *self = *self * rhs;
     }
 }
 

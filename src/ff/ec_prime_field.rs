@@ -119,6 +119,7 @@ impl From<Scalar> for Fp25519 {
     }
 }
 
+#[cfg(test)]
 macro_rules! sc_hash_impl {
     ( $u_type:ty) => {
         impl From<Fp25519> for $u_type {
