@@ -13,6 +13,7 @@ use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
     secret_sharing::{Block, WeakSharedValue},
 };
+use crate::secret_sharing::Additive;
 
 impl Block for CompressedRistretto {
     type Size = U32;
@@ -20,7 +21,7 @@ impl Block for CompressedRistretto {
 
 ///ristretto point for curve 25519
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct RP25519(<Self as WeakSharedValue>::Storage);
+pub struct RP25519(CompressedRistretto);
 
 /// using compressed ristretto point, Zero is generator of the curve, i.e. g^0
 impl WeakSharedValue for RP25519 {
