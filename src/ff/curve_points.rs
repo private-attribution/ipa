@@ -12,7 +12,6 @@ use crate::{
     secret_sharing::{Block, WeakSharedValue},
 };
 
-
 impl Block for CompressedRistretto {
     type Size = U32;
 }
@@ -25,7 +24,7 @@ pub struct RP25519(CompressedRistretto);
 impl WeakSharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
-    const ZERO: Self = Self(CompressedRistretto([0_u8;32]));
+    const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
 }
 
 impl Serializable for RP25519 {
@@ -39,7 +38,6 @@ impl Serializable for RP25519 {
         RP25519(CompressedRistretto((*buf).into()))
     }
 }
-
 
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
@@ -93,19 +91,22 @@ impl std::ops::SubAssign for RP25519 {
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
 /// from bit array that does not have a valid representation on the curve
-impl  std::ops::Mul< Fp25519> for RP25519 {
+impl std::ops::Mul<Fp25519> for RP25519 {
     type Output = Self;
 
-    fn mul(self,  rhs: Fp25519) ->  RP25519 {
-        (self.0.decompress().unwrap() * Scalar::from(rhs)).compress().into()
+    fn mul(self, rhs: Fp25519) -> RP25519 {
+        (self.0.decompress().unwrap() * Scalar::from(rhs))
+            .compress()
+            .into()
     }
 }
 
-impl  std::ops::MulAssign< Fp25519> for RP25519 {
+impl std::ops::MulAssign<Fp25519> for RP25519 {
     #[allow(clippy::assign_op_pattern)]
-    fn mul_assign(&mut self,  rhs: Fp25519) {*self = *self * rhs}
+    fn mul_assign(&mut self, rhs: Fp25519) {
+        *self = *self * rhs
+    }
 }
-
 
 impl From<Scalar> for RP25519 {
     fn from(s: Scalar) -> Self {
@@ -208,7 +209,7 @@ mod test {
         let fp_h = RP25519::from(fp_e) * fp_f;
         assert_eq!(fp_h, RP25519::from(fp_g));
         assert_ne!(fp_h, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
-        assert_eq!(RP25519::ZERO,fp_h*Scalar::ZERO.into());
+        assert_eq!(RP25519::ZERO, fp_h * Scalar::ZERO.into());
     }
 
     #[test]

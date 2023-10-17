@@ -10,8 +10,7 @@ use crate::{
     ff::Serializable,
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
-        SharedValue,
-        WeakSharedValue,
+        SharedValue, WeakSharedValue,
     },
 };
 

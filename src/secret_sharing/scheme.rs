@@ -3,7 +3,7 @@ use std::{
     ops::{Mul, Neg},
 };
 
-use super::{SharedValue,WeakSharedValue};
+use super::{SharedValue, WeakSharedValue};
 use crate::ff::{AddSub, AddSubAssign, GaloisField};
 
 /// Secret sharing scheme i.e. Replicated secret sharing
