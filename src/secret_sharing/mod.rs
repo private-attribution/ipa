@@ -25,31 +25,23 @@ use crate::ff::{AddSub, AddSubAssign, Serializable};
 
 /// Operations supported for weak shared values.
 pub trait Additive<Rhs = Self, Output = Self>:
-AddSub<Rhs, Output>
-+ AddSubAssign<Rhs>
-+ Neg<Output = Output>
+    AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
 {
 }
 
 impl<T, Rhs, Output> Additive<Rhs, Output> for T where
-    T: AddSub<Rhs, Output>
-    + AddSubAssign<Rhs>
-    + Neg<Output = Output>
+    T: AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
 {
 }
 
 /// Operations supported for shared values.
 pub trait Arithmetic<Rhs = Self, Output = Self>:
-    Additive<Rhs, Output>
-    + Mul<Rhs, Output = Output>
-    + MulAssign<Rhs>
+    Additive<Rhs, Output> + Mul<Rhs, Output = Output> + MulAssign<Rhs>
 {
 }
 
 impl<T, Rhs, Output> Arithmetic<Rhs, Output> for T where
-    T: Additive<Rhs, Output>
-        + Mul<Rhs, Output = Output>
-        + MulAssign<Rhs>
+    T: Additive<Rhs, Output> + Mul<Rhs, Output = Output> + MulAssign<Rhs>
 {
 }
 
@@ -60,7 +52,7 @@ pub trait Block: Sized + Copy + Debug {
 }
 
 pub trait WeakSharedValue:
-Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
+    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
 {
     type Storage: Block;
 
@@ -79,7 +71,8 @@ pub trait SharedValue:
     const ZERO: Self;
 }
 
-impl<T> WeakSharedValue for T where
+impl<T> WeakSharedValue for T
+where
     T: SharedValue,
 {
     type Storage = T::Storage;
@@ -88,8 +81,6 @@ impl<T> WeakSharedValue for T where
 
     const ZERO: Self = T::ZERO;
 }
-
-
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 impl<V> IntoShares<AdditiveShare<V>> for V
