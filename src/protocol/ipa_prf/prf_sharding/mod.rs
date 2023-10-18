@@ -667,7 +667,7 @@ pub mod tests {
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf3Bit, Gf5Bit},
         protocol::{
             context::{UpgradableContext, Validator},
-            prf_sharding::{attribution_and_capping_and_aggregation, do_aggregation},
+            ipa_prf::prf_sharding::{attribution_and_capping_and_aggregation, do_aggregation},
         },
         rand::Rng,
         secret_sharing::{

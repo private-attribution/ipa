@@ -9,7 +9,7 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
     seq_join::seq_try_join_all,
 };
 
@@ -103,11 +103,11 @@ mod test {
 
     use crate::{
         ff::{curve_points::RP25519, ec_prime_field::Fp25519},
-        protocol::prf_eval::compute_match_key_pseudonym,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+        secret_sharing::{IntoShares, replicated::semi_honest::AdditiveShare},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+    use crate::protocol::ipa_prf::prf_eval::compute_match_key_pseudonym;
 
     #[derive(Copy, Clone)]
     struct ShuffledTestInput {
