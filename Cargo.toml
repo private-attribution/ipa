@@ -44,7 +44,7 @@ aggregate-circuit = []
 
 [dependencies]
 ipa-macros = { version = "*", path = "./ipa-macros" }
-aes = "0.8"
+aes = "0.8.3"
 async-trait = "0.1.68"
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
 axum-server = { version = "0.5.1", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
