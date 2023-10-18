@@ -5,9 +5,9 @@ pub mod boolean;
 pub mod context;
 pub mod dp;
 pub mod ipa;
-pub mod modulus_conversion;
 #[cfg(feature = "ipa-prf")]
 pub mod ipa_prf;
+pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;
 pub mod step;
