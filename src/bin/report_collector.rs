@@ -15,7 +15,7 @@ use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_ipa, playbook_oprf_ipa, validate, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
@@ -23,7 +23,7 @@ use ipa::{
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
-    protocol::{BreakdownKey, MatchKey},
+    protocol::{BreakdownKey, MatchKey, Timestamp, TriggerValue},
     report::{KeyIdentifier, DEFAULT_KEY_ID},
     test_fixture::{
         ipa::{ipa_in_the_clear, IpaSecurityModel, TestRawDataRecord},
@@ -275,15 +275,24 @@ async fn ipa(
     };
 
     let mut key_registries = KeyRegistries::default();
-    let actual = playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
-        &input_rows,
-        &helper_clients,
-        query_id,
-        ipa_query_config,
-        key_registries.init_from(network),
-        oprf_algorithm,
-    )
-    .await;
+    let actual = if oprf_algorithm {
+        playbook_oprf_ipa<Fp32BitPrime>(
+            &input_rows,
+            &helper_clients,
+            query_id,
+            ipa_query_config,
+        )
+        .await
+    } else {
+        playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
+            &input_rows,
+            &helper_clients,
+            query_id,
+            ipa_query_config,
+            key_registries.init_from(network),
+        )
+        .await
+    };
 
     tracing::info!("{m:?}", m = ipa_query_config);
 

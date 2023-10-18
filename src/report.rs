@@ -4,14 +4,16 @@ use std::{
     ops::Deref,
 };
 
+use std::ops::Add;
+
 use bytes::{BufMut, Bytes};
-use generic_array::GenericArray;
+use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{GaloisField, Gf2, Gf3Bit, Gf40Bit, Gf8Bit, PrimeField, Serializable},
+    ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
@@ -291,6 +293,9 @@ where
     TS: GaloisField,
     BK: GaloisField,
     TV: GaloisField,
+    Replicated<TS>: Serializable,
+    Replicated<BK>: Serializable,
+    Replicated<TV>: Serializable,
 {
     pub timestamp: Replicated<TS>,
     pub mk_oprf: u64,
@@ -299,6 +304,65 @@ where
     pub trigger_value: Replicated<TV>,
     pub epoch: Epoch,
     pub site_domain: String,
+}
+
+impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> Serializable for OprfReport<TS, BK, TV>
+where
+    Replicated<TS>: Serializable,
+    Replicated<BK>: Serializable,
+    Replicated<TV>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<TV> as Serializable>::Size>,
+    <Replicated<TS> as Serializable>::Size:
+        Add<
+            <<Replicated<BK> as Serializable>::Size as Add<
+                <Replicated<TV> as Serializable>::Size,
+            >>::Output,
+        >,
+    <<Replicated<TS> as Serializable>::Size as Add<
+        <<Replicated<BK> as Serializable>::Size as Add<
+            <Replicated<TV> as Serializable>::Size,
+        >>::Output,
+    >>::Output: ArrayLength<u8>,
+{
+    type Size = <<Replicated<TS> as Serializable>::Size as Add<
+        <<Replicated<BK> as Serializable>::Size as Add<
+            <Replicated<TV> as Serializable>::Size,
+        >>::Output,
+    >>::Output;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+
+        self.timestamp
+            .serialize(GenericArray::from_mut_slice(&mut buf[..ts_sz]));
+        self.breakdown_key
+            .serialize(GenericArray::from_mut_slice(&mut buf[ts_sz..ts_sz + bk_sz]));
+        self.trigger_value
+            .serialize(GenericArray::from_mut_slice(&mut buf[ts_sz + bk_sz..ts_sz + bk_sz + tv_sz]));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+
+        let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[..ts_sz]));
+        let breakdown_key =
+            Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[ts_sz..ts_sz + bk_sz]));
+        let trigger_value =
+            Replicated::<TV>::deserialize(GenericArray::from_slice(&buf[ts_sz + bk_sz..ts_sz + bk_sz + tv_sz]));
+        Self {
+            timestamp,
+            breakdown_key,
+            trigger_value,
+            site_domain: "foo.example".to_owned(),
+            epoch: 1,
+            event_type: EventType::Source,
+            mk_oprf: 123456789_u64,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
