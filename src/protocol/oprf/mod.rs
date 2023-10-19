@@ -77,16 +77,15 @@ impl rand::prelude::Distribution<OPRFShuffleSingleShare> for Standard {
 impl Add for OPRFShuffleSingleShare {
     type Output = Self;
 
-    #[allow(clippy::op_ref)]
     fn add(self, rhs: Self) -> Self::Output {
-        &self + &rhs
+        Add::add(&self, &rhs)
     }
 }
 
-impl Add for &OPRFShuffleSingleShare {
+impl<'a, 'b> Add<&'b OPRFShuffleSingleShare> for &'a OPRFShuffleSingleShare {
     type Output = OPRFShuffleSingleShare;
 
-    fn add(self, &rhs: Self) -> Self::Output {
+    fn add(self, rhs: &'b OPRFShuffleSingleShare) -> Self::Output {
         Self::Output {
             timestamp: self.timestamp + rhs.timestamp,
             mk: self.mk + rhs.mk,
@@ -179,46 +178,54 @@ pub async fn oprf_shuffle<C: Context>(
         ))
     })?;
 
-    let share_l = split_shares(input_rows, Direction::Left);
-    let share_r = split_shares(input_rows, Direction::Right);
+    let shares = (
+        split_shares(input_rows, Direction::Left),
+        split_shares(input_rows, Direction::Right),
+    );
+
+    // 1. Generate permutations
+    let pis = generate_permutations_with_peers(batch_size, &ctx);
+
+    // 2. Generate random tables used by all helpers
+    let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
+    let zs = generate_random_tables_with_peers(batch_size, &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, batch_size, share_l, share_r).await,
-        Role::H2 => run_h2(&ctx, batch_size, share_l, share_r).await,
-        Role::H3 => run_h3(&ctx, batch_size, share_l, share_r).await,
+        Role::H1 => run_h1(&ctx, batch_size, shares, pis, zs).await,
+        Role::H2 => run_h2(&ctx, batch_size, shares, pis, zs).await,
+        Role::H3 => run_h3(&ctx, batch_size, shares, pis, zs).await,
     }
 }
 
-async fn run_h1<C, L, R>(ctx: &C, batch_size: u32, a: L, b: R) -> Result<Vec<OPRFInputRow>, Error>
+async fn run_h1<C, Sl, Sr, Zl, Zr>(
+    ctx: &C,
+    batch_size: u32,
+    (a, b): (Sl, Sr),
+    (pi_31, pi_12): (Vec<u32>, Vec<u32>),
+    (z_31, z_12): (Zl, Zr),
+) -> Result<Vec<OPRFInputRow>, Error>
 where
     C: Context,
-    L: IntoIterator<Item = OPRFShuffleSingleShare>,
-    R: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sr: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zr: IntoIterator<Item = OPRFShuffleSingleShare>,
 {
-    // 1. Generate permutations
-    let (pi_31, pi_12) = generate_permutations_with_peers(batch_size, ctx);
+    // 1. Generate helper-specific random tables
+    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
+    let a_hat: Vec<_> =
+        generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Left).collect();
 
-    // 2. Generate random tables
-    let (z_31, z_12) = generate_random_tables_with_peers(batch_size, ctx);
-    let a_hat = generate_random_table_solo(
-        batch_size,
-        ctx,
-        &OPRFShuffleStep::GenerateAHat,
-        Direction::Left,
-    );
-    let b_hat = generate_random_table_solo(
-        batch_size,
-        ctx,
-        &OPRFShuffleStep::GenerateBHat,
-        Direction::Right,
-    );
+    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
+    let b_hat: Vec<_> =
+        generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right).collect();
 
-    // 3. Run computations
+    // 2. Run computations
     let mut x_1: Vec<OPRFShuffleSingleShare> =
         add_single_shares(add_single_shares(a, b), z_12).collect();
     apply(&pi_12, &mut x_1);
 
-    let mut x_2: Vec<OPRFShuffleSingleShare> = add_single_shares(x_1.iter(), z_31.iter()).collect();
+    let mut x_2: Vec<OPRFShuffleSingleShare> = add_single_shares(x_1, z_31).collect();
     apply(&pi_31, &mut x_2);
 
     send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
@@ -227,25 +234,26 @@ where
     Ok(res)
 }
 
-async fn run_h2<C, L, R>(ctx: &C, batch_size: u32, _b: L, c: R) -> Result<Vec<OPRFInputRow>, Error>
+async fn run_h2<C, Sl, Sr, Zl, Zr>(
+    ctx: &C,
+    batch_size: u32,
+    (_b, c): (Sl, Sr),
+    (pi_12, pi_23): (Vec<u32>, Vec<u32>),
+    (z_12, z_23): (Zl, Zr),
+) -> Result<Vec<OPRFInputRow>, Error>
 where
     C: Context,
-    L: IntoIterator<Item = OPRFShuffleSingleShare>,
-    R: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sr: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zr: IntoIterator<Item = OPRFShuffleSingleShare>,
 {
-    // 1. Generate permutations
-    let (pi_12, pi_23) = generate_permutations_with_peers(batch_size, ctx);
+    // 1. Generate helper-specific random tables
+    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
+    let b_hat: Vec<_> =
+        generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Left).collect();
 
-    // 2. Generate random tables
-    let (z_12, z_23) = generate_random_tables_with_peers(batch_size, ctx);
-    let b_hat = generate_random_table_solo(
-        batch_size,
-        ctx,
-        &OPRFShuffleStep::GenerateBHat,
-        Direction::Left,
-    );
-
-    // 3. Run computations
+    // 2. Run computations
     let mut y_1: Vec<OPRFShuffleSingleShare> = add_single_shares(c, z_12.into_iter()).collect();
     apply(&pi_12, &mut y_1);
 
@@ -260,11 +268,10 @@ where
     )
     .await?;
 
-    let mut x_3: Vec<OPRFShuffleSingleShare> =
-        add_single_shares(x_2.into_iter(), z_23.into_iter()).collect();
+    let mut x_3: Vec<_> = add_single_shares(x_2.into_iter(), z_23.into_iter()).collect();
     apply(&pi_23, &mut x_3);
 
-    let c_hat_1 = add_single_shares(x_3.iter(), b_hat.iter()).collect::<Vec<_>>();
+    let c_hat_1: Vec<_> = add_single_shares(x_3.iter(), b_hat.iter()).collect();
     let ((), c_hat_2) = future::try_join(
         send_to_peer(
             ctx,
@@ -286,25 +293,26 @@ where
     Ok(res)
 }
 
-async fn run_h3<C, L, R>(ctx: &C, batch_size: u32, _c: L, _a: R) -> Result<Vec<OPRFInputRow>, Error>
+async fn run_h3<C, Sl, Sr, Zl, Zr>(
+    ctx: &C,
+    batch_size: u32,
+    (_c, _a): (Sl, Sr),
+    (pi_23, pi_31): (Vec<u32>, Vec<u32>),
+    (z_23, z_31): (Zl, Zr),
+) -> Result<Vec<OPRFInputRow>, Error>
 where
     C: Context,
-    L: IntoIterator<Item = OPRFShuffleSingleShare>,
-    R: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Sr: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zl: IntoIterator<Item = OPRFShuffleSingleShare>,
+    Zr: IntoIterator<Item = OPRFShuffleSingleShare>,
 {
-    // 1. Generate permutations
-    let (pi_23, pi_31) = generate_permutations_with_peers(batch_size, ctx);
+    // 1. Generate helper-specific random tables
+    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
+    let a_hat: Vec<_> =
+        generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Right).collect();
 
-    // 2. Generate random tables
-    let (z_23, z_31) = generate_random_tables_with_peers(batch_size, ctx);
-    let a_hat = generate_random_table_solo(
-        batch_size,
-        ctx,
-        &OPRFShuffleStep::GenerateAHat,
-        Direction::Right,
-    );
-
-    // 3. Run computations
+    // 2. Run computations
     let y_1 = receive_from_peer(
         ctx,
         &OPRFShuffleStep::TransferY1,
@@ -319,7 +327,7 @@ where
     let mut y_3: Vec<OPRFShuffleSingleShare> = add_single_shares(y_2, z_23).collect();
     apply(&pi_23, &mut y_3);
 
-    let c_hat_2 = add_single_shares(y_3, a_hat.clone()).collect::<Vec<_>>();
+    let c_hat_2 = add_single_shares(y_3.iter(), a_hat.iter()).collect::<Vec<_>>();
     let ((), c_hat_1) = future::try_join(
         send_to_peer(
             ctx,
@@ -362,11 +370,11 @@ where
         .collect::<Vec<_>>()
 }
 
-fn add_single_shares<'a, T, L, R>(l: L, r: R) -> impl Iterator<Item = T::Output>
+fn add_single_shares<'i, T, L, R>(l: L, r: R) -> impl Iterator<Item = T::Output> + 'i
 where
-    T: Add + 'a,
-    L: IntoIterator<Item = T>,
-    R: IntoIterator<Item = T>,
+    T: Add,
+    L: IntoIterator<Item = T> + 'i,
+    R: IntoIterator<Item = T> + 'i,
 {
     l.into_iter().zip(r).map(|(a, b)| a + b)
 }
@@ -375,34 +383,32 @@ where
 
 fn generate_random_tables_with_peers<C: Context>(
     batch_size: u32,
-    ctx: &C,
-) -> (Vec<OPRFShuffleSingleShare>, Vec<OPRFShuffleSingleShare>) {
-    let narrow_step = ctx.narrow(&OPRFShuffleStep::GenerateZ);
-    let (rng_l, rng_r) = narrow_step.prss_rng();
-    let with_left = sample_iter(rng_l).take(batch_size as usize).collect();
-    let with_right = sample_iter(rng_r).take(batch_size as usize).collect();
+    narrow_ctx: &C,
+) -> (
+    impl Iterator<Item = OPRFShuffleSingleShare> + '_,
+    impl Iterator<Item = OPRFShuffleSingleShare> + '_,
+) {
+    let (rng_l, rng_r) = narrow_ctx.prss_rng();
+    let with_left = sample_iter(rng_l).take(batch_size as usize);
+    let with_right = sample_iter(rng_r).take(batch_size as usize);
     (with_left, with_right)
 }
 
 fn generate_random_table_solo<C>(
     batch_size: u32,
-    ctx: &C,
-    step: &OPRFShuffleStep,
+    narrow_ctx: &C,
     peer: Direction,
-) -> Vec<OPRFShuffleSingleShare>
+) -> impl Iterator<Item = OPRFShuffleSingleShare> + '_
 where
     C: Context,
 {
-    let narrow_step = ctx.narrow(step);
-    let rngs = narrow_step.prss_rng();
-    let mut rng = match peer {
+    let rngs = narrow_ctx.prss_rng();
+    let rng = match peer {
         Direction::Left => rngs.0,
         Direction::Right => rngs.1,
     };
 
-    sample_iter(&mut rng)
-        .take(batch_size as usize)
-        .collect::<Vec<_>>()
+    sample_iter(rng).take(batch_size as usize)
 }
 
 fn sample_iter<R: Rng>(rng: R) -> impl Iterator<Item = OPRFShuffleSingleShare> {
