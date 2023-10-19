@@ -92,7 +92,7 @@ impl<S> BitDecomposed<S> {
     /// # Errors
     /// If one of the multiplications errors
     /// # Panics
-    /// If something try to add a bit decomposed value larger than this `SaturatingSum` can accommodate
+    /// If something try to subtract a bit decomposed value larger than this `BitDecomposed` can accommodate
     pub async fn sub<C>(
         &self,
         ctx: C,
@@ -112,10 +112,10 @@ impl<S> BitDecomposed<S> {
         for i in 0..self.len() {
             let c = ctx.narrow(&BitOpStep::from(i));
             let compute_carry_out = i < self.len() - 1;
-            let lfs = &self[i];
+            let lhs = &self[i];
             let rhs = rhs.get(i).unwrap_or(&zero);
             let difference_bit =
-                one_bit_subtractor(c, record_id, lfs, rhs, &mut carry_in, compute_carry_out)
+                one_bit_subtractor(c, record_id, lhs, rhs, &mut carry_in, compute_carry_out)
                     .await?;
 
             output.push(difference_bit);

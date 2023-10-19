@@ -4,7 +4,10 @@ use std::{
 };
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
-use futures_util::{future::try_join, StreamExt};
+use futures_util::{
+    future::{try_join, try_join3},
+    StreamExt,
+};
 use ipa_macros::Step;
 
 use super::boolean::saturating_sum::SaturatingSum;
@@ -120,7 +123,11 @@ impl InputsRequiredFromPrevRow {
         let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
 
-        let (ever_encountered_a_source_event, attributed_breakdown_key_bits) = try_join(
+        let (
+            ever_encountered_a_source_event,
+            attributed_breakdown_key_bits,
+            source_event_timestamp,
+        ) = try_join3(
             or(
                 ctx.narrow(&Step::EverEncounteredSourceEvent),
                 record_id,
@@ -134,47 +141,39 @@ impl InputsRequiredFromPrevRow {
                 &self.attributed_breakdown_key_bits,
                 &bd_key,
             ),
+            timestamp_of_most_recent_source_event(
+                ctx.narrow(&Step::SourceEventTimestamp),
+                record_id,
+                attribution_window_seconds,
+                &input_row.is_trigger_bit,
+                &self.source_event_timestamp,
+                &timestamp,
+            ),
         )
         .await?;
 
-        let source_event_timestamp = match attribution_window_seconds {
-            None => self.source_event_timestamp.clone(),
-            Some(_) => {
-                timestamp_of_most_recent_source_event(
-                    ctx.narrow(&Step::SourceEventTimestamp),
-                    record_id,
-                    &input_row.is_trigger_bit,
-                    &self.source_event_timestamp,
-                    &timestamp,
-                )
-                .await?
-            }
-        };
-
-        let did_trigger_get_attributed = input_row
-            .is_trigger_bit
-            .multiply(
+        let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
+            input_row.is_trigger_bit.multiply(
                 &ever_encountered_a_source_event,
                 ctx.narrow(&Step::DidTriggerGetAttributed),
                 record_id,
-            )
-            .await?;
-
-        let mut attributed_trigger_value = zero_out_trigger_value_unless_attributed(
-            ctx.narrow(&Step::AttributedTriggerValue),
-            record_id,
-            &did_trigger_get_attributed,
-            &tv,
+            ),
+            is_trigger_event_within_attribution_window(
+                ctx.narrow(&Step::CheckAttributionWindow),
+                record_id,
+                attribution_window_seconds,
+                &timestamp,
+                &source_event_timestamp,
+            ),
         )
         .await?;
 
-        attributed_trigger_value = zero_out_trigger_value_if_outside_attribution_window(
-            ctx.narrow(&Step::CheckAttributionWindow),
+        let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
+            ctx.narrow(&Step::AttributedTriggerValue),
             record_id,
-            &attributed_trigger_value,
-            attribution_window_seconds,
-            &timestamp,
-            &source_event_timestamp,
+            &did_trigger_get_attributed,
+            &is_trigger_within_window,
+            &tv,
         )
         .await?;
 
@@ -264,9 +263,10 @@ pub(crate) enum Step {
     DidTriggerGetAttributed,
     AttributedBreakdownKey,
     AttributedTriggerValue,
+    AttributedEventCheckFlag,
     CheckAttributionWindow,
     ComputeTimeDelta,
-    ConvertTimeDeltaBits,
+    CompareTimeDeltaToAttributionWindow,
     SourceEventTimestamp,
     ComputeSaturatingSum,
     IsSaturatedAndPrevRowNotSaturated,
@@ -503,10 +503,12 @@ where
     .await
 }
 
-/// Same as above but for timestamps
+/// Same as above but for timestamps. If `attribution_window_seconds` is `None`, just
+/// return the previous row's timestamp. The bits aren't used but saves some multiplications.
 async fn timestamp_of_most_recent_source_event<C>(
     ctx: C,
     record_id: RecordId,
+    attribution_window_seconds: Option<NonZeroU32>,
     is_trigger_bit: &Replicated<Gf2>,
     prev_row_timestamp_bits: &BitDecomposed<Replicated<Gf2>>,
     cur_row_timestamp_bits: &BitDecomposed<Replicated<Gf2>>,
@@ -514,14 +516,19 @@ async fn timestamp_of_most_recent_source_event<C>(
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
-    field_of_most_recent_source_event(
-        ctx,
-        record_id,
-        is_trigger_bit,
-        prev_row_timestamp_bits,
-        cur_row_timestamp_bits,
-    )
-    .await
+    match attribution_window_seconds {
+        None => Ok(prev_row_timestamp_bits.clone()),
+        Some(_) => {
+            field_of_most_recent_source_event(
+                ctx,
+                record_id,
+                is_trigger_bit,
+                prev_row_timestamp_bits,
+                cur_row_timestamp_bits,
+            )
+            .await
+        }
+    }
 }
 
 /// Move a field of the most recent source event down to all of trigger events that follow it.
@@ -559,29 +566,36 @@ where
 /// (a) Attributed to a single `breakdown_key`
 /// (b) Not attributed, and thus zeroed out
 ///
-/// The logic here is extremely simple. There is a secret-shared bit indicating if a given row is an "attributed trigger event"
-/// The bits of the `trigger_value` are all multiplied by this bit in order to zero out contributions from unattributed trigger events
+/// The logic here is extremely simple. There is a secret-shared bit indicating if a given row is an "attributed trigger event" and
+/// another secret-shared bit indicating if a given row is within the attribution window. We multiply these two bits together and
+/// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
 async fn zero_out_trigger_value_unless_attributed<C>(
     ctx: C,
     record_id: RecordId,
     did_trigger_get_attributed: &Replicated<Gf2>,
+    is_trigger_within_window: &Replicated<Gf2>,
     trigger_value: &BitDecomposed<Replicated<Gf2>>,
 ) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
+    let c = ctx.narrow(&Step::AttributedEventCheckFlag);
+    let zero_out_flag = &did_trigger_get_attributed
+        .multiply(is_trigger_within_window, c, record_id)
+        .await?;
+
     Ok(BitDecomposed::new(
         ctx.parallel_join(
             trigger_value
                 .iter()
-                .zip(repeat(did_trigger_get_attributed))
+                .zip(repeat(zero_out_flag))
                 .enumerate()
-                .map(|(i, (trigger_value_bit, did_trigger_get_attributed))| {
+                .map(|(i, (trigger_value_bit, zero_out_flag))| {
                     let c = ctx.narrow(&BitOpStep::from(i));
                     async move {
                         trigger_value_bit
-                            .multiply(did_trigger_get_attributed, c, record_id)
+                            .multiply(zero_out_flag, c, record_id)
                             .await
                     }
                 }),
@@ -590,23 +604,24 @@ where
     ))
 }
 
-/// If the `attribution_window_seconds` is `None`, then all trigger events are
-/// attributed to the most recent source event. Otherwise, we calculate the time
+/// If the `attribution_window_seconds` is not `None`, we calculate the time
 /// difference between the trigger event and the most recent source event, and
-/// only attribute the trigger event if it is within the attribution window.
-async fn zero_out_trigger_value_if_outside_attribution_window<C>(
+/// returns a secret-shared bit indicating if the trigger event is within the
+/// attribution window.
+async fn is_trigger_event_within_attribution_window<C>(
     ctx: C,
     record_id: RecordId,
-    attributed_trigger_value: &BitDecomposed<Replicated<Gf2>>,
     attribution_window_seconds: Option<NonZeroU32>,
     trigger_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
     source_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+) -> Result<Replicated<Gf2>, Error>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
+    // if there is no attribution window, then all trigger events are attributed
     if attribution_window_seconds.is_none() {
-        return Ok(attributed_trigger_value.clone());
+        let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
+        return Ok(share_of_one);
     }
 
     assert_eq!(trigger_event_timestamp.len(), source_event_timestamp.len());
@@ -623,31 +638,13 @@ where
     // The result is true if the time delta is `[0, attribution_window_seconds)`
     // If we want to include the upper bound, we need to use `bitwise_greater_than_constant()`
     // and negate the result.
-    let is_trigger_event_inside_attribution_window = bitwise_less_than_constant(
-        ctx.narrow(&Step::ConvertTimeDeltaBits),
+    bitwise_less_than_constant(
+        ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
         record_id,
         &time_delta_bits,
         u128::from(attribution_window_seconds),
     )
-    .await?;
-
-    Ok(BitDecomposed::new(
-        ctx.parallel_join(
-            attributed_trigger_value
-                .iter()
-                .zip(repeat(is_trigger_event_inside_attribution_window))
-                .enumerate()
-                .map(|(i, (trigger_value_bit, is_within_attribution_window))| {
-                    let c = ctx.narrow(&BitOpStep::from(i));
-                    async move {
-                        trigger_value_bit
-                            .multiply(&is_within_attribution_window, c, record_id)
-                            .await
-                    }
-                }),
-        )
-        .await?,
-    ))
+    .await
 }
 
 ///
