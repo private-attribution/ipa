@@ -76,22 +76,23 @@ impl OPRFShuffleSingleShare {
 impl Add for OPRFShuffleSingleShare {
     type Output = Self;
 
+    #[allow(clippy::op_ref)]
     fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            timestamp: self.timestamp + rhs.timestamp,
-            mk: self.mk + rhs.mk,
-            is_trigger_bit: self.is_trigger_bit + rhs.is_trigger_bit,
-            breakdown_key: self.breakdown_key + rhs.breakdown_key,
-            trigger_value: self.trigger_value + rhs.trigger_value,
-        }
+        &self + &rhs
     }
 }
 
 impl Add for &OPRFShuffleSingleShare {
     type Output = OPRFShuffleSingleShare;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        *self + *rhs // Relies on Copy
+    fn add(self, &rhs: Self) -> Self::Output {
+        Self::Output {
+            timestamp: self.timestamp + rhs.timestamp,
+            mk: self.mk + rhs.mk,
+            is_trigger_bit: self.is_trigger_bit + rhs.is_trigger_bit,
+            breakdown_key: self.breakdown_key + rhs.breakdown_key,
+            trigger_value: self.trigger_value + rhs.trigger_value,
+        }
     }
 }
 
