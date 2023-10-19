@@ -1,4 +1,4 @@
-use futures::{Stream, TryStreamExt};
+use futures::TryStreamExt;
 
 use crate::{
     error::Error,
@@ -6,6 +6,7 @@ use crate::{
         query::{oprf_shuffle, QuerySize},
         BodyStream, RecordsStream,
     },
+    one_off_fns::assert_stream_send,
     protocol::{
         context::Context,
         oprf::{oprf_shuffle, OPRFInputRow},
@@ -35,14 +36,4 @@ impl OPRFShuffleQuery {
 
         oprf_shuffle(ctx, input.as_slice(), self.config).await
     }
-}
-
-/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
-/// streams.
-///
-/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
-pub fn assert_stream_send<'a, T>(
-    st: impl Stream<Item = T> + Send + 'a,
-) -> impl Stream<Item = T> + Send + 'a {
-    st
 }

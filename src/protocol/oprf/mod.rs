@@ -1,9 +1,9 @@
 use std::ops::Add;
 
-use futures_util::try_join;
+use futures::future;
 use generic_array::GenericArray;
 use ipa_macros::Step;
-use rand::{seq::SliceRandom, Rng};
+use rand::{distributions::Standard, seq::SliceRandom, Rng};
 use typenum::Unsigned;
 
 use super::{context::Context, ipa::IPAInputRow, RecordId};
@@ -31,7 +31,6 @@ pub struct OPRFShuffleSingleShare {
 impl OPRFShuffleSingleShare {
     #[must_use]
     pub fn from_input_row(input_row: &OPRFInputRow, shared_with: Direction) -> Self {
-        // Relying on the fact that all SharedValue(s) are Copy
         match shared_with {
             Direction::Left => Self {
                 timestamp: input_row.timestamp.as_tuple().1,
@@ -61,9 +60,11 @@ impl OPRFShuffleSingleShare {
             trigger_value: (self.trigger_value, rhs.trigger_value).into(),
         }
     }
+}
 
-    pub fn sample<R: Rng>(rng: &mut R) -> Self {
-        Self {
+impl rand::prelude::Distribution<OPRFShuffleSingleShare> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> OPRFShuffleSingleShare {
+        OPRFShuffleSingleShare {
             timestamp: OprfF::truncate_from(rng.gen::<u128>()),
             mk: OprfMK::truncate_from(rng.gen::<u128>()),
             is_trigger_bit: OprfF::truncate_from(rng.gen::<u128>()),
@@ -157,14 +158,9 @@ impl Message for OPRFShuffleSingleShare {}
 pub(crate) enum OPRFShuffleStep {
     GenerateAHat,
     GenerateBHat,
-    GeneratePi12,
-    GeneratePi23,
-    GeneratePi31,
-    GenerateZ12,
-    GenerateZ23,
-    GenerateZ31,
-    TransferCHat1,
-    TransferCHat2,
+    GeneratePi,
+    GenerateZ,
+    TransferCHat,
     TransferX2,
     TransferY1,
 }
@@ -183,8 +179,8 @@ pub async fn oprf_shuffle<C: Context>(
         ))
     })?;
 
-    let share_l = split_shares_and_get_left(input_rows);
-    let share_r = split_shares_and_get_right(input_rows);
+    let share_l = split_shares(input_rows, Direction::Left);
+    let share_r = split_shares(input_rows, Direction::Right);
 
     match ctx.role() {
         Role::H1 => run_h1(&ctx, batch_size, share_l, share_r).await,
@@ -204,13 +200,13 @@ where
 
     // 2. Generate random tables
     let (z_31, z_12) = generate_random_tables_with_peers(batch_size, ctx);
-    let a_hat = generate_random_table(
+    let a_hat = generate_random_table_solo(
         batch_size,
         ctx,
         &OPRFShuffleStep::GenerateAHat,
         Direction::Left,
     );
-    let b_hat = generate_random_table(
+    let b_hat = generate_random_table_solo(
         batch_size,
         ctx,
         &OPRFShuffleStep::GenerateBHat,
@@ -218,18 +214,14 @@ where
     );
 
     // 3. Run computations
-    let x_1_arg = add_single_shares(add_single_shares(a, b), z_12);
-    let x_1 = permute(&pi_12, x_1_arg);
-    let x_2_arg = add_single_shares(x_1.iter(), z_31.iter());
-    let x_2 = permute(&pi_31, x_2_arg);
+    let mut x_1: Vec<OPRFShuffleSingleShare> =
+        add_single_shares(add_single_shares(a, b), z_12).collect();
+    apply(&pi_12, &mut x_1);
 
-    send_to_peer(
-        ctx,
-        &OPRFShuffleStep::TransferX2,
-        Direction::Right,
-        x_2.clone(),
-    )
-    .await?;
+    let mut x_2: Vec<OPRFShuffleSingleShare> = add_single_shares(x_1.iter(), z_31.iter()).collect();
+    apply(&pi_31, &mut x_2);
+
+    send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
 
     let res = combine_shares(a_hat, b_hat);
     Ok(res)
@@ -246,7 +238,7 @@ where
 
     // 2. Generate random tables
     let (z_12, z_23) = generate_random_tables_with_peers(batch_size, ctx);
-    let b_hat = generate_random_table(
+    let b_hat = generate_random_table_solo(
         batch_size,
         ctx,
         &OPRFShuffleStep::GenerateBHat,
@@ -254,10 +246,10 @@ where
     );
 
     // 3. Run computations
-    let y_1_arg = add_single_shares(c, z_12.into_iter());
-    let y_1 = permute(&pi_12, y_1_arg);
+    let mut y_1: Vec<OPRFShuffleSingleShare> = add_single_shares(c, z_12.into_iter()).collect();
+    apply(&pi_12, &mut y_1);
 
-    let ((), x_2) = try_join!(
+    let ((), x_2) = future::try_join(
         send_to_peer(ctx, &OPRFShuffleStep::TransferY1, Direction::Right, y_1),
         receive_from_peer(
             ctx,
@@ -265,12 +257,30 @@ where
             Direction::Left,
             batch_size,
         ),
-    )?;
+    )
+    .await?;
 
-    let x_3_arg = add_single_shares(x_2.into_iter(), z_23.into_iter());
-    let x_3 = permute(&pi_23, x_3_arg);
+    let mut x_3: Vec<OPRFShuffleSingleShare> =
+        add_single_shares(x_2.into_iter(), z_23.into_iter()).collect();
+    apply(&pi_23, &mut x_3);
+
     let c_hat_1 = add_single_shares(x_3.iter(), b_hat.iter()).collect::<Vec<_>>();
-    let c_hat_2 = exchange_c_hat(ctx, batch_size, c_hat_1.clone()).await?;
+    let ((), c_hat_2) = future::try_join(
+        send_to_peer(
+            ctx,
+            &OPRFShuffleStep::TransferCHat,
+            Direction::Right,
+            c_hat_1.clone(),
+        ),
+        receive_from_peer(
+            ctx,
+            &OPRFShuffleStep::TransferCHat,
+            Direction::Right,
+            batch_size,
+        ),
+    )
+    .await?;
+
     let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
     let res = combine_shares(b_hat, c_hat);
     Ok(res)
@@ -287,7 +297,7 @@ where
 
     // 2. Generate random tables
     let (z_23, z_31) = generate_random_tables_with_peers(batch_size, ctx);
-    let a_hat = generate_random_table(
+    let a_hat = generate_random_table_solo(
         batch_size,
         ctx,
         &OPRFShuffleStep::GenerateAHat,
@@ -303,35 +313,42 @@ where
     )
     .await?;
 
-    let y_2_arg = add_single_shares(y_1, z_31);
-    let y_2 = permute(&pi_31, y_2_arg);
-    let y_3_arg = add_single_shares(y_2, z_23);
-    let y_3 = permute(&pi_23, y_3_arg);
+    let mut y_2: Vec<OPRFShuffleSingleShare> = add_single_shares(y_1, z_31).collect();
+    apply(&pi_31, &mut y_2);
+
+    let mut y_3: Vec<OPRFShuffleSingleShare> = add_single_shares(y_2, z_23).collect();
+    apply(&pi_23, &mut y_3);
+
     let c_hat_2 = add_single_shares(y_3, a_hat.clone()).collect::<Vec<_>>();
-    let c_hat_1 = exchange_c_hat(ctx, batch_size, c_hat_2.clone()).await?;
+    let ((), c_hat_1) = future::try_join(
+        send_to_peer(
+            ctx,
+            &OPRFShuffleStep::TransferCHat,
+            Direction::Left,
+            c_hat_2.clone(),
+        ),
+        receive_from_peer(
+            ctx,
+            &OPRFShuffleStep::TransferCHat,
+            Direction::Left,
+            batch_size,
+        ),
+    )
+    .await?;
+
     let c_hat = add_single_shares(c_hat_1, c_hat_2);
     let res = combine_shares(c_hat, a_hat);
     Ok(res)
 }
 
-// ------------------------------------------------------------------------------------------------------------- //
+// --------------------------------------------------------------------------- //
 
-fn split_shares_and_get_left(
+fn split_shares(
     input_rows: &[OPRFInputRow],
+    direction: Direction,
 ) -> impl Iterator<Item = OPRFShuffleSingleShare> + '_ {
-    let lhs = input_rows
-        .iter()
-        .map(|input_row| OPRFShuffleSingleShare::from_input_row(input_row, Direction::Left));
-    lhs
-}
-
-fn split_shares_and_get_right(
-    input_rows: &[OPRFInputRow],
-) -> impl Iterator<Item = OPRFShuffleSingleShare> + '_ {
-    let rhs = input_rows
-        .iter()
-        .map(|input_row| OPRFShuffleSingleShare::from_input_row(input_row, Direction::Right));
-    rhs
+    let f = move |input_row| OPRFShuffleSingleShare::from_input_row(input_row, direction);
+    input_rows.iter().map(f)
 }
 
 fn combine_shares<L, R>(l: L, r: R) -> Vec<OPRFInputRow>
@@ -354,22 +371,20 @@ where
     l.into_iter().zip(r).map(|(a, b)| a + b)
 }
 
+// --------------------------------------------------------------------------- //
+
 fn generate_random_tables_with_peers<C: Context>(
     batch_size: u32,
     ctx: &C,
 ) -> (Vec<OPRFShuffleSingleShare>, Vec<OPRFShuffleSingleShare>) {
-    let (step_left, step_right) = match ctx.role() {
-        Role::H1 => (OPRFShuffleStep::GenerateZ31, OPRFShuffleStep::GenerateZ12),
-        Role::H2 => (OPRFShuffleStep::GenerateZ12, OPRFShuffleStep::GenerateZ23),
-        Role::H3 => (OPRFShuffleStep::GenerateZ23, OPRFShuffleStep::GenerateZ12),
-    };
-
-    let with_left = generate_random_table(batch_size, ctx, &step_left, Direction::Left);
-    let with_right = generate_random_table(batch_size, ctx, &step_right, Direction::Right);
+    let narrow_step = ctx.narrow(&OPRFShuffleStep::GenerateZ);
+    let (rng_l, rng_r) = narrow_step.prss_rng();
+    let with_left = sample_iter(rng_l).take(batch_size as usize).collect();
+    let with_right = sample_iter(rng_r).take(batch_size as usize).collect();
     (with_left, with_right)
 }
 
-fn generate_random_table<C>(
+fn generate_random_table_solo<C>(
     batch_size: u32,
     ctx: &C,
     step: &OPRFShuffleStep,
@@ -385,18 +400,15 @@ where
         Direction::Right => rngs.1,
     };
 
-    let iter = std::iter::from_fn(move || Some(OPRFShuffleSingleShare::sample(&mut rng)))
-        .take(batch_size as usize);
-
-    // NOTE: I'd like to return an Iterator from here as there is really no need to allocate batch_size of items.
-    // It'd be better to just pass the iterator to add_single_shares function.
-    // But I was unable to figure the return type. The type checker was saying something
-    // about Box<dyn Iterator<_>> and that rng is not Send,
-    // but it is currently beyond by level of knowledge.
-    // So, any advice is appreciated
-    iter.collect::<Vec<_>>()
+    sample_iter(&mut rng)
+        .take(batch_size as usize)
+        .collect::<Vec<_>>()
 }
-//
+
+fn sample_iter<R: Rng>(rng: R) -> impl Iterator<Item = OPRFShuffleSingleShare> {
+    rng.sample_iter(Standard)
+}
+
 // ---------------------------- helper communication ------------------------------------ //
 
 async fn send_to_peer<C: Context, I: IntoIterator<Item = OPRFShuffleSingleShare>>(
@@ -431,75 +443,21 @@ async fn receive_from_peer<C: Context>(
     Ok(output)
 }
 
-async fn exchange_c_hat<C: Context, I: IntoIterator<Item = OPRFShuffleSingleShare>>(
-    ctx: &C,
-    batch_size: u32,
-    part_to_send: I,
-) -> Result<Vec<OPRFShuffleSingleShare>, Error> {
-    let (step_send, step_recv, dir) = match ctx.role() {
-        Role::H2 => (
-            OPRFShuffleStep::TransferCHat1,
-            OPRFShuffleStep::TransferCHat2,
-            Direction::Right,
-        ),
-        Role::H3 => (
-            OPRFShuffleStep::TransferCHat2,
-            OPRFShuffleStep::TransferCHat1,
-            Direction::Left,
-        ),
-        role @ Role::H1 => {
-            unreachable!("Role {:?} does not participate in C_hat computation", role)
-        }
-    };
-
-    let ((), received_part) = try_join!(
-        send_to_peer(ctx, &step_send, dir, part_to_send),
-        receive_from_peer(ctx, &step_recv, dir, batch_size),
-    )?;
-
-    Ok(received_part)
-}
-
-// --------------------------- permutation-related function --------------------------------------------- //
+// ------------------ Pseudorandom permutations functions -------------------- //
 
 fn generate_permutations_with_peers<C: Context>(batch_size: u32, ctx: &C) -> (Vec<u32>, Vec<u32>) {
-    let (step_left, step_right) = match &ctx.role() {
-        Role::H1 => (OPRFShuffleStep::GeneratePi31, OPRFShuffleStep::GeneratePi12),
-        Role::H2 => (OPRFShuffleStep::GeneratePi12, OPRFShuffleStep::GeneratePi23),
-        Role::H3 => (OPRFShuffleStep::GeneratePi23, OPRFShuffleStep::GeneratePi12),
-    };
+    let narrow_context = ctx.narrow(&OPRFShuffleStep::GeneratePi);
+    let mut rng = narrow_context.prss_rng();
 
-    let with_left = generate_pseudorandom_permutation(batch_size, ctx, &step_left, Direction::Left);
-    let with_right =
-        generate_pseudorandom_permutation(batch_size, ctx, &step_right, Direction::Right);
+    let with_left = generate_pseudorandom_permutation(batch_size, &mut rng.0);
+    let with_right = generate_pseudorandom_permutation(batch_size, &mut rng.1);
     (with_left, with_right)
 }
 
-fn generate_pseudorandom_permutation<C: Context>(
-    batch_size: u32,
-    ctx: &C,
-    step: &OPRFShuffleStep,
-    with_peer_on_the: Direction,
-) -> Vec<u32> {
-    let narrow_context = ctx.narrow(step);
-    let rng = narrow_context.prss_rng();
-    let mut rng = match with_peer_on_the {
-        Direction::Left => rng.0,
-        Direction::Right => rng.1,
-    };
-
+fn generate_pseudorandom_permutation<R: Rng>(batch_size: u32, rng: &mut R) -> Vec<u32> {
     let mut permutation = (0..batch_size).collect::<Vec<_>>();
-    permutation.shuffle(&mut rng);
+    permutation.shuffle(rng);
     permutation
-}
-
-fn permute(
-    permutation: &[u32],
-    input: impl Iterator<Item = OPRFShuffleSingleShare>,
-) -> Vec<OPRFShuffleSingleShare> {
-    let mut rows = input.collect::<Vec<_>>();
-    apply(permutation, &mut rows);
-    rows
 }
 
 use bitvec::bitvec;

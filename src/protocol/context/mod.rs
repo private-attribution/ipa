@@ -1,5 +1,4 @@
 pub mod malicious;
-pub mod oprf;
 pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
@@ -9,7 +8,6 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use async_trait::async_trait;
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
-pub use oprf::Context as OPRFContext;
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
@@ -162,7 +160,7 @@ pub struct Base<'a> {
 }
 
 impl<'a> Base<'a> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self::new_complete(
             participant,
             gateway,

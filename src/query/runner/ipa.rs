@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use futures::{
     stream::{iter, repeat},
-    Stream, StreamExt, TryStreamExt,
+    StreamExt, TryStreamExt,
 };
 
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
     hpke::{KeyPair, KeyRegistry},
+    one_off_fns::assert_stream_send,
     protocol::{
         basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext},
@@ -145,16 +146,6 @@ where
 
         ipa(ctx, input.as_slice(), config).await
     }
-}
-
-/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
-/// streams.
-///
-/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
-pub fn assert_stream_send<'a, T>(
-    st: impl Stream<Item = T> + Send + 'a,
-) -> impl Stream<Item = T> + Send + 'a {
-    st
 }
 
 /// no dependency on `weak-field` feature because it is enabled in tests by default

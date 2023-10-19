@@ -25,7 +25,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        context::{MaliciousContext, OPRFContext, SemiHonestContext},
+        context::{Base as BaseContext, MaliciousContext, SemiHonestContext},
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
     },
@@ -207,7 +207,7 @@ pub fn execute(
             gateway,
             input,
             move |prss, gateway, config, input| {
-                let ctx = OPRFContext::new(prss, gateway);
+                let ctx = BaseContext::new(prss, gateway);
                 let query = OPRFShuffleQuery::new(oprf_shuffle_config)
                     .execute(ctx, config.size, input)
                     .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>)));
