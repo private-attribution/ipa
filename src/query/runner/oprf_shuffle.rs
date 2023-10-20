@@ -9,7 +9,7 @@ use crate::{
     one_off_fns::assert_stream_send,
     protocol::{
         context::Context,
-        oprf::{oprf_shuffle, OPRFInputRow},
+        oprf::shuffle::{shuffle, ShuffleInputRow},
     },
 };
 
@@ -28,12 +28,12 @@ impl OPRFShuffleQuery {
         ctx: C,
         query_size: QuerySize,
         input_stream: BodyStream,
-    ) -> Result<Vec<OPRFInputRow>, Error> {
-        let input: Vec<OPRFInputRow> =
-            assert_stream_send(RecordsStream::<OPRFInputRow, _>::new(input_stream))
+    ) -> Result<Vec<ShuffleInputRow>, Error> {
+        let input: Vec<ShuffleInputRow> =
+            assert_stream_send(RecordsStream::<ShuffleInputRow, _>::new(input_stream))
                 .try_concat()
                 .await?;
 
-        oprf_shuffle(ctx, input.as_slice(), self.config).await
+        shuffle(ctx, input.as_slice(), self.config).await
     }
 }

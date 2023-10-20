@@ -4,27 +4,27 @@ use generic_array::GenericArray;
 use rand::{distributions::Standard, Rng};
 use typenum::Unsigned;
 
-use super::OPRFInputRow;
+use super::ShuffleInputRow;
 use crate::{
     ff::{Field, Gf32Bit, Gf40Bit, Gf8Bit, Serializable},
     helpers::{Direction, Message},
 };
-pub type OprfMK = Gf40Bit;
-pub type OprfBK = Gf8Bit;
-pub type OprfF = Gf32Bit;
+pub type ShuffleShareMK = Gf40Bit;
+pub type ShuffleShareBK = Gf8Bit;
+pub type ShuffleShareF = Gf32Bit;
 
 #[derive(Debug, Clone, Copy)]
-pub struct OPRFShare {
-    pub timestamp: OprfF,
-    pub mk: OprfMK,
-    pub is_trigger_bit: OprfF,
-    pub breakdown_key: OprfBK,
-    pub trigger_value: OprfF,
+pub struct ShuffleShare {
+    pub timestamp: ShuffleShareF,
+    pub mk: ShuffleShareMK,
+    pub is_trigger_bit: ShuffleShareF,
+    pub breakdown_key: ShuffleShareBK,
+    pub trigger_value: ShuffleShareF,
 }
 
-impl OPRFShare {
+impl ShuffleShare {
     #[must_use]
-    pub fn from_input_row(input_row: &OPRFInputRow, shared_with: Direction) -> Self {
+    pub fn from_input_row(input_row: &ShuffleInputRow, shared_with: Direction) -> Self {
         match shared_with {
             Direction::Left => Self {
                 timestamp: input_row.timestamp.as_tuple().1,
@@ -45,8 +45,8 @@ impl OPRFShare {
     }
 
     #[must_use]
-    pub fn to_input_row(self, rhs: Self) -> OPRFInputRow {
-        OPRFInputRow {
+    pub fn to_input_row(self, rhs: Self) -> ShuffleInputRow {
+        ShuffleInputRow {
             timestamp: (self.timestamp, rhs.timestamp).into(),
             mk_shares: (self.mk, rhs.mk).into(),
             is_trigger_bit: (self.is_trigger_bit, rhs.is_trigger_bit).into(),
@@ -56,19 +56,19 @@ impl OPRFShare {
     }
 }
 
-impl rand::prelude::Distribution<OPRFShare> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> OPRFShare {
-        OPRFShare {
-            timestamp: OprfF::truncate_from(rng.gen::<u128>()),
-            mk: OprfMK::truncate_from(rng.gen::<u128>()),
-            is_trigger_bit: OprfF::truncate_from(rng.gen::<u128>()),
-            breakdown_key: OprfBK::truncate_from(rng.gen::<u128>()),
-            trigger_value: OprfF::truncate_from(rng.gen::<u128>()),
+impl rand::prelude::Distribution<ShuffleShare> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ShuffleShare {
+        ShuffleShare {
+            timestamp: ShuffleShareF::truncate_from(rng.gen::<u128>()),
+            mk: ShuffleShareMK::truncate_from(rng.gen::<u128>()),
+            is_trigger_bit: ShuffleShareF::truncate_from(rng.gen::<u128>()),
+            breakdown_key: ShuffleShareBK::truncate_from(rng.gen::<u128>()),
+            trigger_value: ShuffleShareF::truncate_from(rng.gen::<u128>()),
         }
     }
 }
 
-impl Add for OPRFShare {
+impl Add for ShuffleShare {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -76,10 +76,10 @@ impl Add for OPRFShare {
     }
 }
 
-impl<'a, 'b> Add<&'b OPRFShare> for &'a OPRFShare {
-    type Output = OPRFShare;
+impl<'a, 'b> Add<&'b ShuffleShare> for &'a ShuffleShare {
+    type Output = ShuffleShare;
 
-    fn add(self, rhs: &'b OPRFShare) -> Self::Output {
+    fn add(self, rhs: &'b ShuffleShare) -> Self::Output {
         Self::Output {
             timestamp: self.timestamp + rhs.timestamp,
             mk: self.mk + rhs.mk,
@@ -90,19 +90,21 @@ impl<'a, 'b> Add<&'b OPRFShare> for &'a OPRFShare {
     }
 }
 
-impl Serializable for OPRFShare {
-    type Size = <<OprfF as Serializable>::Size as Add<
-        <<OprfMK as Serializable>::Size as Add<
-            <<OprfF as Serializable>::Size as Add<
-                <<OprfBK as Serializable>::Size as Add<<OprfF as Serializable>::Size>>::Output,
+impl Serializable for ShuffleShare {
+    type Size = <<ShuffleShareF as Serializable>::Size as Add<
+        <<ShuffleShareMK as Serializable>::Size as Add<
+            <<ShuffleShareF as Serializable>::Size as Add<
+                <<ShuffleShareBK as Serializable>::Size as Add<
+                    <ShuffleShareF as Serializable>::Size,
+                >>::Output,
             >>::Output,
         >>::Output,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let mk_sz = <OprfMK as Serializable>::Size::USIZE;
-        let bk_sz = <OprfBK as Serializable>::Size::USIZE;
-        let f_sz = <OprfF as Serializable>::Size::USIZE;
+        let mk_sz = <ShuffleShareMK as Serializable>::Size::USIZE;
+        let bk_sz = <ShuffleShareBK as Serializable>::Size::USIZE;
+        let f_sz = <ShuffleShareF as Serializable>::Size::USIZE;
 
         self.timestamp
             .serialize(GenericArray::from_mut_slice(&mut buf[..f_sz]));
@@ -120,19 +122,19 @@ impl Serializable for OPRFShare {
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mk_sz = <OprfMK as Serializable>::Size::USIZE;
-        let bk_sz = <OprfBK as Serializable>::Size::USIZE;
-        let f_sz = <OprfF as Serializable>::Size::USIZE;
+        let mk_sz = <ShuffleShareMK as Serializable>::Size::USIZE;
+        let bk_sz = <ShuffleShareBK as Serializable>::Size::USIZE;
+        let f_sz = <ShuffleShareF as Serializable>::Size::USIZE;
 
-        let timestamp = OprfF::deserialize(GenericArray::from_slice(&buf[..f_sz]));
-        let mk = OprfMK::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
-        let is_trigger_bit = OprfF::deserialize(GenericArray::from_slice(
+        let timestamp = ShuffleShareF::deserialize(GenericArray::from_slice(&buf[..f_sz]));
+        let mk = ShuffleShareMK::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
+        let is_trigger_bit = ShuffleShareF::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
         ));
-        let breakdown_key = OprfBK::deserialize(GenericArray::from_slice(
+        let breakdown_key = ShuffleShareBK::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
         ));
-        let trigger_value = OprfF::deserialize(GenericArray::from_slice(
+        let trigger_value = ShuffleShareF::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz + bk_sz..],
         ));
         Self {
@@ -145,4 +147,4 @@ impl Serializable for OPRFShare {
     }
 }
 
-impl Message for OPRFShare {}
+impl Message for ShuffleShare {}
