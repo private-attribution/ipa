@@ -151,7 +151,6 @@ macro_rules! sc_hash_impl {
 #[cfg(test)]
 sc_hash_impl!(u64);
 
-
 impl Field for Fp25519 {
     const ONE: Fp25519 = Fp25519::ONE;
 
@@ -198,7 +197,6 @@ mod test {
         ff::{ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
     };
-
 
     sc_hash_impl!(u32);
 

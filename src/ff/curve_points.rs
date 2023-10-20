@@ -150,7 +150,6 @@ cp_hash_impl!(u128);
 
 cp_hash_impl!(u64);
 
-
 #[cfg(test)]
 impl rand::distributions::Distribution<RP25519> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> RP25519 {
