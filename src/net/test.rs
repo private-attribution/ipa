@@ -15,8 +15,8 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
+use rustls::Certificate;
 use tokio::task::JoinHandle;
-use tokio_rustls::rustls::Certificate;
 
 use crate::{
     config::{

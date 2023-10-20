@@ -38,7 +38,7 @@ impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
-    type Size: ArrayLength<u8>;
+    type Size: ArrayLength;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check

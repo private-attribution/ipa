@@ -256,7 +256,7 @@ where
         .unwrap(); // validated on construction
 
         let mut ciphertext: GenericArray<u8, <Gf40Bit as FieldShareCrypt>::CiphertextSize> =
-            GenericArray::clone_from_slice(self.match_key_ciphertext());
+            *GenericArray::from_slice(self.match_key_ciphertext());
         let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, &info)?;
 
         Ok(Report {

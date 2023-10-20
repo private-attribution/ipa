@@ -27,7 +27,7 @@ pub async fn secure_mul<F>(
 where
     F: Field + IntoShares<Replicated<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
-    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength,
 {
     // prepare inputs
     let inputs = input.into_iter().share().map(|vec| {

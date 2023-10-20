@@ -294,7 +294,7 @@ where
         Add<<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size>,
     <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
-    >>::Output: ArrayLength<u8>,
+    >>::Output: ArrayLength,
 {
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,

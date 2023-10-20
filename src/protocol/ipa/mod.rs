@@ -104,7 +104,7 @@ where
                 >>::Output,
             >>::Output,
         >>::Output,
-    >>::Output: ArrayLength<u8>,
+    >>::Output: ArrayLength,
 {
     type Size = <<Replicated<F> as Serializable>::Size as Add<
         <<Replicated<MK> as Serializable>::Size as Add<

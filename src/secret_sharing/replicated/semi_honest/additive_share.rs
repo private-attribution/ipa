@@ -220,7 +220,7 @@ impl<V: SharedValue> From<(V, V)> for AdditiveShare<V> {
 impl<V: SharedValue> Serializable for AdditiveShare<V>
 where
     V::Size: Add<V::Size>,
-    <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,
+    <V::Size as Add<V::Size>>::Output: ArrayLength,
 {
     type Size = <V::Size as Add<V::Size>>::Output;
 
