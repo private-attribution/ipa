@@ -1,9 +1,9 @@
+pub mod apply;
 pub mod apply_sort;
 pub mod bit_permutation;
 pub mod generate_permutation;
 pub mod generate_permutation_opt;
 
-mod apply;
 mod compose;
 mod multi_bit_permutation;
 mod secureapplyinv;
