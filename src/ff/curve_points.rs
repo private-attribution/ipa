@@ -14,11 +14,21 @@ impl Block for CompressedRistretto {
     type Size = U32;
 }
 
-///ristretto point for curve 25519
+///ristretto point for curve 25519,
+/// we store it in compressed format since it is 3 times smaller and we do a limited amount of
+/// arithmetic operations on the curve points
+///
+/// We use ristretto points such that we have a prime order elliptic curve,
+/// This is needed for the Dodis Yampolski PRF
+///
+/// decompressing invalid curve points will cause panics,
+/// since we always generate curve points from scalars (elements in Fp25519) and
+/// only deserialize previously serialized valid points, panics will not occur
+/// However, we still added a debug assert to deserialize since values are sent by other servers
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct RP25519(CompressedRistretto);
 
-/// using compressed ristretto point
+/// Implementing trait for secret sharing
 impl WeakSharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
@@ -86,6 +96,7 @@ impl std::ops::SubAssign for RP25519 {
 }
 
 ///Scalar Multiplication
+/// allows to multiply curve points with scalars from Fp25519
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
 /// from bit array that does not have a valid representation on the curve
@@ -130,6 +141,7 @@ impl From<RP25519> for CompressedRistretto {
     }
 }
 
+///allows to convert curve points into unsigned integers, preserving high entropy
 macro_rules! cp_hash_impl {
     ( $u_type:ty) => {
         impl From<RP25519> for $u_type {
@@ -150,6 +162,8 @@ cp_hash_impl!(u128);
 
 cp_hash_impl!(u64);
 
+/// implementing random curve point generation for testing purposes,
+/// in the actual IPA protocol, we generate them from scalars, i.e. Fp25519
 #[cfg(test)]
 impl rand::distributions::Distribution<RP25519> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> RP25519 {
@@ -173,6 +187,7 @@ mod test {
 
     cp_hash_impl!(u32);
 
+    ///testing serialize and deserialize
     #[test]
     fn serde_25519() {
         let mut rng = thread_rng();
@@ -183,6 +198,7 @@ mod test {
         assert_eq!(input, output);
     }
 
+    ///testing conversion from scalar to Fp25519 and curve point, i.e. RP25519
     #[test]
     fn scalar_to_point() {
         let a = Scalar::ONE;
@@ -193,6 +209,7 @@ mod test {
         assert_eq!(c, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
     }
 
+    ///testing simple curve arithmetics to check that curve25519_dalek library is used correctly
     #[test]
     fn curve_arithmetics() {
         let mut rng = thread_rng();
@@ -211,6 +228,7 @@ mod test {
         assert_eq!(RP25519::ZERO, fp_h * Scalar::ZERO.into());
     }
 
+    ///testing curve to unsigned integer conversion has entropy (!= 0)
     #[test]
     fn curve_point_to_hash() {
         let mut rng = thread_rng();

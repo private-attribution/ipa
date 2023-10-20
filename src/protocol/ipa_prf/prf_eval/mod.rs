@@ -21,6 +21,10 @@ pub(crate) enum Step {
     Revealz,
 }
 
+/// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
+/// PRF key needs to be generated separately using gen_prf_key
+///
+/// gen_prf_key is not included such that compute_match_key_pseudonym can be tested for correctness
 /// # Errors
 /// Propagates errors from multiplications
 pub async fn compute_match_key_pseudonym<C>(
@@ -57,8 +61,8 @@ where
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))
 /// the input x and k are secret shared over finite field Fp25519, i.e. the scalar field of curve 25519
-/// PRF key k is generated using keygen
-/// In 3IPA, x is the match key
+/// PRF key k needs to be generated using gen_prf_key
+///  x is the match key in Fp25519 format
 /// outputs a u64 as specified in `protocol/prf_sharding/mod.rs`, all parties learn the output
 /// # Errors
 /// Propagates errors from multiplications, reveal and scalar multiplication
@@ -108,11 +112,13 @@ mod test {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    ///defining test input struct
     #[derive(Copy, Clone)]
     struct ShuffledTestInput {
         match_key: Fp25519,
     }
 
+    ///defining test output struct
     #[derive(Debug, PartialEq)]
     struct TestOutput {
         match_key_pseudonym: u64,
@@ -142,6 +148,8 @@ mod test {
         }
     }
 
+    ///testing correctness of DY PRF evaluation
+    /// by checking MPC generated pseudonym with pseudonym generated in the clear
     #[test]
     fn semi_honest() {
         run(|| async move {

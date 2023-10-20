@@ -51,6 +51,8 @@ pub trait Block: Sized + Copy + Debug {
     type Size: ArrayLength;
 }
 
+
+///allows basic secret sharing operations
 pub trait WeakSharedValue:
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
 {
@@ -61,6 +63,7 @@ pub trait WeakSharedValue:
     const ZERO: Self;
 }
 
+///allows advanced secret sharing operations, requires multiplication
 pub trait SharedValue:
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Arithmetic + Serializable + 'static
 {
@@ -71,6 +74,7 @@ pub trait SharedValue:
     const ZERO: Self;
 }
 
+///any SharedValue is also a WeakSharedValue
 impl<T> WeakSharedValue for T
 where
     T: SharedValue,

@@ -13,12 +13,15 @@ impl Block for Scalar {
     type Size = U32;
 }
 
+///implements the Scalar field for elliptic curve 25519
+/// we use elements in Fp25519 to generate curve points and operate on the curve
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Fp25519(<Self as SharedValue>::Storage);
 
 impl Fp25519 {
     pub const ONE: Self = Self(Scalar::ONE);
 
+    ///allow invert for scalars, i.e. computes 1/a mod p
     ///# Panics
     /// Panics when self is zero
     #[must_use]
@@ -28,12 +31,14 @@ impl Fp25519 {
     }
 }
 
+///trait for secret sharing
 impl SharedValue for Fp25519 {
     type Storage = Scalar;
     const BITS: u32 = 256;
     const ZERO: Self = Self(Scalar::ZERO);
 }
 
+///conversion to Scalar struct of curve25519_dalek
 impl From<Fp25519> for Scalar {
     fn from(s: Fp25519) -> Self {
         s.0
@@ -52,6 +57,7 @@ impl Serializable for Fp25519 {
     }
 }
 
+///generate random elements in Fp25519
 impl rand::distributions::Distribution<Fp25519> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> Fp25519 {
         let mut scalar_bytes = [0u8; 32];
@@ -119,6 +125,7 @@ impl From<Scalar> for Fp25519 {
     }
 }
 
+///conversion from and to unsigned integers, preserving entropy, for testing purposes only
 #[cfg(test)]
 macro_rules! sc_hash_impl {
     ( $u_type:ty) => {
@@ -151,6 +158,7 @@ macro_rules! sc_hash_impl {
 #[cfg(test)]
 sc_hash_impl!(u64);
 
+///implement Field because required by PRSS
 impl Field for Fp25519 {
     const ONE: Fp25519 = Fp25519::ONE;
 
@@ -174,6 +182,7 @@ impl Field for Fp25519 {
     }
 }
 
+///implement TryFrom since required by Field
 impl TryFrom<u128> for Fp25519 {
     type Error = crate::error::Error;
 
@@ -200,6 +209,7 @@ mod test {
 
     sc_hash_impl!(u32);
 
+    ///test serialize and deserialize
     #[test]
     fn serde_25519() {
         let mut rng = thread_rng();
@@ -210,7 +220,7 @@ mod test {
         assert_eq!(input, output);
     }
 
-    // These are just simple arithmetic tests since arithmetics are checked by curve25519_dalek
+    ///test simple arithmetics to check that curve25519_dalek is used correctly
     #[test]
     fn simple_arithmetics_25519() {
         let a = Fp25519(Scalar::from_bytes_mod_order([
@@ -241,12 +251,14 @@ mod test {
         assert_eq!(ec, e);
     }
 
+    ///test random field element generation (!= 0)
     #[test]
     fn simple_random_25519() {
         let mut rng = thread_rng();
         assert_ne!(Fp25519::ZERO, rng.gen::<Fp25519>());
     }
 
+    ///test inversion for field elements
     #[test]
     fn invert_25519() {
         let mut rng = thread_rng();
