@@ -21,7 +21,7 @@ where
     Replicated<BK>: Serializable,
     <Replicated<CV> as Serializable>::Size: Add<<Replicated<BK> as Serializable>::Size>,
     <<Replicated<CV> as Serializable>::Size as Add<<Replicated<BK> as Serializable>::Size>>::Output:
-        ArrayLength<u8>,
+        ArrayLength,
 {
     type Size = <<Replicated<CV> as Serializable>::Size as Add<
         <Replicated<BK> as Serializable>::Size,

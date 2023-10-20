@@ -45,7 +45,7 @@ impl<T, Rhs, Output> Arithmetic<Rhs, Output> for T where
 // Trait for primitive integer types used to represent the underlying type for shared values
 pub trait Block: Sized + Copy + Debug {
     /// Size of a block in bytes big enough to hold the shared value. `Size * 8 >= VALID_BIT_LENGTH`.
-    type Size: ArrayLength<u8>;
+    type Size: ArrayLength;
 }
 
 pub trait SharedValue:

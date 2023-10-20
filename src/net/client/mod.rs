@@ -16,10 +16,7 @@ use hyper::{
 };
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use pin_project::pin_project;
-use tokio_rustls::{
-    rustls,
-    rustls::{Certificate, PrivateKey, RootCertStore},
-};
+use rustls::{Certificate, PrivateKey, RootCertStore};
 use tracing::error;
 
 use crate::{

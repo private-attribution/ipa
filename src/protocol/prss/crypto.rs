@@ -101,7 +101,7 @@ pub struct KeyExchange {
 impl KeyExchange {
     pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
         Self {
-            sk: EphemeralSecret::new(r),
+            sk: EphemeralSecret::random_from_rng(r),
         }
     }
 
