@@ -14,6 +14,7 @@ use futures::{
     stream::{iter, once, Fuse, FusedStream, Iter, Map, Once},
     Stream, StreamExt,
 };
+use generic_array::GenericArray;
 use pin_project::pin_project;
 use typenum::{Unsigned, U2};
 
@@ -97,7 +98,7 @@ impl BufDeque {
         self.read_bytes(count * T::Size::USIZE).map(|bytes| {
             bytes
                 .chunks(T::Size::USIZE)
-                .map(|bytes| T::deserialize(bytes.into()))
+                .map(|bytes| T::deserialize(GenericArray::from_slice(bytes)))
                 .collect()
         })
     }
@@ -108,7 +109,7 @@ impl BufDeque {
     /// Returns `None` if there is insufficient data available.
     fn read<T: Serializable>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
-            .map(|bytes| T::deserialize(bytes.as_ref().into()))
+            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)))
     }
 
     /// Update the buffer with the result of polling a stream.
@@ -517,8 +518,7 @@ mod test {
             let mut stream = RecordsStream::<Fp32BitPrime, _>::from(chunks);
             assert_eq!(stream.buffer.len(), 0);
             for expected_chunk in vec.chunks(<Fp32BitPrime as Serializable>::Size::USIZE) {
-                let expected =
-                    Fp32BitPrime::deserialize(<&GenericArray<u8, _>>::from(expected_chunk));
+                let expected = Fp32BitPrime::deserialize(GenericArray::from_slice(expected_chunk));
                 let n = stream.next().await.unwrap().unwrap();
                 // `RecordsStream` outputs correct value
                 assert_eq!(vec![expected], n);
@@ -704,7 +704,7 @@ mod test {
                                             (data in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
             -> (Vec<Fp32BitPrime>, Vec<Vec<u8>>, u64) {
                 let expected = data.chunks(<Fp32BitPrime as Serializable>::Size::USIZE)
-                    .map(|chunk| Fp32BitPrime::deserialize(<&GenericArray<u8, _>>::from(chunk)))
+                    .map(|chunk| Fp32BitPrime::deserialize(<GenericArray<u8, _>>::from_slice(chunk)))
                     .collect();
                 (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
             }
