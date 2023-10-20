@@ -3,8 +3,6 @@ use curve25519_dalek::{
     Scalar,
 };
 use generic_array::GenericArray;
-use hkdf::Hkdf;
-use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
@@ -35,6 +33,7 @@ impl Serializable for RP25519 {
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        debug_assert!(CompressedRistretto((*buf).into()).decompress().is_some());
         RP25519(CompressedRistretto((*buf).into()))
     }
 }
@@ -87,7 +86,6 @@ impl std::ops::SubAssign for RP25519 {
 }
 
 ///Scalar Multiplication
-///<'a, 'b> `std::ops::Mul<&'b"` Fp25519 for &'a
 ///## Panics
 /// Panics when decompressing invalid curve point. This can happen when deserialize curve point
 /// from bit array that does not have a valid representation on the curve
@@ -136,6 +134,8 @@ macro_rules! cp_hash_impl {
     ( $u_type:ty) => {
         impl From<RP25519> for $u_type {
             fn from(s: RP25519) -> Self {
+                use hkdf::Hkdf;
+                use sha2::Sha256;
                 let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
                 let mut okm = <$u_type>::MIN.to_le_bytes();
                 //error invalid length from expand only happens when okm is very large
@@ -150,8 +150,6 @@ cp_hash_impl!(u128);
 
 cp_hash_impl!(u64);
 
-#[cfg(test)]
-cp_hash_impl!(u32);
 
 #[cfg(test)]
 impl rand::distributions::Distribution<RP25519> for rand::distributions::Standard {
@@ -173,6 +171,8 @@ mod test {
         ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::WeakSharedValue,
     };
+
+    cp_hash_impl!(u32);
 
     #[test]
     fn serde_25519() {

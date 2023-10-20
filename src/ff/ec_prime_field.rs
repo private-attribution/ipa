@@ -124,6 +124,8 @@ macro_rules! sc_hash_impl {
     ( $u_type:ty) => {
         impl From<Fp25519> for $u_type {
             fn from(s: Fp25519) -> Self {
+                use hkdf::Hkdf;
+                use sha2::Sha256;
                 let hk = Hkdf::<Sha256>::new(None, s.0.as_bytes());
                 let mut okm = <$u_type>::MIN.to_le_bytes();
                 //error invalid length from expand only happens when okm is very large
@@ -134,6 +136,8 @@ macro_rules! sc_hash_impl {
 
         impl From<$u_type> for Fp25519 {
             fn from(s: $u_type) -> Self {
+                use hkdf::Hkdf;
+                use sha2::Sha256;
                 let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
                 let mut okm = [0u8; 32];
                 //error invalid length from expand only happens when okm is very large
@@ -147,10 +151,7 @@ macro_rules! sc_hash_impl {
 #[cfg(test)]
 sc_hash_impl!(u64);
 
-#[cfg(test)]
-sc_hash_impl!(u32);
 
-/// Daniel had to implement this since PRSS wants it, prefer not to
 impl Field for Fp25519 {
     const ONE: Fp25519 = Fp25519::ONE;
 
@@ -197,6 +198,9 @@ mod test {
         ff::{ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
     };
+
+
+    sc_hash_impl!(u32);
 
     #[test]
     fn serde_25519() {
