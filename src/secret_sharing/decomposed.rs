@@ -112,11 +112,15 @@ impl<S> BitDecomposed<S> {
         for i in 0..self.len() {
             let c = ctx.narrow(&BitOpStep::from(i));
             let compute_carry_out = i < self.len() - 1;
-            let lhs = &self[i];
-            let rhs = rhs.get(i).unwrap_or(&zero);
-            let difference_bit =
-                one_bit_subtractor(c, record_id, lhs, rhs, &mut carry_in, compute_carry_out)
-                    .await?;
+            let difference_bit = one_bit_subtractor(
+                c,
+                record_id,
+                &self[i],
+                rhs.get(i).unwrap_or(&zero),
+                &mut carry_in,
+                compute_carry_out,
+            )
+            .await?;
 
             output.push(difference_bit);
         }
