@@ -1,12 +1,9 @@
 use crate::{
     error::Error,
     protocol::{
-        basics::Reshare,
+        basics::{apply_permutation::apply_inv, Reshare},
         context::Context,
-        sort::{
-            apply::apply_inv, apply_sort::shuffle_shares as shuffle_vectors,
-            ApplyInvStep::ShuffleInputs,
-        },
+        sort::{apply_sort::shuffle_shares as shuffle_vectors, ApplyInvStep::ShuffleInputs},
         RecordId,
     },
 };
@@ -38,9 +35,10 @@ mod tests {
         use crate::{
             ff::{Field, Fp31},
             protocol::{
+                basics::apply_permutation::apply_inv,
                 context::{Context, SemiHonestContext, UpgradableContext, Validator},
                 sort::{
-                    apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation,
+                    generate_permutation::shuffle_and_reveal_permutation,
                     secureapplyinv::secureapplyinv_multi,
                 },
             },

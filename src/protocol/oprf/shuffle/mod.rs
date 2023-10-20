@@ -8,7 +8,8 @@ use rand::{distributions::Standard, seq::SliceRandom, Rng};
 
 use self::share::{ShuffleShare, ShuffleShareBK, ShuffleShareF, ShuffleShareMK};
 use super::super::{
-    context::Context, ipa::IPAInputRow, sort::apply::apply as apply_permutation, RecordId,
+    basics::apply_permutation::apply as apply_permutation, context::Context, ipa::IPAInputRow,
+    RecordId,
 };
 use crate::{
     error::Error,
