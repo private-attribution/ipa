@@ -31,23 +31,17 @@ pub(crate) enum OPRFShuffleStep {
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C: Context>(
-    ctx: C,
-    input_rows: &[ShuffleInputRow],
+pub async fn shuffle<C, Sl, Sr>(
     _config: QueryConfig,
-) -> Result<Vec<ShuffleInputRow>, Error> {
-    let batch_size = u32::try_from(input_rows.len()).map_err(|_e| {
-        Error::FieldValueTruncation(format!(
-            "Cannot truncate the number of input rows {} to u32",
-            input_rows.len(),
-        ))
-    })?;
-
-    let shares = (
-        split_shares(input_rows, Direction::Left),
-        split_shares(input_rows, Direction::Right),
-    );
-
+    ctx: C,
+    batch_size: u32,
+    shares: (Sl, Sr),
+) -> Result<(Vec<ShuffleShare>, Vec<ShuffleShare>), Error>
+where
+    C: Context,
+    Sl: IntoIterator<Item = ShuffleShare>,
+    Sr: IntoIterator<Item = ShuffleShare>,
+{
     // 1. Generate permutations
     let pis = generate_permutations_with_peers(batch_size, &ctx);
 
@@ -68,7 +62,7 @@ async fn run_h1<C, Sl, Sr, Zl, Zr>(
     (a, b): (Sl, Sr),
     (pi_31, pi_12): (Vec<u32>, Vec<u32>),
     (z_31, z_12): (Zl, Zr),
-) -> Result<Vec<ShuffleInputRow>, Error>
+) -> Result<(Vec<ShuffleShare>, Vec<ShuffleShare>), Error>
 where
     C: Context,
     Sl: IntoIterator<Item = ShuffleShare>,
@@ -94,8 +88,7 @@ where
 
     send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
 
-    let res = combine_shares(a_hat, b_hat);
-    Ok(res)
+    Ok((a_hat, b_hat))
 }
 
 async fn run_h2<C, Sl, Sr, Zl, Zr>(
@@ -104,7 +97,7 @@ async fn run_h2<C, Sl, Sr, Zl, Zr>(
     (_b, c): (Sl, Sr),
     (pi_12, pi_23): (Vec<u32>, Vec<u32>),
     (z_12, z_23): (Zl, Zr),
-) -> Result<Vec<ShuffleInputRow>, Error>
+) -> Result<(Vec<ShuffleShare>, Vec<ShuffleShare>), Error>
 where
     C: Context,
     Sl: IntoIterator<Item = ShuffleShare>,
@@ -152,9 +145,8 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
-    let res = combine_shares(b_hat, c_hat);
-    Ok(res)
+    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter()).collect();
+    Ok((b_hat, c_hat))
 }
 
 async fn run_h3<C, Sl, Sr, Zl, Zr>(
@@ -163,7 +155,7 @@ async fn run_h3<C, Sl, Sr, Zl, Zr>(
     (_c, _a): (Sl, Sr),
     (pi_23, pi_31): (Vec<u32>, Vec<u32>),
     (z_23, z_31): (Zl, Zr),
-) -> Result<Vec<ShuffleInputRow>, Error>
+) -> Result<(Vec<ShuffleShare>, Vec<ShuffleShare>), Error>
 where
     C: Context,
     Sl: IntoIterator<Item = ShuffleShare>,
@@ -208,30 +200,8 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1, c_hat_2);
-    let res = combine_shares(c_hat, a_hat);
-    Ok(res)
-}
-
-// --------------------------------------------------------------------------- //
-
-fn split_shares(
-    input_rows: &[ShuffleInputRow],
-    direction: Direction,
-) -> impl Iterator<Item = ShuffleShare> + '_ {
-    let f = move |input_row| ShuffleShare::from_input_row(input_row, direction);
-    input_rows.iter().map(f)
-}
-
-fn combine_shares<L, R>(l: L, r: R) -> Vec<ShuffleInputRow>
-where
-    L: IntoIterator<Item = ShuffleShare>,
-    R: IntoIterator<Item = ShuffleShare>,
-{
-    l.into_iter()
-        .zip(r)
-        .map(|(l, r)| l.to_input_row(r))
-        .collect::<Vec<_>>()
+    let c_hat = add_single_shares(c_hat_1, c_hat_2).collect();
+    Ok((c_hat, a_hat))
 }
 
 fn add_single_shares<'i, T, L, R>(l: L, r: R) -> impl Iterator<Item = T::Output> + 'i
@@ -242,7 +212,6 @@ where
 {
     l.into_iter().zip(r).map(|(a, b)| a + b)
 }
-
 // --------------------------------------------------------------------------- //
 
 fn generate_random_tables_with_peers<C: Context>(
