@@ -10,7 +10,6 @@ use crate::{
         RecordId,
     },
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-    seq_join::seq_try_join_all,
 };
 
 #[derive(Step)]
@@ -37,7 +36,7 @@ where
         .iter()
         .enumerate()
         .map(|(i, x)| eval_dy_prf(ctx.clone(), i.into(), &prf_key, x));
-    seq_try_join_all(sh_ctx.active_work(), futures).await
+    ctx.try_join(futures).await
 }
 
 impl From<AdditiveShare<Fp25519>> for AdditiveShare<RP25519> {
@@ -53,7 +52,7 @@ where
 {
     ctx.narrow(&Step::PRFKeyGen)
         .prss()
-        .generate_replicated(u128::MAX - 100u128)
+        .generate_replicated(RecordId(0))
 }
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))
