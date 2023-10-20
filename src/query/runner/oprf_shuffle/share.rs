@@ -90,6 +90,13 @@ impl<'a, 'b> Add<&'b ShuffleShare> for &'a ShuffleShare {
     }
 }
 
+impl<'a> Add<ShuffleShare> for &'a ShuffleShare {
+    type Output = ShuffleShare;
+
+    fn add(self, rhs: ShuffleShare) -> Self::Output {
+        Add::add(self, &rhs)
+    }
+}
 impl Serializable for ShuffleShare {
     type Size = <<ShuffleShareF as Serializable>::Size as Add<
         <<ShuffleShareMK as Serializable>::Size as Add<

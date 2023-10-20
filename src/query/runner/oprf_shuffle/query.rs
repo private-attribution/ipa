@@ -1,5 +1,6 @@
 use futures::TryStreamExt;
 
+use super::{share::ShuffleShare, ShuffleInputRow};
 use crate::{
     error::Error,
     helpers::{
@@ -7,19 +8,16 @@ use crate::{
         BodyStream, Direction, RecordsStream,
     },
     one_off_fns::assert_stream_send,
-    protocol::{
-        context::Context,
-        oprf::shuffle::{share::ShuffleShare, shuffle, ShuffleInputRow},
-    },
+    protocol::{context::Context, oprf::shuffle::shuffle},
 };
 
 pub struct OPRFShuffleQuery {
-    config: oprf_shuffle::QueryConfig,
+    _config: oprf_shuffle::QueryConfig,
 }
 
 impl OPRFShuffleQuery {
     pub fn new(config: oprf_shuffle::QueryConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     #[tracing::instrument("ipa_query", skip_all, fields(sz=%query_size))]
@@ -46,7 +44,7 @@ impl OPRFShuffleQuery {
             split_shares(input.as_slice(), Direction::Right),
         );
 
-        let (res_l, res_r) = shuffle(self.config, ctx, batch_size, shares).await?;
+        let (res_l, res_r) = shuffle(ctx, batch_size, shares).await?;
         Ok(combine_shares(res_l, res_r))
     }
 }

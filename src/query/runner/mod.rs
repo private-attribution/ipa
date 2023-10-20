@@ -9,7 +9,7 @@ mod test_multiply;
 pub(super) use test_multiply::execute_test_multiply;
 
 pub(super) use self::{
-    aggregate::SparseAggregateQuery, ipa::IpaQuery, oprf_shuffle::OPRFShuffleQuery,
+    aggregate::SparseAggregateQuery, ipa::IpaQuery, oprf_shuffle::query::OPRFShuffleQuery,
 };
 use crate::{error::Error, query::ProtocolResult};
 
