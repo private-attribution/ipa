@@ -9,10 +9,10 @@ use std::{
 };
 
 use hyper::{client::Builder, http::uri::Scheme, Uri};
+use rustls::Certificate;
 use rustls_pemfile::Item;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::fs;
-use tokio_rustls::rustls::Certificate;
 
 use crate::{
     error::BoxError,

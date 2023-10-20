@@ -103,7 +103,7 @@ async fn multiply_in_field<F: Field>(args: &Args, helper_clients: &[MpcHelperCli
 where
     F: Field + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
-    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength,
 {
     let input = InputSource::from(&args.input);
     let input_rows = input.iter::<(F, F)>().collect::<Vec<_>>();
