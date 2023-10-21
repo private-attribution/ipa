@@ -51,7 +51,6 @@ pub trait Block: Sized + Copy + Debug {
     type Size: ArrayLength;
 }
 
-
 ///allows basic secret sharing operations
 pub trait WeakSharedValue:
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
