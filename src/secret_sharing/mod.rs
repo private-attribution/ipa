@@ -74,7 +74,7 @@ pub trait SharedValue:
     const ZERO: Self;
 }
 
-///any SharedValue is also a WeakSharedValue
+///any `SharedValue` is also a `WeakSharedValue`
 impl<T> WeakSharedValue for T
 where
     T: SharedValue,

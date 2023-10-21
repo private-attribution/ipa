@@ -38,7 +38,7 @@ impl SharedValue for Fp25519 {
     const ZERO: Self = Self(Scalar::ZERO);
 }
 
-///conversion to Scalar struct of curve25519_dalek
+///conversion to Scalar struct of `curve25519_dalek`
 impl From<Fp25519> for Scalar {
     fn from(s: Fp25519) -> Self {
         s.0
@@ -182,7 +182,7 @@ impl Field for Fp25519 {
     }
 }
 
-///implement TryFrom since required by Field
+///implement `TryFrom` since required by Field
 impl TryFrom<u128> for Fp25519 {
     type Error = crate::error::Error;
 
@@ -220,7 +220,7 @@ mod test {
         assert_eq!(input, output);
     }
 
-    ///test simple arithmetics to check that curve25519_dalek is used correctly
+    ///test simple arithmetics to check that `curve25519_dalek` is used correctly
     #[test]
     fn simple_arithmetics_25519() {
         let a = Fp25519(Scalar::from_bytes_mod_order([
