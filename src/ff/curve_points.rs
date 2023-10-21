@@ -209,7 +209,7 @@ mod test {
         assert_eq!(c, RP25519(constants::RISTRETTO_BASEPOINT_COMPRESSED));
     }
 
-    ///testing simple curve arithmetics to check that curve25519_dalek library is used correctly
+    ///testing simple curve arithmetics to check that `curve25519_dalek` library is used correctly
     #[test]
     fn curve_arithmetics() {
         let mut rng = thread_rng();
