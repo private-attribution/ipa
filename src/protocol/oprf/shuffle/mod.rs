@@ -10,6 +10,10 @@ use super::super::{
 use crate::{
     error::Error,
     helpers::{Direction, Message, ReceivingEnd, Role},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        SharedValue,
+    },
 };
 
 #[derive(Step)]
@@ -25,16 +29,11 @@ pub(crate) enum OPRFShuffleStep {
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C, S, Sl, Sr>(
-    ctx: C,
-    batch_size: u32,
-    shares: (Sl, Sr),
-) -> Result<(Vec<S>, Vec<S>), Error>
+pub async fn shuffle<C, I, S>(ctx: C, batch_size: u32, shares: I) -> Result<(Vec<S>, Vec<S>), Error>
 where
     C: Context,
-    Sl: IntoIterator<Item = S>,
-    Sr: IntoIterator<Item = S>,
-    S: Clone + Add<Output = S> + Message,
+    I: IntoIterator<Item = AdditiveShare<S>>,
+    S: SharedValue + Add<Output = S> + Message,
     for<'b> &'b S: Add<S, Output = S>,
     for<'b> &'b S: Add<&'b S, Output = S>,
     Standard: Distribution<S>,
@@ -49,24 +48,23 @@ where
     match ctx.role() {
         Role::H1 => run_h1(&ctx, batch_size, shares, pis, zs).await,
         Role::H2 => run_h2(&ctx, batch_size, shares, pis, zs).await,
-        Role::H3 => run_h3(&ctx, batch_size, shares, pis, zs).await,
+        Role::H3 => run_h3(&ctx, batch_size, pis, zs).await,
     }
 }
 
-async fn run_h1<C, Sl, S, Sr, Zl, Zr>(
+async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: u32,
-    (a, b): (Sl, Sr),
+    shares: I,
     (pi_31, pi_12): (Vec<u32>, Vec<u32>),
     (z_31, z_12): (Zl, Zr),
 ) -> Result<(Vec<S>, Vec<S>), Error>
 where
     C: Context,
-    Sl: IntoIterator<Item = S>,
-    Sr: IntoIterator<Item = S>,
+    I: IntoIterator<Item = AdditiveShare<S>>,
+    S: SharedValue + Add<Output = S> + Message,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
-    S: Clone + Add<Output = S> + Message,
     for<'a> &'a S: Add<Output = S>,
     Standard: Distribution<S>,
 {
@@ -80,7 +78,10 @@ where
         generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right).collect();
 
     // 2. Run computations
-    let mut x_1: Vec<S> = add_single_shares(add_single_shares(a, b), z_12).collect();
+    let a_add_b_iter = shares
+        .into_iter()
+        .map(|s: AdditiveShare<S>| s.left().add(s.right()));
+    let mut x_1: Vec<S> = add_single_shares(a_add_b_iter, z_12).collect();
     apply_permutation(&pi_12, &mut x_1);
 
     let mut x_2: Vec<S> = add_single_shares(x_1, z_31).collect();
@@ -91,20 +92,19 @@ where
     Ok((a_hat, b_hat))
 }
 
-async fn run_h2<C, S, Sl, Sr, Zl, Zr>(
+async fn run_h2<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: u32,
-    (_b, c): (Sl, Sr),
+    shares: I,
     (pi_12, pi_23): (Vec<u32>, Vec<u32>),
     (z_12, z_23): (Zl, Zr),
 ) -> Result<(Vec<S>, Vec<S>), Error>
 where
     C: Context,
-    Sl: IntoIterator<Item = S>,
-    Sr: IntoIterator<Item = S>,
+    I: IntoIterator<Item = AdditiveShare<S>>,
+    S: SharedValue + Add<Output = S> + Message,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
-    S: Clone + Add<Output = S> + Message,
     for<'a> &'a S: Add<S, Output = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
@@ -115,6 +115,7 @@ where
         generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Left).collect();
 
     // 2. Run computations
+    let c = shares.into_iter().map(|s| s.right());
     let mut y_1: Vec<S> = add_single_shares(c, z_12).collect();
     apply_permutation(&pi_12, &mut y_1);
 
@@ -153,17 +154,15 @@ where
     Ok((b_hat, c_hat))
 }
 
-async fn run_h3<C, S, Sl, Sr, Zl, Zr>(
+async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
     batch_size: u32,
-    (_c, _a): (Sl, Sr),
     (pi_23, pi_31): (Vec<u32>, Vec<u32>),
     (z_23, z_31): (Zl, Zr),
 ) -> Result<(Vec<S>, Vec<S>), Error>
 where
     C: Context,
-    Sl: IntoIterator<Item = S>,
-    Sr: IntoIterator<Item = S>,
+    S: SharedValue + Add<Output = S> + Message,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     S: Clone + Add<Output = S> + Message,

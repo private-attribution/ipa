@@ -9,6 +9,7 @@ use crate::{
     },
     one_off_fns::assert_stream_send,
     protocol::{context::Context, oprf::shuffle::shuffle},
+    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
 pub struct OPRFShuffleQuery {
@@ -39,11 +40,7 @@ impl OPRFShuffleQuery {
             ))
         })?;
 
-        let shares = (
-            split_shares(input.as_slice(), Direction::Left),
-            split_shares(input.as_slice(), Direction::Right),
-        );
-
+        let shares = split_shares(&input);
         let (res_l, res_r) = shuffle(ctx, batch_size, shares).await?;
         Ok(combine_shares(res_l, res_r))
     }
@@ -51,9 +48,13 @@ impl OPRFShuffleQuery {
 
 fn split_shares(
     input_rows: &[ShuffleInputRow],
-    direction: Direction,
-) -> impl Iterator<Item = ShuffleShare> + '_ {
-    let f = move |input_row| ShuffleShare::from_input_row(input_row, direction);
+) -> impl Iterator<Item = AdditiveShare<ShuffleShare>> + '_ {
+    let f = move |input_row| {
+        let l = ShuffleShare::from_input_row(input_row, Direction::Left);
+        let r = ShuffleShare::from_input_row(input_row, Direction::Right);
+        ReplicatedSecretSharing::new(l, r)
+    };
+
     input_rows.iter().map(f)
 }
 

@@ -1,4 +1,4 @@
-use std::ops::Add;
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use generic_array::GenericArray;
 use rand::{distributions::Standard, Rng};
@@ -7,19 +7,105 @@ use typenum::Unsigned;
 use super::ShuffleInputRow;
 use crate::{
     ff::{Field, Gf32Bit, Gf40Bit, Gf8Bit, Serializable},
-    helpers::{Direction, Message},
+    helpers::Direction,
+    secret_sharing::SharedValue,
 };
 pub type ShuffleShareMK = Gf40Bit;
 pub type ShuffleShareBK = Gf8Bit;
 pub type ShuffleShareF = Gf32Bit;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShuffleShare {
     pub timestamp: ShuffleShareF,
     pub mk: ShuffleShareMK,
     pub is_trigger_bit: ShuffleShareF,
     pub breakdown_key: ShuffleShareBK,
     pub trigger_value: ShuffleShareF,
+}
+
+impl AddAssign for ShuffleShare {
+    fn add_assign(&mut self, rhs: Self) {
+        self.timestamp += rhs.timestamp;
+        self.mk += rhs.mk;
+        self.is_trigger_bit += rhs.is_trigger_bit;
+        self.breakdown_key += rhs.breakdown_key;
+        self.trigger_value += rhs.trigger_value;
+    }
+}
+impl Sub for ShuffleShare {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::Output {
+            timestamp: self.timestamp - rhs.timestamp,
+            mk: self.mk - rhs.mk,
+            is_trigger_bit: self.is_trigger_bit - rhs.is_trigger_bit,
+            breakdown_key: self.breakdown_key - rhs.breakdown_key,
+            trigger_value: self.trigger_value - rhs.trigger_value,
+        }
+    }
+}
+impl SubAssign for ShuffleShare {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.timestamp -= rhs.timestamp;
+        self.mk -= rhs.mk;
+        self.is_trigger_bit -= rhs.is_trigger_bit;
+        self.breakdown_key -= rhs.breakdown_key;
+        self.trigger_value -= rhs.trigger_value;
+    }
+}
+impl Neg for ShuffleShare {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::Output {
+            timestamp: self.timestamp.neg(),
+            mk: self.mk.neg(),
+            is_trigger_bit: self.is_trigger_bit.neg(),
+            breakdown_key: self.breakdown_key.neg(),
+            trigger_value: self.trigger_value.neg(),
+        }
+    }
+}
+impl Mul for ShuffleShare {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self::Output {
+            timestamp: self.timestamp * rhs.timestamp,
+            mk: self.mk * rhs.mk,
+            is_trigger_bit: self.is_trigger_bit * rhs.is_trigger_bit,
+            breakdown_key: self.breakdown_key * rhs.breakdown_key,
+            trigger_value: self.trigger_value * rhs.trigger_value,
+        }
+    }
+}
+impl MulAssign for ShuffleShare {
+    fn mul_assign(&mut self, rhs: Self) {
+        self.timestamp *= rhs.timestamp;
+        self.mk *= rhs.mk;
+        self.is_trigger_bit *= rhs.is_trigger_bit;
+        self.breakdown_key *= rhs.breakdown_key;
+        self.trigger_value *= rhs.trigger_value;
+    }
+}
+
+impl SharedValue for ShuffleShare {
+    type Storage = <ShuffleShareF as SharedValue>::Storage;
+
+    const BITS: u32 = ShuffleShareF::BITS
+        + ShuffleShareMK::BITS
+        + ShuffleShareF::BITS
+        + ShuffleShareBK::BITS
+        + ShuffleShareF::BITS;
+
+    const ZERO: Self = Self {
+        timestamp: ShuffleShareF::ZERO,
+        mk: ShuffleShareMK::ZERO,
+        is_trigger_bit: ShuffleShareF::ZERO,
+        breakdown_key: ShuffleShareBK::ZERO,
+        trigger_value: ShuffleShareF::ZERO,
+    };
 }
 
 impl ShuffleShare {
@@ -153,5 +239,3 @@ impl Serializable for ShuffleShare {
         }
     }
 }
-
-impl Message for ShuffleShare {}
