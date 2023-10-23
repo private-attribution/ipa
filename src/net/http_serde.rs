@@ -192,8 +192,8 @@ pub mod query {
 
                     Ok(())
                 }
-                QueryType::OPRFShuffle(config) => {
-                    write!(f, "&bk_size={}&tv_size={}", config.bk_size, config.tv_size)?;
+                QueryType::OPRFShuffle(_config) => {
+                    write!(f, "")?;
                     Ok(())
                 }
             }

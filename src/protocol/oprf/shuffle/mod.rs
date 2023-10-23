@@ -29,7 +29,11 @@ pub(crate) enum OPRFShuffleStep {
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C, I, S>(ctx: C, batch_size: u32, shares: I) -> Result<(Vec<S>, Vec<S>), Error>
+pub async fn shuffle<C, I, S>(
+    ctx: C,
+    batch_size: usize,
+    shares: I,
+) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
@@ -39,7 +43,12 @@ where
     Standard: Distribution<S>,
 {
     // 1. Generate permutations
-    let pis = generate_permutations_with_peers(batch_size, &ctx);
+    let permutation_size: u32 = batch_size.try_into().map_err(|e| {
+        Error::FieldValueTruncation(format!(
+            "batch size {batch_size} does not fit into u32. Error={e:?}"
+        ))
+    })?;
+    let pis = generate_permutations_with_peers(permutation_size, &ctx);
 
     // 2. Generate random tables used by all helpers
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
@@ -54,11 +63,11 @@ where
 
 async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
-    batch_size: u32,
+    batch_size: usize,
     shares: I,
     (pi_31, pi_12): (Vec<u32>, Vec<u32>),
     (z_31, z_12): (Zl, Zr),
-) -> Result<(Vec<S>, Vec<S>), Error>
+) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
@@ -70,12 +79,10 @@ where
 {
     // 1. Generate helper-specific random tables
     let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
-    let a_hat: Vec<_> =
-        generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Left).collect();
+    let a_hat = generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Left);
 
     let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
-    let b_hat: Vec<_> =
-        generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right).collect();
+    let b_hat = generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right);
 
     // 2. Run computations
     let a_add_b_iter = shares
@@ -89,16 +96,17 @@ where
 
     send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
 
-    Ok((a_hat, b_hat))
+    let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
+    Ok(res)
 }
 
 async fn run_h2<C, I, S, Zl, Zr>(
     ctx: &C,
-    batch_size: u32,
+    batch_size: usize,
     shares: I,
     (pi_12, pi_23): (Vec<u32>, Vec<u32>),
     (z_12, z_23): (Zl, Zr),
-) -> Result<(Vec<S>, Vec<S>), Error>
+) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
@@ -150,16 +158,17 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter()).collect();
-    Ok((b_hat, c_hat))
+    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
+    let res = combine_single_shares(b_hat, c_hat).collect::<Vec<_>>();
+    Ok(res)
 }
 
 async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
-    batch_size: u32,
+    batch_size: usize,
     (pi_23, pi_31): (Vec<u32>, Vec<u32>),
     (z_23, z_31): (Zl, Zr),
-) -> Result<(Vec<S>, Vec<S>), Error>
+) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
     S: SharedValue + Add<Output = S> + Message,
@@ -207,8 +216,9 @@ where
     )
     .await?;
 
-    let c_hat = add_single_shares(c_hat_1, c_hat_2).collect();
-    Ok((c_hat, a_hat))
+    let c_hat = add_single_shares(c_hat_1, c_hat_2);
+    let res = combine_single_shares(c_hat, a_hat).collect::<Vec<_>>();
+    Ok(res)
 }
 
 fn add_single_shares<A, B, S, L, R>(l: L, r: R) -> impl Iterator<Item = S>
@@ -221,8 +231,19 @@ where
 }
 // --------------------------------------------------------------------------- //
 
+fn combine_single_shares<S, Il, Ir>(l: Il, r: Ir) -> impl Iterator<Item = AdditiveShare<S>>
+where
+    S: SharedValue,
+    Il: IntoIterator<Item = S>,
+    Ir: IntoIterator<Item = S>,
+{
+    l.into_iter()
+        .zip(r)
+        .map(|(li, ri)| AdditiveShare::new(li, ri))
+}
+
 fn generate_random_tables_with_peers<'a, C, S>(
-    batch_size: u32,
+    batch_size: usize,
     narrow_ctx: &'a C,
 ) -> (impl Iterator<Item = S> + 'a, impl Iterator<Item = S> + 'a)
 where
@@ -231,13 +252,13 @@ where
     S: 'a,
 {
     let (rng_l, rng_r) = narrow_ctx.prss_rng();
-    let with_left = rng_l.sample_iter(Standard).take(batch_size as usize);
-    let with_right = rng_r.sample_iter(Standard).take(batch_size as usize);
+    let with_left = rng_l.sample_iter(Standard).take(batch_size);
+    let with_right = rng_r.sample_iter(Standard).take(batch_size);
     (with_left, with_right)
 }
 
 fn generate_random_table_solo<'a, C, S>(
-    batch_size: u32,
+    batch_size: usize,
     narrow_ctx: &'a C,
     peer: Direction,
 ) -> impl Iterator<Item = S> + 'a
@@ -252,24 +273,27 @@ where
         Direction::Right => rngs.1,
     };
 
-    rng.sample_iter(Standard).take(batch_size as usize)
+    rng.sample_iter(Standard).take(batch_size)
 }
 
 // ---------------------------- helper communication ------------------------------------ //
 
-async fn send_to_peer<C, S, I>(
+async fn send_to_peer<C, S>(
     ctx: &C,
     step: &OPRFShuffleStep,
     direction: Direction,
-    items: I,
+    items: Vec<S>,
 ) -> Result<(), Error>
 where
     C: Context,
-    I: IntoIterator<Item = S>,
     S: Message,
 {
     let role = ctx.role().peer(direction);
-    let send_channel = ctx.narrow(step).send_channel(role);
+    let send_channel = ctx
+        .narrow(step)
+        .set_total_records(items.len())
+        .send_channel(role);
+
     for (record_id, row) in items.into_iter().enumerate() {
         send_channel.send(RecordId::from(record_id), row).await?;
     }
@@ -280,16 +304,19 @@ async fn receive_from_peer<C, S>(
     ctx: &C,
     step: &OPRFShuffleStep,
     direction: Direction,
-    batch_size: u32,
+    batch_size: usize,
 ) -> Result<Vec<S>, Error>
 where
     C: Context,
     S: Message,
 {
     let role = ctx.role().peer(direction);
-    let receive_channel: ReceivingEnd<S> = ctx.narrow(step).recv_channel(role);
+    let receive_channel: ReceivingEnd<S> = ctx
+        .narrow(step)
+        .set_total_records(batch_size)
+        .recv_channel(role);
 
-    let mut output: Vec<S> = Vec::with_capacity(batch_size as usize);
+    let mut output: Vec<S> = Vec::with_capacity(batch_size);
     for record_id in 0..batch_size {
         let msg = receive_channel.receive(RecordId::from(record_id)).await?;
         output.push(msg);
@@ -300,17 +327,17 @@ where
 
 // ------------------ Pseudorandom permutations functions -------------------- //
 
-fn generate_permutations_with_peers<C: Context>(batch_size: u32, ctx: &C) -> (Vec<u32>, Vec<u32>) {
+fn generate_permutations_with_peers<C: Context>(size: u32, ctx: &C) -> (Vec<u32>, Vec<u32>) {
     let narrow_context = ctx.narrow(&OPRFShuffleStep::GeneratePi);
     let mut rng = narrow_context.prss_rng();
 
-    let with_left = generate_pseudorandom_permutation(batch_size, &mut rng.0);
-    let with_right = generate_pseudorandom_permutation(batch_size, &mut rng.1);
+    let with_left = generate_pseudorandom_permutation(size, &mut rng.0);
+    let with_right = generate_pseudorandom_permutation(size, &mut rng.1);
     (with_left, with_right)
 }
 
-fn generate_pseudorandom_permutation<R: Rng>(batch_size: u32, rng: &mut R) -> Vec<u32> {
-    let mut permutation = (0..batch_size).collect::<Vec<_>>();
+fn generate_pseudorandom_permutation<R: Rng>(size: u32, rng: &mut R) -> Vec<u32> {
+    let mut permutation = (0..size).collect::<Vec<_>>();
     permutation.shuffle(rng);
     permutation
 }
@@ -319,15 +346,12 @@ fn generate_pseudorandom_permutation<R: Rng>(batch_size: u32, rng: &mut R) -> Ve
 pub mod tests {
     use std::ops::Add;
 
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
-    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-    use crate::test_executor::run;
+    use super::shuffle;
     use crate::{
         ff::{Field, Gf40Bit},
+        test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-
-    use super::shuffle;
 
     pub type MatchKey = Gf40Bit;
 
@@ -348,32 +372,36 @@ pub mod tests {
     }
 
     #[test]
-    fn added_random_tables_cancel_out() {
+    fn shuffles_the_order() {
         run(|| async {
-            let records = vec![MatchKey::truncate_from(12345 as u128) as MatchKey];
-            let expected = records[0].clone();
+            let mut i: u128 = 0;
+            let mut records = std::iter::from_fn(move || {
+                i += 1;
+                Some(MatchKey::truncate_from(i) as MatchKey)
+            })
+            .take(100)
+            .collect::<Vec<_>>();
 
-            let world = TestWorld::default();
+            records.sort();
 
-            let result = world
-                .semi_honest(records.into_iter(), |ctx, shares| async move {
-                    shuffle(ctx, 1, shares).await.unwrap()
+            let mut actual = TestWorld::default()
+                .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
+                    shuffle(ctx, shares.len(), shares).await.unwrap()
                 })
-                .await;
+                .await
+                .reconstruct();
 
-            let result = result
-                .into_iter()
-                .map(|(l, r)| {
-                    l.into_iter()
-                        .zip(r)
-                        .map(|(li, ri)| AdditiveShare::new(li, ri))
-                        .collect::<Vec<_>>()
-                })
-                .collect::<Vec<_>>();
+            assert_ne!(
+                actual, records,
+                "Shuffle should produce a different order of items"
+            );
 
-            let result: [Vec<_>; 3] = result.try_into().unwrap();
-            let actual = result.reconstruct()[0];
-            assert_eq!(actual, expected);
+            actual.sort();
+
+            assert_eq!(
+                actual, records,
+                "Shuffle should not change the items in the set"
+            );
         });
     }
 }

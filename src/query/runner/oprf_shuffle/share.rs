@@ -8,7 +8,10 @@ use super::ShuffleInputRow;
 use crate::{
     ff::{Field, Gf32Bit, Gf40Bit, Gf8Bit, Serializable},
     helpers::Direction,
-    secret_sharing::SharedValue,
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        SharedValue,
+    },
 };
 pub type ShuffleShareMK = Gf40Bit;
 pub type ShuffleShareBK = Gf8Bit;
@@ -131,13 +134,13 @@ impl ShuffleShare {
     }
 
     #[must_use]
-    pub fn to_input_row(self, rhs: Self) -> ShuffleInputRow {
+    pub fn to_input_row(input: &AdditiveShare<Self>) -> ShuffleInputRow {
         ShuffleInputRow {
-            timestamp: (self.timestamp, rhs.timestamp).into(),
-            mk_shares: (self.mk, rhs.mk).into(),
-            is_trigger_bit: (self.is_trigger_bit, rhs.is_trigger_bit).into(),
-            breakdown_key: (self.breakdown_key, rhs.breakdown_key).into(),
-            trigger_value: (self.trigger_value, rhs.trigger_value).into(),
+            timestamp: ReplicatedSecretSharing::map(input, |v| v.timestamp),
+            mk_shares: ReplicatedSecretSharing::map(input, |v| v.mk),
+            is_trigger_bit: ReplicatedSecretSharing::map(input, |v| v.is_trigger_bit),
+            breakdown_key: ReplicatedSecretSharing::map(input, |v| v.breakdown_key),
+            trigger_value: ReplicatedSecretSharing::map(input, |v| v.trigger_value),
         }
     }
 }

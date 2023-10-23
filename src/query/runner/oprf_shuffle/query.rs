@@ -33,16 +33,10 @@ impl OPRFShuffleQuery {
                 .try_concat()
                 .await?;
 
-        let batch_size = u32::try_from(input.len()).map_err(|_e| {
-            Error::FieldValueTruncation(format!(
-                "Cannot truncate the number of input rows {} to u32",
-                input.len(),
-            ))
-        })?;
-
+        let batch_size = input.len();
         let shares = split_shares(&input);
-        let (res_l, res_r) = shuffle(ctx, batch_size, shares).await?;
-        Ok(combine_shares(res_l, res_r))
+        let res = shuffle(ctx, batch_size, shares).await?;
+        Ok(combine_shares(res.iter()))
     }
 }
 
@@ -58,13 +52,11 @@ fn split_shares(
     input_rows.iter().map(f)
 }
 
-fn combine_shares<L, R>(l: L, r: R) -> Vec<ShuffleInputRow>
-where
-    L: IntoIterator<Item = ShuffleShare>,
-    R: IntoIterator<Item = ShuffleShare>,
-{
-    l.into_iter()
-        .zip(r)
-        .map(|(l, r)| l.to_input_row(r))
+fn combine_shares<'a>(
+    input: impl IntoIterator<Item = &'a AdditiveShare<ShuffleShare>>,
+) -> Vec<ShuffleInputRow> {
+    input
+        .into_iter()
+        .map(ShuffleShare::to_input_row)
         .collect::<Vec<_>>()
 }
