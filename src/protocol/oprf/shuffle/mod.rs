@@ -166,7 +166,7 @@ where
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     S: Clone + Add<Output = S> + Message,
-    for<'a> &'a S: Add<S, Output = S>,
+    // for<'a> &'a S: Add<S, Output = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
@@ -313,4 +313,67 @@ fn generate_pseudorandom_permutation<R: Rng>(batch_size: u32, rng: &mut R) -> Ve
     let mut permutation = (0..batch_size).collect::<Vec<_>>();
     permutation.shuffle(rng);
     permutation
+}
+
+#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+pub mod tests {
+    use std::ops::Add;
+
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+    use crate::test_executor::run;
+    use crate::{
+        ff::{Field, Gf40Bit},
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+
+    use super::shuffle;
+
+    pub type MatchKey = Gf40Bit;
+
+    impl Add<&MatchKey> for &MatchKey {
+        type Output = MatchKey;
+
+        fn add(self, rhs: &MatchKey) -> Self::Output {
+            Add::add(*self, *rhs)
+        }
+    }
+
+    impl Add<MatchKey> for &MatchKey {
+        type Output = MatchKey;
+
+        fn add(self, rhs: MatchKey) -> Self::Output {
+            Add::add(*self, rhs)
+        }
+    }
+
+    #[test]
+    fn added_random_tables_cancel_out() {
+        run(|| async {
+            let records = vec![MatchKey::truncate_from(12345 as u128) as MatchKey];
+            let expected = records[0].clone();
+
+            let world = TestWorld::default();
+
+            let result = world
+                .semi_honest(records.into_iter(), |ctx, shares| async move {
+                    shuffle(ctx, 1, shares).await.unwrap()
+                })
+                .await;
+
+            let result = result
+                .into_iter()
+                .map(|(l, r)| {
+                    l.into_iter()
+                        .zip(r)
+                        .map(|(li, ri)| AdditiveShare::new(li, ri))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            let result: [Vec<_>; 3] = result.try_into().unwrap();
+            let actual = result.reconstruct()[0];
+            assert_eq!(actual, expected);
+        });
+    }
 }
