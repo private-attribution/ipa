@@ -97,7 +97,6 @@ impl InputsRequiredFromPrevRow {
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    #[allow(clippy::too_many_lines)]
     pub async fn compute_row_with_previous<C, BK, TV, TS>(
         &mut self,
         ctx: C,
@@ -152,29 +151,15 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
-            input_row.is_trigger_bit.multiply(
-                &ever_encountered_a_source_event,
-                ctx.narrow(&Step::DidTriggerGetAttributed),
-                record_id,
-            ),
-            is_trigger_event_within_attribution_window(
-                ctx.narrow(&Step::CheckAttributionWindow),
-                record_id,
-                attribution_window_seconds,
-                &timestamp,
-                &source_event_timestamp,
-            ),
-        )
-        .await?;
-
         let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
             ctx.narrow(&Step::AttributedTriggerValue),
             record_id,
-            &did_trigger_get_attributed,
-            &is_trigger_within_window,
+            &input_row.is_trigger_bit,
+            &ever_encountered_a_source_event,
             &tv,
             attribution_window_seconds,
+            &timestamp,
+            &source_event_timestamp,
         )
         .await?;
 
@@ -218,7 +203,6 @@ impl InputsRequiredFromPrevRow {
         self.source_event_timestamp = source_event_timestamp;
 
         let outputs_for_aggregation = CappedAttributionOutputs {
-            did_trigger_get_attributed,
             attributed_breakdown_key_bits,
             capped_attributed_trigger_value,
         };
@@ -228,7 +212,6 @@ impl InputsRequiredFromPrevRow {
 
 #[derive(Debug)]
 pub struct CappedAttributionOutputs {
-    pub did_trigger_get_attributed: Replicated<Gf2>,
     pub attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
     pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
 }
@@ -557,22 +540,41 @@ where
 /// another secret-shared bit indicating if a given row is within the attribution window. We multiply these two bits together and
 /// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
+#[allow(clippy::too_many_arguments)]
 async fn zero_out_trigger_value_unless_attributed<C>(
     ctx: C,
     record_id: RecordId,
-    did_trigger_get_attributed: &Replicated<Gf2>,
-    is_trigger_within_window: &Replicated<Gf2>,
+    is_trigger_bit: &Replicated<Gf2>,
+    ever_encountered_a_source_event: &Replicated<Gf2>,
     trigger_value: &BitDecomposed<Replicated<Gf2>>,
     attribution_window_seconds: Option<NonZeroU32>,
+    trigger_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
+    source_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
 ) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
 {
+    let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
+        is_trigger_bit.multiply(
+            ever_encountered_a_source_event,
+            ctx.narrow(&Step::DidTriggerGetAttributed),
+            record_id,
+        ),
+        is_trigger_event_within_attribution_window(
+            ctx.narrow(&Step::CheckAttributionWindow),
+            record_id,
+            attribution_window_seconds,
+            trigger_event_timestamp,
+            source_event_timestamp,
+        ),
+    )
+    .await?;
+
     // save 1 multiplication if there is no attribution window
     let zero_out_flag = if attribution_window_seconds.is_some() {
         let c = ctx.narrow(&Step::AttributedEventCheckFlag);
         did_trigger_get_attributed
-            .multiply(is_trigger_within_window, c, record_id)
+            .multiply(&is_trigger_within_window, c, record_id)
             .await?
     } else {
         did_trigger_get_attributed.clone()
@@ -983,27 +985,21 @@ pub mod tests {
                 capped_attributed_trigger_value,
             } = self;
 
-            let did_trigger_get_attributed = Gf2::ONE;
             let [attributed_breakdown_key0, attributed_breakdown_key1, attributed_breakdown_key2] =
                 attributed_breakdown_key.share_with(rng);
             let [capped_attributed_trigger_value0, capped_attributed_trigger_value1, capped_attributed_trigger_value2] =
                 capped_attributed_trigger_value.share_with(rng);
-            let [did_trigger_get_attributed0, did_trigger_get_attributed1, did_trigger_get_attributed2] =
-                did_trigger_get_attributed.share_with(rng);
 
             [
                 CappedAttributionOutputs {
-                    did_trigger_get_attributed: did_trigger_get_attributed0,
                     attributed_breakdown_key_bits: attributed_breakdown_key0,
                     capped_attributed_trigger_value: capped_attributed_trigger_value0,
                 },
                 CappedAttributionOutputs {
-                    did_trigger_get_attributed: did_trigger_get_attributed1,
                     attributed_breakdown_key_bits: attributed_breakdown_key1,
                     capped_attributed_trigger_value: capped_attributed_trigger_value1,
                 },
                 CappedAttributionOutputs {
-                    did_trigger_get_attributed: did_trigger_get_attributed2,
                     attributed_breakdown_key_bits: attributed_breakdown_key2,
                     capped_attributed_trigger_value: capped_attributed_trigger_value2,
                 },
