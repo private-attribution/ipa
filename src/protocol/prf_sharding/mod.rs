@@ -1003,4 +1003,27 @@ pub mod tests {
             assert_eq!(result, &expected);
         });
     }
+
+    #[test]
+    fn semi_honest_aggregation_empty_input() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreAggregationTestInputInBits> = vec![];
+
+            let expected = [0_u128; 32];
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    let validator = ctx.validator();
+                    let ctx = validator.context();
+                    do_aggregation::<_, Gf5Bit, Gf3Bit, Fp32BitPrime, _>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
 }
