@@ -9,7 +9,7 @@ use ipa::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+        ipa::{ipa_in_the_clear, test_ipa, test_oprf_ipa, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
@@ -70,6 +70,8 @@ struct Args {
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
+    #[arg(short = 'o', long)]
+    oprf: bool,
 }
 
 impl Args {
@@ -132,14 +134,18 @@ async fn run(args: Args) -> Result<(), Error> {
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
-    test_ipa::<BenchField>(
-        &world,
-        &raw_data,
-        &expected_results,
-        args.config(),
-        args.mode,
-    )
-    .await;
+    if args.oprf {
+        test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
+    } else {
+        test_ipa::<BenchField>(
+            &world,
+            &raw_data,
+            &expected_results,
+            args.config(),
+            args.mode,
+        )
+        .await;
+    }
     tracing::trace!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,

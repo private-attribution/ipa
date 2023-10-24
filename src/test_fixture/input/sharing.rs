@@ -12,7 +12,7 @@ use crate::{
         BreakdownKey, MatchKey,
     },
     rand::Rng,
-    report::{EventType, Report},
+    report::{EventType, OprfReport, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -352,5 +352,35 @@ where
             aggregation_bit: None,
             active_bit: Some(active_bit),
         }
+    }
+}
+
+impl<TS, BK, TV> IntoShares<OprfReport<TS, BK, TV>> for TestRawDataRecord
+where
+    TS: GaloisField + IntoShares<Replicated<TS>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
+    TV: GaloisField + IntoShares<Replicated<TV>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<TS, BK, TV>; 3] {
+        let event_type = if self.is_trigger_report {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        };
+        let timestamp = TS::truncate_from(self.timestamp).share_with(rng);
+        let breakdown_key = BK::truncate_from(self.breakdown_key).share_with(rng);
+        let trigger_value = TV::truncate_from(self.trigger_value).share_with(rng);
+
+        zip(zip(timestamp, breakdown_key), trigger_value)
+            .map(|((ts_share, bk_share), tv_share)| OprfReport {
+                timestamp: ts_share,
+                mk_oprf: self.user_id,
+                event_type,
+                breakdown_key: bk_share,
+                trigger_value: tv_share,
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }

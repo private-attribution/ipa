@@ -386,6 +386,20 @@ where
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OprfReport<TS, BK, TV>
+where
+    TS: GaloisField,
+    BK: GaloisField,
+    TV: GaloisField,
+{
+    pub timestamp: Replicated<TS>,
+    pub mk_oprf: u64,
+    pub event_type: EventType,
+    pub breakdown_key: Replicated<BK>,
+    pub trigger_value: Replicated<TV>,
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use rand::{distributions::Alphanumeric, rngs::StdRng, Rng};
