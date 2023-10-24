@@ -592,6 +592,13 @@ where
     F: PrimeField + ExtendableField,
 {
     let num_records = user_level_attributions.len();
+
+    // in case no attributable conversion is found, return 0.
+    // as anyways the helpers know that no attributions resulted.
+    if num_records == 0 {
+        return Ok(vec![S::ZERO; 1 << BK::BITS]);
+    }
+
     let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
         .into_iter()
         .map(|row| {
