@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub mod bucket;
+#[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField> {

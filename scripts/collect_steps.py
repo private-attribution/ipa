@@ -31,6 +31,9 @@ BREAKDOWN_KEYS = [32]
 SECURITY_MODEL = ["malicious", "semi-honest"]
 ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
 
+OPRF_USER_CAP = [16, 64, 128]
+OPRF_SECURITY_MODEL = ["semi-honest"]
+OPRF_TRIGGER_VALUE = [4]
 # TODO(taikiy): #771 allows us to remove this synthetic step generation code
 
 # There are protocols in IPA that that will generate log(N) steps where N is the number
@@ -168,6 +171,29 @@ if __name__ == "__main__":
                         "-m",
                         m,
                     ]
+                    print(" ".join(args), file=sys.stderr)
+                    steps.update(collect_steps(args))
+
+    for c in OPRF_USER_CAP:
+        for w in ATTRIBUTION_WINDOW:
+            for b in BREAKDOWN_KEYS:
+                for m in OPRF_SECURITY_MODEL:
+                    for tv in OPRF_TRIGGER_VALUE:
+                        args = ARGS + [
+                            "-n",
+                            str(QUERY_SIZE),
+                            "-c",
+                            str(c),
+                            "-w",
+                            str(w),
+                            "-b",
+                            str(b),
+                            "-m",
+                            m,
+                            "-t",
+                            str(tv),
+                            "-o"
+                        ]
                     print(" ".join(args), file=sys.stderr)
                     steps.update(collect_steps(args))
 
