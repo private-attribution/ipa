@@ -5,7 +5,7 @@ use std::{
 
 use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U1, U3, U4, U5};
+use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
     ff::{Field, Serializable},
@@ -25,12 +25,17 @@ pub trait GaloisField:
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
+type U8_2 = BitArr!(for 9, in u8, Lsb0);
 type U8_3 = BitArr!(for 24, in u8, Lsb0);
 type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
 
 impl Block for U8_1 {
     type Size = U1;
+}
+
+impl Block for U8_2 {
+    type Size = U2;
 }
 
 impl Block for U8_3 {
@@ -573,6 +578,16 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
+);
+
+bit_array_impl!(
+    bit_array_9,
+    Gf9Bit,
+    U8_2,
+    9,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    // x^9 + x^4 + x^3 + x + 1
+    0b10_0001_1011_u128
 );
 
 bit_array_impl!(

@@ -759,6 +759,13 @@ where
     F: PrimeField + ExtendableField,
 {
     let num_records = user_level_attributions.len();
+
+    // in case no attributable conversion is found, return 0.
+    // as anyways the helpers know that no attributions resulted.
+    if num_records == 0 {
+        return Ok(vec![S::ZERO; 1 << BK::BITS]);
+    }
+
     let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
         .into_iter()
         .map(|row| {
@@ -1230,6 +1237,29 @@ pub mod tests {
             expected[12] = 30;
             expected[17] = 7;
             expected[20] = 10;
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    let validator = ctx.validator();
+                    let ctx = validator.context();
+                    do_aggregation::<_, Gf5Bit, Gf3Bit, Fp32BitPrime, _>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_aggregation_empty_input() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreAggregationTestInputInBits> = vec![];
+
+            let expected = [0_u128; 32];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
