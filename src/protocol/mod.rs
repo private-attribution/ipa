@@ -6,7 +6,6 @@ pub mod context;
 pub mod dp;
 pub mod ipa;
 pub mod modulus_conversion;
-#[cfg(feature = "descriptive-gate")]
 pub mod prf_sharding;
 pub mod prss;
 pub mod sort;
@@ -22,11 +21,13 @@ pub use basics::BasicProtocols;
 
 use crate::{
     error::Error,
-    ff::{Gf40Bit, Gf8Bit},
+    ff::{Gf20Bit, Gf3Bit, Gf40Bit, Gf8Bit},
 };
 
 pub type MatchKey = Gf40Bit;
 pub type BreakdownKey = Gf8Bit;
+pub type TriggerValue = Gf3Bit;
+pub type Timestamp = Gf20Bit;
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and

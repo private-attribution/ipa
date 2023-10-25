@@ -37,11 +37,11 @@ pub mod bucket;
 pub mod feature_label_dot_product;
 
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
-    prf_of_match_key: u64,
-    is_trigger_bit: Replicated<Gf2>,
-    breakdown_key: Replicated<BK>,
-    trigger_value: Replicated<TV>,
-    timestamp: Replicated<TS>,
+    pub prf_of_match_key: u64,
+    pub is_trigger_bit: Replicated<Gf2>,
+    pub breakdown_key: Replicated<BK>,
+    pub trigger_value: Replicated<TV>,
+    pub timestamp: Replicated<TS>,
 }
 
 impl<BK: GaloisField, TV: GaloisField, TS: GaloisField> PrfShardedIpaInputRow<BK, TV, TS> {

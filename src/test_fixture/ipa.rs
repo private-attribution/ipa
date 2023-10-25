@@ -5,9 +5,13 @@ use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     ipa_test_input,
-    protocol::{ipa::ipa, BreakdownKey, MatchKey},
+    protocol::{ipa::ipa, BreakdownKey, MatchKey, Timestamp, TriggerValue},
+    report::OprfReport,
     secret_sharing::{
-        replicated::{malicious, malicious::ExtendableField, semi_honest},
+        replicated::{
+            malicious, malicious::ExtendableField, semi_honest,
+            semi_honest::AdditiveShare as Replicated,
+        },
         IntoShares,
     },
     test_fixture::{input::GenericReportTestInput, Reconstruct},
@@ -44,6 +48,7 @@ pub fn ipa_in_the_clear(
     per_user_cap: u32,
     attribution_window: Option<NonZeroU32>,
     max_breakdown: u32,
+    order: &CappingOrder,
 ) -> Vec<u32> {
     // build a view that is convenient for attribution. match key -> events sorted by timestamp in reverse
     // that is more memory intensive, but should be faster to compute. We can always opt-out and
@@ -77,14 +82,14 @@ pub fn ipa_in_the_clear(
             &mut breakdowns,
             per_user_cap,
             attribution_window,
-            CappingOrder::CapOldestFirst,
+            order,
         );
     }
 
     breakdowns
 }
 
-enum CappingOrder {
+pub enum CappingOrder {
     CapOldestFirst,
     CapMostRecentFirst,
 }
@@ -97,7 +102,7 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     expected_results: &mut [u32],
     per_user_cap: u32,
     attribution_window_seconds: Option<NonZeroU32>,
-    order: CappingOrder,
+    order: &CappingOrder,
 ) {
     let within_window = |value: u64| -> bool {
         if let Some(window) = attribution_window_seconds {
@@ -115,7 +120,7 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
         if record.is_trigger_report {
             pending_trigger_reports.push(record);
         } else if !pending_trigger_reports.is_empty() {
-            for trigger_report in pending_trigger_reports.into_iter() {
+            for trigger_report in pending_trigger_reports {
                 let time_delta_to_source_report = trigger_report.timestamp - record.timestamp;
 
                 // only count trigger reports that are within the attribution window
@@ -131,11 +136,9 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     }
 
     match order {
-        CappingOrder::CapOldestFirst => update_breakdowns(
-            attributed_triggers.into_iter(),
-            expected_results,
-            per_user_cap,
-        ),
+        CappingOrder::CapOldestFirst => {
+            update_breakdowns(attributed_triggers, expected_results, per_user_cap);
+        }
         CappingOrder::CapMostRecentFirst => update_breakdowns(
             attributed_triggers.into_iter().rev(),
             expected_results,
@@ -215,5 +218,91 @@ pub async fn test_ipa<F>(
         .into_iter()
         .map(|v| u32::try_from(v.as_u128()).unwrap())
         .collect::<Vec<_>>();
+    assert_eq!(result, expected_results);
+}
+
+/// # Panics
+/// If any of the IPA protocol modules panic
+#[cfg(feature = "in-memory-infra")]
+pub async fn test_oprf_ipa<F>(
+    world: &super::TestWorld,
+    mut records: Vec<TestRawDataRecord>,
+    expected_results: &[u32],
+    config: IpaQueryConfig,
+) where
+    F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
+    rand::distributions::Standard: rand::distributions::Distribution<F>,
+    semi_honest::AdditiveShare<F>: Serializable,
+{
+    use crate::{
+        ff::{Field, Gf2},
+        protocol::{
+            basics::ShareKnownValue,
+            prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+        },
+        report::EventType,
+        secret_sharing::SharedValue,
+        test_fixture::Runner,
+    };
+
+    let user_cap: i32 = config.per_user_credit_cap.try_into().unwrap();
+    assert!(
+        user_cap & (user_cap - 1) == 0,
+        "This code only works for a user cap which is a power of 2"
+    );
+
+    //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
+    records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
+
+    let result: Vec<F> = world
+        .semi_honest(
+            records.into_iter(),
+            |ctx, input_rows: Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>| async move {
+                let sharded_input = input_rows
+                    .into_iter()
+                    .map(|single_row| {
+                        let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
+                            Replicated::share_known_value(&ctx, Gf2::ONE)
+                        } else {
+                            Replicated::share_known_value(&ctx, Gf2::ZERO)
+                        };
+                        PrfShardedIpaInputRow {
+                            prf_of_match_key: single_row.mk_oprf,
+                            is_trigger_bit: is_trigger_bit_share,
+                            breakdown_key: single_row.breakdown_key,
+                            trigger_value: single_row.trigger_value,
+                            timestamp: single_row.timestamp,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                attribution_and_capping_and_aggregation::<
+                    _,
+                    BreakdownKey,
+                    TriggerValue,
+                    Timestamp,
+                    F,
+                    _,
+                    Replicated<Gf2>,
+                >(
+                    ctx,
+                    sharded_input,
+                    user_cap.ilog2().try_into().unwrap(),
+                    config.attribution_window_seconds,
+                )
+                .await
+                .unwrap()
+            },
+        )
+        .await
+        .reconstruct();
+
+    let mut result = result
+        .into_iter()
+        .map(|v| u32::try_from(v.as_u128()).unwrap())
+        .collect::<Vec<_>>();
+
+    //TODO(richaj): To be removed once the function supports non power of 2 breakdowns
+    let _ = result.split_off(expected_results.len());
     assert_eq!(result, expected_results);
 }
