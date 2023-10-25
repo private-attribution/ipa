@@ -18,9 +18,16 @@ pub enum BucketStep {
     Bit(usize),
 }
 
-impl From<u32> for BucketStep {
-    fn from(v: u32) -> Self {
-        Self::Bit(usize::try_from(v).unwrap())
+impl TryFrom<u32> for BucketStep {
+    type Error = String;
+
+    fn try_from(v: u32) -> Result<Self, Self::Error> {
+        let val = usize::try_from(v);
+        let val = match val {
+            Ok(val) => Self::Bit(val),
+            Err(error) => panic!("{error:?}"),
+        };
+        Ok(val)
     }
 }
 
@@ -114,7 +121,7 @@ pub mod tests {
     use rand::thread_rng;
 
     use crate::{
-        ff::{Field, Fp32BitPrime, Gf8Bit},
+        ff::{Field, Fp32BitPrime, Gf8Bit, Gf9Bit},
         protocol::{
             context::{Context, UpgradableContext, Validator},
             prf_sharding::bucket::move_single_value_to_bucket,
@@ -225,7 +232,7 @@ pub mod tests {
     #[should_panic]
     fn move_out_of_range_too_many_buckets_steps() {
         run(move || async move {
-            let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf8Bit::BITS);
+            let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf9Bit::BITS);
             let value = Fp32BitPrime::truncate_from(VALUE);
 
             _ = TestWorld::default()
@@ -234,7 +241,7 @@ pub mod tests {
                     |ctx, (breakdown_key_share, value_share)| async move {
                         let validator = ctx.validator();
                         let ctx = validator.context();
-                        move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                        move_single_value_to_bucket::<Gf9Bit, _, _, Fp32BitPrime>(
                             ctx.set_total_records(1),
                             RecordId::from(0),
                             breakdown_key_share,

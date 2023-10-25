@@ -3,7 +3,7 @@ use ipa_macros::Step;
 use super::or::or;
 use crate::{
     error::Error,
-    ff::PrimeField,
+    ff::{Field, PrimeField},
     protocol::{
         boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, UpgradedContext},
@@ -205,7 +205,7 @@ pub async fn bitwise_less_than_constant<F, C, S>(
     c: u128,
 ) -> Result<S, Error>
 where
-    F: PrimeField,
+    F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     for<'a> &'a S: LinearRefOps<'a, S, F>,
@@ -236,7 +236,7 @@ async fn first_differing_bit<F, C, S>(
     b: u128,
 ) -> Result<Vec<S>, Error>
 where
-    F: PrimeField,
+    F: Field,
     C: Context,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     for<'a> &'a S: LinearRefOps<'a, S, F>,
