@@ -169,14 +169,15 @@ def ipa_steps(steps):
                     print(" ".join(args), file=sys.stderr)
                     steps.update(collect_steps(args))
 
+OPRF_BREAKDOWN_KEYS = [256]
 OPRF_USER_CAP = [16, 64, 128]
 OPRF_SECURITY_MODEL = ["semi-honest"]
-OPRF_TRIGGER_VALUE = [4]
+OPRF_TRIGGER_VALUE = [7]
 
 def oprf_steps(steps):
     for c in OPRF_USER_CAP:
         for w in ATTRIBUTION_WINDOW:
-            for b in BREAKDOWN_KEYS:
+            for b in OPRF_BREAKDOWN_KEYS:
                 for m in OPRF_SECURITY_MODEL:
                     for tv in OPRF_TRIGGER_VALUE:
                         args = ARGS + [
@@ -207,4 +208,3 @@ if __name__ == "__main__":
 
     for step in sorted_steps:
         print(step)
-        

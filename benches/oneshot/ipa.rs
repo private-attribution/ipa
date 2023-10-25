@@ -124,9 +124,9 @@ async fn run(args: Args) -> Result<(), Error> {
     .collect::<Vec<_>>();
 
     let order = if args.oprf {
-        CappingOrder::CapOldestFirst
-    } else {
         CappingOrder::CapMostRecentFirst
+    } else {
+        CappingOrder::CapOldestFirst
     };
     let expected_results = ipa_in_the_clear(
         &raw_data,

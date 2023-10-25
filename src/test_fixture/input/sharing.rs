@@ -367,9 +367,14 @@ where
         } else {
             EventType::Source
         };
-        let timestamp = TS::truncate_from(self.timestamp).share_with(rng);
-        let breakdown_key = BK::truncate_from(self.breakdown_key).share_with(rng);
-        let trigger_value = TV::truncate_from(self.trigger_value).share_with(rng);
+        let timestamp: [Replicated<TS>; 3] =
+            TS::try_from(self.timestamp.into()).unwrap().share_with(rng);
+        let breakdown_key = BK::try_from(self.breakdown_key.into())
+            .unwrap()
+            .share_with(rng);
+        let trigger_value = TV::try_from(self.trigger_value.into())
+            .unwrap()
+            .share_with(rng);
 
         zip(zip(timestamp, breakdown_key), trigger_value)
             .map(|((ts_share, bk_share), tv_share)| OprfReport {
