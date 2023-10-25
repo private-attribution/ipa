@@ -1,4 +1,4 @@
-use std::ops::Add;
+use std::ops::{Add, AddAssign};
 
 use futures::future;
 use ipa_macros::Step;
@@ -36,8 +36,8 @@ where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
     S: SharedValue + Add<Output = S> + Message,
-    for<'b> &'b S: Add<S, Output = S>,
-    for<'b> &'b S: Add<&'b S, Output = S>,
+    for<'a> &'a S: Add<S, Output = S>,
+    for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
@@ -131,7 +131,7 @@ where
     )
     .await?;
 
-    let mut x_3: Vec<S> = add_single_shares(x_2.iter(), z_23).collect();
+    let mut x_3: Vec<S> = add_single_shares_in_place(x_2, z_23);
     apply_permutation(&mut rng_perm_r, &mut x_3);
 
     let c_hat_1: Vec<S> = add_single_shares(x_3.iter(), b_hat.iter()).collect();
@@ -167,7 +167,6 @@ where
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     S: Clone + Add<Output = S> + Message,
-    // for<'a> &'a S: Add<S, Output = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
@@ -191,7 +190,7 @@ where
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     apply_permutation(&mut rng_perm_r, &mut y_2);
 
-    let mut y_3: Vec<S> = add_single_shares(y_2, z_23).collect();
+    let mut y_3: Vec<S> = add_single_shares_in_place(y_2, z_23);
     apply_permutation(&mut rng_perm_l, &mut y_3);
 
     let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
@@ -224,6 +223,19 @@ where
 {
     l.into_iter().zip(r).map(|(a, b)| a + b)
 }
+
+fn add_single_shares_in_place<S, R>(mut items: Vec<S>, r: R) -> Vec<S>
+where
+    S: AddAssign<S>,
+    R: IntoIterator<Item = S>,
+{
+    items
+        .iter_mut()
+        .zip(r)
+        .for_each(|(item, rhs)| item.add_assign(rhs));
+    items
+}
+
 // --------------------------------------------------------------------------- //
 
 fn combine_single_shares<S, Il, Ir>(l: Il, r: Ir) -> impl Iterator<Item = AdditiveShare<S>>
