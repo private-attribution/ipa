@@ -9,7 +9,7 @@ use ipa::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+        ipa::{ipa_in_the_clear, test_ipa, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
@@ -70,6 +70,8 @@ struct Args {
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
+    #[arg(short = 'o', long)]
+    oprf: bool,
 }
 
 impl Args {
@@ -121,25 +123,35 @@ async fn run(args: Args) -> Result<(), Error> {
     .take(args.query_size)
     .collect::<Vec<_>>();
 
+    let order = if args.oprf {
+        CappingOrder::CapMostRecentFirst
+    } else {
+        CappingOrder::CapOldestFirst
+    };
     let expected_results = ipa_in_the_clear(
         &raw_data,
         args.per_user_cap,
         args.attribution_window(),
         args.breakdown_keys,
+        &order,
     );
 
     let world = TestWorld::new_with(config.clone());
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
-    test_ipa::<BenchField>(
-        &world,
-        &raw_data,
-        &expected_results,
-        args.config(),
-        args.mode,
-    )
-    .await;
+    if args.oprf {
+        test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
+    } else {
+        test_ipa::<BenchField>(
+            &world,
+            &raw_data,
+            &expected_results,
+            args.config(),
+            args.mode,
+        )
+        .await;
+    }
     tracing::trace!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,

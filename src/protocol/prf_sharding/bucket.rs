@@ -1,16 +1,41 @@
 use embed_doc_image::embed_doc_image;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::{GaloisField, PrimeField, Serializable},
     protocol::{
-        basics::SecureMul, context::UpgradedContext, prf_sharding::BinaryTreeDepthStep,
-        step::BitOpStep, RecordId,
+        basics::SecureMul, context::UpgradedContext, prf_sharding::BinaryTreeDepthStep, RecordId,
     },
     secret_sharing::{
         replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
     },
 };
+
+#[derive(Step)]
+pub enum BucketStep {
+    #[dynamic(256)]
+    Bit(usize),
+}
+
+impl TryFrom<u32> for BucketStep {
+    type Error = String;
+
+    fn try_from(v: u32) -> Result<Self, Self::Error> {
+        let val = usize::try_from(v);
+        let val = match val {
+            Ok(val) => Self::Bit(val),
+            Err(error) => panic!("{error:?}"),
+        };
+        Ok(val)
+    }
+}
+
+impl From<usize> for BucketStep {
+    fn from(v: usize) -> Self {
+        Self::Bit(v)
+    }
+}
 
 #[embed_doc_image("tree-aggregation", "images/tree_aggregation.png")]
 /// This function moves a single value to a correct bucket using tree aggregation approach
@@ -53,8 +78,8 @@ where
         BK::BITS
     );
     assert!(
-        breakdown_count <= 128,
-        "Our step implementation (BitOpStep) cannot go past 64"
+        breakdown_count <= 512,
+        "Our step implementation (BucketStep) cannot go past 256"
     );
     let mut row_contribution = vec![value; breakdown_count];
 
@@ -69,7 +94,7 @@ where
         let mut futures = Vec::with_capacity(breakdown_count / step);
 
         for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
-            let bit_c = depth_c.narrow(&BitOpStep::from(i));
+            let bit_c = depth_c.narrow(&BucketStep::from(i));
 
             if robust || tree_index + span < breakdown_count {
                 futures.push(row_contribution[tree_index].multiply(bit_of_bdkey, bit_c, record_id));
@@ -96,7 +121,7 @@ pub mod tests {
     use rand::thread_rng;
 
     use crate::{
-        ff::{Field, Fp32BitPrime, Gf5Bit, Gf8Bit},
+        ff::{Field, Fp32BitPrime, Gf8Bit, Gf9Bit},
         protocol::{
             context::{Context, UpgradableContext, Validator},
             prf_sharding::bucket::move_single_value_to_bucket,
@@ -108,12 +133,12 @@ pub mod tests {
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
-    const MAX_BREAKDOWN_COUNT: usize = 1 << Gf5Bit::BITS;
+    const MAX_BREAKDOWN_COUNT: usize = 256;
     const VALUE: u32 = 10;
 
     async fn move_to_bucket(count: usize, breakdown_key: usize, robust: bool) -> Vec<Fp32BitPrime> {
         let breakdown_key_bits =
-            get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf5Bit::BITS);
+            get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
         let value = Fp32BitPrime::truncate_from(VALUE);
 
         TestWorld::default()
@@ -122,7 +147,7 @@ pub mod tests {
                 |ctx, (breakdown_key_share, value_share)| async move {
                     let validator = ctx.validator();
                     let ctx = validator.context();
-                    move_single_value_to_bucket::<Gf5Bit, _, _, Fp32BitPrime>(
+                    move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
                         ctx.set_total_records(1),
                         RecordId::from(0),
                         breakdown_key_share,
@@ -207,7 +232,7 @@ pub mod tests {
     #[should_panic]
     fn move_out_of_range_too_many_buckets_steps() {
         run(move || async move {
-            let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf8Bit::BITS);
+            let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf9Bit::BITS);
             let value = Fp32BitPrime::truncate_from(VALUE);
 
             _ = TestWorld::default()
@@ -216,12 +241,12 @@ pub mod tests {
                     |ctx, (breakdown_key_share, value_share)| async move {
                         let validator = ctx.validator();
                         let ctx = validator.context();
-                        move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                        move_single_value_to_bucket::<Gf9Bit, _, _, Fp32BitPrime>(
                             ctx.set_total_records(1),
                             RecordId::from(0),
                             breakdown_key_share,
                             value_share,
-                            129,
+                            513,
                             false,
                         )
                         .await

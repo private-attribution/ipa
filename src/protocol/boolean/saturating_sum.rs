@@ -24,7 +24,7 @@ impl<S: LinearSecretSharing<Gf2>> SaturatingSum<S> {
     /// If one of the multiplications errors
     ///
     /// # Panics
-    /// If something try to add a bit decomposed value larger than this `SaturatingSum` can accomodate
+    /// If something try to add a bit decomposed value larger than this `SaturatingSum` can accommodate
     pub async fn add<C>(
         &self,
         ctx: C,
@@ -175,7 +175,9 @@ where
 ///
 /// If `compute_carry_out` is set to `true`, then the mutable refernce to `carry_in` is mutated to take on the value of the `carry_out` bit
 ///
-async fn one_bit_subtractor<C, SB>(
+/// # Errors
+/// If one of the multiplications errors
+pub async fn one_bit_subtractor<C, SB>(
     ctx: C,
     record_id: RecordId,
     x: &SB,
