@@ -77,10 +77,16 @@ pub fn ipa_in_the_clear(
             &mut breakdowns,
             per_user_cap,
             attribution_window,
+            CappingOrder::CapOldestFirst,
         );
     }
 
     breakdowns
+}
+
+enum CappingOrder {
+    CapOldestFirst,
+    CapMostRecentFirst,
 }
 
 /// Assumes records all belong to the same user, and are in reverse chronological order
@@ -91,6 +97,7 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     expected_results: &mut [u32],
     per_user_cap: u32,
     attribution_window_seconds: Option<NonZeroU32>,
+    order: CappingOrder,
 ) {
     let within_window = |value: u64| -> bool {
         if let Some(window) = attribution_window_seconds {
@@ -102,17 +109,13 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
         }
     };
 
+    let mut attributed_triggers = Vec::new();
     let mut pending_trigger_reports = Vec::new();
-    let mut total_contribution = 0;
     for record in records_for_user {
-        if total_contribution >= per_user_cap {
-            break;
-        }
-
         if record.is_trigger_report {
             pending_trigger_reports.push(record);
         } else if !pending_trigger_reports.is_empty() {
-            for trigger_report in &pending_trigger_reports {
+            for trigger_report in pending_trigger_reports.into_iter() {
                 let time_delta_to_source_report = trigger_report.timestamp - record.timestamp;
 
                 // only count trigger reports that are within the attribution window
@@ -121,15 +124,38 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
                     continue;
                 }
 
-                let delta_to_per_user_cap = per_user_cap - total_contribution;
-                let capped_contribution =
-                    std::cmp::min(delta_to_per_user_cap, trigger_report.trigger_value);
-                let bk: usize = record.breakdown_key.try_into().unwrap();
-                expected_results[bk] += capped_contribution;
-                total_contribution += capped_contribution;
+                attributed_triggers.push((trigger_report, record));
             }
-            pending_trigger_reports.clear();
+            pending_trigger_reports = Vec::new();
         }
+    }
+
+    match order {
+        CappingOrder::CapOldestFirst => update_breakdowns(
+            attributed_triggers.into_iter(),
+            expected_results,
+            per_user_cap,
+        ),
+        CappingOrder::CapMostRecentFirst => update_breakdowns(
+            attributed_triggers.into_iter().rev(),
+            expected_results,
+            per_user_cap,
+        ),
+    }
+}
+
+fn update_breakdowns<'a, I>(attributed_triggers: I, expected_results: &mut [u32], per_user_cap: u32)
+where
+    I: IntoIterator<Item = (&'a TestRawDataRecord, &'a TestRawDataRecord)>,
+{
+    let mut total_contribution = 0;
+    for (trigger_report, source_report) in attributed_triggers {
+        let delta_to_per_user_cap = per_user_cap - total_contribution;
+        let capped_contribution =
+            std::cmp::min(delta_to_per_user_cap, trigger_report.trigger_value);
+        let bk: usize = source_report.breakdown_key.try_into().unwrap();
+        expected_results[bk] += capped_contribution;
+        total_contribution += capped_contribution;
     }
 }
 
