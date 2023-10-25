@@ -4,9 +4,7 @@ use futures::future;
 use ipa_macros::Step;
 use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
 
-use super::super::{
-    basics::apply_permutation::apply as apply_permutation, context::Context, RecordId,
-};
+use super::super::{context::Context, RecordId};
 use crate::{
     error::Error,
     helpers::{Direction, Message, ReceivingEnd, Role},
@@ -18,9 +16,9 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum OPRFShuffleStep {
+    ApplyPermutations,
     GenerateAHat,
     GenerateBHat,
-    GeneratePi,
     GenerateZ,
     TransferCHat,
     TransferX2,
@@ -42,22 +40,13 @@ where
     for<'b> &'b S: Add<&'b S, Output = S>,
     Standard: Distribution<S>,
 {
-    // 1. Generate permutations
-    let permutation_size: u32 = batch_size.try_into().map_err(|e| {
-        Error::FieldValueTruncation(format!(
-            "batch size {batch_size} does not fit into u32. Error={e:?}"
-        ))
-    })?;
-    let pis = generate_permutations_with_peers(permutation_size, &ctx);
-
-    // 2. Generate random tables used by all helpers
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
     let zs = generate_random_tables_with_peers(batch_size, &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, batch_size, shares, pis, zs).await,
-        Role::H2 => run_h2(&ctx, batch_size, shares, pis, zs).await,
-        Role::H3 => run_h3(&ctx, batch_size, pis, zs).await,
+        Role::H1 => run_h1(&ctx, batch_size, shares, zs).await,
+        Role::H2 => run_h2(&ctx, batch_size, shares, zs).await,
+        Role::H3 => run_h3(&ctx, batch_size, zs).await,
     }
 }
 
@@ -65,7 +54,6 @@ async fn run_h1<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: usize,
     shares: I,
-    (pi_31, pi_12): (Vec<u32>, Vec<u32>),
     (z_31, z_12): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
 where
@@ -89,10 +77,13 @@ where
         .into_iter()
         .map(|s: AdditiveShare<S>| s.left().add(s.right()));
     let mut x_1: Vec<S> = add_single_shares(a_add_b_iter, z_12).collect();
-    apply_permutation(&pi_12, &mut x_1);
+
+    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
+    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
+    apply_permutation(&mut rng_perm_r, &mut x_1);
 
     let mut x_2: Vec<S> = add_single_shares(x_1, z_31).collect();
-    apply_permutation(&pi_31, &mut x_2);
+    apply_permutation(&mut rng_perm_l, &mut x_2);
 
     send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
 
@@ -104,7 +95,6 @@ async fn run_h2<C, I, S, Zl, Zr>(
     ctx: &C,
     batch_size: usize,
     shares: I,
-    (pi_12, pi_23): (Vec<u32>, Vec<u32>),
     (z_12, z_23): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
 where
@@ -125,7 +115,10 @@ where
     // 2. Run computations
     let c = shares.into_iter().map(|s| s.right());
     let mut y_1: Vec<S> = add_single_shares(c, z_12).collect();
-    apply_permutation(&pi_12, &mut y_1);
+
+    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
+    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
+    apply_permutation(&mut rng_perm_l, &mut y_1);
 
     let ((), x_2): ((), Vec<S>) = future::try_join(
         send_to_peer(ctx, &OPRFShuffleStep::TransferY1, Direction::Right, y_1),
@@ -139,7 +132,7 @@ where
     .await?;
 
     let mut x_3: Vec<S> = add_single_shares(x_2.iter(), z_23).collect();
-    apply_permutation(&pi_23, &mut x_3);
+    apply_permutation(&mut rng_perm_r, &mut x_3);
 
     let c_hat_1: Vec<S> = add_single_shares(x_3.iter(), b_hat.iter()).collect();
     let ((), c_hat_2) = future::try_join(
@@ -166,7 +159,6 @@ where
 async fn run_h3<C, S, Zl, Zr>(
     ctx: &C,
     batch_size: usize,
-    (pi_23, pi_31): (Vec<u32>, Vec<u32>),
     (z_23, z_31): (Zl, Zr),
 ) -> Result<Vec<AdditiveShare<S>>, Error>
 where
@@ -194,10 +186,13 @@ where
     .await?;
 
     let mut y_2: Vec<S> = add_single_shares(y_1, z_31).collect();
-    apply_permutation(&pi_31, &mut y_2);
+
+    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
+    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
+    apply_permutation(&mut rng_perm_r, &mut y_2);
 
     let mut y_3: Vec<S> = add_single_shares(y_2, z_23).collect();
-    apply_permutation(&pi_23, &mut y_3);
+    apply_permutation(&mut rng_perm_l, &mut y_3);
 
     let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
     let ((), c_hat_1): ((), Vec<S>) = future::try_join(
@@ -327,19 +322,8 @@ where
 
 // ------------------ Pseudorandom permutations functions -------------------- //
 
-fn generate_permutations_with_peers<C: Context>(size: u32, ctx: &C) -> (Vec<u32>, Vec<u32>) {
-    let narrow_context = ctx.narrow(&OPRFShuffleStep::GeneratePi);
-    let mut rng = narrow_context.prss_rng();
-
-    let with_left = generate_pseudorandom_permutation(size, &mut rng.0);
-    let with_right = generate_pseudorandom_permutation(size, &mut rng.1);
-    (with_left, with_right)
-}
-
-fn generate_pseudorandom_permutation<R: Rng>(size: u32, rng: &mut R) -> Vec<u32> {
-    let mut permutation = (0..size).collect::<Vec<_>>();
-    permutation.shuffle(rng);
-    permutation
+fn apply_permutation<R: Rng, S>(rng: &mut R, items: &mut [S]) {
+    items.shuffle(rng);
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
