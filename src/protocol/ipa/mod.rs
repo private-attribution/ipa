@@ -464,7 +464,7 @@ pub mod tests {
         test_executor::{run, run_with},
         test_fixture::{
             input::GenericReportTestInput,
-            ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+            ipa::{ipa_in_the_clear, test_ipa, CappingOrder, IpaSecurityModel},
             logging, EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld,
             TestWorldConfig,
         },
@@ -815,6 +815,7 @@ pub mod tests {
                 per_user_cap,
                 ATTRIBUTION_WINDOW_SECONDS,
                 MAX_BREAKDOWN_KEY,
+                &CappingOrder::CapOldestFirst,
             );
 
             let config = TestWorldConfig {

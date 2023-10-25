@@ -247,6 +247,7 @@ async fn ipa(
             ipa_query_config.per_user_credit_cap,
             ipa_query_config.attribution_window_seconds,
             ipa_query_config.max_breakdown_key,
+            CappingOrder::CapOldestFirst,
         );
 
         // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results

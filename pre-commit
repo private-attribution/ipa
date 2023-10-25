@@ -99,8 +99,12 @@ check "Concurrency tests" \
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62
 
+check "IPA OPRF benchmark" \
+    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62 --oprf
+
 check "Arithmetic circuit benchmark" \
     cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches descriptive-gate"
 
 check "Sort benchmark" \
     cargo bench --bench oneshot_sort --no-default-features --features="enable-benches descriptive-gate"
+

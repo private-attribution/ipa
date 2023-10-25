@@ -9,7 +9,7 @@ use ipa::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{ipa_in_the_clear, test_ipa, test_oprf_ipa, IpaSecurityModel},
+        ipa::{ipa_in_the_clear, test_ipa, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
@@ -123,11 +123,17 @@ async fn run(args: Args) -> Result<(), Error> {
     .take(args.query_size)
     .collect::<Vec<_>>();
 
+    let order = if args.oprf {
+        CappingOrder::CapOldestFirst
+    } else {
+        CappingOrder::CapMostRecentFirst
+    };
     let expected_results = ipa_in_the_clear(
         &raw_data,
         args.per_user_cap,
         args.attribution_window(),
         args.breakdown_keys,
+        &order,
     );
 
     let world = TestWorld::new_with(config.clone());
