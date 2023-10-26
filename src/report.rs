@@ -1,14 +1,15 @@
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomData,
-    ops::Deref,
+    mem::size_of,
+    ops::{Add, Deref},
 };
 
 use bytes::{BufMut, Bytes};
-use generic_array::GenericArray;
+use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::Unsigned;
+use typenum::{Unsigned, U8};
 
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
@@ -398,6 +399,93 @@ where
     pub event_type: EventType,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
+}
+
+impl Serializable for u64 {
+    type Size = U8;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let raw = &self.to_le_bytes()[..buf.len()];
+        buf.copy_from_slice(raw);
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let mut buf_to = [0u8; 8];
+        buf_to[..buf.len()].copy_from_slice(buf);
+        u64::from_le_bytes(buf_to)
+    }
+}
+
+impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> Serializable for OprfReport<TS, BK, TV>
+where
+    Replicated<TS>: Serializable,
+    Replicated<BK>: Serializable,
+    Replicated<TV>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U8>,
+    <Replicated<TS> as Serializable>::Size:
+        Add<<<Replicated<BK> as Serializable>::Size as Add<U8>>::Output>,
+    <Replicated<TV> as Serializable>::Size: Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+        >>::Output,
+    >,
+    <<Replicated<TV> as Serializable>::Size as Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+        >>::Output,
+    >>::Output: ArrayLength,
+{
+    type Size = <<Replicated<TV> as Serializable>::Size as Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+        >>::Output,
+    >>::Output;
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let sizeof_u64 = size_of::<u64>();
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
+
+        self.mk_oprf
+            .serialize(GenericArray::from_mut_slice(&mut buf[..sizeof_u64]));
+
+        self.timestamp.serialize(GenericArray::from_mut_slice(
+            &mut buf[sizeof_u64..sizeof_u64 + ts_sz],
+        ));
+
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut buf[sizeof_u64 + ts_sz..sizeof_u64 + ts_sz + bk_sz],
+        ));
+
+        self.trigger_value.serialize(GenericArray::from_mut_slice(
+            &mut buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
+        ));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let sizeof_u64 = size_of::<u64>();
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
+
+        let mk_oprf = u64::deserialize(GenericArray::from_slice(&buf[..sizeof_u64]));
+        let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(
+            &buf[sizeof_u64..sizeof_u64 + ts_sz],
+        ));
+        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
+            &buf[sizeof_u64 + ts_sz..sizeof_u64 + ts_sz + bk_sz],
+        ));
+        let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
+            &buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
+        ));
+        Self {
+            timestamp,
+            breakdown_key,
+            trigger_value,
+            event_type: EventType::Source,
+            mk_oprf,
+        }
+    }
 }
 
 #[cfg(all(test, unit_test))]

@@ -15,7 +15,7 @@ use hyper::http::uri::Scheme;
 use ipa::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_ipa, playbook_oprf_ipa, validate, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
@@ -103,6 +103,8 @@ enum ReportCollectorCommand {
     },
     /// Apply differential privacy noise to IPA inputs
     ApplyDpNoise(ApplyDpArgs),
+    /// Execute OPRF IPA in a semi-honest majority setting
+    OprfIpa(IpaQueryConfig),
 }
 
 #[derive(Debug, clap::Args)]
@@ -134,6 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 config,
                 &clients,
+                false,
             )
             .await?
         }
@@ -144,6 +147,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::Malicious,
                 config,
                 &clients,
+                false,
             )
             .await?
         }
@@ -153,6 +157,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             gen_args,
         } => gen_inputs(count, seed, args.output_file, gen_args)?,
         ReportCollectorCommand::ApplyDpNoise(ref dp_args) => apply_dp_noise(&args, dp_args)?,
+        ReportCollectorCommand::OprfIpa(config) => {
+            ipa(
+                &args,
+                &network,
+                IpaSecurityModel::SemiHonest,
+                config,
+                &clients,
+                true,
+            )
+            .await?
+        }
     };
 
     Ok(())
@@ -221,16 +236,29 @@ async fn ipa(
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
+    oprf_algorithm: bool,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
-    match security_model {
-        IpaSecurityModel::SemiHonest => {
+    match (security_model, oprf_algorithm) {
+        (IpaSecurityModel::SemiHonest, false) => {
             query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
         }
-        IpaSecurityModel::Malicious => {
+        (IpaSecurityModel::Malicious, false) => {
             query_type = QueryType::MaliciousIpa(ipa_query_config.clone())
         }
+        (IpaSecurityModel::SemiHonest, true) => {
+            query_type = QueryType::OprfIpa(ipa_query_config.clone());
+        }
+        (IpaSecurityModel::Malicious, true) => {
+            panic!("OPRF for malicious is not implemented as yet")
+        }
+    };
+
+    let order = if oprf_algorithm {
+        CappingOrder::CapMostRecentFirst
+    } else {
+        CappingOrder::CapOldestFirst
     };
 
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
@@ -247,7 +275,7 @@ async fn ipa(
             ipa_query_config.per_user_credit_cap,
             ipa_query_config.attribution_window_seconds,
             ipa_query_config.max_breakdown_key,
-            &CappingOrder::CapOldestFirst,
+            &order,
         );
 
         // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
@@ -260,18 +288,19 @@ async fn ipa(
     };
 
     let mut key_registries = KeyRegistries::default();
-    let actual = playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
-        &input_rows,
-        &helper_clients,
-        query_id,
-        ipa_query_config,
-        key_registries.init_from(network),
-    )
-    .await;
-
-    tracing::info!("{m:?}", m = ipa_query_config);
-
-    validate(&expected, &actual.breakdowns);
+    let actual = if oprf_algorithm {
+        playbook_oprf_ipa::<Fp32BitPrime>(input_rows, &helper_clients, query_id, ipa_query_config)
+            .await
+    } else {
+        playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
+            &input_rows,
+            &helper_clients,
+            query_id,
+            ipa_query_config,
+            key_registries.init_from(network),
+        )
+        .await
+    };
 
     if let Some(ref path) = args.output_file {
         // it will be sad to lose the results if file already exists.
@@ -307,6 +336,10 @@ async fn ipa(
 
         write!(file, "{}", serde_json::to_string_pretty(&actual)?)?;
     }
+
+    tracing::info!("{m:?}", m = ipa_query_config);
+
+    validate(&expected, &actual.breakdowns);
 
     Ok(())
 }

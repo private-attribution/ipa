@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use super::runner::OprfIpaQuery;
 use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
@@ -202,6 +203,33 @@ pub fn execute(
                 },
             )
         }
+        (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
     }
 }
 
