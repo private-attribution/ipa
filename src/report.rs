@@ -9,7 +9,7 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U8};
+use typenum::{Unsigned, U8, U9, U1};
 
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
@@ -46,6 +46,31 @@ pub type Epoch = u16;
 pub enum EventType {
     Trigger,
     Source,
+}
+
+impl Serializable for EventType {
+    type Size = U1;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+
+        let raw: &[u8] = match self {
+            EventType::Trigger => &[0],
+            EventType::Source => &[1],
+        };
+        buf.copy_from_slice(raw);
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+
+        let mut buf_to = [0u8; 1];
+        buf_to[..buf.len()].copy_from_slice(buf);
+        
+        match buf[0] {
+            0 => EventType::Trigger,
+            1 => EventType::Source,
+            2_u8..=u8::MAX => panic!("Unreachable code"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -421,27 +446,29 @@ where
     Replicated<TS>: Serializable,
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U8>,
+    <Replicated<BK> as Serializable>::Size: Add<U9>,
     <Replicated<TS> as Serializable>::Size:
-        Add<<<Replicated<BK> as Serializable>::Size as Add<U8>>::Output>,
+        Add<<<Replicated<BK> as Serializable>::Size as Add<U9>>::Output>,
     <Replicated<TV> as Serializable>::Size: Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
         >>::Output,
     >,
     <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
         >>::Output,
     >>::Output: ArrayLength,
 {
     type Size = <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U8>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
         >>::Output,
     >>::Output;
+
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let sizeof_u64 = size_of::<u64>();
+        let sizeof_eventtype = size_of::<EventType>();
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
@@ -460,10 +487,16 @@ where
         self.trigger_value.serialize(GenericArray::from_mut_slice(
             &mut buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
+
+        self.event_type.serialize(GenericArray::from_mut_slice(
+            &mut buf[sizeof_u64 + ts_sz + bk_sz + tv_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
+        ));
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
         let sizeof_u64 = size_of::<u64>();
+        let sizeof_eventtype = size_of::<EventType>();
+
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
@@ -478,11 +511,14 @@ where
         let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
+        let event_type = EventType::deserialize(GenericArray::from_slice(
+            &buf[sizeof_u64 + ts_sz + bk_sz + tv_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
+        ));
         Self {
             timestamp,
             breakdown_key,
             trigger_value,
-            event_type: EventType::Source,
+            event_type,
             mk_oprf,
         }
     }
