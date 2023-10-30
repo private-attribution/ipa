@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
 };
 
-use super::runner::OprfIpaQuery;
 use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
@@ -15,6 +14,7 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use typenum::Unsigned;
 
+use super::runner::OprfIpaQuery;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::query::runner::execute_test_multiply;
 use crate::{

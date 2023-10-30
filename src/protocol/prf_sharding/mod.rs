@@ -728,7 +728,6 @@ where
     let prime_field_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<F>();
     let prime_field_m_ctx = prime_field_validator.context();
 
-    println!("attribution_and_capping starting");
     let user_level_attributions: Vec<CappedAttributionOutputs> = attribution_and_capping(
         sh_ctx,
         input_rows,
@@ -737,7 +736,6 @@ where
     )
     .await?;
 
-    println!("do_aggregation starting");
     do_aggregation::<_, BK, TV, F, S>(prime_field_m_ctx, user_level_attributions).await
 }
 

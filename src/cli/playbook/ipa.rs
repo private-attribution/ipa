@@ -99,6 +99,57 @@ where
 
     let inputs = buffers.map(BodyStream::from);
     tracing::info!("Starting query after finishing encryption");
+
+    do_processing::<F>(inputs, clients, query_id, query_config).await
+}
+
+pub async fn playbook_oprf_ipa<F>(
+    mut records: Vec<TestRawDataRecord>,
+    clients: &[MpcHelperClient; 3],
+    query_id: QueryId,
+    query_config: IpaQueryConfig,
+) -> IpaQueryResult
+where
+    F: PrimeField,
+    AdditiveShare<F>: Serializable,
+{
+    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
+    let query_size = records.len();
+
+    let sz = <OprfReport<Timestamp, BreakdownKey, TriggerValue> as Serializable>::Size::USIZE;
+    for buffer in &mut buffers {
+        buffer.resize(query_size * sz, 0u8);
+    }
+
+    //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place.
+    //This does a stable sort. It also expects the inputs to be sorted by timestamp
+    records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
+
+    let shares: [Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>; 3] =
+        records.iter().cloned().share();
+    zip(&mut buffers, shares).for_each(|(buf, shares)| {
+        for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
+            share.serialize(GenericArray::from_mut_slice(chunk));
+        }
+    });
+
+    let inputs = buffers.map(BodyStream::from);
+    tracing::info!("Starting query for OPRF");
+
+    do_processing::<F>(inputs, clients, query_id, query_config).await
+}
+
+pub async fn do_processing<F>(
+    inputs: [BodyStream; 3],
+    clients: &[MpcHelperClient; 3],
+    query_id: QueryId,
+    query_config: IpaQueryConfig,
+) -> IpaQueryResult
+where
+    F: PrimeField,
+    AdditiveShare<F>: Serializable,
+{
+    let query_size = inputs.len();
     let mpc_time = Instant::now();
     try_join_all(
         inputs
@@ -143,103 +194,20 @@ where
         .reconstruct();
 
     let lat = mpc_time.elapsed();
+
     tracing::info!("Running IPA for {query_size:?} records took {t:?}", t = lat);
     let mut breakdowns = vec![0; usize::try_from(query_config.max_breakdown_key).unwrap()];
     for (breakdown_key, trigger_value) in results.into_iter().enumerate() {
         // TODO: make the data type used consistent with `ipa_in_the_clear`
         // I think using u32 is wrong, we should move to u128
-        breakdowns[breakdown_key] += u32::try_from(trigger_value.as_u128()).unwrap();
-    }
-
-    IpaQueryResult {
-        input_size: QuerySize::try_from(query_size).unwrap(),
-        config: query_config,
-        latency: lat,
-        breakdowns,
-    }
-}
-
-pub async fn playbook_oprf_ipa<F>(
-    mut records: Vec<TestRawDataRecord>,
-    clients: &[MpcHelperClient; 3],
-    query_id: QueryId,
-    query_config: IpaQueryConfig,
-) -> IpaQueryResult
-where
-    F: PrimeField,
-    AdditiveShare<F>: Serializable,
-{
-    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-    let query_size = records.len();
-
-    let sz = <OprfReport<Timestamp, BreakdownKey, TriggerValue> as Serializable>::Size::USIZE;
-    for buffer in &mut buffers {
-        buffer.resize(query_size * sz, 0u8);
-    }
-
-    //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
-    records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
-
-    let shares: [Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>; 3] =
-        records.iter().cloned().share();
-    zip(&mut buffers, shares).for_each(|(buf, shares)| {
-        for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
-            share.serialize(GenericArray::from_mut_slice(chunk));
+        assert!(
+            breakdown_key < query_config.max_breakdown_key.try_into().unwrap()
+                || trigger_value == F::ZERO,
+            "trigger values were attributed to buckets more than max breakdown key"
+        );
+        if breakdown_key < query_config.max_breakdown_key.try_into().unwrap() {
+            breakdowns[breakdown_key] += u32::try_from(trigger_value.as_u128()).unwrap();
         }
-    });
-
-    let inputs = buffers.map(BodyStream::from);
-    tracing::info!("Starting query for OPRF");
-    let mpc_time = Instant::now();
-    try_join_all(
-        inputs
-            .into_iter()
-            .zip(clients)
-            .map(|(input_stream, client)| {
-                client.query_input(QueryInput {
-                    query_id,
-                    input_stream,
-                })
-            }),
-    )
-    .await
-    .unwrap();
-
-    let mut delay = Duration::from_millis(125);
-    loop {
-        if try_join_all(clients.iter().map(|client| client.query_status(query_id)))
-            .await
-            .unwrap()
-            .into_iter()
-            .all(|status| status == QueryStatus::Completed)
-        {
-            break;
-        }
-
-        sleep(delay).await;
-        delay = min(Duration::from_secs(5), delay * 2);
-        // TODO: Add a timeout of some sort. Possibly, add some sort of progress indicator to
-        // the status API so we can check whether the query is making progress.
-    }
-
-    // wait until helpers have processed the query and get the results from them
-    let results: [_; 3] = try_join_all(clients.iter().map(|client| client.query_results(query_id)))
-        .await
-        .unwrap()
-        .try_into()
-        .unwrap();
-
-    let mut results: Vec<F> = results
-        .map(|bytes| AdditiveShare::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
-        .reconstruct();
-
-    let _ = results.split_off(query_config.max_breakdown_key.try_into().unwrap());
-
-    let lat = mpc_time.elapsed();
-    tracing::info!("Running IPA for {query_size:?} records took {t:?}", t = lat);
-    let mut breakdowns = vec![0; usize::try_from(query_config.max_breakdown_key).unwrap()];
-    for (breakdown_key, trigger_value) in results.into_iter().enumerate() {
-        breakdowns[breakdown_key] += u32::try_from(trigger_value.as_u128()).unwrap();
     }
 
     IpaQueryResult {

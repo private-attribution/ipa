@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use futures::{Stream, TryStreamExt};
+use futures::TryStreamExt;
 
 use crate::{
     error::Error,
@@ -60,16 +60,15 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = assert_stream_send(RecordsStream::<
-                OprfReport<Timestamp, BreakdownKey, TriggerValue>,
-                _,
-            >::new(input_stream))
+            let mut v = RecordsStream::<OprfReport<Timestamp, BreakdownKey, TriggerValue>, _>::new(
+                input_stream,
+            )
             .try_concat()
             .await?;
             v.truncate(sz);
             v
         } else {
-            panic!();
+            panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
@@ -114,14 +113,4 @@ where
         )
         .await
     }
-}
-
-/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
-/// streams.
-///
-/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
-pub fn assert_stream_send<'a, T>(
-    st: impl Stream<Item = T> + Send + 'a,
-) -> impl Stream<Item = T> + Send + 'a {
-    st
 }

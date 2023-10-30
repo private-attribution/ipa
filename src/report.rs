@@ -516,10 +516,10 @@ where
         ));
         Self {
             timestamp,
+            mk_oprf,
+            event_type,
             breakdown_key,
             trigger_value,
-            event_type,
-            mk_oprf,
         }
     }
 }
