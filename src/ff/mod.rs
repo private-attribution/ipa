@@ -7,6 +7,8 @@ pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
+mod boolean;
+mod boolean_array;
 
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
@@ -52,4 +54,12 @@ pub trait Serializable: Sized {
     ///
     /// [`serialize`]: Self::serialize
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
+}
+
+pub trait ArrayAccess<T>{
+    type Element;
+
+    fn get(&self, index: T) -> Self::Element;
+
+    fn set(&mut self, index: T, e: Self::Element);
 }

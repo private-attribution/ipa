@@ -13,6 +13,7 @@ use crate::{
         SharedValue, WeakSharedValue,
     },
 };
+use crate::ff::ArrayAccess;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: WeakSharedValue>(V, V);
@@ -237,6 +238,51 @@ where
         Self::new(left, right)
     }
 }
+
+/////impl Index for any AdditiveShare over SharedValue that implements Index
+// impl<S> Index<usize> for AdditiveShare<S>
+//     where
+//     S: Index<usize> + WeakSharedValue,
+//     <S as Index<usize>>::Output: Sized,
+// {
+//     //type Output = AdditiveShare<T>;
+//     type Output = <S as Index<usize>>::Output;
+//
+//     fn index(&self, index: usize) ->  (&Self::Output,&Self::Output) {
+//         (&self.0[index],&self.1[index])
+//     }
+// }
+
+// impl std::ops::Index<u32> for $name {
+// type Output = bool;
+//
+// fn index(&self, index: u32) -> &Self::Output {
+//     debug_assert!(index < <$name>::BITS);
+//     &self[index as usize]
+// }
+// }
+
+///Implement ArrayAccess for AdditiveShare over WeakSharedValue that implements ArrayAccess
+impl<T,S> ArrayAccess<T> for AdditiveShare<S>
+where
+    S: ArrayAccess<T> + WeakSharedValue,
+    <S as ArrayAccess<T>>::Element: WeakSharedValue,
+    usize: From<T>,
+    T: Copy,
+{
+    type Element = AdditiveShare<<S as ArrayAccess<T>>::Element>;
+
+    fn get(&self, index: T) -> Self::Element {
+        AdditiveShare(self.0.get(index),self.1.get(index))
+    }
+
+    fn set(&mut self, index: T, e: Self::Element) {
+        self.0.set(index,e.0);
+        self.1.set(index,e.1);
+    }
+}
+
+
 
 #[cfg(all(test, unit_test))]
 mod tests {
