@@ -173,7 +173,6 @@ where
     S: SharedValue + Add<Output = S> + Message,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
-    S: Clone + Add<Output = S> + Message,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
@@ -239,7 +238,7 @@ where
 
 fn add_single_shares_in_place<S, R>(items: &mut [S], r: R)
 where
-    S: AddAssign<S>,
+    S: AddAssign,
     R: IntoIterator<Item = S>,
 {
     items
