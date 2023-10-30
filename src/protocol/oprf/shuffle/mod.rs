@@ -80,10 +80,10 @@ where
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    apply_permutation(&mut rng_perm_r, &mut x_1);
+    x_1.shuffle(&mut rng_perm_r);
 
     let mut x_2: Vec<S> = add_single_shares(x_1, z_31).collect();
-    apply_permutation(&mut rng_perm_l, &mut x_2);
+    x_2.shuffle(&mut rng_perm_l);
 
     send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
 
@@ -100,7 +100,7 @@ async fn run_h2<C, I, S, Zl, Zr>(
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S> + Message,
+    S: SharedValue + Add<Output = S>,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     for<'a> &'a S: Add<S, Output = S>,
@@ -118,24 +118,28 @@ where
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    apply_permutation(&mut rng_perm_l, &mut y_1);
+    y_1.shuffle(&mut rng_perm_l);
 
-    let ((), x_2): ((), Vec<S>) = future::try_join(
+    let mut x_2 = Vec::with_capacity(batch_size);
+    future::try_join(
         send_to_peer(ctx, &OPRFShuffleStep::TransferY1, Direction::Right, y_1),
         receive_from_peer(
             ctx,
             &OPRFShuffleStep::TransferX2,
             Direction::Left,
             batch_size,
+            &mut x_2,
         ),
     )
     .await?;
 
-    let mut x_3: Vec<S> = add_single_shares_in_place(x_2, z_23);
-    apply_permutation(&mut rng_perm_r, &mut x_3);
+    add_single_shares_in_place(&mut x_2, z_23);
+    let mut x_3 = x_2;
+    x_3.shuffle(&mut rng_perm_r);
 
     let c_hat_1: Vec<S> = add_single_shares(x_3.iter(), b_hat.iter()).collect();
-    let ((), c_hat_2) = future::try_join(
+    let mut c_hat_2 = x_3; // reusing x_3 capacity
+    future::try_join(
         send_to_peer(
             ctx,
             &OPRFShuffleStep::TransferCHat,
@@ -147,6 +151,7 @@ where
             &OPRFShuffleStep::TransferCHat,
             Direction::Right,
             batch_size,
+            &mut c_hat_2,
         ),
     )
     .await?;
@@ -176,25 +181,30 @@ where
         generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Right).collect();
 
     // 2. Run computations
-    let y_1: Vec<S> = receive_from_peer(
+    let mut y_1 = Vec::<S>::with_capacity(batch_size);
+    receive_from_peer(
         ctx,
         &OPRFShuffleStep::TransferY1,
         Direction::Left,
         batch_size,
+        &mut y_1,
     )
     .await?;
 
-    let mut y_2: Vec<S> = add_single_shares(y_1, z_31).collect();
+    add_single_shares_in_place(&mut y_1, z_31);
+    let mut y_2 = y_1;
 
     let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    apply_permutation(&mut rng_perm_r, &mut y_2);
+    y_2.shuffle(&mut rng_perm_r);
 
-    let mut y_3: Vec<S> = add_single_shares_in_place(y_2, z_23);
-    apply_permutation(&mut rng_perm_l, &mut y_3);
+    add_single_shares_in_place(&mut y_2, z_23);
+    let mut y_3 = y_2;
+    y_3.shuffle(&mut rng_perm_l);
 
     let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
-    let ((), c_hat_1): ((), Vec<S>) = future::try_join(
+    let mut c_hat_1 = y_3; // reusing y_3 allocation
+    future::try_join(
         send_to_peer(
             ctx,
             &OPRFShuffleStep::TransferCHat,
@@ -206,6 +216,7 @@ where
             &OPRFShuffleStep::TransferCHat,
             Direction::Left,
             batch_size,
+            &mut c_hat_1,
         ),
     )
     .await?;
@@ -224,7 +235,7 @@ where
     l.into_iter().zip(r).map(|(a, b)| a + b)
 }
 
-fn add_single_shares_in_place<S, R>(mut items: Vec<S>, r: R) -> Vec<S>
+fn add_single_shares_in_place<S, R>(items: &mut [S], r: R)
 where
     S: AddAssign<S>,
     R: IntoIterator<Item = S>,
@@ -233,7 +244,6 @@ where
         .iter_mut()
         .zip(r)
         .for_each(|(item, rhs)| item.add_assign(rhs));
-    items
 }
 
 // --------------------------------------------------------------------------- //
@@ -312,7 +322,8 @@ async fn receive_from_peer<C, S>(
     step: &OPRFShuffleStep,
     direction: Direction,
     batch_size: usize,
-) -> Result<Vec<S>, Error>
+    buf: &mut Vec<S>,
+) -> Result<(), Error>
 where
     C: Context,
     S: Message,
@@ -323,19 +334,12 @@ where
         .set_total_records(batch_size)
         .recv_channel(role);
 
-    let mut output: Vec<S> = Vec::with_capacity(batch_size);
+    buf.clear();
     for record_id in 0..batch_size {
         let msg = receive_channel.receive(RecordId::from(record_id)).await?;
-        output.push(msg);
+        buf.push(msg);
     }
-
-    Ok(output)
-}
-
-// ------------------ Pseudorandom permutations functions -------------------- //
-
-fn apply_permutation<R: Rng, S>(rng: &mut R, items: &mut [S]) {
-    items.shuffle(rng);
+    Ok(())
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]

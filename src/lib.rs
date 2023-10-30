@@ -16,7 +16,6 @@ pub mod error;
 pub mod ff;
 pub mod helpers;
 pub mod hpke;
-pub mod one_off_fns;
 
 #[cfg(feature = "web-app")]
 pub mod net;
@@ -36,6 +35,7 @@ mod seq_join;
 mod serde;
 
 pub use app::{HelperApp, Setup as AppSetup};
+use futures::Stream;
 
 extern crate core;
 #[cfg(all(feature = "shuttle", test))]
@@ -136,3 +136,13 @@ compile_error!(
 
 #[cfg(all(not(feature = "compact-gate"), not(feature = "descriptive-gate")))]
 compile_error!("feature \"compact-gate\" or \"descriptive-gate\" must be enabled");
+
+/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
+/// streams.
+///
+/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
+pub(crate) fn assert_stream_send<'a, T>(
+    st: impl Stream<Item = T> + Send + 'a,
+) -> impl Stream<Item = T> + Send + 'a {
+    st
+}

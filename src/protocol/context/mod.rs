@@ -160,7 +160,7 @@ pub struct Base<'a> {
 }
 
 impl<'a> Base<'a> {
-    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self::new_complete(
             participant,
             gateway,

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use futures_util::TryStreamExt;
 
 use crate::{
+    assert_stream_send,
     error::Error,
     ff::{Gf2, Gf8Bit, PrimeField, Serializable},
     helpers::{
@@ -10,7 +11,6 @@ use crate::{
         BodyStream, RecordsStream,
     },
     hpke::{KeyPair, KeyRegistry},
-    one_off_fns::assert_stream_send,
     protocol::{
         aggregation::{sparse_aggregate, SparseAggregateInputRow},
         basics::{Reshare, ShareKnownValue},

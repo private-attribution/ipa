@@ -6,6 +6,7 @@ use futures::{
 };
 
 use crate::{
+    assert_stream_send,
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
     helpers::{
@@ -13,7 +14,6 @@ use crate::{
         BodyStream, LengthDelimitedStream, RecordsStream,
     },
     hpke::{KeyPair, KeyRegistry},
-    one_off_fns::assert_stream_send,
     protocol::{
         basics::{Reshare, ShareKnownValue},
         context::{UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext},

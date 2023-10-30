@@ -4,14 +4,9 @@ use generic_array::GenericArray;
 use rand::{distributions::Standard, Rng};
 use typenum::Unsigned;
 
-use super::ShuffleInputRow;
 use crate::{
     ff::{Field, Gf32Bit, Gf40Bit, Gf8Bit, Serializable},
-    helpers::Direction,
-    secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        SharedValue,
-    },
+    secret_sharing::SharedValue,
 };
 pub type ShuffleShareMK = Gf40Bit;
 pub type ShuffleShareBK = Gf8Bit;
@@ -109,40 +104,6 @@ impl SharedValue for ShuffleShare {
         breakdown_key: ShuffleShareBK::ZERO,
         trigger_value: ShuffleShareF::ZERO,
     };
-}
-
-impl ShuffleShare {
-    #[must_use]
-    pub fn from_input_row(input_row: &ShuffleInputRow, shared_with: Direction) -> Self {
-        match shared_with {
-            Direction::Left => Self {
-                timestamp: input_row.timestamp.as_tuple().1,
-                mk: input_row.mk_shares.as_tuple().1,
-                is_trigger_bit: input_row.is_trigger_bit.as_tuple().1,
-                breakdown_key: input_row.breakdown_key.as_tuple().1,
-                trigger_value: input_row.trigger_value.as_tuple().1,
-            },
-
-            Direction::Right => Self {
-                timestamp: input_row.timestamp.as_tuple().0,
-                mk: input_row.mk_shares.as_tuple().0,
-                is_trigger_bit: input_row.is_trigger_bit.as_tuple().0,
-                breakdown_key: input_row.breakdown_key.as_tuple().0,
-                trigger_value: input_row.trigger_value.as_tuple().0,
-            },
-        }
-    }
-
-    #[must_use]
-    pub fn to_input_row(input: &AdditiveShare<Self>) -> ShuffleInputRow {
-        ShuffleInputRow {
-            timestamp: ReplicatedSecretSharing::map(input, |v| v.timestamp),
-            mk_shares: ReplicatedSecretSharing::map(input, |v| v.mk),
-            is_trigger_bit: ReplicatedSecretSharing::map(input, |v| v.is_trigger_bit),
-            breakdown_key: ReplicatedSecretSharing::map(input, |v| v.breakdown_key),
-            trigger_value: ReplicatedSecretSharing::map(input, |v| v.trigger_value),
-        }
-    }
 }
 
 impl rand::prelude::Distribution<ShuffleShare> for Standard {
