@@ -82,10 +82,11 @@ where
     let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
     x_1.shuffle(&mut rng_perm_r);
 
-    let mut x_2: Vec<S> = add_single_shares(x_1, z_31).collect();
+    add_single_shares_in_place(&mut x_1, z_31);
+    let mut x_2 = x_1;
     x_2.shuffle(&mut rng_perm_l);
 
-    send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, x_2).await?;
+    send_to_peer(ctx, &OPRFShuffleStep::TransferX2, Direction::Right, &x_2).await?;
 
     let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
     Ok(res)
@@ -122,7 +123,7 @@ where
 
     let mut x_2 = Vec::with_capacity(batch_size);
     future::try_join(
-        send_to_peer(ctx, &OPRFShuffleStep::TransferY1, Direction::Right, y_1),
+        send_to_peer(ctx, &OPRFShuffleStep::TransferY1, Direction::Right, &y_1),
         receive_from_peer(
             ctx,
             &OPRFShuffleStep::TransferX2,
@@ -137,14 +138,17 @@ where
     let mut x_3 = x_2;
     x_3.shuffle(&mut rng_perm_r);
 
-    let c_hat_1: Vec<S> = add_single_shares(x_3.iter(), b_hat.iter()).collect();
-    let mut c_hat_2 = x_3; // reusing x_3 capacity
+    let mut c_hat_1 = y_1;
+    c_hat_1.clear();
+    c_hat_1.extend(add_single_shares(x_3.iter(), b_hat.iter()));
+
+    let mut c_hat_2 = x_3;
     future::try_join(
         send_to_peer(
             ctx,
             &OPRFShuffleStep::TransferCHat,
             Direction::Right,
-            c_hat_1.clone(),
+            &c_hat_1,
         ),
         receive_from_peer(
             ctx,
@@ -209,7 +213,7 @@ where
             ctx,
             &OPRFShuffleStep::TransferCHat,
             Direction::Left,
-            c_hat_2.clone(),
+            &c_hat_2,
         ),
         receive_from_peer(
             ctx,
@@ -299,11 +303,11 @@ async fn send_to_peer<C, S>(
     ctx: &C,
     step: &OPRFShuffleStep,
     direction: Direction,
-    items: Vec<S>,
+    items: &[S],
 ) -> Result<(), Error>
 where
     C: Context,
-    S: Message,
+    S: Copy + Message,
 {
     let role = ctx.role().peer(direction);
     let send_channel = ctx
@@ -311,8 +315,8 @@ where
         .set_total_records(items.len())
         .send_channel(role);
 
-    for (record_id, row) in items.into_iter().enumerate() {
-        send_channel.send(RecordId::from(record_id), row).await?;
+    for (record_id, row) in items.iter().enumerate() {
+        send_channel.send(RecordId::from(record_id), *row).await?;
     }
     Ok(())
 }
