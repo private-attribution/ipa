@@ -9,7 +9,7 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U8, U9, U1};
+use typenum::{Unsigned, U1, U8, U9};
 
 use crate::{
     ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
@@ -52,7 +52,6 @@ impl Serializable for EventType {
     type Size = U1;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-
         let raw: &[u8] = match self {
             EventType::Trigger => &[0],
             EventType::Source => &[1],
@@ -61,10 +60,9 @@ impl Serializable for EventType {
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-
         let mut buf_to = [0u8; 1];
         buf_to[..buf.len()].copy_from_slice(buf);
-        
+
         match buf[0] {
             0 => EventType::Trigger,
             1 => EventType::Source,
@@ -489,7 +487,8 @@ where
         ));
 
         self.event_type.serialize(GenericArray::from_mut_slice(
-            &mut buf[sizeof_u64 + ts_sz + bk_sz + tv_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
+            &mut buf[sizeof_u64 + ts_sz + bk_sz + tv_sz
+                ..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
         ));
     }
 
@@ -512,7 +511,8 @@ where
             &buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
         let event_type = EventType::deserialize(GenericArray::from_slice(
-            &buf[sizeof_u64 + ts_sz + bk_sz + tv_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
+            &buf[sizeof_u64 + ts_sz + bk_sz + tv_sz
+                ..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
         ));
         Self {
             timestamp,

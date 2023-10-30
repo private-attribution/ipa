@@ -26,7 +26,7 @@ use ipa::{
     protocol::{BreakdownKey, MatchKey},
     report::{KeyIdentifier, DEFAULT_KEY_ID},
     test_fixture::{
-        ipa::{ipa_in_the_clear, CappingOrder, IpaSecurityModel, TestRawDataRecord},
+        ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
         EventGenerator, EventGeneratorConfig,
     },
 };
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 config,
                 &clients,
-                false,
+                IpaQueryStyle::SortInMpc,
             )
             .await?
         }
@@ -147,7 +147,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::Malicious,
                 config,
                 &clients,
-                false,
+                IpaQueryStyle::SortInMpc,
             )
             .await?
         }
@@ -164,7 +164,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 IpaSecurityModel::SemiHonest,
                 config,
                 &clients,
-                true,
+                IpaQueryStyle::Oprf,
             )
             .await?
         }
@@ -236,29 +236,23 @@ async fn ipa(
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
-    oprf_algorithm: bool,
+    query_style: IpaQueryStyle,
 ) -> Result<(), Box<dyn Error>> {
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
-    match (security_model, oprf_algorithm) {
-        (IpaSecurityModel::SemiHonest, false) => {
+    match (security_model, &query_style) {
+        (IpaSecurityModel::SemiHonest, IpaQueryStyle::SortInMpc) => {
             query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
         }
-        (IpaSecurityModel::Malicious, false) => {
+        (IpaSecurityModel::Malicious, IpaQueryStyle::SortInMpc) => {
             query_type = QueryType::MaliciousIpa(ipa_query_config.clone())
         }
-        (IpaSecurityModel::SemiHonest, true) => {
+        (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
             query_type = QueryType::OprfIpa(ipa_query_config.clone());
         }
-        (IpaSecurityModel::Malicious, true) => {
+        (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
             panic!("OPRF for malicious is not implemented as yet")
         }
-    };
-
-    let order = if oprf_algorithm {
-        CappingOrder::CapMostRecentFirst
-    } else {
-        CappingOrder::CapOldestFirst
     };
 
     let input_rows = input.iter::<TestRawDataRecord>().collect::<Vec<_>>();
@@ -275,7 +269,10 @@ async fn ipa(
             ipa_query_config.per_user_credit_cap,
             ipa_query_config.attribution_window_seconds,
             ipa_query_config.max_breakdown_key,
-            &order,
+            &(match query_style {
+                IpaQueryStyle::Oprf => CappingOrder::CapMostRecentFirst,
+                IpaQueryStyle::SortInMpc => CappingOrder::CapOldestFirst,
+            }),
         );
 
         // pad the output vector to the max breakdown key, to make sure it is aligned with the MPC results
@@ -288,18 +285,26 @@ async fn ipa(
     };
 
     let mut key_registries = KeyRegistries::default();
-    let actual = if oprf_algorithm {
-        playbook_oprf_ipa::<Fp32BitPrime>(input_rows, &helper_clients, query_id, ipa_query_config)
+    let actual = match query_style {
+        IpaQueryStyle::Oprf => {
+            playbook_oprf_ipa::<Fp32BitPrime>(
+                input_rows,
+                &helper_clients,
+                query_id,
+                ipa_query_config,
+            )
             .await
-    } else {
-        playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
-            &input_rows,
-            &helper_clients,
-            query_id,
-            ipa_query_config,
-            key_registries.init_from(network),
-        )
-        .await
+        }
+        IpaQueryStyle::SortInMpc => {
+            playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
+                &input_rows,
+                &helper_clients,
+                query_id,
+                ipa_query_config,
+                key_registries.init_from(network),
+            )
+            .await
+        }
     };
 
     if let Some(ref path) = args.output_file {
