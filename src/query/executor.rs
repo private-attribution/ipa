@@ -14,6 +14,7 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use typenum::Unsigned;
 
+use super::runner::OprfIpaQuery;
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 use crate::query::runner::execute_test_multiply;
 use crate::{
@@ -202,6 +203,33 @@ pub fn execute(
                 },
             )
         }
+        (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
+        #[cfg(any(test, feature = "weak-field"))]
+        (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
+            config,
+            gateway,
+            input,
+            move |prss, gateway, config, input| {
+                let ctx = SemiHonestContext::new(prss, gateway);
+                Box::pin(
+                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config)
+                        .execute(ctx, config.size, input)
+                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
+                )
+            },
+        ),
     }
 }
 

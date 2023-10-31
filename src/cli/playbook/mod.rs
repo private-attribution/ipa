@@ -11,7 +11,7 @@ pub use input::InputSource;
 pub use multiply::secure_mul;
 use tokio::time::sleep;
 
-pub use self::ipa::playbook_ipa;
+pub use self::ipa::{playbook_ipa, playbook_oprf_ipa};
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     net::{ClientIdentity, MpcHelperClient},

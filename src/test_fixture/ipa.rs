@@ -24,6 +24,11 @@ pub enum IpaSecurityModel {
     Malicious,
 }
 
+pub enum IpaQueryStyle {
+    SortInMpc,
+    Oprf,
+}
+
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
     pub timestamp: u64,
