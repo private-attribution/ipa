@@ -73,7 +73,7 @@ fn validate_probability(value: &str) -> Result<f32, String> {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000_000_000_000, 5, 20, 50, 10)
+        Self::new(1_000_000_000_000, 5, 20, 50)
     }
 }
 
@@ -88,7 +88,6 @@ impl Config {
         max_trigger_value: u32,
         max_breakdown_key: u32,
         max_events_per_user: u32,
-        number_of_users_in_flight: u32,
     ) -> Self {
         Self {
             max_user_id: NonZeroU64::try_from(max_user_id).unwrap(),
@@ -97,7 +96,7 @@ impl Config {
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
             conversion_probability: None,
-            number_of_users_in_flight: NonZeroU32::try_from(number_of_users_in_flight).unwrap(),
+            number_of_users_in_flight: NonZeroU32::try_from(10).unwrap(),
             single_user_mode: false,
         }
     }
@@ -381,16 +380,9 @@ mod tests {
                 1..u32::MAX,
                 1..u32::MAX,
                 report_filter_strategy(),
-                1..u32::MAX,
             )
                 .prop_map(
-                    |(
-                        max_trigger_value,
-                        max_breakdown_key,
-                        max_events_per_user,
-                        report_filter,
-                        number_of_users_in_flight,
-                    )| {
+                    |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| {
                         Config {
                             max_user_id: NonZeroU64::new(10_000).unwrap(),
                             max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
@@ -401,9 +393,7 @@ mod tests {
                                 ReportFilter::TriggerOnly => Some(0.02),
                                 _ => None,
                             },
-                            number_of_users_in_flight: NonZeroU32::new(number_of_users_in_flight)
-                                .unwrap(),
-                            single_user_mode: false,
+                            ..Default::default()
                         }
                     },
                 )
