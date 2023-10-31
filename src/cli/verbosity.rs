@@ -4,7 +4,7 @@ use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{
-    fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+    fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };
 
 use crate::{
@@ -31,14 +31,14 @@ pub struct LoggingHandle {
 impl Verbosity {
     #[must_use]
     pub fn setup_logging(&self) -> LoggingHandle {
-        let filter_layer = self.level_filter();
+        let filter_layer = self.log_filter();
         let fmt_layer = fmt::layer()
             .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
             .with_ansi(std::io::stderr().is_terminal())
             .with_writer(stderr);
 
         tracing_subscriber::registry()
-            .with(self.level_filter())
+            .with(self.log_filter())
             .with(fmt_layer)
             .with(MetricsLayer::new())
             .init();
@@ -53,15 +53,20 @@ impl Verbosity {
         handle
     }
 
-    fn level_filter(&self) -> LevelFilter {
-        if self.quiet {
-            LevelFilter::OFF
-        } else {
-            LevelFilter::from_level(match self.verbose {
-                0 => Level::INFO,
-                1 => Level::DEBUG,
-                _ => Level::TRACE,
-            })
-        }
+    fn log_filter(&self) -> EnvFilter {
+        EnvFilter::builder()
+            .with_default_directive(
+                if self.quiet {
+                    LevelFilter::OFF
+                } else {
+                    LevelFilter::from_level(match self.verbose {
+                        0 => Level::INFO,
+                        1 => Level::DEBUG,
+                        _ => Level::TRACE,
+                    })
+                }
+                .into(),
+            )
+            .from_env_lossy()
     }
 }
