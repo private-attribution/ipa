@@ -51,8 +51,13 @@ pub struct Config {
     pub report_filter: ReportFilter,
     #[cfg_attr(feature = "clap", arg(long, required_if_eq("report_filter", "TriggerOnly"), default_value = "0.02", value_parser = validate_probability))]
     pub conversion_probability: Option<f32>,
-    #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
-    pub max_number_of_users: NonZeroU32,
+    #[cfg_attr(
+        feature = "clap",
+        arg(long, default_value = "10", conflicts_with("single_user_mode"))
+    )]
+    pub number_of_users_in_flight: NonZeroU32,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "false"))]
+    pub single_user_mode: bool,
 }
 
 fn validate_probability(value: &str) -> Result<f32, String> {
@@ -83,7 +88,7 @@ impl Config {
         max_trigger_value: u32,
         max_breakdown_key: u32,
         max_events_per_user: u32,
-        max_number_of_users: u32,
+        number_of_users_in_flight: u32,
     ) -> Self {
         Self {
             max_user_id: NonZeroU64::try_from(max_user_id).unwrap(),
@@ -92,7 +97,8 @@ impl Config {
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
             conversion_probability: None,
-            max_number_of_users: NonZeroU32::try_from(max_number_of_users).unwrap(),
+            number_of_users_in_flight: NonZeroU32::try_from(number_of_users_in_flight).unwrap(),
+            single_user_mode: false,
         }
     }
 
@@ -233,8 +239,12 @@ impl<R: Rng> EventGenerator<R> {
                 self.used.insert(next);
                 break UserStats::new(
                     next,
-                    self.rng
-                        .gen_range(1..=self.config.max_events_per_user.get()),
+                    if self.config.single_user_mode {
+                        u32::MAX
+                    } else {
+                        self.rng
+                            .gen_range(1..=self.config.max_events_per_user.get())
+                    },
                 );
             }
         })
@@ -245,7 +255,12 @@ impl<R: Rng> Iterator for EventGenerator<R> {
     type Item = TestRawDataRecord;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.users.len() < usize::try_from(self.config.max_number_of_users.get()).unwrap() {
+        let number_of_users_in_flight = if self.config.single_user_mode {
+            1
+        } else {
+            usize::try_from(self.config.number_of_users_in_flight.get()).unwrap()
+        };
+        while self.users.len() < number_of_users_in_flight {
             if let Some(next_user) = self.sample_user() {
                 self.users.push(next_user);
             } else {
@@ -374,7 +389,7 @@ mod tests {
                         max_breakdown_key,
                         max_events_per_user,
                         report_filter,
-                        max_number_of_users,
+                        number_of_users_in_flight,
                     )| {
                         Config {
                             max_user_id: NonZeroU64::new(10_000).unwrap(),
@@ -386,7 +401,9 @@ mod tests {
                                 ReportFilter::TriggerOnly => Some(0.02),
                                 _ => None,
                             },
-                            max_number_of_users: NonZeroU32::new(max_number_of_users).unwrap(),
+                            number_of_users_in_flight: NonZeroU32::new(number_of_users_in_flight)
+                                .unwrap(),
+                            single_user_mode: false,
                         }
                     },
                 )
