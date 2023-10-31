@@ -785,6 +785,7 @@ pub mod tests {
         const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
+        const MAX_NUMBER_OF_USERS: u32 = 10;
         type TestField = Fp32BitPrime;
         logging::setup();
 
@@ -804,6 +805,7 @@ pub mod tests {
                 MAX_TRIGGER_VALUE,
                 MAX_BREAKDOWN_KEY,
                 MAX_RECORDS_PER_USER,
+                MAX_NUMBER_OF_USERS,
             ),
         )
         .take(usize::try_from(max_events).unwrap())

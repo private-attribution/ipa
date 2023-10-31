@@ -149,6 +149,7 @@ def extract_intermediate_steps(steps):
 
     return steps
 
+
 def ipa_steps():
     output = set()
     for c in PER_USER_CAP:
@@ -171,10 +172,13 @@ def ipa_steps():
                     output.update(collect_steps(args))
     return output
 
+
 OPRF_BREAKDOWN_KEY = 256
 OPRF_USER_CAP = [16, 64, 128]
 OPRF_SECURITY_MODEL = "semi-honest"
 OPRF_TRIGGER_VALUE = [6, 7]
+OPRF_USER_NTH_ROW_STEP_MAX = 64
+
 
 def oprf_steps():
     output = set()
@@ -194,11 +198,14 @@ def oprf_steps():
                     OPRF_SECURITY_MODEL,
                     "-t",
                     str(tv),
-                    "-o"
-            ]
+                    "-o",
+                    "-u",
+                    str(OPRF_USER_NTH_ROW_STEP_MAX),
+                ]
             print(" ".join(args), file=sys.stderr)
             output.update(collect_steps(args))
     return output
+
 
 if __name__ == "__main__":
     steps = set()

@@ -105,6 +105,28 @@ async fn run(args: Args) -> Result<(), Error> {
         ..TestWorldConfig::default()
     };
 
+    // OPRF protocol step generation.
+    // `ipa::protocol::prf_sharding::UserNthPerStep` depends on the maximum number
+    // of rows of any users in the input. In order to generate all possible
+    // combinations of the steps, we need to generate the max allowable number of
+    // rows for a user. The max allowable number should be the number specified
+    // by `#[dynamic(...)]` in `UserNthRowStep` enum. For now, we use
+    // `records_per_user` which can be specified when running the benchmark.
+    // Note that this is a temporary solution. If the max number of rows become too
+    // large, we need a better way to generate the steps, likely by synthesizing the
+    // steps in the `Step` derive macro.
+    let (max_number_of_users, query_size) = if cfg!(feature = "step-trace") && args.oprf {
+        (
+            NonZeroU32::new(1).unwrap(),
+            usize::try_from(args.records_per_user).unwrap(),
+        )
+    } else {
+        (
+            EventGeneratorConfig::default().max_number_of_users,
+            args.query_size,
+        )
+    };
+
     let seed = args.random_seed.unwrap_or_else(|| random());
     tracing::trace!(
         "Using random seed: {seed} for {q} records",
@@ -117,10 +139,11 @@ async fn run(args: Args) -> Result<(), Error> {
             max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
             max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+            max_number_of_users,
             ..Default::default()
         },
     )
-    .take(args.query_size)
+    .take(query_size)
     .collect::<Vec<_>>();
 
     let order = if args.oprf {
