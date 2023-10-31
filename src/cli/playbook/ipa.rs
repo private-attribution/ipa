@@ -100,7 +100,7 @@ where
     let inputs = buffers.map(BodyStream::from);
     tracing::info!("Starting query after finishing encryption");
 
-    do_processing::<F>(inputs, query_size, clients, query_id, query_config).await
+    run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
 }
 
 pub async fn playbook_oprf_ipa<F>(
@@ -136,10 +136,10 @@ where
     let inputs = buffers.map(BodyStream::from);
     tracing::info!("Starting query for OPRF");
 
-    do_processing::<F>(inputs, query_size, clients, query_id, query_config).await
+    run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
 }
 
-pub async fn do_processing<F>(
+pub async fn run_query_and_validate<F>(
     inputs: [BodyStream; 3],
     query_size: usize,
     clients: &[MpcHelperClient; 3],
