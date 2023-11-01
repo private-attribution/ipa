@@ -116,7 +116,7 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C::UpgradedContext<F>, F> + 'static,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     I: Stream,
-    I::Item: ToBitConversionTriples + Clone + Send + Sync,
+    I::Item: ToBitConversionTriples<Residual = ()> + Clone + Send + Sync,
     for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>,
 {
