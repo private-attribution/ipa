@@ -1,7 +1,10 @@
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use bitvec::{prelude::{bitarr, BitArr, Lsb0}, slice::Iter};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U6};
+use typenum::{Unsigned, U8};
 
+use crate::{
+    ff::boolean::Boolean
+};
 
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -25,9 +28,23 @@ macro_rules! store_impl {
     };
 }
 
+pub struct BAIterator<'a> {
+    iterator: Iter<'a,u8,Lsb0>,
+}
+
+impl<'a> Iterator for BAIterator<'a> {
+    type Item = Boolean;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iterator.next() {
+            Some(v) => Some(Boolean::from(*v)),
+            None => None,
+        }
+    }
+}
 
 macro_rules! boolean_array_impl {
-    ( $modname:ident, $name:ident, $store:ident, $bits:expr, $one:expr ) => {
+    ( $modname:ident, $name:ident, $bits:expr, $one:expr ) => {
 
         mod $modname {
             use super::*;
@@ -39,11 +56,11 @@ macro_rules! boolean_array_impl {
 
 
 
-            type $store = BitArr!(for $bits, in u8, Lsb0);
+            type Store = BitArr!(for $bits, in u8, Lsb0);
 
             ///
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-            pub struct $name($store);
+            pub struct $name(Store);
 
             impl<T> ArrayAccess<T> for $name
             where
@@ -66,20 +83,20 @@ macro_rules! boolean_array_impl {
             }
 
             impl SharedValue for $name {
-                type Storage = $store;
+                type Storage = Store;
                 const BITS: u32 = $bits;
-                const ZERO: Self = Self(<$store>::ZERO);
+                const ZERO: Self = Self(<Store>::ZERO);
             }
 
             impl Serializable for $name {
-                type Size = <$store as Block>::Size;
+                type Size = <Store as Block>::Size;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
                 fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-                    Self(<$store>::new(assert_copy(*buf).into()))
+                    Self(<Store>::new(assert_copy(*buf).into()))
                 }
             }
 
@@ -126,7 +143,7 @@ macro_rules! boolean_array_impl {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
-                    Self(<$store>::new(v.try_into().unwrap()))
+                    Self(<Store>::new(v.try_into().unwrap()))
                 }
             }
 
@@ -168,7 +185,7 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl From<$name> for $store {
+            impl From<$name> for Store {
                 fn from(v: $name) -> Self {
                     v.0
                 }
@@ -191,43 +208,16 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            // impl Iterator for $name {
-            //     type Item = Boolean;
-            //
-            //     fn next(&mut self) -> Option<Self::Item> {
-            //         match (self.0 as dyn Iterator<Item = bool>).next() {
-            //             NONE => NONE,
-            //             Ok(v) => Ok(Boolean::from(v)),
-            //         }
-            //     }
-            // }
 
-            // impl IntoIterator for $name {
-            //     type Item = Boolean;
-            //     type IntoIter = std::vec::IntoIter<Self::Item>;
-            //
-            //     fn into_iter(self) -> Self::IntoIter {
-            //         self.0.into_iter()
-            //     }
-            // }
+            impl<'a> IntoIterator for &'a $name {
+                type Item = Boolean;
+                type IntoIter = BAIterator<'a>;
 
-            impl std::ops::Index<usize> for $name {
-                type Output = Boolean;
-
-                fn index(&self, index: usize) ->  &Self::Output {
-                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
-                    &Boolean::from(self.0[index])
+                fn into_iter(self) -> Self::IntoIter {
+                    BAIterator{iterator: self.0.iter()}
                 }
             }
 
-            // impl std::ops::Index<u32> for $name {
-            //     type Output = bool;
-            //
-            //     fn index(&self, index: u32) -> &Self::Output {
-            //         debug_assert!(index < <$name>::BITS);
-            //         &self[index as usize]
-            //     }
-            // }
 
             #[cfg(all(test, unit_test))]
             mod tests {
@@ -243,6 +233,19 @@ macro_rules! boolean_array_impl {
                     ba.set(i,a);
                     assert_eq!(ba.get(i),a);
                 }
+
+                #[test]
+                fn iterate_boolean_array(){
+                    let bits = $name::ONE;
+                    let iter = bits.into_iter();
+                    for (i,j) in iter.enumerate() {
+                        if i==0 {
+                            assert_eq!(j, Boolean::ONE);
+                        } else {
+                            assert_eq!(j, Boolean::ZERO);
+                        }
+                    }
+                }
             }
         }
 
@@ -252,13 +255,21 @@ macro_rules! boolean_array_impl {
 
 
 //impl store for U6
-store_impl!(U6, 48);
+store_impl!(U8, 64);
 
 //impl BA48
 boolean_array_impl! (
-    boolean_array_48,
-    BA48,
-    U8_6,
-    48,
-    bitarr ! ( const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    boolean_array_64,
+    BA64,
+    64,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0)
     );
+

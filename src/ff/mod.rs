@@ -7,8 +7,8 @@ pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
-mod boolean;
-mod boolean_array;
+pub mod boolean;
+pub mod boolean_array;
 
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
