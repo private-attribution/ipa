@@ -231,44 +231,44 @@ where
             // this check exists to make sure the inner stream is eventually moved to
             // the closed state. We don't want to poll it too often, but we also need to know
             // when it is done and `UnorderedReceiver` can be dropped.
-            if self.spare.is_empty() {
-                // we don't want to be woken up here, control loop is driven by the client.
-                // They decide when they want the next message and must issue a `poll` for it.
-
-                // TODO: https://github.com/rust-lang/rust/issues/98286
-                let mut cx = Context::from_waker(noop_waker_ref());
-                match self.stream.as_mut().poll_next(&mut cx) {
-                    Poll::Ready(Some(bytes)) => {
-                        // Spare is empty because of the check above.
-                        self.spare.replace(bytes.as_ref());
-                    }
-                    Poll::Ready(None) => {
-                        self.close();
-                    }
-                    Poll::Pending => {}
-                }
-            }
-
             self.wake_next();
-            Poll::Ready(Ok(m))
+            Ok(m)
         } else {
             loop {
                 if let Some(bytes) = ready!(self.stream.as_mut().poll_next(cx)) {
                     if let Some(m) = self.spare.extend(bytes.as_ref()) {
                         self.wake_next();
-                        break Poll::Ready(Ok(m));
+                        break Ok(m);
                     }
                 } else {
                     self.spare.replace(&[]);
                     self.close();
-                    break Poll::Ready(Err(Error::EndOfStream {
+                    break Err(Error::EndOfStream {
                         record_id: RecordId::from(self.next),
-                    }));
+                    });
                 }
             }
         };
 
-        next
+        if next.is_ok() && self.spare.is_empty() {
+            // we don't want to be woken up here, control loop is driven by the client.
+            // They decide when they want the next message and must issue a `poll` for it.
+
+            // TODO: https://github.com/rust-lang/rust/issues/98286
+            let mut cx = Context::from_waker(noop_waker_ref());
+            match self.stream.as_mut().poll_next(&mut cx) {
+                Poll::Ready(Some(bytes)) => {
+                    // Spare is empty because of the check above.
+                    self.spare.replace(bytes.as_ref());
+                }
+                Poll::Ready(None) => {
+                    self.close();
+                }
+                Poll::Pending => {}
+            }
+        }
+
+        Poll::Ready(next)
     }
 
     /// Returns `true` if this receiver is closed.
@@ -642,6 +642,18 @@ mod test {
             }
             assert!(matches!(
                 recv.recv::<Fp32BitPrime, _>(2_u8).await,
+                Err(EndOfStream { .. })
+            ));
+        });
+    }
+
+    #[test]
+    fn empty() {
+        const DATA: &[u8] = &[];
+        run(|| async move {
+            let recv = receiver([DATA]);
+            assert!(matches!(
+                recv.recv::<Fp31, _>(0_u8).await,
                 Err(EndOfStream { .. })
             ));
         });
