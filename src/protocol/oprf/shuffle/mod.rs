@@ -7,7 +7,7 @@ use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng
 use super::super::{context::Context, RecordId};
 use crate::{
     error::Error,
-    helpers::{Direction, Message, ReceivingEnd, Role},
+    helpers::{Direction, ReceivingEnd, Role},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -32,7 +32,7 @@ where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
     I::IntoIter: ExactSizeIterator,
-    S: SharedValue + Add<Output = S> + Message,
+    S: SharedValue + Add<Output = S>,
     for<'a> &'a S: Add<S, Output = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
@@ -59,7 +59,7 @@ async fn run_h1<C, I, S, Zl, Zr>(
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S> + Message,
+    S: SharedValue + Add<Output = S>,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     for<'a> &'a S: Add<Output = S>,
@@ -170,7 +170,7 @@ async fn run_h3<C, S, Zl, Zr>(
 ) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
-    S: SharedValue + Add<Output = S> + Message,
+    S: SharedValue + Add<Output = S>,
     Zl: IntoIterator<Item = S>,
     Zr: IntoIterator<Item = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
@@ -309,7 +309,7 @@ async fn send_to_peer<C, S>(
 ) -> Result<(), Error>
 where
     C: Context,
-    S: Copy + Message,
+    S: Copy + SharedValue,
 {
     let role = ctx.role().peer(direction);
     let send_channel = ctx
@@ -332,7 +332,7 @@ async fn receive_from_peer_into<C, S>(
 ) -> Result<(), Error>
 where
     C: Context,
-    S: Message,
+    S: SharedValue,
 {
     let role = ctx.role().peer(direction);
     let receive_channel: ReceivingEnd<S> = ctx
