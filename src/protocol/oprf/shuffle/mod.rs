@@ -37,6 +37,8 @@ where
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
+    // TODO: this code works with iterators and that costs it an extra allocation at the end.
+    // This protocol can take a mutable iterator and replace items in the input.
     let shares = shares.into_iter();
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
     let zs = generate_random_tables_with_peers(shares.len(), &ctx_z);
