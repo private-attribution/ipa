@@ -273,7 +273,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.iterator_left.next(), self.iterator_right.next()) {
-            (Some(left), Some(right)) => Some(AdditiveShare(left,right)),
+            (Some(left), Some(right)) => Some(AdditiveShare(left, right)),
             _ => None,
         }
     }
@@ -443,14 +443,11 @@ mod tests {
     #[test]
     fn iterate_boolean_array() {
         use crate::ff::{boolean::Boolean, boolean_array::BA64};
-        let s = AdditiveShare::<BA64>(<BA64>::ONE,<BA64>::ONE);
+        let s = AdditiveShare::<BA64>(<BA64>::ONE, <BA64>::ONE);
         let iter = s.into_iter();
         for (i, j) in iter.enumerate() {
             if i == 0 {
-                assert_eq!(
-                    j,
-                    AdditiveShare(<Boolean>::ONE,<Boolean>::ONE)
-                );
+                assert_eq!(j, AdditiveShare(<Boolean>::ONE, <Boolean>::ONE));
             } else {
                 assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
             }

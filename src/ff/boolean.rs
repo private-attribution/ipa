@@ -50,8 +50,6 @@ impl rand::distributions::Distribution<Boolean> for rand::distributions::Standar
     }
 }
 
-
-
 impl std::ops::Add for Boolean {
     type Output = Self;
 
