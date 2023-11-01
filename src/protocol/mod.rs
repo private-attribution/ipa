@@ -88,6 +88,12 @@ impl TryFrom<&str> for QueryId {
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
+impl Display for RecordId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
         RecordId(v)

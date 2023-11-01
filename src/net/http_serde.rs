@@ -139,6 +139,10 @@ pub mod query {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::MaliciousSparseAggregate(q))
                 }
+                QueryType::OPRF_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::OprfIpa(q))
+                }
                 QueryType::OPRF_SHUFFLE_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OPRFShuffle(q))
@@ -165,7 +169,9 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => Ok(()),
-                QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
+                QueryType::SemiHonestIpa(config)
+                | QueryType::MaliciousIpa(config)
+                | QueryType::OprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",

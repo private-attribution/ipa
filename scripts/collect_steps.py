@@ -149,7 +149,8 @@ def extract_intermediate_steps(steps):
 
     return steps
 
-def ipa_steps(steps):
+def ipa_steps():
+    output = set()
     for c in PER_USER_CAP:
         for w in ATTRIBUTION_WINDOW:
             for b in BREAKDOWN_KEYS:
@@ -167,41 +168,42 @@ def ipa_steps(steps):
                         m,
                     ]
                     print(" ".join(args), file=sys.stderr)
-                    steps.update(collect_steps(args))
+                    output.update(collect_steps(args))
+    return output
 
-OPRF_BREAKDOWN_KEYS = [256]
+OPRF_BREAKDOWN_KEY = 256
 OPRF_USER_CAP = [16, 64, 128]
-OPRF_SECURITY_MODEL = ["semi-honest"]
-OPRF_TRIGGER_VALUE = [7]
+OPRF_SECURITY_MODEL = "semi-honest"
+OPRF_TRIGGER_VALUE = [6, 7]
 
-def oprf_steps(steps):
+def oprf_steps():
+    output = set()
     for c in OPRF_USER_CAP:
         for w in ATTRIBUTION_WINDOW:
-            for b in OPRF_BREAKDOWN_KEYS:
-                for m in OPRF_SECURITY_MODEL:
-                    for tv in OPRF_TRIGGER_VALUE:
-                        args = ARGS + [
-                            "-n",
-                            str(QUERY_SIZE),
-                            "-c",
-                            str(c),
-                            "-w",
-                            str(w),
-                            "-b",
-                            str(b),
-                            "-m",
-                            m,
-                            "-t",
-                            str(tv),
-                            "-o"
-                        ]
-                    print(" ".join(args), file=sys.stderr)
-                    steps.update(collect_steps(args))
+            for tv in OPRF_TRIGGER_VALUE:
+                args = ARGS + [
+                    "-n",
+                    str(QUERY_SIZE),
+                    "-c",
+                    str(c),
+                    "-w",
+                    str(w),
+                    "-b",
+                    str(OPRF_BREAKDOWN_KEY),
+                    "-m",
+                    OPRF_SECURITY_MODEL,
+                    "-t",
+                    str(tv),
+                    "-o"
+            ]
+            print(" ".join(args), file=sys.stderr)
+            output.update(collect_steps(args))
+    return output
 
 if __name__ == "__main__":
     steps = set()
-    ipa_steps(steps)
-    oprf_steps(steps)
+    steps.update(ipa_steps())
+    steps.update(oprf_steps())
 
     full_steps = extract_intermediate_steps(steps)
     sorted_steps = sorted(full_steps)

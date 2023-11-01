@@ -9345,6 +9345,7 @@ ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding:
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit4
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit5
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit6
+ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit7
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case/ipa::protocol::step::BitOpStep::bit0
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row2/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case/ipa::protocol::step::BitOpStep::bit1
@@ -9446,6 +9447,9 @@ ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding:
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit2
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit3
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit4
+ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit5
+ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit6
+ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::compute_saturating_sum/ipa::protocol::step::BitOpStep::bit7
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case/ipa::protocol::step::BitOpStep::bit0
 ipa::protocol::prf_sharding::Step::binary_validator/ipa::protocol::prf_sharding::UserNthRowStep::row3/ipa::protocol::prf_sharding::Step::computed_capped_attributed_trigger_value_just_saturated_case/ipa::protocol::step::BitOpStep::bit1

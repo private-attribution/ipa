@@ -208,6 +208,7 @@ pub enum QueryType {
     MaliciousIpa(IpaQueryConfig),
     SemiHonestSparseAggregate(SparseAggregateQueryConfig),
     MaliciousSparseAggregate(SparseAggregateQueryConfig),
+    OprfIpa(IpaQueryConfig),
     OPRFShuffle(oprf_shuffle::QueryConfig),
 }
 
@@ -217,6 +218,7 @@ impl QueryType {
     pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
     pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-sparse-aggregate";
     pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-sparse-aggregate";
+    pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
     pub const OPRF_SHUFFLE_STR: &'static str = "oprf-shuffle";
 }
 
@@ -230,6 +232,7 @@ impl AsRef<str> for QueryType {
             QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
             QueryType::SemiHonestSparseAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
             QueryType::MaliciousSparseAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
+            QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
             QueryType::OPRFShuffle(_) => Self::OPRF_SHUFFLE_STR,
         }
     }

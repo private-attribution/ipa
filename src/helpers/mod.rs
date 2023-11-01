@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
 
@@ -439,6 +439,16 @@ pub enum TotalRecords {
     ///
     /// Using this is very inefficient, so avoid it.
     Indeterminate,
+}
+
+impl Display for TotalRecords {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TotalRecords::Unspecified => write!(f, "unspecified"),
+            TotalRecords::Specified(v) => write!(f, "{v}"),
+            TotalRecords::Indeterminate => write!(f, "∞"),
+        }
+    }
 }
 
 impl TotalRecords {

@@ -6,7 +6,6 @@ use futures::{
 };
 
 use crate::{
-    assert_stream_send,
     error::Error,
     ff::{Gf2, PrimeField, Serializable},
     helpers::{
@@ -90,19 +89,16 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = assert_stream_send(RecordsStream::<
-                IPAInputRow<F, MatchKey, BreakdownKey>,
-                _,
-            >::new(input_stream))
-            .try_concat()
-            .await?;
+            let mut v =
+                RecordsStream::<IPAInputRow<F, MatchKey, BreakdownKey>, _>::new(input_stream)
+                    .try_concat()
+                    .await?;
             v.truncate(sz);
             v
         } else {
-            assert_stream_send(LengthDelimitedStream::<
-                EncryptedReport<F, MatchKey, BreakdownKey, _>,
-                _,
-            >::new(input_stream))
+            LengthDelimitedStream::<EncryptedReport<F, MatchKey, BreakdownKey, _>, _>::new(
+                input_stream,
+            )
             .map_err(Into::<Error>::into)
             .map_ok(|enc_reports| {
                 iter(enc_reports.into_iter().map(|enc_report| {

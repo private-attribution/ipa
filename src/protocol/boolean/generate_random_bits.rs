@@ -5,6 +5,7 @@ use futures::stream::{iter as stream_iter, Stream, StreamExt};
 use crate::{
     error::Error,
     ff::PrimeField,
+    helpers::Role,
     protocol::{
         basics::SecureMul,
         context::{prss::InstrumentedIndexedSharedRandomness, Context, UpgradedContext},
@@ -47,16 +48,14 @@ impl RawRandomBits {
 }
 
 impl ToBitConversionTriples for RawRandomBits {
+    type Residual = ();
+
     // TODO const for this in place of the function
     fn bits(&self) -> u32 {
         self.count
     }
 
-    fn triple<F: PrimeField>(
-        &self,
-        role: crate::helpers::Role,
-        i: u32,
-    ) -> BitConversionTriple<Replicated<F>> {
+    fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
         debug_assert!(u128::BITS - F::PRIME.into().leading_zeros() >= self.count);
         assert!(i < self.count);
         BitConversionTriple::new(
@@ -64,6 +63,21 @@ impl ToBitConversionTriples for RawRandomBits {
             ((self.left >> i) & 1) == 1,
             ((self.right >> i) & 1) == 1,
         )
+    }
+
+    fn into_triples<F, I>(
+        self,
+        role: Role,
+        indices: I,
+    ) -> (
+        BitDecomposed<BitConversionTriple<Replicated<F>>>,
+        Self::Residual,
+    )
+    where
+        F: PrimeField,
+        I: IntoIterator<Item = u32>,
+    {
+        (self.triple_range(role, indices), ())
     }
 }
 
@@ -135,4 +149,5 @@ where
     .next()
     .await
     .unwrap()
+    .map(|(v, ())| v)
 }
