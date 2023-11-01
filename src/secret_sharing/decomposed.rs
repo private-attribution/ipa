@@ -127,6 +127,20 @@ impl<S> BitDecomposed<S> {
 
         Ok(BitDecomposed::new(output))
     }
+
+    pub fn split_at(mut self, idx: u32) -> (BitDecomposed<S>, BitDecomposed<S>) {
+        let idx: usize = idx.try_into().unwrap();
+        let left = Vec::with_capacity(idx);
+        let right = Vec::with_capacity(self.len() - idx);
+        for (i, bit) in self.bits.into_iter().enumerate() {
+            if i < idx {
+                left.push(bit);
+            } else {
+                right.push(bit);
+            }
+        }
+        (left, right)
+    }
 }
 
 impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
