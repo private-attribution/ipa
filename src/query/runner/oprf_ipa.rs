@@ -71,6 +71,18 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
+        let mut histogram = vec![];
+        let mut last_prf = input[0].mk_oprf + 1;
+        let mut cur_count = 0;
+        for row in input {
+            if row.mk_oprf != last_prf {
+                cur_count = 0;
+            } else {
+                cur_count += 1;
+            }
+            histogram[cur_count] += 1;
+        }
+
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
         let sharded_input = input
             .into_iter()
@@ -110,6 +122,7 @@ where
             sharded_input,
             user_cap.ilog2().try_into().unwrap(),
             config.attribution_window_seconds,
+            &histogram,
         )
         .await
     }

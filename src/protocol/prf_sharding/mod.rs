@@ -363,32 +363,6 @@ where
     })
 }
 
-// fn chunk_rows_by_user<BK, TV, TS>(
-//     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
-// ) -> Vec<Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
-// where
-//     BK: GaloisField,
-//     TV: GaloisField,
-//     TS: GaloisField,
-// {
-//     let mut rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>> = vec![];
-
-//     let mut rows_chunked_by_user = vec![];
-//     for row in input_rows {
-//         if rows_for_user.is_empty() || row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
-//             rows_for_user.push(row);
-//         } else {
-//             rows_chunked_by_user.push(rows_for_user);
-//             rows_for_user = vec![row];
-//         }
-//     }
-//     if !rows_for_user.is_empty() {
-//         rows_chunked_by_user.push(rows_for_user);
-//     }
-
-//     rows_chunked_by_user
-// }
-
 /// Sub-protocol of the PRF-sharded IPA Protocol
 ///
 /// After the computation of the per-user PRF, addition of dummy records and shuffling,
@@ -485,13 +459,8 @@ where
         0..BK::BITS + TV::BITS,
     );
 
-    // transform value bits to large field
-    // let large_field_values = converted_values
-    //     .map(|val| BitDecomposed::to_additive_sharing_in_large_field_consuming(val.unwrap()));
-
     // move each value to the correct bucket
     let row_contributions_stream = converted_bks_and_tvs
-        // .zip(large_field_values)
         .zip(futures::stream::repeat(
             prime_field_ctx.narrow(&Step::MoveValueToCorrectBreakdown)
                 .set_total_records(num_outputs),
