@@ -51,7 +51,7 @@ macro_rules! boolean_array_impl {
 
             use crate::{
                 ff::{Field, Serializable, boolean::Boolean, ArrayAccess},
-                secret_sharing::SharedValue,
+                secret_sharing::{replicated::{semi_honest::AdditiveShare,ReplicatedSecretSharing},SharedValue},
             };
 
 
@@ -62,23 +62,32 @@ macro_rules! boolean_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
             pub struct $name(Store);
 
-            impl<T> ArrayAccess<T> for $name
-            where
-                usize: From<T>,
-                T: Copy,
+            impl ArrayAccess for $name
             {
                 type Element = Boolean;
 
-                fn get(&self, index: T) -> Self::Element
+                fn get(&self, index: usize) -> Self::Element
                 {
-                    debug_assert!(usize::from(index) < usize::try_from(<$name>::BITS).unwrap());
-                    self.0[usize::from(index)].into()
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
+                    self.0[index].into()
                 }
 
-                fn set(&mut self, index: T, e: Self::Element)
+                fn set(&mut self, index: usize, e: Self::Element)
                 {
-                    debug_assert!(usize::from(index) < usize::try_from(<$name>::BITS).unwrap());
-                    self.0.set(usize::from(index) ,bool::from(e));
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
+                    self.0.set(index ,bool::from(e));
+                }
+            }
+
+            impl From<Boolean> for $name
+            {
+                fn from(s: Boolean) -> Self {
+                    let mut result = <$name>::ZERO;
+                    for i in 0..usize::try_from(<$name>::BITS).unwrap()
+                    {
+                        result.set(i,s);
+                    }
+                    result
                 }
             }
 
@@ -215,6 +224,14 @@ macro_rules! boolean_array_impl {
 
                 fn into_iter(self) -> Self::IntoIter {
                     BAIterator{iterator: self.0.iter()}
+                }
+            }
+
+            impl From<AdditiveShare<Boolean>> for AdditiveShare<$name>
+            {
+                fn from(s: AdditiveShare<Boolean>) -> Self
+                {
+                    AdditiveShare::<$name>::new(s.left().into(),s.right().into())
                 }
             }
 

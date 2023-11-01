@@ -7,13 +7,12 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{Serializable,ArrayAccess,boolean_array::BA64,boolean::Boolean},
+    ff::{Serializable,ArrayAccess},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
         SharedValue, WeakSharedValue,
     },
 };
-use crate::ff::boolean_array::BAIterator;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: WeakSharedValue>(V, V);
@@ -240,20 +239,18 @@ where
 }
 
 ///Implement ArrayAccess for AdditiveShare over WeakSharedValue that implements ArrayAccess
-impl<T,S> ArrayAccess<T> for AdditiveShare<S>
+impl<S> ArrayAccess for AdditiveShare<S>
 where
-    S: ArrayAccess<T> + WeakSharedValue,
-    <S as ArrayAccess<T>>::Element: WeakSharedValue,
-    usize: From<T>,
-    T: Copy,
+    S: ArrayAccess + WeakSharedValue,
+    <S as ArrayAccess>::Element: WeakSharedValue,
 {
-    type Element = AdditiveShare<<S as ArrayAccess<T>>::Element>;
+    type Element = AdditiveShare<<S as ArrayAccess>::Element>;
 
-    fn get(&self, index: T) -> Self::Element {
+    fn get(&self, index: usize) -> Self::Element {
         AdditiveShare(self.0.get(index),self.1.get(index))
     }
 
-    fn set(&mut self, index: T, e: Self::Element) {
+    fn set(&mut self, index: usize, e: Self::Element) {
         self.0.set(index,e.0);
         self.1.set(index,e.1);
     }
@@ -282,43 +279,22 @@ where
     }
 }
 
-// impl<'a, S, T, U> IntoIterator for &'a AdditiveShare<S>
-// where
-//     S: IntoIterator<Item = U, IntoIter =  T> + WeakSharedValue,
-//     T: Iterator<Item = U>,
-//     U: WeakSharedValue,
-// {
-// type Item = AdditiveShare<U>;
-// type IntoIter = ASIterator<T>;
-//
-// fn into_iter(self) -> Self::IntoIter {
-//     ASIterator{iterator_left: self.0.into_iter(), iterator_right: self.1.into_iter()}
-// }
-// }
 
-impl<'a, S> IntoIterator for &'a AdditiveShare<S>
-    where
-        S: IntoIterator<Item = Boolean, IntoIter =  BAIterator<'a>> + WeakSharedValue,
-        // T: Iterator<Item = U>,
-        // U: WeakSharedValue,
+impl<'a, S, T, U> IntoIterator for &'a AdditiveShare<S>
+where
+    &'a S: IntoIterator<Item = U, IntoIter =  T>,
+    S: WeakSharedValue,
+    T: Iterator<Item = U>,
+    U: WeakSharedValue,
 {
-    type Item = AdditiveShare<Boolean>;
-    type IntoIter = ASIterator<BAIterator<'a>>;
+type Item = AdditiveShare<U>;
+type IntoIter = ASIterator<T>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        ASIterator{iterator_left: self.0.into_iter(), iterator_right: self.1.into_iter()}
-    }
+fn into_iter(self) -> Self::IntoIter {
+    ASIterator{iterator_left: self.0.into_iter(), iterator_right: self.1.into_iter()}
+}
 }
 
-// impl<'a> IntoIterator for &'a AdditiveShare<BA64>
-// {
-//     type Item = AdditiveShare<Boolean>;
-//     type IntoIter = ASIterator<BAIterator<'a>>;
-//
-//     fn into_iter(self) -> Self::IntoIter {
-//         ASIterator{iterator_left: self.0.into_iter(),iterator_right: self.1.into_iter()}
-//     }
-// }
 
 #[cfg(all(test, unit_test))]
 mod tests {

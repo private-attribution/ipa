@@ -1,2 +1,1 @@
 mod addition_low_com;
-mod multiply_array_with_element;

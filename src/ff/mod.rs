@@ -56,10 +56,11 @@ pub trait Serializable: Sized {
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
 }
 
-pub trait ArrayAccess<T>{
+pub trait ArrayAccess
+{
     type Element;
 
-    fn get(&self, index: T) -> Self::Element;
+    fn get(&self, index: usize) -> Self::Element;
 
-    fn set(&mut self, index: T, e: Self::Element);
+    fn set(&mut self, index: usize, e: Self::Element);
 }
