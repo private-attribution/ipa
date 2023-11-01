@@ -1,13 +1,16 @@
 use std::{
     iter::{repeat, zip},
     num::NonZeroU32,
+    pin::pin,
 };
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{
     future::{try_join, try_join3},
-    StreamExt,
+    stream::unfold,
+    Stream, StreamExt,
 };
+
 use ipa_macros::Step;
 
 use super::boolean::saturating_sum::SaturatingSum;
@@ -293,31 +296,60 @@ where
     context_per_row_depth
 }
 
-fn chunk_rows_by_user<BK, TV, TS>(
-    input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
-) -> Vec<Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
+///
+/// Takes an input stream of `PrfShardedIpaInputRecordRow` which is assumed to have all records with a given PRF adjacent
+/// and converts it into a stream of vectors of `PrfShardedIpaInputRecordRow` having the same PRF.
+///
+fn chunk_rows_by_user<IS, BK, TV, TS>(
+    input_stream: IS,
+    first_row: PrfShardedIpaInputRow<BK, TV, TS>,
+) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
 where
     BK: GaloisField,
     TV: GaloisField,
     TS: GaloisField,
+    IS: Stream<Item = PrfShardedIpaInputRow<BK, TV, TS>> + Unpin,
 {
-    let mut rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>> = vec![];
-
-    let mut rows_chunked_by_user = vec![];
-    for row in input_rows {
-        if rows_for_user.is_empty() || row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
-            rows_for_user.push(row);
-        } else {
-            rows_chunked_by_user.push(rows_for_user);
-            rows_for_user = vec![row];
+    unfold(Some((input_stream, first_row)), |state| async move {
+        let (mut s, last_row) = state?;
+        let last_row_prf = last_row.prf_of_match_key;
+        let mut current_chunk = vec![last_row];
+        while let Some(row) = s.next().await {
+            if row.prf_of_match_key == last_row_prf {
+                current_chunk.push(row);
+            } else {
+                return Some((current_chunk, Some((s, row))));
+            }
         }
-    }
-    if !rows_for_user.is_empty() {
-        rows_chunked_by_user.push(rows_for_user);
-    }
-
-    rows_chunked_by_user
+        Some((current_chunk, None))
+    })
 }
+
+// fn chunk_rows_by_user<BK, TV, TS>(
+//     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
+// ) -> Vec<Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
+// where
+//     BK: GaloisField,
+//     TV: GaloisField,
+//     TS: GaloisField,
+// {
+//     let mut rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>> = vec![];
+
+//     let mut rows_chunked_by_user = vec![];
+//     for row in input_rows {
+//         if rows_for_user.is_empty() || row.prf_of_match_key == rows_for_user[0].prf_of_match_key {
+//             rows_for_user.push(row);
+//         } else {
+//             rows_chunked_by_user.push(rows_for_user);
+//             rows_for_user = vec![row];
+//         }
+//     }
+//     if !rows_for_user.is_empty() {
+//         rows_chunked_by_user.push(rows_for_user);
+//     }
+
+//     rows_chunked_by_user
+// }
 
 /// Sub-protocol of the PRF-sharded IPA Protocol
 ///
@@ -341,6 +373,7 @@ pub async fn attribution_and_capping<C, BK, TV, TS>(
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     num_saturating_sum_bits: usize,
     attribution_window_seconds: Option<NonZeroU32>,
+    histogram: &[usize],
 ) -> Result<Vec<CappedAttributionOutputs>, Error>
 where
     C: UpgradableContext,
@@ -354,43 +387,121 @@ where
     assert!(BK::BITS > 0);
     assert!(TS::BITS > 0);
 
-    let rows_chunked_by_user = chunk_rows_by_user(input_rows);
-    let histogram = compute_histogram_of_users_with_row_count(&rows_chunked_by_user);
+    // Get the validator and context to use for Gf2 multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
     let binary_m_ctx = binary_validator.context();
-    let mut num_users_who_encountered_row_depth = Vec::with_capacity(histogram.len());
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, &histogram);
-    let mut futures = Vec::with_capacity(rows_chunked_by_user.len());
-    for rows_for_user in rows_chunked_by_user {
-        for i in 0..rows_for_user.len() {
-            if i >= num_users_who_encountered_row_depth.len() {
-                num_users_who_encountered_row_depth.push(0);
-            }
-            num_users_who_encountered_row_depth[i] += 1;
-        }
 
-        futures.push(evaluate_per_user_attribution_circuit(
-            &ctx_for_row_number,
-            num_users_who_encountered_row_depth
-                .iter()
-                .take(rows_for_user.len())
-                .map(|x| RecordId(x - 1))
-                .collect(),
-            rows_for_user,
-            num_saturating_sum_bits,
-            attribution_window_seconds,
-        ));
+    // Tricky hacks to work around the limitations of our current infrastructure
+    let num_outputs = input_rows.len() - histogram[0];
+    let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+
+    // Chunk the incoming stream of records into stream of vectors of records with the same PRF
+    let mut input_stream = stream_iter(input_rows);
+    let first_row = input_stream.next().await;
+    if first_row.is_none() {
+        return Ok(vec![]);
     }
-    let outputs_chunked_by_user = sh_ctx.parallel_join(futures).await?;
-    Ok(outputs_chunked_by_user
+    let first_row = first_row.unwrap();
+    let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
+
+    // Convert to a stream of async futures that represent the result of executing the per-user circuit
+    let stream_of_per_user_circuits = pin!(rows_chunked_by_user.then(|rows_for_user| {
+        let num_user_rows = rows_for_user.len();
+        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+        let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
+
+        for count in &mut record_id_for_row_depth[..num_user_rows] {
+            *count += 1;
+        }
+        #[allow(clippy::async_yields_async)]
+        // this is ok, because seq join wants a stream of futures
+        async move {
+            evaluate_per_user_attribution_circuit(
+                contexts,
+                record_ids,
+                rows_for_user,
+                num_saturating_sum_bits,
+                attribution_window_seconds,
+            )
+        }
+    }));
+
+    // Execute all of the async futures (sequentially), and flatten the result
+    let flattenned_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
+        .flat_map(|x| stream_iter(x.unwrap()));
+
+    let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
         .into_iter()
-        .flatten()
-        .collect::<Vec<CappedAttributionOutputs>>())
+        .map(|row| {
+            (
+                row.attributed_breakdown_key_bits,
+                row.capped_attributed_trigger_value,
+            )
+        })
+        .unzip();
+
+    // modulus convert breakdown keys
+    let converted_bks = convert_bits(
+        ctx.narrow(&Step::ModulusConvertBreakdownKeyBits)
+            .set_total_records(num_records),
+        stream_iter(bk_vec),
+        0..BK::BITS,
+    );
+    // modulus convert attributed value
+    let converted_values = convert_bits(
+        ctx.narrow(&Step::ModulusConvertConversionValueBits)
+            .set_total_records(num_records),
+        stream_iter(tv_vec),
+        0..TV::BITS,
+    );
+
+    // transform value bits to large field
+    let large_field_values = converted_values
+        .map(|val| BitDecomposed::to_additive_sharing_in_large_field_consuming(val.unwrap()));
+
+    // move each value to the correct bucket
+    let row_contributions_stream = converted_bks
+        .zip(large_field_values)
+        .zip(futures::stream::repeat(
+            ctx.narrow(&Step::MoveValueToCorrectBreakdown)
+                .set_total_records(num_records),
+        ))
+        .enumerate()
+        .map(|(i, ((bk_bits, value), ctx))| {
+            let record_id: RecordId = RecordId::from(i);
+            let bd_key = bk_bits.unwrap();
+            async move {
+                bucket::move_single_value_to_bucket::<BK, _, _, _>(
+                    ctx,
+                    record_id,
+                    bd_key,
+                    value,
+                    1 << BK::BITS,
+                    false,
+                )
+                .await
+            }
+        });
+
+    // aggregate all row level contributions
+    let row_contributions = seq_join(ctx.active_work(), row_contributions_stream);
+    row_contributions
+        .try_fold(
+            vec![S::ZERO; 1 << BK::BITS],
+            |mut running_sums, row_contribution| async move {
+                for (i, contribution) in row_contribution.iter().enumerate() {
+                    running_sums[i] += contribution;
+                }
+                Ok(running_sums)
+            },
+        )
+        .await
 }
 
 async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS>(
-    ctx_for_row_number: &[C],
-    record_id_for_each_depth: Vec<RecordId>,
+    ctx_for_row_number: Vec<C>,
+    record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     num_saturating_sum_bits: usize,
     attribution_window_seconds: Option<NonZeroU32>,
@@ -415,7 +526,7 @@ where
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
-        let record_id_for_this_row_depth = record_id_for_each_depth[i + 1]; // skip row 0
+        let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
 
         let capped_attribution_outputs = prev_row_inputs
             .compute_row_with_previous(
@@ -714,6 +825,7 @@ pub async fn attribution_and_capping_and_aggregation<C, BK, TV, TS, F, S, SB>(
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     num_saturating_sum_bits: usize,
     attribution_window_seconds: Option<NonZeroU32>,
+    histogram: &[usize],
 ) -> Result<Vec<S>, Error>
 where
     C: UpgradableContext,
@@ -733,6 +845,7 @@ where
         input_rows,
         num_saturating_sum_bits,
         attribution_window_seconds,
+        histogram,
     )
     .await?;
 
@@ -758,80 +871,7 @@ where
     TV: GaloisField,
     F: PrimeField + ExtendableField,
 {
-    let num_records = user_level_attributions.len();
-
-    // in case no attributable conversion is found, return 0.
-    // as anyways the helpers know that no attributions resulted.
-    if num_records == 0 {
-        return Ok(vec![S::ZERO; 1 << BK::BITS]);
-    }
-
-    let (bk_vec, tv_vec): (Vec<_>, Vec<_>) = user_level_attributions
-        .into_iter()
-        .map(|row| {
-            (
-                row.attributed_breakdown_key_bits,
-                row.capped_attributed_trigger_value,
-            )
-        })
-        .unzip();
-
-    // modulus convert breakdown keys
-    let converted_bks = convert_bits(
-        ctx.narrow(&Step::ModulusConvertBreakdownKeyBits)
-            .set_total_records(num_records),
-        stream_iter(bk_vec),
-        0..BK::BITS,
-    );
-    // modulus convert attributed value
-    let converted_values = convert_bits(
-        ctx.narrow(&Step::ModulusConvertConversionValueBits)
-            .set_total_records(num_records),
-        stream_iter(tv_vec),
-        0..TV::BITS,
-    );
-
-    // transform value bits to large field
-    let large_field_values = converted_values
-        .map(|val| BitDecomposed::to_additive_sharing_in_large_field_consuming(val.unwrap()));
-
-    // move each value to the correct bucket
-    let row_contributions_stream = converted_bks
-        .zip(large_field_values)
-        .zip(futures::stream::repeat(
-            ctx.narrow(&Step::MoveValueToCorrectBreakdown)
-                .set_total_records(num_records),
-        ))
-        .enumerate()
-        .map(|(i, ((bk_bits, value), ctx))| {
-            let record_id: RecordId = RecordId::from(i);
-            let bd_key = bk_bits.unwrap();
-            async move {
-                bucket::move_single_value_to_bucket::<BK, _, _, _>(
-                    ctx,
-                    record_id,
-                    bd_key,
-                    value,
-                    1 << BK::BITS,
-                    false,
-                )
-                .await
-            }
-        });
-
-    // aggregate all row level contributions
-    let row_contributions = seq_join(ctx.active_work(), row_contributions_stream);
-    row_contributions
-        .try_fold(
-            vec![S::ZERO; 1 << BK::BITS],
-            |mut running_sums, row_contribution| async move {
-                for (i, contribution) in row_contribution.iter().enumerate() {
-                    running_sums[i] += contribution;
-                }
-                Ok(running_sums)
-            },
-        )
-        .await
+    
 }
 
 #[cfg(all(test, unit_test))]
@@ -1087,6 +1127,8 @@ pub mod tests {
             ];
             let num_saturating_bits: usize = 5;
 
+            let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
+
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping::<_, Gf5Bit, Gf3Bit, Gf20Bit>(
@@ -1094,6 +1136,7 @@ pub mod tests {
                         input_rows,
                         num_saturating_bits,
                         None,
+                        &histogram,
                     )
                     .await
                     .unwrap()
@@ -1145,6 +1188,8 @@ pub mod tests {
             ];
             let num_saturating_bits: usize = 5;
 
+            let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
+
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping::<_, Gf5Bit, Gf3Bit, Gf20Bit>(
@@ -1152,6 +1197,7 @@ pub mod tests {
                         input_rows,
                         num_saturating_bits,
                         NonZeroU32::new(200),
+                        &histogram,
                     )
                     .await
                     .unwrap()
@@ -1194,6 +1240,8 @@ pub mod tests {
 
             let num_saturating_bits: usize = 5;
 
+            let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
+
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping_and_aggregation::<
@@ -1204,7 +1252,7 @@ pub mod tests {
                         Fp32BitPrime,
                         _,
                         Replicated<Gf2>,
-                    >(ctx, input_rows, num_saturating_bits, None)
+                    >(ctx, input_rows, num_saturating_bits, None, &histogram)
                     .await
                     .unwrap()
                 })
