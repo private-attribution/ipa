@@ -36,15 +36,14 @@ impl<'a> Iterator for BAIterator<'a> {
     type Item = Boolean;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iterator.next() {
-            Some(v) => Some(Boolean::from(*v)),
-            None => None,
-        }
+        self.iterator.next().map(|v| Boolean::from(*v))
     }
 }
 
 macro_rules! boolean_array_impl {
     ( $modname:ident, $name:ident, $bits:expr, $one:expr ) => {
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
             use super::*;
             use crate::{

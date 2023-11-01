@@ -107,7 +107,7 @@ where
                 carry,
             )
             .await?,
-        )
+        );
     }
 
     Ok(result)

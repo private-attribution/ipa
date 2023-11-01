@@ -50,9 +50,12 @@ impl rand::distributions::Distribution<Boolean> for rand::distributions::Standar
     }
 }
 
+
+
 impl std::ops::Add for Boolean {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 ^ rhs.0)
     }
@@ -76,6 +79,7 @@ impl std::ops::Neg for Boolean {
 impl std::ops::Sub for Boolean {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: Self) -> Self::Output {
         self + rhs
     }
@@ -91,6 +95,7 @@ impl std::ops::SubAssign for Boolean {
 impl std::ops::Mul for Boolean {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: Self) -> Self::Output {
         Self(self.0 & rhs.0)
     }
