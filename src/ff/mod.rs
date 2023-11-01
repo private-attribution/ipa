@@ -2,13 +2,13 @@
 //
 // This is where we store arithmetic shared secret data models.
 
+pub mod boolean;
+pub mod boolean_array;
 pub mod curve_points;
 pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
-pub mod boolean;
-pub mod boolean_array;
 
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
@@ -56,8 +56,7 @@ pub trait Serializable: Sized {
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
 }
 
-pub trait ArrayAccess
-{
+pub trait ArrayAccess {
     type Element;
 
     fn get(&self, index: usize) -> Self::Element;

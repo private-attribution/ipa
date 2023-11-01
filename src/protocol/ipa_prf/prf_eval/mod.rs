@@ -49,8 +49,6 @@ impl From<AdditiveShare<Fp25519>> for AdditiveShare<RP25519> {
     }
 }
 
-
-
 /// generates PRF key k as secret sharing over Fp25519
 pub fn gen_prf_key<C>(ctx: &C) -> AdditiveShare<Fp25519>
 where

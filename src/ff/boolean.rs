@@ -38,8 +38,8 @@ impl Serializable for Boolean {
     ///## Panics
     /// panics when u8 is not 0 or 1
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        assert!(buf[0]<2u8);
-        Boolean(buf[0]!=0)
+        assert!(buf[0] < 2u8);
+        Boolean(buf[0] != 0)
     }
 }
 
@@ -76,7 +76,9 @@ impl std::ops::Neg for Boolean {
 impl std::ops::Sub for Boolean {
     type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self::Output { self + rhs }
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + rhs
+    }
 }
 
 impl std::ops::SubAssign for Boolean {
@@ -104,7 +106,9 @@ impl std::ops::MulAssign for Boolean {
 impl std::ops::Not for Boolean {
     type Output = Self;
 
-    fn not(self) -> Self::Output {Boolean(!self.0)}
+    fn not(self) -> Self::Output {
+        Boolean(!self.0)
+    }
 }
 
 impl From<bool> for Boolean {
@@ -122,7 +126,7 @@ impl Field for Boolean {
     }
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
-        Boolean((v.into() % 2u128)!=0)
+        Boolean((v.into() % 2u128) != 0)
     }
 }
 
@@ -131,8 +135,8 @@ impl TryFrom<u128> for Boolean {
     type Error = crate::error::Error;
 
     fn try_from(v: u128) -> Result<Self, Self::Error> {
-        if v<2u128 {
-            Ok(Boolean(v!=0u128))
+        if v < 2u128 {
+            Ok(Boolean(v != 0u128))
         } else {
             Err(crate::error::Error::FieldValueTruncation(format!(
                 "Boolean size {} is too small to hold the value {}.",
@@ -149,9 +153,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
-    use crate::{
-        ff::{boolean::Boolean, Serializable},
-    };
+    use crate::ff::{boolean::Boolean, Serializable};
 
     ///test serialize and deserialize
     #[test]
@@ -172,7 +174,7 @@ mod test {
         let b = rng.gen::<Boolean>();
         let c = rng.gen::<Boolean>();
         let d = rng.gen::<Boolean>();
-        assert_eq!((a+b)*(c+d),a*c+a*d+b*c+b*d);
+        assert_eq!((a + b) * (c + d), a * c + a * d + b * c + b * d);
     }
 
     ///test not
@@ -180,6 +182,6 @@ mod test {
     fn not_boolean() {
         let mut rng = thread_rng();
         let a = rng.gen::<Boolean>();
-        assert_ne!(a,!a);
+        assert_ne!(a, !a);
     }
 }

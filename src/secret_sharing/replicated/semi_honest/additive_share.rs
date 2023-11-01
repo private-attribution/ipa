@@ -7,7 +7,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{Serializable,ArrayAccess},
+    ff::{ArrayAccess, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
         SharedValue, WeakSharedValue,
@@ -247,24 +247,24 @@ where
     type Element = AdditiveShare<<S as ArrayAccess>::Element>;
 
     fn get(&self, index: usize) -> Self::Element {
-        AdditiveShare(self.0.get(index),self.1.get(index))
+        AdditiveShare(self.0.get(index), self.1.get(index))
     }
 
     fn set(&mut self, index: usize, e: Self::Element) {
-        self.0.set(index,e.0);
-        self.1.set(index,e.1);
+        self.0.set(index, e.0);
+        self.1.set(index, e.1);
     }
 }
 
 pub struct ASIterator<T>
 where
-    T: Iterator
+    T: Iterator,
 {
     iterator_left: T,
     iterator_right: T,
 }
 
-impl<'a, T, U> Iterator for ASIterator< T>
+impl<'a, T, U> Iterator for ASIterator<T>
 where
     T: Iterator<Item = U>,
     U: WeakSharedValue,
@@ -272,29 +272,30 @@ where
     type Item = AdditiveShare<U>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match (self.iterator_left.next(),self.iterator_right.next()) {
-            (Some(left),Some(right)) => Some(AdditiveShare{0: left, 1: right,}),
+        match (self.iterator_left.next(), self.iterator_right.next()) {
+            (Some(left), Some(right)) => Some(AdditiveShare { 0: left, 1: right }),
             _ => None,
         }
     }
 }
 
-
 impl<'a, S, T, U> IntoIterator for &'a AdditiveShare<S>
 where
-    &'a S: IntoIterator<Item = U, IntoIter =  T>,
+    &'a S: IntoIterator<Item = U, IntoIter = T>,
     S: WeakSharedValue,
     T: Iterator<Item = U>,
     U: WeakSharedValue,
 {
-type Item = AdditiveShare<U>;
-type IntoIter = ASIterator<T>;
+    type Item = AdditiveShare<U>;
+    type IntoIter = ASIterator<T>;
 
-fn into_iter(self) -> Self::IntoIter {
-    ASIterator{iterator_left: self.0.into_iter(), iterator_right: self.1.into_iter()}
+    fn into_iter(self) -> Self::IntoIter {
+        ASIterator {
+            iterator_left: self.0.into_iter(),
+            iterator_right: self.1.into_iter(),
+        }
+    }
 }
-}
-
 
 #[cfg(all(test, unit_test))]
 mod tests {
@@ -440,13 +441,22 @@ mod tests {
     }
 
     #[test]
-    fn iterate_boolean_array(){
-        use crate::ff::{boolean_array::BA64,boolean::Boolean};
-        let s = AdditiveShare::<BA64>{0: <BA64>::ONE, 1: <BA64>::ONE};
+    fn iterate_boolean_array() {
+        use crate::ff::{boolean::Boolean, boolean_array::BA64};
+        let s = AdditiveShare::<BA64> {
+            0: <BA64>::ONE,
+            1: <BA64>::ONE,
+        };
         let iter = s.into_iter();
-        for (i,j) in iter.enumerate() {
-            if i==0 {
-                assert_eq!(j, AdditiveShare{0: <Boolean>::ONE, 1: <Boolean>::ONE});
+        for (i, j) in iter.enumerate() {
+            if i == 0 {
+                assert_eq!(
+                    j,
+                    AdditiveShare {
+                        0: <Boolean>::ONE,
+                        1: <Boolean>::ONE
+                    }
+                );
             } else {
                 assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
             }
