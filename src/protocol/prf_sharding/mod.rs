@@ -29,7 +29,7 @@ use crate::{
         },
         BitDecomposed, Linear as LinearSecretSharing, SharedValue,
     },
-    seq_join::{seq_join, seq_try_join_all},
+    seq_join::seq_join,
 };
 
 pub mod bucket;
@@ -381,7 +381,7 @@ where
             attribution_window_seconds,
         ));
     }
-    let outputs_chunked_by_user = seq_try_join_all(sh_ctx.active_work(), futures).await?;
+    let outputs_chunked_by_user = sh_ctx.parallel_join(futures).await?;
     Ok(outputs_chunked_by_user
         .into_iter()
         .flatten()
