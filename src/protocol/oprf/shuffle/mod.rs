@@ -345,66 +345,44 @@ where
     Ok(())
 }
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::ops::Add;
-
     use super::shuffle;
     use crate::{
         ff::{Field, Gf40Bit},
-        test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     pub type MatchKey = Gf40Bit;
 
-    impl Add<&MatchKey> for &MatchKey {
-        type Output = MatchKey;
+    #[tokio::test]
+    async fn shuffles_the_order() {
+        let mut i: u128 = 0;
+        let records = std::iter::from_fn(move || {
+            i += 1;
+            Some(MatchKey::truncate_from(i))
+        })
+        .take(100)
+        .collect::<Vec<_>>();
 
-        fn add(self, rhs: &MatchKey) -> Self::Output {
-            Add::add(*self, *rhs)
-        }
-    }
-
-    impl Add<MatchKey> for &MatchKey {
-        type Output = MatchKey;
-
-        fn add(self, rhs: MatchKey) -> Self::Output {
-            Add::add(*self, rhs)
-        }
-    }
-
-    #[test]
-    fn shuffles_the_order() {
-        run(|| async {
-            let mut i: u128 = 0;
-            let mut records = std::iter::from_fn(move || {
-                i += 1;
-                Some(MatchKey::truncate_from(i) as MatchKey)
+        // Stable seed is used to get predictable shuffle results.
+        let mut actual = TestWorld::new_with(TestWorldConfig::default().with_seed(123))
+            .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
+                shuffle(ctx, shares).await.unwrap()
             })
-            .take(100)
-            .collect::<Vec<_>>();
+            .await
+            .reconstruct();
 
-            records.sort();
+        assert_ne!(
+            actual, records,
+            "Shuffle should produce a different order of items"
+        );
 
-            let mut actual = TestWorld::default()
-                .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
-                    shuffle(ctx, shares).await.unwrap()
-                })
-                .await
-                .reconstruct();
+        actual.sort();
 
-            assert_ne!(
-                actual, records,
-                "Shuffle should produce a different order of items"
-            );
-
-            actual.sort();
-
-            assert_eq!(
-                actual, records,
-                "Shuffle should not change the items in the set"
-            );
-        });
+        assert_eq!(
+            actual, records,
+            "Shuffle should not change the items in the set"
+        );
     }
 }
