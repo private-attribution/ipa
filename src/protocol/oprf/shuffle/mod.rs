@@ -27,26 +27,24 @@ pub(crate) enum OPRFShuffleStep {
 
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C, I, S>(
-    ctx: C,
-    batch_size: usize,
-    shares: I,
-) -> Result<Vec<AdditiveShare<S>>, Error>
+pub async fn shuffle<C, I, S>(ctx: C, shares: I) -> Result<Vec<AdditiveShare<S>>, Error>
 where
     C: Context,
     I: IntoIterator<Item = AdditiveShare<S>>,
+    I::IntoIter: ExactSizeIterator,
     S: SharedValue + Add<Output = S> + Message,
     for<'a> &'a S: Add<S, Output = S>,
     for<'a> &'a S: Add<&'a S, Output = S>,
     Standard: Distribution<S>,
 {
+    let shares = shares.into_iter();
     let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
-    let zs = generate_random_tables_with_peers(batch_size, &ctx_z);
+    let zs = generate_random_tables_with_peers(shares.len(), &ctx_z);
 
     match ctx.role() {
-        Role::H1 => run_h1(&ctx, batch_size, shares, zs).await,
-        Role::H2 => run_h2(&ctx, batch_size, shares, zs).await,
-        Role::H3 => run_h3(&ctx, batch_size, zs).await,
+        Role::H1 => run_h1(&ctx, shares.len(), shares, zs).await,
+        Role::H2 => run_h2(&ctx, shares.len(), shares, zs).await,
+        Role::H3 => run_h3(&ctx, shares.len(), zs).await,
     }
 }
 
@@ -391,7 +389,7 @@ pub mod tests {
 
             let mut actual = TestWorld::default()
                 .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
-                    shuffle(ctx, shares.len(), shares).await.unwrap()
+                    shuffle(ctx, shares).await.unwrap()
                 })
                 .await
                 .reconstruct();

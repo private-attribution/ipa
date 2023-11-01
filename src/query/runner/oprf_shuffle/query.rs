@@ -34,16 +34,15 @@ impl OPRFShuffleQuery {
                 .await?;
         input.truncate(usize::from(query_size));
 
-        let batch_size = input.len();
         let shares = split_shares(&input);
-        let res = shuffle(ctx, batch_size, shares).await?;
+        let res = shuffle(ctx, shares).await?;
         Ok(combine_shares(res.iter()))
     }
 }
 
 fn split_shares(
     input_rows: &[ShuffleInputRow],
-) -> impl Iterator<Item = AdditiveShare<ShuffleShare>> + '_ {
+) -> impl ExactSizeIterator<Item = AdditiveShare<ShuffleShare>> + '_ {
     let f = move |input_row| {
         let l = from_input_row(input_row, Direction::Left);
         let r = from_input_row(input_row, Direction::Right);
