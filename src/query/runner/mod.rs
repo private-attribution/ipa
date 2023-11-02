@@ -1,6 +1,5 @@
 mod aggregate;
 mod ipa;
-#[cfg(feature = "ipa-prf")]
 mod oprf_ipa;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
