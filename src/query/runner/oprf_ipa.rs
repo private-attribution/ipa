@@ -75,11 +75,11 @@ where
         let mut last_prf = input[0].mk_oprf + 1;
         let mut cur_count = 0;
         for row in &input {
-            if row.mk_oprf != last_prf {
+            if row.mk_oprf == last_prf {
+                cur_count += 1;
+            } else {
                 cur_count = 0;
                 last_prf = row.mk_oprf;
-            } else {
-                cur_count += 1;
             }
             if histogram.len() <= cur_count {
                 histogram.push(0);

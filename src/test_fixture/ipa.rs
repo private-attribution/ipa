@@ -260,14 +260,14 @@ pub async fn test_oprf_ipa<F>(
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
     let mut histogram = Vec::new();
-    let mut last_prf = records[0].user_id + 1;
+    let mut last_prf = records[0].user_id + 1; // to ensure it differs from the first row
     let mut cur_count = 0;
     for row in &records {
-        if row.user_id != last_prf {
+        if row.user_id == last_prf {
+            cur_count += 1;
+        } else {
             cur_count = 0;
             last_prf = row.user_id;
-        } else {
-            cur_count += 1;
         }
         histogram[cur_count] += 1;
     }
