@@ -34,10 +34,10 @@ impl Debug for Compact {
 }
 
 const ROOT_STATE: u16 = 0;
-const PRSS_EXCHANGE_STATE: u16 = 65531;
 const QUERY_TYPE_SEMIHONEST_STATE: u16 = 65533;
 const QUERY_TYPE_MALICIOUS_STATE: u16 = 65532;
-const QUERY_TYPE_OPRF_STATE: u16 = 65531;
+const PRSS_EXCHANGE_STATE: u16 = 65531;
+const QUERY_TYPE_OPRF_STATE: u16 = 65530;
 
 impl StepNarrow<QueryType> for Compact {
     fn narrow(&self, step: &QueryType) -> Self {
