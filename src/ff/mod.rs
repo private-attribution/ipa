@@ -2,6 +2,8 @@
 //
 // This is where we store arithmetic shared secret data models.
 
+pub mod curve_points;
+pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
@@ -9,7 +11,9 @@ mod prime_field;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 pub use field::{Field, FieldType};
-pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf3Bit, Gf40Bit, Gf5Bit, Gf8Bit};
+pub use galois_field::{
+    GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf5Bit, Gf8Bit, Gf9Bit,
+};
 use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
@@ -38,7 +42,7 @@ impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
-    type Size: ArrayLength<u8>;
+    type Size: ArrayLength;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check

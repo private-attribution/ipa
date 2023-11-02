@@ -80,20 +80,14 @@ pub mod echo {
 }
 
 pub mod query {
-    use std::{
-        fmt::{Display, Formatter},
-        num::NonZeroU32,
-    };
+    use std::fmt::{Display, Formatter};
 
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
 
     use crate::{
         ff::FieldType,
-        helpers::query::{
-            ContributionBits, IpaQueryConfig, QueryConfig, QuerySize, QueryType,
-            SparseAggregateQueryConfig,
-        },
+        helpers::query::{QueryConfig, QuerySize, QueryType},
         net::Error,
     };
 
@@ -129,71 +123,25 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::SEMIHONEST_IPA_STR | QueryType::MALICIOUS_IPA_STR => {
-                    #[derive(serde::Deserialize)]
-                    struct IPAQueryConfigParam {
-                        per_user_credit_cap: u32,
-                        max_breakdown_key: u32,
-                        attribution_window_seconds: Option<NonZeroU32>,
-                        num_multi_bits: u32,
-                        #[serde(default)]
-                        plaintext_match_keys: bool,
-                    }
-                    let Query(IPAQueryConfigParam {
-                        per_user_credit_cap,
-                        max_breakdown_key,
-                        attribution_window_seconds,
-                        num_multi_bits,
-                        plaintext_match_keys,
-                    }) = req.extract().await?;
-
-                    match query_type.as_str() {
-                        QueryType::SEMIHONEST_IPA_STR => {
-                            Ok(QueryType::SemiHonestIpa(IpaQueryConfig {
-                                per_user_credit_cap,
-                                max_breakdown_key,
-                                attribution_window_seconds,
-                                num_multi_bits,
-                                plaintext_match_keys,
-                            }))
-                        }
-                        QueryType::MALICIOUS_IPA_STR => {
-                            Ok(QueryType::MaliciousIpa(IpaQueryConfig {
-                                per_user_credit_cap,
-                                max_breakdown_key,
-                                attribution_window_seconds,
-                                num_multi_bits,
-                                plaintext_match_keys,
-                            }))
-                        }
-                        &_ => unreachable!(),
-                    }
+                QueryType::SEMIHONEST_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::SemiHonestIpa(q))
                 }
-                QueryType::SEMIHONEST_AGGREGATE_STR | QueryType::MALICIOUS_AGGREGATE_STR => {
-                    #[derive(serde::Deserialize)]
-                    struct AggregateQueryConfigParam {
-                        contribution_bits: ContributionBits,
-                        num_contributions: u32,
-                    }
-                    let Query(AggregateQueryConfigParam {
-                        contribution_bits,
-                        num_contributions,
-                    }) = req.extract().await?;
-                    match query_type.as_str() {
-                        QueryType::SEMIHONEST_AGGREGATE_STR => Ok(
-                            QueryType::SemiHonestSparseAggregate(SparseAggregateQueryConfig {
-                                contribution_bits,
-                                num_contributions,
-                            }),
-                        ),
-                        QueryType::MALICIOUS_AGGREGATE_STR => Ok(
-                            QueryType::MaliciousSparseAggregate(SparseAggregateQueryConfig {
-                                contribution_bits,
-                                num_contributions,
-                            }),
-                        ),
-                        &_ => unreachable!(),
-                    }
+                QueryType::MALICIOUS_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousIpa(q))
+                }
+                QueryType::SEMIHONEST_AGGREGATE_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::SemiHonestSparseAggregate(q))
+                }
+                QueryType::MALICIOUS_AGGREGATE_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::MaliciousSparseAggregate(q))
+                }
+                QueryType::OPRF_IPA_STR => {
+                    let Query(q) = req.extract().await?;
+                    Ok(QueryType::OprfIpa(q))
                 }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
@@ -217,7 +165,9 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => Ok(()),
-                QueryType::SemiHonestIpa(config) | QueryType::MaliciousIpa(config) => {
+                QueryType::SemiHonestIpa(config)
+                | QueryType::MaliciousIpa(config)
+                | QueryType::OprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",

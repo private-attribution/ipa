@@ -123,12 +123,12 @@ impl PublicKeyRegistry for KeyRegistry<PublicKeyOnly> {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use hpke::{kem::EncappedKey, HpkeError, OpModeR, OpModeS};
+    use hpke::{HpkeError, OpModeR, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
 
     use super::*;
-    use crate::hpke::{IpaAead, IpaKdf, IpaKem};
+    use crate::hpke::{IpaAead, IpaEncappedKey, IpaKdf, IpaKem};
 
     const INFO_STR: &[u8] = b"This is an INFO string.";
     const AAD: &[u8] = b"This is AAD.";
@@ -137,7 +137,7 @@ mod tests {
         pk: &IpaPublicKey,
         pt: &[u8],
         r: &mut R,
-    ) -> (EncappedKey, Vec<u8>) {
+    ) -> (IpaEncappedKey, Vec<u8>) {
         let (encapsulated_key, mut encryption_context) =
             hpke::setup_sender::<IpaAead, IpaKdf, IpaKem, _>(&OpModeS::Base, pk, INFO_STR, r)
                 .expect("Can setup the sender.");
@@ -152,7 +152,7 @@ mod tests {
 
     fn decrypt<I: AsRef<[u8]>>(
         sk: &IpaPrivateKey,
-        payload: &(EncappedKey, I),
+        payload: &(IpaEncappedKey, I),
     ) -> Result<Vec<u8>, HpkeError> {
         let (encap_key, ct) = payload;
         let mut decryption_context = hpke::setup_receiver::<IpaAead, IpaKdf, IpaKem>(

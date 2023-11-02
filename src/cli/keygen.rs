@@ -9,7 +9,7 @@ use rand::{thread_rng, Rng};
 use rand_core::CryptoRng;
 use rcgen::{
     Certificate, CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa,
-    KeyUsagePurpose, SanType, PKCS_ECDSA_P256_SHA256,
+    KeyUsagePurpose, SanType, SerialNumber, PKCS_ECDSA_P256_SHA256,
 };
 use time::{Duration, OffsetDateTime};
 
@@ -75,7 +75,9 @@ pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<
     ];
     params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
     params.not_after = params.not_before + Duration::days(91);
-    params.serial_number = Some(rng.gen_range(0..=i64::MAX.try_into().unwrap()));
+    params.serial_number = Some(SerialNumber::from(
+        rng.gen_range(0..=i64::MAX.try_into().unwrap()),
+    ));
 
     let mut name = DistinguishedName::new();
     name.push(rcgen::DnType::CommonName, args.name.clone());

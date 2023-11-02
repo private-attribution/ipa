@@ -51,7 +51,7 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum ConvertSharesStep {
-    #[dynamic]
+    #[dynamic(64)]
     ConvertBit(u32),
     Upgrade,
     Xor1,
@@ -96,11 +96,13 @@ impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
 }
 
 pub trait ToBitConversionTriples {
+    /// The type of a collection of fields that need to be carried in the stream without conversion.
+    type Residual: Send; // TODO: associated type defaults would be nice here.
+
     /// Get the maximum number of bits that can be produced for this type.
     ///
     /// Note that this should be an associated constant, but one of the implementations would then need
     /// const generics to be more fully available in the language, so this is a method instead.  For now.
-
     fn bits(&self) -> u32;
     /// Produce a `BitConversionTriple` for the given role and bit index.
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>>;
@@ -116,9 +118,23 @@ pub trait ToBitConversionTriples {
     {
         BitDecomposed::new(indices.into_iter().map(|i| self.triple(role, i)))
     }
+
+    fn into_triples<F, I>(
+        self,
+        role: Role,
+        indices: I,
+    ) -> (
+        BitDecomposed<BitConversionTriple<Replicated<F>>>,
+        Self::Residual,
+    )
+    where
+        F: PrimeField,
+        I: IntoIterator<Item = u32>;
 }
 
 impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
+    type Residual = ();
+
     fn bits(&self) -> u32 {
         B::BITS
     }
@@ -126,9 +142,26 @@ impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
         BitConversionTriple::new(role, self.left()[i], self.right()[i])
     }
+
+    fn into_triples<F, I>(
+        self,
+        role: Role,
+        indices: I,
+    ) -> (
+        BitDecomposed<BitConversionTriple<Replicated<F>>>,
+        Self::Residual,
+    )
+    where
+        F: PrimeField,
+        I: IntoIterator<Item = u32>,
+    {
+        (self.triple_range(role, indices), ())
+    }
 }
 
 impl ToBitConversionTriples for BitDecomposed<Replicated<Gf2>> {
+    type Residual = ();
+
     fn bits(&self) -> u32 {
         u32::try_from(self.len()).unwrap()
     }
@@ -138,13 +171,28 @@ impl ToBitConversionTriples for BitDecomposed<Replicated<Gf2>> {
         let i = usize::try_from(i).unwrap();
         BitConversionTriple::new(role, self[i].left()[BIT0], self[i].right()[BIT0])
     }
+
+    fn into_triples<F, I>(
+        self,
+        role: Role,
+        indices: I,
+    ) -> (
+        BitDecomposed<BitConversionTriple<Replicated<F>>>,
+        Self::Residual,
+    )
+    where
+        F: PrimeField,
+        I: IntoIterator<Item = u32>,
+    {
+        (self.triple_range(role, indices), ())
+    }
 }
 
 #[pin_project]
-pub struct LocalBitConverter<F, V, S>
+pub struct LocalBitConverter<F, V, S, R>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = R>,
     S: Stream<Item = V> + Send,
 {
     role: Role,
@@ -154,10 +202,10 @@ where
     _f: PhantomData<F>,
 }
 
-impl<F, V, S> LocalBitConverter<F, V, S>
+impl<F, V, S, R> LocalBitConverter<F, V, S, R>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = R>,
     S: Stream<Item = V> + Send,
 {
     pub fn new(role: Role, input: S, bits: Range<u32>) -> Self {
@@ -170,19 +218,19 @@ where
     }
 }
 
-impl<F, V, S> Stream for LocalBitConverter<F, V, S>
+impl<F, V, S, R> Stream for LocalBitConverter<F, V, S, R>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = R>,
     S: Stream<Item = V> + Send,
 {
-    type Item = BitDecomposed<BitConversionTriple<Replicated<F>>>;
+    type Item = (BitDecomposed<BitConversionTriple<Replicated<F>>>, R);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         match this.input.as_mut().poll_next(cx) {
             Poll::Ready(Some(input)) => {
-                Poll::Ready(Some(input.triple_range(*this.role, this.bits.clone())))
+                Poll::Ready(Some(input.into_triples(*this.role, this.bits.clone())))
             }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -194,10 +242,10 @@ where
     }
 }
 
-impl<F, V, S> ExactSizeStream for LocalBitConverter<F, V, S>
+impl<F, V, S, R> ExactSizeStream for LocalBitConverter<F, V, S, R>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = R>,
     S: Stream<Item = V> + Send,
 {
 }
@@ -251,7 +299,28 @@ pub fn convert_bits<F, V, C, S, VS>(
 ) -> impl Stream<Item = Result<BitDecomposed<S>, Error>>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = ()>,
+    C: UpgradedContext<F, Share = S>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
+    VS: Stream<Item = V> + Unpin + Send,
+    for<'u> UpgradeContext<'u, C, F, RecordId>:
+        UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
+{
+    convert_some_bits(ctx, binary_shares, RecordId::FIRST, bit_range).map(|v| v.map(|(v, ())| v))
+}
+
+/// A version of `convert_bits` that allows for the retention of unconverted fields in the input.
+/// Note that unconverted fields are not upgraded, so they might need to be upgraded either before or
+/// after invoking this function.
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
+pub fn convert_selected_bits<F, V, C, S, VS, R>(
+    ctx: C,
+    binary_shares: VS,
+    bit_range: Range<u32>,
+) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>>
+where
+    F: PrimeField,
+    V: ToBitConversionTriples<Residual = R>,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + SecureMul<C>,
     VS: Stream<Item = V> + Unpin + Send,
@@ -261,15 +330,15 @@ where
     convert_some_bits(ctx, binary_shares, RecordId::FIRST, bit_range)
 }
 
-pub(crate) fn convert_some_bits<F, V, C, S, VS>(
+pub(crate) fn convert_some_bits<F, V, C, S, VS, R>(
     ctx: C,
     binary_shares: VS,
     first_record: RecordId,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<BitDecomposed<S>, Error>>
+) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>>
 where
     F: PrimeField,
-    V: ToBitConversionTriples,
+    V: ToBitConversionTriples<Residual = R>,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + SecureMul<C>,
     VS: Stream<Item = V> + Unpin + Send,
@@ -288,7 +357,7 @@ where
     let stream = unfold(
         (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
-            let Some(triple) = locally_converted.next().await else {
+            let Some((triple, residual)) = locally_converted.next().await else {
                 return None;
             };
             let bit_contexts = (0..).map(|i| ctx.narrow(&ConvertSharesStep::ConvertBit(i)));
@@ -300,10 +369,15 @@ where
                         .await?;
                     convert_bit(ctx, record_id, &upgraded).await
                 }));
-            Some((converted, (ctx, locally_converted, record_id + 1)))
+            Some((
+                (converted, residual),
+                (ctx, locally_converted, record_id + 1),
+            ))
         },
     )
-    .map(|res| async move { res.await.map(|bits| BitDecomposed::new(bits)) });
+    .map(|(row, residual)| async move {
+        row.await.map(|bits| (BitDecomposed::new(bits), residual))
+    });
     seq_join(active, stream)
 }
 
@@ -315,16 +389,20 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, Gf2, PrimeField},
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            modulus_conversion::{convert_bits, BitConversionTriple, LocalBitConverter},
+            modulus_conversion::{
+                convert_bits, convert_selected_bits, BitConversionTriple, LocalBitConverter,
+                ToBitConversionTriples,
+            },
             MatchKey, RecordId,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::replicated::{
-            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+            IntoShares,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -354,6 +432,123 @@ mod tests {
             })
             .await;
         assert_eq!(Fp31::truncate_from(match_key[BITNUM]), result.reconstruct());
+    }
+
+    struct TwoBits {
+        convert: Replicated<Gf2>,
+        keep: Replicated<Gf2>,
+    }
+
+    impl ToBitConversionTriples for TwoBits {
+        type Residual = Replicated<Gf2>;
+
+        fn bits(&self) -> u32 {
+            1
+        }
+
+        fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
+            assert_eq!(i, 0, "there is only one convertible bit in TwoBits");
+            BitConversionTriple::new(
+                role,
+                self.convert.left() == Gf2::ONE,
+                self.convert.right() == Gf2::ONE,
+            )
+        }
+
+        fn into_triples<F, I>(
+            self,
+            role: Role,
+            indices: I,
+        ) -> (
+            crate::secret_sharing::BitDecomposed<BitConversionTriple<Replicated<F>>>,
+            Self::Residual,
+        )
+        where
+            F: PrimeField,
+            I: IntoIterator<Item = u32>,
+        {
+            (self.triple_range(role, indices), self.keep)
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct TwoBitsRaw {
+        convert: bool,
+        keep: bool,
+    }
+
+    impl rand::distributions::Distribution<TwoBitsRaw> for rand::distributions::Standard {
+        fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> TwoBitsRaw {
+            let r = rng.next_u32();
+            TwoBitsRaw {
+                convert: r & 1 == 1,
+                keep: r & 2 == 2,
+            }
+        }
+    }
+
+    impl IntoShares<TwoBits> for TwoBitsRaw {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [TwoBits; 3] {
+            let r = rng.next_u32();
+            let mut offset = 0;
+            let mut next_bit = || {
+                let b = (r >> offset) & 1 == 1;
+                offset += 1;
+                Gf2::from(b)
+            };
+
+            let c0 = next_bit();
+            let c1 = next_bit();
+            let k0 = next_bit();
+            let k1 = next_bit();
+            let c2 = c0 + c1 + Gf2::from(self.convert);
+            let k2 = k0 + k1 + Gf2::from(self.keep);
+            [
+                TwoBits {
+                    convert: Replicated::new(c0, c1),
+                    keep: Replicated::new(k0, k1),
+                },
+                TwoBits {
+                    convert: Replicated::new(c1, c2),
+                    keep: Replicated::new(k1, k2),
+                },
+                TwoBits {
+                    convert: Replicated::new(c2, c0),
+                    keep: Replicated::new(k2, k0),
+                },
+            ]
+        }
+    }
+
+    #[tokio::test]
+    pub async fn retain() {
+        let mut rng = thread_rng();
+        let world = TestWorld::default();
+        let two_bits = rng.gen::<TwoBitsRaw>();
+        let result: [(Replicated<Fp31>, Replicated<Gf2>); 3] = world
+            .semi_honest(two_bits, |ctx, bits_share| async move {
+                let v = ctx.validator();
+                let result = convert_selected_bits(
+                    v.context().set_total_records(1),
+                    once(ready(bits_share)),
+                    0..1,
+                )
+                .try_collect::<Vec<_>>()
+                .await
+                .unwrap();
+                assert_eq!(result.len(), 1);
+                let (converted, kept) = result.into_iter().next().unwrap();
+                assert_eq!(converted.len(), 1);
+                (converted.into_iter().next().unwrap(), kept)
+            })
+            .await;
+        assert_eq!(
+            (
+                Fp31::truncate_from(two_bits.convert),
+                Gf2::from(two_bits.keep)
+            ),
+            result.reconstruct()
+        );
     }
 
     #[tokio::test]
@@ -426,14 +621,15 @@ mod tests {
             let match_key = rng.gen::<MatchKey>();
             world
                 .malicious(match_key, |ctx, mk_share| async move {
-                    let triples = LocalBitConverter::<Fp32BitPrime, Replicated<MatchKey>, _>::new(
-                        ctx.role(),
-                        once(ready(mk_share)),
-                        0..1,
-                    )
-                    .collect::<Vec<_>>()
-                    .await;
-                    let tweaked = tweak.flip_bit(ctx.role(), triples[0][0].clone());
+                    let triples =
+                        LocalBitConverter::<Fp32BitPrime, Replicated<MatchKey>, _, ()>::new(
+                            ctx.role(),
+                            once(ready(mk_share)),
+                            0..1,
+                        )
+                        .collect::<Vec<_>>()
+                        .await;
+                    let tweaked = tweak.flip_bit(ctx.role(), triples[0].0[0].clone());
 
                     let v = ctx.validator();
                     let m_triples = v.context().upgrade([tweaked]).await.unwrap();

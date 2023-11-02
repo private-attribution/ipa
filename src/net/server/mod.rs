@@ -30,16 +30,13 @@ use futures::{
 };
 use hyper::{header::HeaderName, server::conn::AddrStream, Request};
 use metrics::increment_counter;
+use rustls::{
+    server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
+};
 use rustls_pemfile::Item;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use tokio_rustls::{
-    rustls::{
-        server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
-        ServerConfig as RustlsServerConfig,
-    },
-    server::TlsStream,
-};
+use tokio_rustls::server::TlsStream;
 use tower::{layer::layer_fn, Service};
 use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
@@ -306,7 +303,7 @@ async fn rustls_config(
     }
     let verifier = AllowAnyAnonymousOrAuthenticatedClient::new(trusted_certs);
 
-    let mut config = RustlsServerConfig::builder()
+    let mut config = rustls::ServerConfig::builder()
         .with_safe_defaults()
         .with_client_cert_verifier(verifier.boxed())
         .with_single_cert(cert, key)?;
@@ -488,12 +485,9 @@ mod e2e_tests {
     use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
     use hyper_rustls::HttpsConnector;
     use metrics_util::debugging::Snapshotter;
-    use tokio_rustls::{
-        rustls,
-        rustls::{
-            client::{ServerCertVerified, ServerCertVerifier},
-            ServerName,
-        },
+    use rustls::{
+        client::{ServerCertVerified, ServerCertVerifier},
+        ServerName,
     };
     use tracing::Level;
 

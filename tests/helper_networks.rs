@@ -39,7 +39,7 @@ fn https_semi_honest_ipa() {
 #[test]
 #[cfg(all(test, web_test))]
 fn keygen_confgen() {
-    let dir = TempDir::new(false);
+    let dir = TempDir::new_delete_on_drop();
     let path = dir.path();
 
     let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());

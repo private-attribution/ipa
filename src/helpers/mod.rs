@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
 
@@ -40,7 +40,7 @@ use crate::{
         Role::{H1, H2, H3},
     },
     protocol::{step::Gate, RecordId},
-    secret_sharing::SharedValue,
+    secret_sharing::WeakSharedValue,
 };
 
 // TODO work with ArrayLength only
@@ -409,7 +409,7 @@ impl Debug for ChannelId {
 pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
 /// Any shared value can be send as a message
-impl<V: SharedValue> Message for V {}
+impl<V: WeakSharedValue> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
@@ -439,6 +439,16 @@ pub enum TotalRecords {
     ///
     /// Using this is very inefficient, so avoid it.
     Indeterminate,
+}
+
+impl Display for TotalRecords {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TotalRecords::Unspecified => write!(f, "unspecified"),
+            TotalRecords::Specified(v) => write!(f, "{v}"),
+            TotalRecords::Indeterminate => write!(f, "∞"),
+        }
+    }
 }
 
 impl TotalRecords {

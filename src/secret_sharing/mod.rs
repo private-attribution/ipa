@@ -23,31 +23,46 @@ pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 
 use crate::ff::{AddSub, AddSubAssign, Serializable};
 
+/// Operations supported for weak shared values.
+pub trait Additive<Rhs = Self, Output = Self>:
+    AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
+{
+}
+
+impl<T, Rhs, Output> Additive<Rhs, Output> for T where
+    T: AddSub<Rhs, Output> + AddSubAssign<Rhs> + Neg<Output = Output>
+{
+}
+
 /// Operations supported for shared values.
 pub trait Arithmetic<Rhs = Self, Output = Self>:
-    AddSub<Rhs, Output>
-    + AddSubAssign<Rhs>
-    + Mul<Rhs, Output = Output>
-    + MulAssign<Rhs>
-    + Neg<Output = Output>
+    Additive<Rhs, Output> + Mul<Rhs, Output = Output> + MulAssign<Rhs>
 {
 }
 
 impl<T, Rhs, Output> Arithmetic<Rhs, Output> for T where
-    T: AddSub<Rhs, Output>
-        + AddSubAssign<Rhs>
-        + Mul<Rhs, Output = Output>
-        + MulAssign<Rhs>
-        + Neg<Output = Output>
+    T: Additive<Rhs, Output> + Mul<Rhs, Output = Output> + MulAssign<Rhs>
 {
 }
 
 // Trait for primitive integer types used to represent the underlying type for shared values
 pub trait Block: Sized + Copy + Debug {
     /// Size of a block in bytes big enough to hold the shared value. `Size * 8 >= VALID_BIT_LENGTH`.
-    type Size: ArrayLength<u8>;
+    type Size: ArrayLength;
 }
 
+///allows basic secret sharing operations
+pub trait WeakSharedValue:
+    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
+{
+    type Storage: Block;
+
+    const BITS: u32;
+
+    const ZERO: Self;
+}
+
+///allows advanced secret sharing operations, requires multiplication
 pub trait SharedValue:
     Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Arithmetic + Serializable + 'static
 {
@@ -58,10 +73,22 @@ pub trait SharedValue:
     const ZERO: Self;
 }
 
+///any `SharedValue` is also a `WeakSharedValue`
+impl<T> WeakSharedValue for T
+where
+    T: SharedValue,
+{
+    type Storage = T::Storage;
+
+    const BITS: u32 = T::BITS;
+
+    const ZERO: Self = T::ZERO;
+}
+
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 impl<V> IntoShares<AdditiveShare<V>> for V
 where
-    V: SharedValue,
+    V: WeakSharedValue,
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {

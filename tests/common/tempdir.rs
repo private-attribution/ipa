@@ -1,4 +1,4 @@
-use std::{mem, path::Path, thread};
+use std::{path::Path, thread};
 
 use tempfile::tempdir;
 
@@ -12,16 +12,16 @@ pub struct TempDir {
 }
 
 impl TempDir {
-    /// Creates a new temporary directory. If `delete` is set to `false`, then it won't be cleaned up
-    /// after drop.
+    /// Creates a new temporary directory that will be deleted when this instance is dropped.
+    /// There is an exception if thread is panicking, then it won't be.
     ///
     /// ## Panics
     /// Panics if a new temp dir cannot be created.
     #[must_use]
-    pub fn new(delete: bool) -> Self {
+    pub fn new_delete_on_drop() -> Self {
         Self {
             inner: Some(tempdir().expect("Can create temp directory")),
-            delete,
+            delete: true,
         }
     }
 
@@ -37,7 +37,7 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         if !self.delete || thread::panicking() {
             let td = self.inner.take().unwrap();
-            mem::forget(td);
+            let _ = td.into_path();
         }
     }
 }
