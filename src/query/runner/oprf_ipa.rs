@@ -12,7 +12,10 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+        prf_sharding::{
+            attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+            PrfShardedIpaInputRow,
+        },
         BreakdownKey, Timestamp, TriggerValue,
     },
     report::{EventType, OprfReport},
@@ -71,21 +74,7 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
-        let mut histogram = vec![];
-        let mut last_prf = input[0].mk_oprf + 1;
-        let mut cur_count = 0;
-        for row in &input {
-            if row.mk_oprf == last_prf {
-                cur_count += 1;
-            } else {
-                cur_count = 0;
-                last_prf = row.mk_oprf;
-            }
-            if histogram.len() <= cur_count {
-                histogram.push(0);
-            }
-            histogram[cur_count] += 1;
-        }
+        let histogram = compute_histogram_of_users_with_row_count(&input);
         let ref_to_histogram = &histogram;
 
         println!("histogram: {:?}", &histogram);

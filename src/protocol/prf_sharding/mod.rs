@@ -302,6 +302,32 @@ pub(crate) enum Step {
     MoveValueToCorrectBreakdown,
 }
 
+pub trait GroupingKey {
+    fn get_grouping_key(&self) -> u64;
+}
+
+pub fn compute_histogram_of_users_with_row_count<S>(input: &[S]) -> Vec<usize>
+where
+    S: GroupingKey,
+{
+    let mut histogram = vec![];
+    let mut last_prf = input[0].get_grouping_key() + 1;
+    let mut cur_count = 0;
+    for row in input {
+        if row.get_grouping_key() == last_prf {
+            cur_count += 1;
+        } else {
+            cur_count = 0;
+            last_prf = row.get_grouping_key();
+        }
+        if histogram.len() <= cur_count {
+            histogram.push(0);
+        }
+        histogram[cur_count] += 1;
+    }
+    histogram
+}
+
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
     C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,

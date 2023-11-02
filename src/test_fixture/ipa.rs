@@ -1,5 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
+use crate::protocol::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
@@ -36,6 +37,12 @@ pub struct TestRawDataRecord {
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
+}
+
+impl GroupingKey for TestRawDataRecord {
+    fn get_grouping_key(&self) -> u64 {
+        self.user_id
+    }
 }
 
 /// Executes IPA protocol in the clear, that is without any MPC helpers involved in the computation.
@@ -243,7 +250,10 @@ pub async fn test_oprf_ipa<F>(
         ff::{Field, Gf2},
         protocol::{
             basics::ShareKnownValue,
-            prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+            prf_sharding::{
+                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+                PrfShardedIpaInputRow,
+            },
         },
         report::EventType,
         secret_sharing::SharedValue,
@@ -259,18 +269,7 @@ pub async fn test_oprf_ipa<F>(
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
-    let mut histogram = Vec::new();
-    let mut last_prf = records[0].user_id + 1; // to ensure it differs from the first row
-    let mut cur_count = 0;
-    for row in &records {
-        if row.user_id == last_prf {
-            cur_count += 1;
-        } else {
-            cur_count = 0;
-            last_prf = row.user_id;
-        }
-        histogram[cur_count] += 1;
-    }
+    let histogram = compute_histogram_of_users_with_row_count(&records);
     let ref_to_histogram = &histogram;
 
     let result: Vec<F> = world
