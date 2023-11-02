@@ -459,15 +459,16 @@ where
     }));
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattenned_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
-        .flat_map(|x| stream_iter(x.unwrap()));
+    let collected_per_user_results = stream_of_per_user_circuits.collect::<Vec<_>>().await;
+    let per_user_attribution_outputs = sh_ctx.parallel_join(collected_per_user_results).await?;
+    let flattenned_stream = per_user_attribution_outputs.into_iter().flatten();
 
     // modulus convert breakdown keys and trigger values
     let converted_bks_and_tvs = convert_bits(
         prime_field_ctx
             .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
             .set_total_records(num_outputs),
-        flattenned_stream,
+        stream_iter(flattenned_stream),
         0..BK::BITS + TV::BITS,
     );
 
