@@ -21,7 +21,7 @@ use crate::{
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
         boolean::{comparison::bitwise_less_than_constant, or::or},
-        context::{UpgradableContext, UpgradedContext, Validator, Context},
+        context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::{convert_bits, BitConversionTriple},
         step::BitOpStep,
         RecordId,
@@ -233,10 +233,10 @@ impl ToBitConversionTriples for CappedAttributionOutputs {
         assert!(i < self.bits());
         let i: usize = i.try_into().unwrap();
         let bit = if i < self.attributed_breakdown_key_bits.len() {
-            self.attributed_breakdown_key_bits[i]
+            &self.attributed_breakdown_key_bits[i]
         } else {
             let i = i - self.attributed_breakdown_key_bits.len();
-            self.capped_attributed_trigger_value[i]
+            &self.capped_attributed_trigger_value[i]
         };
         BitConversionTriple::new(role, bit.left() == Gf2::ONE, bit.right() == Gf2::ONE)
     }
@@ -301,19 +301,6 @@ pub(crate) enum Step {
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
     ModulusConvertBreakdownKeyBitsAndTriggerValues,
     MoveValueToCorrectBreakdown,
-}
-
-fn compute_histogram_of_users_with_row_count<S>(rows_chunked_by_user: &[Vec<S>]) -> Vec<usize> {
-    let mut output = vec![];
-    for user_rows in rows_chunked_by_user {
-        for j in 0..user_rows.len() {
-            if j >= output.len() {
-                output.push(0);
-            }
-            output[j] += 1;
-        }
-    }
-    output
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -462,7 +449,8 @@ where
     // move each value to the correct bucket
     let row_contributions_stream = converted_bks_and_tvs
         .zip(futures::stream::repeat(
-            prime_field_ctx.narrow(&Step::MoveValueToCorrectBreakdown)
+            prime_field_ctx
+                .narrow(&Step::MoveValueToCorrectBreakdown)
                 .set_total_records(num_outputs),
         ))
         .enumerate()
@@ -814,22 +802,17 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::num::NonZeroU32;
-
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf20Bit, Gf3Bit, Gf5Bit},
-        protocol::{
-            context::{UpgradableContext, Validator},
-            prf_sharding::{attribution_and_capping_and_aggregation},
-        },
+        protocol::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
             SharedValue,
         },
         test_executor::run,
-        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     struct PreShardedAndSortedOPRFTestInput<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
@@ -870,36 +853,6 @@ pub mod tests {
             breakdown_key: Gf5Bit::truncate_from(breakdown_key),
             trigger_value: Gf3Bit::truncate_from(trigger_value),
             timestamp: Gf20Bit::truncate_from(timestamp),
-        }
-    }
-
-    fn bitwise_bd_key_and_value<BK, TV>(
-        attributed_breakdown_key: u128,
-        capped_attributed_trigger_value: u128,
-    ) -> PreAggregationTestInputInBits
-    where
-        BK: GaloisField,
-        TV: GaloisField,
-    {
-        PreAggregationTestInputInBits {
-            attributed_breakdown_key: get_bits::<Gf2>(
-                attributed_breakdown_key.try_into().unwrap(),
-                BK::BITS,
-            ),
-            capped_attributed_trigger_value: get_bits::<Gf2>(
-                capped_attributed_trigger_value.try_into().unwrap(),
-                TV::BITS,
-            ),
-        }
-    }
-
-    fn decimal_bd_key_and_value(
-        attributed_breakdown_key: u128,
-        capped_attributed_trigger_value: u128,
-    ) -> PreAggregationTestOutputInDecimal {
-        PreAggregationTestOutputInDecimal {
-            attributed_breakdown_key,
-            capped_attributed_trigger_value,
         }
     }
 
@@ -1066,9 +1019,8 @@ pub mod tests {
                         Gf5Bit,
                         Gf3Bit,
                         Gf20Bit,
+                        Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
-                        _,
-                        Replicated<Gf2>,
                     >(ctx, input_rows, num_saturating_bits, None, &histogram)
                     .await
                     .unwrap()

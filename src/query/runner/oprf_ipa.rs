@@ -74,14 +74,21 @@ where
         let mut histogram = vec![];
         let mut last_prf = input[0].mk_oprf + 1;
         let mut cur_count = 0;
-        for row in input {
+        for row in &input {
             if row.mk_oprf != last_prf {
                 cur_count = 0;
+                last_prf = row.mk_oprf;
             } else {
                 cur_count += 1;
             }
+            if histogram.len() <= cur_count {
+                histogram.push(0);
+            }
             histogram[cur_count] += 1;
         }
+        let ref_to_histogram = &histogram;
+
+        println!("histogram: {:?}", &histogram);
 
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
         let sharded_input = input
@@ -114,15 +121,14 @@ where
             BreakdownKey,
             TriggerValue,
             Timestamp,
+            Replicated<F>,
             F,
-            _,
-            Replicated<Gf2>,
         >(
             ctx,
             sharded_input,
             user_cap.ilog2().try_into().unwrap(),
             config.attribution_window_seconds,
-            &histogram,
+            ref_to_histogram,
         )
         .await
     }

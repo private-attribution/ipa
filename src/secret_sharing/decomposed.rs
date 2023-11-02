@@ -128,10 +128,10 @@ impl<S> BitDecomposed<S> {
         Ok(BitDecomposed::new(output))
     }
 
-    pub fn split_at(mut self, idx: u32) -> (BitDecomposed<S>, BitDecomposed<S>) {
+    pub fn split_at(self, idx: u32) -> (BitDecomposed<S>, BitDecomposed<S>) {
         let idx: usize = idx.try_into().unwrap();
-        let left = Vec::with_capacity(idx);
-        let right = Vec::with_capacity(self.len() - idx);
+        let mut left = Vec::with_capacity(idx);
+        let mut right = Vec::with_capacity(self.len() - idx);
         for (i, bit) in self.bits.into_iter().enumerate() {
             if i < idx {
                 left.push(bit);
@@ -139,7 +139,7 @@ impl<S> BitDecomposed<S> {
                 right.push(bit);
             }
         }
-        (left, right)
+        (BitDecomposed::new(left), BitDecomposed::new(right))
     }
 }
 

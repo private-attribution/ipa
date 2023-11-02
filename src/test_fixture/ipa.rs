@@ -259,6 +259,20 @@ pub async fn test_oprf_ipa<F>(
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
+    let mut histogram = Vec::new();
+    let mut last_prf = records[0].user_id + 1;
+    let mut cur_count = 0;
+    for row in &records {
+        if row.user_id != last_prf {
+            cur_count = 0;
+            last_prf = row.user_id;
+        } else {
+            cur_count += 1;
+        }
+        histogram[cur_count] += 1;
+    }
+    let ref_to_histogram = &histogram;
+
     let result: Vec<F> = world
         .semi_honest(
             records.into_iter(),
@@ -286,14 +300,14 @@ pub async fn test_oprf_ipa<F>(
                     BreakdownKey,
                     TriggerValue,
                     Timestamp,
+                    Replicated<F>,
                     F,
-                    _,
-                    Replicated<Gf2>,
                 >(
                     ctx,
                     sharded_input,
                     user_cap.ilog2().try_into().unwrap(),
                     config.attribution_window_seconds,
+                    ref_to_histogram,
                 )
                 .await
                 .unwrap()

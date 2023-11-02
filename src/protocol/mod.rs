@@ -21,7 +21,7 @@ pub use basics::BasicProtocols;
 
 use crate::{
     error::Error,
-    ff::{Gf20Bit, Gf3Bit, Gf40Bit, Gf8Bit, Gf32Bit},
+    ff::{Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit},
 };
 
 pub type MatchKey = Gf40Bit;
