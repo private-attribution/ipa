@@ -3,10 +3,15 @@ use std::{
     mem::take,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures::{task::Waker, Future, Stream};
+use futures::{
+    stream::Fuse,
+    task::{noop_waker_ref, Waker},
+    Future, Stream,
+};
+use futures_util::StreamExt;
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
@@ -105,6 +110,11 @@ impl Spare {
         };
         Some(m)
     }
+
+    /// Returns `true` if there are no bytes currently awaiting a read.
+    fn is_empty(&self) -> bool {
+        self.offset == self.buf.len()
+    }
 }
 
 pub struct OperatingState<S, C>
@@ -113,7 +123,7 @@ where
     C: AsRef<[u8]>,
 {
     /// The stream we're reading from.
-    stream: Pin<Box<S>>,
+    stream: Pin<Box<Fuse<S>>>,
     /// The absolute index of the next value that will be received.
     next: usize,
     /// The underlying stream can provide chunks of data larger than a single
@@ -144,6 +154,8 @@ where
     /// that easing load on this mechanism.  There might also need to be some
     /// end-to-end back pressure for tasks that do not involve sending at all.
     overflow_wakers: Vec<Waker>,
+    /// If this receiver is closed and no longer capable of receiving data.
+    closed: bool,
     _marker: PhantomData<C>,
 }
 
@@ -203,29 +215,77 @@ where
 
     /// Poll for the next record.  This should only be invoked when
     /// the future for the next message is polled.
+    ///
+    /// ## Errors
+    /// If buffer capacity is not enough to read `M` and the underlying stream does not have
+    /// more data. This may lead to different behavior depending on the order of issued reads. See
+    /// [`read_order`] test for an example.
+    ///
+    /// [`read_order`]: test::read_order
     fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
-        if let Some(m) = self.spare.read() {
+        // If spare has enough data for us, poll it first
+        // otherwise, poll the underlying stream until it returns pending or it provides enough
+        // data to return a value.
+        let message = self.spare.read();
+        let next = if let Some(m) = message {
+            // this check exists to make sure the inner stream is eventually moved to
+            // the closed state. We don't want to poll it too often, but we also need to know
+            // when it is done and `UnorderedReceiver` can be dropped.
             self.wake_next();
-            return Poll::Ready(Ok(m));
-        }
-
-        loop {
-            match self.stream.as_mut().poll_next(cx) {
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-                Poll::Ready(Some(b)) => {
-                    if let Some(m) = self.spare.extend(b.as_ref()) {
+            Ok(m)
+        } else {
+            loop {
+                if let Some(bytes) = ready!(self.stream.as_mut().poll_next(cx)) {
+                    if let Some(m) = self.spare.extend(bytes.as_ref()) {
                         self.wake_next();
-                        return Poll::Ready(Ok(m));
+                        break Ok(m);
                     }
-                }
-                Poll::Ready(None) => {
-                    return Poll::Ready(Err(Error::EndOfStream {
+                } else {
+                    self.spare.replace(&[]);
+                    self.close();
+                    break Err(Error::EndOfStream {
                         record_id: RecordId::from(self.next),
-                    }));
+                    });
                 }
             }
+        };
+
+        if next.is_ok() && self.spare.is_empty() {
+            // we don't want to be woken up here, control loop is driven by the client.
+            // They decide when they want the next message and must issue a `poll` for it.
+
+            // TODO: https://github.com/rust-lang/rust/issues/98286
+            let mut cx = Context::from_waker(noop_waker_ref());
+            match self.stream.as_mut().poll_next(&mut cx) {
+                Poll::Ready(Some(bytes)) => {
+                    // Spare is empty because of the check above.
+                    self.spare.replace(bytes.as_ref());
+                }
+                Poll::Ready(None) => {
+                    self.close();
+                }
+                Poll::Pending => {}
+            }
+        }
+
+        Poll::Ready(next)
+    }
+
+    /// Returns `true` if this receiver is closed.
+    fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    /// Close this receiver, so it can no longer be used to poll messages.
+    /// ## Errors
+    /// If the underlying stream is not closed or if there are unread bytes inside the buffer.
+    fn close(&mut self) {
+        if !self.closed {
+            assert!(self.stream.is_done());
+            assert!(self.spare.is_empty());
+
+            self.closed = true;
+            self.spare = Spare::default();
         }
     }
 }
@@ -254,17 +314,18 @@ where
     /// # Panics
     ///
     /// The `capacity` needs to be at least 2.
-    pub fn new(stream: Pin<Box<S>>, capacity: NonZeroUsize) -> Self {
+    pub fn new(stream: S, capacity: NonZeroUsize) -> Self {
         // We use `c/2` as a divisor, so `c == 1` would be bad.
         assert!(capacity.get() > 1, "a capacity of 1 is too small");
         let wakers = vec![None; capacity.get()];
         Self {
             inner: Arc::new(Mutex::new(OperatingState {
-                stream,
+                stream: Box::pin(stream.fuse()),
                 next: 0,
                 spare: Spare::default(),
                 wakers,
                 overflow_wakers: Vec::new(),
+                closed: false,
                 _marker: PhantomData,
             })),
         }
@@ -283,6 +344,18 @@ where
             receiver: Arc::clone(&self.inner),
             _marker: PhantomData,
         }
+    }
+
+    /// Returns `true` when this receiver is closed. Closed means the underlying stream is done and
+    /// there is no more data inside receiver's buffers.
+    ///
+    /// Calling `poll_next` on closed receivers will result in [`EOS`] error.
+    ///
+    /// [`EOS`]: crate::helpers::Error::EndOfStream
+    pub fn is_closed(&self) -> bool {
+        // If this function is ever called on the hot path, consider caching closed status.
+        // Closed streams cannot move back to open.
+        self.inner.lock().unwrap().is_closed()
     }
 }
 
@@ -317,7 +390,7 @@ mod test {
 
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Serializable},
-        helpers::buffers::unordered_receiver::UnorderedReceiver,
+        helpers::{buffers::unordered_receiver::UnorderedReceiver, Error::EndOfStream},
     };
 
     fn receiver<I, T>(it: I) -> UnorderedReceiver<impl Stream<Item = T>, T>
@@ -328,7 +401,7 @@ mod test {
     {
         // Use a small capacity so that we can overflow it easily.
         let capacity = NonZeroUsize::new(3).unwrap();
-        UnorderedReceiver::new(Box::pin(iter(it)), capacity)
+        UnorderedReceiver::new(iter(it), capacity)
     }
 
     #[cfg(not(feature = "shuttle"))]
@@ -508,6 +581,81 @@ mod test {
                 .await
                 .unwrap();
             }
+        });
+    }
+
+    #[test]
+    fn close() {
+        const DATA: &[u8] = &[1u8, 2, 3];
+        run(|| async move {
+            let recv = receiver([DATA]);
+            for i in 0..DATA.len() {
+                assert!(!recv.is_closed());
+                let _: Fp31 = recv.recv(i).await.unwrap();
+            }
+
+            assert!(recv.is_closed());
+            assert_eq!(0, recv.inner.lock().unwrap().spare.buf.capacity());
+        });
+    }
+
+    #[test]
+    fn end_of_stream() {
+        const DATA: &[u8] = &[1_u8, 2, 3, 4, 5];
+        run(|| async move {
+            let recv = receiver([DATA]);
+            let _: Fp32BitPrime = recv.recv(0_u8).await.unwrap();
+
+            assert!(matches!(
+                recv.recv::<Fp32BitPrime, _>(1_u8).await,
+                Err(EndOfStream { .. })
+            ));
+            assert!(recv.is_closed());
+        });
+    }
+
+    #[test]
+    fn read_order() {
+        const DATA: &[u8] = &[0_u8, 1, 2, 3, 4];
+        // reading 3 u8 and then u32 - can read 3 items from the receiver
+        run(|| async move {
+            let recv = receiver([DATA]);
+            for i in 0_u8..3 {
+                assert_eq!(
+                    Fp31::truncate_from(i),
+                    recv.recv::<Fp31, _>(i).await.unwrap()
+                );
+            }
+            assert!(matches!(
+                recv.recv::<Fp32BitPrime, _>(3_u8).await,
+                Err(EndOfStream { .. })
+            ));
+        });
+        // reading 2 u8 and then u32 - can read 2 items from the receiver
+        run(|| async move {
+            let recv = receiver([DATA]);
+            for i in 0_u8..2 {
+                assert_eq!(
+                    Fp31::truncate_from(i),
+                    recv.recv::<Fp31, _>(i).await.unwrap()
+                );
+            }
+            assert!(matches!(
+                recv.recv::<Fp32BitPrime, _>(2_u8).await,
+                Err(EndOfStream { .. })
+            ));
+        });
+    }
+
+    #[test]
+    fn empty() {
+        const DATA: &[u8] = &[];
+        run(|| async move {
+            let recv = receiver([DATA]);
+            assert!(matches!(
+                recv.recv::<Fp31, _>(0_u8).await,
+                Err(EndOfStream { .. })
+            ));
         });
     }
 }
