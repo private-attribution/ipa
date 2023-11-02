@@ -77,8 +77,6 @@ where
         let histogram = compute_histogram_of_users_with_row_count(&input);
         let ref_to_histogram = &histogram;
 
-        println!("histogram: {:?}", &histogram);
-
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
         let sharded_input = input
             .into_iter()
