@@ -5,7 +5,8 @@ use crate::{
     error::Error,
     ff::{GaloisField, PrimeField, Serializable},
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep, RecordId,
+        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        RecordId,
     },
     secret_sharing::{
         replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
