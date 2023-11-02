@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+        ipa_prf::prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
         BreakdownKey, Timestamp, TriggerValue,
     },
     report::{EventType, OprfReport},

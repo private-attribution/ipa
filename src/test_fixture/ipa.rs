@@ -243,7 +243,7 @@ pub async fn test_oprf_ipa<F>(
         ff::{Field, Gf2},
         protocol::{
             basics::ShareKnownValue,
-            prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+            ipa_prf::prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
         },
         report::EventType,
         secret_sharing::SharedValue,

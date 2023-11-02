@@ -10,13 +10,12 @@ use futures_util::{
 };
 use ipa_macros::Step;
 
-use super::boolean::saturating_sum::SaturatingSum;
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
-        boolean::{comparison::bitwise_less_than_constant, or::or},
+        boolean::{comparison::bitwise_less_than_constant, or::or, saturating_sum::SaturatingSum},
         context::{UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
         step::BitOpStep,

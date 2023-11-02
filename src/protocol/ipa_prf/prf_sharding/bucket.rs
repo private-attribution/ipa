@@ -1,12 +1,11 @@
 use embed_doc_image::embed_doc_image;
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::{GaloisField, PrimeField, Serializable},
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
-        step::BitOpStep, RecordId,
-        basics::SecureMul, context::UpgradedContext, prf_sharding::BinaryTreeDepthStep, RecordId,
+        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep, RecordId,
     },
     secret_sharing::{
         replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
