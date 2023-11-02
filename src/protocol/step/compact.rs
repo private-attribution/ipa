@@ -75,7 +75,7 @@ fn static_deserialize_state_map(s: &str) -> u16 {
         return QUERY_TYPE_SEMIHONEST_STATE;
     } else if s == QueryType::MALICIOUS_IPA_STR {
         return QUERY_TYPE_MALICIOUS_STATE;
-    } else if s == QUERY_TYPE_OPRF_STATE {
+    } else if s == QueryType::OPRF_IPA_STR {
         return QUERY_TYPE_OPRF_STATE;
     } else if s == PrssExchangeStep.as_ref() {
         return PRSS_EXCHANGE_STATE;
