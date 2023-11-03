@@ -179,7 +179,7 @@ mod gateway {
         receivers_state: Option<R>,
     }
 
-    impl <S: Debug, R: Debug> Debug for GatewayWaitingTasks<S, R> {
+    impl<S: Debug, R: Debug> Debug for GatewayWaitingTasks<S, R> {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             if let Some(senders_state) = &self.senders_state {
                 write!(f, "\n{{{senders_state:?}\n}}")?;
