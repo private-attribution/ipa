@@ -1,5 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
+use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
@@ -36,6 +37,12 @@ pub struct TestRawDataRecord {
     pub is_trigger_report: bool,
     pub breakdown_key: u32,
     pub trigger_value: u32,
+}
+
+impl GroupingKey for TestRawDataRecord {
+    fn get_grouping_key(&self) -> u64 {
+        self.user_id
+    }
 }
 
 /// Executes IPA protocol in the clear, that is without any MPC helpers involved in the computation.
@@ -244,7 +251,8 @@ pub async fn test_oprf_ipa<F>(
         protocol::{
             basics::ShareKnownValue,
             ipa_prf::prf_sharding::{
-                attribution_and_capping_and_aggregation, PrfShardedIpaInputRow,
+                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+                PrfShardedIpaInputRow,
             },
         },
         report::EventType,
@@ -260,6 +268,9 @@ pub async fn test_oprf_ipa<F>(
 
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
+
+    let histogram = compute_histogram_of_users_with_row_count(&records);
+    let ref_to_histogram = &histogram;
 
     let result: Vec<F> = world
         .semi_honest(
@@ -288,14 +299,14 @@ pub async fn test_oprf_ipa<F>(
                     BreakdownKey,
                     TriggerValue,
                     Timestamp,
+                    Replicated<F>,
                     F,
-                    _,
-                    Replicated<Gf2>,
                 >(
                     ctx,
                     sharded_input,
                     user_cap.ilog2().try_into().unwrap(),
                     config.attribution_window_seconds,
+                    ref_to_histogram,
                 )
                 .await
                 .unwrap()
