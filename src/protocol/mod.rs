@@ -5,7 +5,6 @@ pub mod boolean;
 pub mod context;
 pub mod dp;
 pub mod ipa;
-#[cfg(feature = "descriptive-gate")]
 pub mod ipa_prf;
 pub mod modulus_conversion;
 pub mod prss;
