@@ -14,6 +14,9 @@ fn assert_copy<C: Copy>(c: C) -> C {
     c
 }
 
+
+/// this might clash with Galois field, i.e. `galois_field.rs`
+/// so only use it for byte sizes for which Block has not been defined yet
 macro_rules! store_impl {
     ( $arraylength:ty, $bits:expr ) => {
         //type $store = BitArr!(for $bits, in u8, Lsb0);
@@ -28,10 +31,12 @@ macro_rules! store_impl {
     };
 }
 
+/// iterator for Boolean arrays
 pub struct BAIterator<'a> {
     iterator: Iter<'a, u8, Lsb0>,
 }
 
+///impl Iterator for all Boolean arrays
 impl<'a> Iterator for BAIterator<'a> {
     type Item = Boolean;
 
@@ -40,6 +45,8 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
+
+//macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
     ( $modname:ident, $name:ident, $bits:expr, $one:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
@@ -265,7 +272,20 @@ macro_rules! boolean_array_impl {
 //impl store for U6
 store_impl!(U8, 64);
 
-//impl BA48
+//impl BA32
+boolean_array_impl!(
+    boolean_array_32,
+    BA32,
+    32,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0
+    )
+);
+
+//impl BA64
 boolean_array_impl!(
     boolean_array_64,
     BA64,
@@ -278,5 +298,6 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0)
+        0, 0, 0, 0, 0, 0, 0, 0
+    )
 );

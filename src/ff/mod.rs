@@ -63,3 +63,18 @@ pub trait ArrayAccess {
 
     fn set(&mut self, index: usize, e: Self::Element);
 }
+
+/// Custom Array trait
+/// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
+/// supports `IntoIterator` and `into_iter()`
+/// supports `From` for `Element`, all array elements will be set to the value of `Element`
+pub trait CustomArray<T, Element = T>:
+ArrayAccess<Element = T> + IntoIterator<Item = T> + From<T>
+{
+}
+
+/// impl Custom Array for all compatible structs
+impl<T, S> CustomArray<T> for S where
+    S: ArrayAccess<Element = T> + IntoIterator<Item = T> + From<T>
+{
+}
