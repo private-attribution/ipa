@@ -784,6 +784,7 @@ pub mod tests {
         const NUM_USERS: u32 = 8;
         const MIN_RECORDS_PER_USER: u32 = 1;
         const MAX_RECORDS_PER_USER: u32 = 8;
+        const MAX_TIMESTAMP: u32 = 604_800;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
         type TestField = Fp32BitPrime;
@@ -798,7 +799,7 @@ pub mod tests {
         } else {
             NUM_USERS * MAX_RECORDS_PER_USER
         };
-        let raw_data = EventGenerator::with_config(
+        let mut raw_data = EventGenerator::with_config(
             rand::thread_rng(),
             EventGeneratorConfig::new(
                 u64::from(NUM_USERS),
@@ -806,10 +807,12 @@ pub mod tests {
                 MAX_BREAKDOWN_KEY,
                 MIN_RECORDS_PER_USER,
                 MAX_RECORDS_PER_USER,
+                MAX_TIMESTAMP,
             ),
         )
         .take(usize::try_from(max_events).unwrap())
         .collect::<Vec<_>>();
+        raw_data.sort_by_key(|e| e.timestamp);
 
         for per_user_cap in [1, 3] {
             let expected_results = ipa_in_the_clear(
