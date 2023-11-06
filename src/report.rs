@@ -17,7 +17,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
     },
-    protocol::prf_sharding::GroupingKey,
+    protocol::ipa_prf::prf_sharding::GroupingKey,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 

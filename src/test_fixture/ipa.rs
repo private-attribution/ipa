@@ -1,6 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
-use crate::protocol::prf_sharding::GroupingKey;
+use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
@@ -250,7 +250,7 @@ pub async fn test_oprf_ipa<F>(
         ff::{Field, Gf2},
         protocol::{
             basics::ShareKnownValue,
-            prf_sharding::{
+            ipa_prf::prf_sharding::{
                 attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
                 PrfShardedIpaInputRow,
             },

@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        prf_sharding::{
+        ipa_prf::prf_sharding::{
             attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
             PrfShardedIpaInputRow,
         },

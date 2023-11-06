@@ -12,16 +12,15 @@ use futures_util::{
 };
 use ipa_macros::Step;
 
-use super::{boolean::saturating_sum::SaturatingSum, modulus_conversion::ToBitConversionTriples};
 use crate::{
     error::Error,
     ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
-        boolean::{comparison::bitwise_less_than_constant, or::or},
+        boolean::{comparison::bitwise_less_than_constant, or::or, saturating_sum::SaturatingSum},
         context::{Context, UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::{convert_bits, BitConversionTriple},
+        modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         step::BitOpStep,
         RecordId,
     },
@@ -831,7 +830,7 @@ pub mod tests {
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf20Bit, Gf3Bit, Gf5Bit},
-        protocol::prf_sharding::attribution_and_capping_and_aggregation,
+        protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
