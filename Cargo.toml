@@ -42,7 +42,8 @@ compact-gate = ["ipa-macros/compact-gate"]
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
 aggregate-circuit = []
-ipa-prf = ["descriptive-gate"]
+# IPA protocol based on OPRF
+ipa-prf = []
 
 [dependencies]
 aes = "0.8.3"
