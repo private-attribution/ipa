@@ -72,7 +72,7 @@ impl Gateway {
         roles: RoleAssignment,
         transport: TransportImpl,
     ) -> Self {
-        #[allow(clippy::useless_conversion)]
+        #[allow(clippy::useless_conversion)] // not useless in stall-detection build
         Self {
             config,
             transport: RoleResolvingTransport {
