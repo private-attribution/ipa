@@ -73,8 +73,6 @@ jobs:
   release:
     name: Release builds and tests
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -C target-cpu=native
     steps:
       - uses: actions/checkout@v3
 
