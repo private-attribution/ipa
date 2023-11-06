@@ -5,7 +5,8 @@ use crate::{
     error::Error,
     ff::{GaloisField, PrimeField, Serializable},
     protocol::{
-        basics::SecureMul, context::UpgradedContext, prf_sharding::BinaryTreeDepthStep, RecordId,
+        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        RecordId,
     },
     secret_sharing::{
         replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
@@ -124,7 +125,7 @@ pub mod tests {
         ff::{Field, Fp32BitPrime, Gf8Bit, Gf9Bit},
         protocol::{
             context::{Context, UpgradableContext, Validator},
-            prf_sharding::bucket::move_single_value_to_bucket,
+            ipa_prf::prf_sharding::bucket::move_single_value_to_bucket,
             RecordId,
         },
         rand::Rng,

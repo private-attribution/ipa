@@ -371,7 +371,7 @@ where
 pub mod tests {
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf32Bit},
-        protocol::prf_sharding::feature_label_dot_product::{
+        protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },
         rand::Rng,

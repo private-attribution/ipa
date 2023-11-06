@@ -131,7 +131,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -534,6 +534,8 @@ macro_rules! bit_array_impl {
                     assert_eq!(a, $name::deserialize(&buf));
                 }
             }
+
+            $( $( $extra )* )?
         }
 
         pub use $modname::$name;
@@ -547,7 +549,7 @@ bit_array_impl!(
     40,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
-    0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
+    0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128,
 );
 
 bit_array_impl!(
@@ -557,7 +559,7 @@ bit_array_impl!(
     32,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
-    0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
+    0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128,
 );
 
 bit_array_impl!(
@@ -567,7 +569,7 @@ bit_array_impl!(
     20,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^20 + x^7 + x^3 + x^2 + 1
-    0b1000_0000_0000_1000_1101_u128
+    0b1000_0000_0000_1000_1101_u128,
 );
 
 bit_array_impl!(
@@ -577,7 +579,7 @@ bit_array_impl!(
     8,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
-    0b1_0001_1011_u128
+    0b1_0001_1011_u128,
 );
 
 bit_array_impl!(
@@ -587,7 +589,7 @@ bit_array_impl!(
     9,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^9 + x^4 + x^3 + x + 1
-    0b10_0001_1011_u128
+    0b10_0001_1011_u128,
 );
 
 bit_array_impl!(
@@ -597,7 +599,7 @@ bit_array_impl!(
     5,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0),
     // x^5 + x^4 + x^3 + x^2 + x + 1
-    0b111_111_u128
+    0b111_111_u128,
 );
 
 bit_array_impl!(
@@ -607,7 +609,7 @@ bit_array_impl!(
     3,
     bitarr!(const u8, Lsb0; 1, 0, 0),
     // x^3 + x + 1
-    0b1_011_u128
+    0b1_011_u128,
 );
 
 bit_array_impl!(
@@ -617,5 +619,14 @@ bit_array_impl!(
     1,
     bitarr!(const u8, Lsb0; 1),
     // x
-    0b10_u128
+    0b10_u128,
+    {
+        impl From<bool> for Gf2 {
+            fn from(value: bool) -> Self {
+                let mut v = Gf2::ZERO;
+                v.0.set(0, value);
+                v
+            }
+        }
+    }
 );

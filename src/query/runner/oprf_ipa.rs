@@ -12,7 +12,10 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        prf_sharding::{attribution_and_capping_and_aggregation, PrfShardedIpaInputRow},
+        ipa_prf::prf_sharding::{
+            attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+            PrfShardedIpaInputRow,
+        },
         BreakdownKey, Timestamp, TriggerValue,
     },
     report::{EventType, OprfReport},
@@ -71,6 +74,9 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
+        let histogram = compute_histogram_of_users_with_row_count(&input);
+        let ref_to_histogram = &histogram;
+
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
         let sharded_input = input
             .into_iter()
@@ -102,14 +108,14 @@ where
             BreakdownKey,
             TriggerValue,
             Timestamp,
+            Replicated<F>,
             F,
-            _,
-            Replicated<Gf2>,
         >(
             ctx,
             sharded_input,
             user_cap.ilog2().try_into().unwrap(),
             config.attribution_window_seconds,
+            ref_to_histogram,
         )
         .await
     }
