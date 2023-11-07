@@ -18,6 +18,7 @@ use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
+use crate::secret_sharing::WeakSharedValue;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -69,13 +70,32 @@ pub trait ArrayAccess {
 /// supports `IntoIterator` and `into_iter()`
 /// supports `From` for `Element`, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
-pub trait CustomArray< T, Element = T>:
-ArrayAccess<Element = T> + From<T> + FromIterator<T> + IntoIterator<Item = T>
+pub trait CustomArray<'a, T>
+    where
+        Self: WeakSharedValue + ArrayAccess<Element=T> + From<T> + FromIterator<T> +'a,
+        //&'a Self: IntoIterator<Item = T>,
+        T: WeakSharedValue,
 {
 }
 
 /// impl Custom Array for all compatible structs
-impl< T, S> CustomArray< T> for S where
-    S: ArrayAccess<Element = T>  + From<T> + FromIterator<T> + IntoIterator<Item = T>,
+impl<'a, S, T> CustomArray<'a, T> for S where
+    S: WeakSharedValue + ArrayAccess<Element=T> + From<T> + FromIterator<T> +'a,
+    //&'a S: IntoIterator<Item = T>,
+    T: WeakSharedValue,
 {
 }
+
+// pub trait CustomArray<'a>
+// where
+//     Self: ArrayAccess + From<<Self as ArrayAccess>::Element> + FromIterator<<Self as ArrayAccess>::Element> +'a,
+//     //&'a Self: IntoIterator<Item = <Self as ArrayAccess>::Element>,
+// {
+// }
+//
+// /// impl Custom Array for all compatible structs
+// impl<'a, S> CustomArray<'a> for S where
+//     S: ArrayAccess  + From<<S as ArrayAccess>::Element> + FromIterator<<S as ArrayAccess>::Element> + 'a,
+//     //&'a S: IntoIterator<Item = <S as ArrayAccess>::Element>,
+// {
+// }

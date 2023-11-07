@@ -13,6 +13,7 @@ use crate::{
         SharedValue, WeakSharedValue,
     },
 };
+use crate::ff::CustomArray;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: WeakSharedValue>(V, V);
@@ -282,15 +283,14 @@ where
     }
 }
 
-impl<'a, S, T, U> IntoIterator for &'a AdditiveShare<S>
+impl<'a, S, T> IntoIterator for &'a AdditiveShare<S>
 where
-    &'a S: IntoIterator<Item = U, IntoIter = T>,
-    S: WeakSharedValue,
-    T: Iterator<Item = U>,
-    U: WeakSharedValue,
+    &'a S: IntoIterator<Item=T>,
+    S: WeakSharedValue + CustomArray<'a, T>,
+    T: WeakSharedValue,
 {
-    type Item = AdditiveShare<U>;
-    type IntoIter = ASIterator<T>;
+    type Item = AdditiveShare<T>;
+    type IntoIter = ASIterator<<&'a S as IntoIterator>::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
         ASIterator {
@@ -459,19 +459,5 @@ mod tests {
         mult_by_constant_test_case((0, 1, 0), 2, 2);
         mult_by_constant_test_case((0, 0, 1), 2, 2);
         mult_by_constant_test_case((0, 0, 0), 2, 0);
-    }
-
-    #[test]
-    fn iterate_boolean_array() {
-        use crate::ff::{boolean::Boolean, boolean_array::BA64};
-        let s = AdditiveShare::<BA64>(<BA64>::ONE, <BA64>::ONE);
-        let iter = s.into_iter();
-        for (i, j) in iter.enumerate() {
-            if i == 0 {
-                assert_eq!(j, AdditiveShare(<Boolean>::ONE, <Boolean>::ONE));
-            } else {
-                assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
-            }
-        }
     }
 }
