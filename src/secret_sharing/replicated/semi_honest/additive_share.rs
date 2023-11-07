@@ -246,8 +246,11 @@ where
 {
     type Element = AdditiveShare<<S as ArrayAccess>::Element>;
 
-    fn get(&self, index: usize) -> Self::Element {
-        AdditiveShare(self.0.get(index), self.1.get(index))
+    fn get(&self, index: usize) -> Option<Self::Element> {
+        self.0.get(index).zip(self.0.get(index)).map(
+            |v|
+                AdditiveShare(v.0, v.1)
+        )
     }
 
     fn set(&mut self, index: usize, e: Self::Element) {
@@ -294,6 +297,24 @@ where
             iterator_left: self.0.into_iter(),
             iterator_right: self.1.into_iter(),
         }
+    }
+}
+
+impl<S, U> FromIterator<AdditiveShare<U>> for AdditiveShare<S>
+    where
+        S: WeakSharedValue + ArrayAccess<Element=U>,
+        U: WeakSharedValue,
+{
+    fn from_iter<I>(iter: I) -> Self
+        where
+            I: IntoIterator<Item = AdditiveShare<U>>,
+    {
+        let mut result = AdditiveShare::<S>::ZERO;
+        for (i,v) in iter.into_iter().enumerate() {
+            result.set(i,v);
+        }
+        result
+
     }
 }
 

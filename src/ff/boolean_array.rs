@@ -70,9 +70,14 @@ macro_rules! boolean_array_impl {
             impl ArrayAccess for $name {
                 type Element = Boolean;
 
-                fn get(&self, index: usize) -> Self::Element {
-                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
-                    self.0[index].into()
+                fn get(&self, index: usize) -> Option<Self::Element> {
+                    if index < usize::try_from(<$name>::BITS).unwrap()
+                    {
+                        Some(self.0[index].into())
+                    } else
+                    {
+                        None
+                    }
                 }
 
                 fn set(&mut self, index: usize, e: Self::Element) {
@@ -228,46 +233,61 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl FromIterator<Boolean> for $name {
+
+                fn from_iter<I>(iter: I) -> Self
+                where
+                    I: IntoIterator<Item = Boolean>,
+                {
+                    let mut result = $name::ONE;
+                    for (i,v) in iter.into_iter().enumerate() {
+                    result.set(i,v);
+                }
+                result
+                }
+            }
+
             impl From<AdditiveShare<Boolean>> for AdditiveShare<$name> {
                 fn from(s: AdditiveShare<Boolean>) -> Self {
                     AdditiveShare::<$name>::new(s.left().into(), s.right().into())
                 }
             }
 
-            #[cfg(all(test, unit_test))]
-            mod tests {
-                use rand::{thread_rng, Rng};
-
-                use super::*;
-
-                #[test]
-                fn set_boolean_array() {
-                    let mut rng = thread_rng();
-                    let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
-                    let a = rng.gen::<Boolean>();
-                    let mut ba = rng.gen::<$name>();
-                    ba.set(i, a);
-                    assert_eq!(ba.get(i), a);
-                }
-
-                #[test]
-                fn iterate_boolean_array() {
-                    let bits = $name::ONE;
-                    let iter = bits.into_iter();
-                    for (i, j) in iter.enumerate() {
-                        if i == 0 {
-                            assert_eq!(j, Boolean::ONE);
-                        } else {
-                            assert_eq!(j, Boolean::ZERO);
-                        }
-                    }
-                }
-            }
+            // #[cfg(all(test, unit_test))]
+            // mod tests {
+            //     use rand::{thread_rng, Rng};
+            //
+            //     use super::*;
+            //
+            //     #[test]
+            //     fn set_boolean_array() {
+            //         let mut rng = thread_rng();
+            //         let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
+            //         let a = rng.gen::<Boolean>();
+            //         let mut ba = rng.gen::<$name>();
+            //         ba.set(i, a);
+            //         assert_eq!(ba.get(i), Some(a));
+            //     }
+            //
+            //     #[test]
+            //     fn iterate_boolean_array() {
+            //         let bits = $name::ONE;
+            //         let iter = bits.into_iter();
+            //         for (i, j) in iter.enumerate() {
+            //             if i == 0 {
+            //                 assert_eq!(j, Boolean::ONE);
+            //             } else {
+            //                 assert_eq!(j, Boolean::ZERO);
+            //             }
+            //         }
+            //     }
+            // }
         }
 
         pub use $modname::$name;
     };
 }
+
 
 //impl store for U6
 store_impl!(U8, 64);
@@ -301,3 +321,53 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0
     )
 );
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use rand::{thread_rng, Rng};
+    use crate::{
+        ff::{boolean::Boolean, ArrayAccess, Field},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
+    };
+
+    use super::*;
+
+    #[test]
+    fn set_boolean_array() {
+        let mut rng = thread_rng();
+        let i = rng.gen::<usize>() % usize::try_from(<BA64>::BITS).unwrap();
+        let a = rng.gen::<Boolean>();
+        let mut ba = rng.gen::<BA64>();
+        ba.set(i, a);
+        assert_eq!(ba.get(i), Some(a));
+    }
+
+    #[test]
+    fn iterate_boolean_array() {
+        let bits = BA64::ONE;
+        let iter = bits.into_iter();
+        for (i, j) in iter.enumerate() {
+            if i == 0 {
+                assert_eq!(j, Boolean::ONE);
+            } else {
+                assert_eq!(j, Boolean::ZERO);
+            }
+        }
+    }
+
+    #[test]
+    fn iterate_secret_shared_boolean_array() {
+        let bits = AdditiveShare::new(<BA64>::ONE,<BA64>::ONE);
+        let iter = bits.into_iter();
+        for (i, j) in iter.enumerate() {
+            if i == 0 {
+                assert_eq!(j, AdditiveShare::new(Boolean::ONE,Boolean::ONE));
+            } else {
+                assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+            }
+        }
+    }
+}

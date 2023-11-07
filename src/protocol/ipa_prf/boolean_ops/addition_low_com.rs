@@ -6,6 +6,7 @@ use crate::{
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
+use crate::ff::CustomArray;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -17,7 +18,7 @@ pub(crate) enum Step {
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, XS, YS, T>(
+pub async fn integer_add<'a, C, XS, YS, T>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<XS>,
@@ -25,8 +26,10 @@ pub async fn integer_add<C, XS, YS, T>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    XS: ArrayAccess<Element = T> + WeakSharedValue,
-    YS: ArrayAccess<Element = T> + WeakSharedValue,
+    XS: WeakSharedValue,
+    YS: WeakSharedValue,
+    AdditiveShare<XS>: CustomArray<AdditiveShare<T>>,
+    AdditiveShare<YS>: CustomArray<AdditiveShare<T>>,
     T: Field,
 {
     let mut carry = AdditiveShare::<T>::ZERO;
@@ -39,7 +42,7 @@ where
 /// ideally it would be all one array when any of higher bits of y is non-zero (not implemented since we dont seem to need it)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<C, XS, YS, T>(
+pub async fn integer_sat_add<'a, C, XS, YS, T>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<XS>,
@@ -47,10 +50,11 @@ pub async fn integer_sat_add<C, XS, YS, T>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    XS: ArrayAccess<Element = T> + WeakSharedValue + Field,
-    YS: ArrayAccess<Element = T> + WeakSharedValue,
+    XS: WeakSharedValue + Field,
+    YS: WeakSharedValue,
     T: Field,
-    AdditiveShare<XS>: From<AdditiveShare<T>>,
+    AdditiveShare<XS>: CustomArray<AdditiveShare<T>>,
+    AdditiveShare<YS>: CustomArray<AdditiveShare<T>>,
 {
     let mut carry = AdditiveShare::<T>::ZERO;
     let result = addition_circuit(
@@ -82,7 +86,7 @@ where
 ///for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
-async fn addition_circuit<C, XS, YS, T>(
+async fn addition_circuit< C, XS, YS, T>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<XS>,
@@ -91,19 +95,22 @@ async fn addition_circuit<C, XS, YS, T>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    XS: ArrayAccess<Element = T> + WeakSharedValue,
-    YS: ArrayAccess<Element = T> + WeakSharedValue,
+    XS: WeakSharedValue,
+    YS: WeakSharedValue,
+    AdditiveShare<XS>: CustomArray<AdditiveShare<T>>,
+    AdditiveShare<YS>: CustomArray<AdditiveShare<T>>,
     T: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for i in 0..XS::BITS as usize {
+
+    for (i,v) in x.clone().into_iter().enumerate() {
         result.set(
             i,
             bit_adder(
                 ctx.narrow(&BitOpStep::from(i)),
                 record_id,
-                &x.get(i),
-                &y.get(i),
+                &v,
+                y.get(i).as_ref(),
                 carry,
             )
             .await?,
@@ -111,6 +118,22 @@ where
     }
 
     Ok(result)
+
+    // Ok(
+    //     x.into_iter().enumerate()
+    //         .map(
+    //             |(i, v)|
+    //                 async move {
+    //                     bit_adder(
+    //                         ctx.narrow(&BitOpStep::from(i)),
+    //                         record_id,
+    //                         &v,
+    //                         y.get(i).map(|x|&x),
+    //                         carry,
+    //                     ).await
+    //                 }
+    //         ).collect()
+    // )
 }
 
 ///bit adder
@@ -123,18 +146,18 @@ async fn bit_adder<C, S>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<S>,
-    y: &AdditiveShare<S>,
+    y: Option<&AdditiveShare<S>>,
     carry: &mut AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
     S: Field,
 {
-    let output = x + y + &*carry;
+    let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
 
     *carry = &*carry
         + (x + &*carry)
-            .multiply(&(y + &*carry), ctx, record_id)
+            .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
             .await?;
 
     Ok(output)
