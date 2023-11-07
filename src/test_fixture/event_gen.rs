@@ -45,6 +45,8 @@ pub struct Config {
     pub max_breakdown_key: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
     pub max_events_per_user: NonZeroU32,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "1"))]
+    pub min_events_per_user: NonZeroU32,
     /// Indicates the types of reports that will appear in the output. Possible values
     /// are: only impressions, only conversions or both.
     #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ReportFilter::All))]
@@ -66,7 +68,7 @@ fn validate_probability(value: &str) -> Result<f32, String> {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000_000_000_000, 5, 20, 50)
+        Self::new(1_000_000_000_000, 5, 20, 1, 50)
     }
 }
 
@@ -80,12 +82,15 @@ impl Config {
         user_count: u64,
         max_trigger_value: u32,
         max_breakdown_key: u32,
+        min_events_per_user: u32,
         max_events_per_user: u32,
     ) -> Self {
+        assert!(min_events_per_user < max_events_per_user);
         Self {
             user_count: NonZeroU64::try_from(user_count).unwrap(),
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
+            min_events_per_user: NonZeroU32::try_from(min_events_per_user).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
             conversion_probability: None,
@@ -226,7 +231,13 @@ impl<R: Rng> EventGenerator<R> {
             );
             if valid(next) {
                 self.used.insert(next);
-                break UserStats::new(next, self.config.max_events_per_user.get());
+                break UserStats::new(
+                    next,
+                    self.rng.gen_range(
+                        self.config.min_events_per_user.get()
+                            ..=self.config.max_events_per_user.get(),
+                    ),
+                );
             }
         })
     }
@@ -280,6 +291,7 @@ mod tests {
             thread_rng(),
             Config {
                 user_count: NonZeroU64::new(10).unwrap(),
+                min_events_per_user: NonZeroU32::new(10).unwrap(),
                 max_events_per_user: NonZeroU32::new(10).unwrap(),
                 ..Config::default()
             },
@@ -357,14 +369,25 @@ mod tests {
                 1..u32::MAX,
                 1..u32::MAX,
                 1..u32::MAX,
+                1..u32::MAX,
                 report_filter_strategy(),
             )
                 .prop_map(
-                    |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| {
+                    |(
+                        max_trigger_value,
+                        max_breakdown_key,
+                        mut min_events_per_user,
+                        mut max_events_per_user,
+                        report_filter,
+                    )| {
+                        if min_events_per_user > max_events_per_user {
+                            std::mem::swap(&mut min_events_per_user, &mut max_events_per_user);
+                        }
                         Config {
                             user_count: NonZeroU64::new(10_000).unwrap(),
                             max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
                             max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                            min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
                             max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
                             report_filter,
                             conversion_probability: match report_filter {
