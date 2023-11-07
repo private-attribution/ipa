@@ -31,7 +31,7 @@ use crate::{
         step::{Gate, StepNarrow},
     },
     query::{
-        runner::{IpaQuery, OPRFShuffleQuery, QueryResult, SparseAggregateQuery},
+        runner::{IpaQuery, QueryResult, SparseAggregateQuery},
         state::RunningQuery,
     },
 };
@@ -228,18 +228,6 @@ pub fn execute(
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
-            },
-        ),
-        (QueryType::OPRFShuffle(oprf_shuffle_config), _) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                let query = OPRFShuffleQuery::new(oprf_shuffle_config)
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>)));
-                Box::pin(query)
             },
         ),
     }

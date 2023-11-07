@@ -143,10 +143,6 @@ pub mod query {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpa(q))
                 }
-                QueryType::OPRF_SHUFFLE_STR => {
-                    let Query(q) = req.extract().await?;
-                    Ok(QueryType::OPRFShuffle(q))
-                }
                 other => Err(Error::bad_query_value("query_type", other)),
             }?;
             Ok(QueryConfigQueryParams(QueryConfig {
@@ -196,10 +192,6 @@ pub mod query {
                         config.contribution_bits, config.num_contributions,
                     )?;
 
-                    Ok(())
-                }
-                QueryType::OPRFShuffle(_config) => {
-                    write!(f, "")?;
                     Ok(())
                 }
             }
