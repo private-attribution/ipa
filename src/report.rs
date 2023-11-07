@@ -17,6 +17,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
     },
+    protocol::ipa_prf::prf_sharding::GroupingKey,
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
@@ -422,6 +423,12 @@ where
     pub event_type: EventType,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
+}
+
+impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> GroupingKey for OprfReport<TS, BK, TV> {
+    fn get_grouping_key(&self) -> u64 {
+        self.mk_oprf
+    }
 }
 
 impl Serializable for u64 {

@@ -10,31 +10,31 @@ use crate::{
     ff::Serializable,
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
-        SharedValue,
+        SharedValue, WeakSharedValue,
     },
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: SharedValue>(V, V);
+pub struct AdditiveShare<V: WeakSharedValue>(V, V);
 
-impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
+impl<V: WeakSharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
-impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
+impl<V: WeakSharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<V: SharedValue> Default for AdditiveShare<V> {
+impl<V: WeakSharedValue> Default for AdditiveShare<V> {
     fn default() -> Self {
         AdditiveShare::new(V::ZERO, V::ZERO)
     }
 }
 
-impl<V: SharedValue> AdditiveShare<V> {
+impl<V: WeakSharedValue> AdditiveShare<V> {
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Self = Self(V::ZERO, V::ZERO);
 
@@ -43,7 +43,7 @@ impl<V: SharedValue> AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> ReplicatedSecretSharing<V> for AdditiveShare<V> {
+impl<V: WeakSharedValue> ReplicatedSecretSharing<V> for AdditiveShare<V> {
     fn new(a: V, b: V) -> Self {
         Self(a, b)
     }
@@ -57,7 +57,7 @@ impl<V: SharedValue> ReplicatedSecretSharing<V> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> AdditiveShare<V>
+impl<V: WeakSharedValue> AdditiveShare<V>
 where
     Self: Serializable,
 {
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<'a, 'b, V: SharedValue> Add<&'b AdditiveShare<V>> for &'a AdditiveShare<V> {
+impl<'a, 'b, V: WeakSharedValue> Add<&'b AdditiveShare<V>> for &'a AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: &'b AdditiveShare<V>) -> Self::Output {
@@ -80,7 +80,7 @@ impl<'a, 'b, V: SharedValue> Add<&'b AdditiveShare<V>> for &'a AdditiveShare<V> 
     }
 }
 
-impl<V: SharedValue> Add<Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> Add<Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -88,7 +88,7 @@ impl<V: SharedValue> Add<Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
+impl<V: WeakSharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: AdditiveShare<V>) -> Self::Output {
@@ -96,7 +96,7 @@ impl<V: SharedValue> Add<AdditiveShare<V>> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
+impl<V: WeakSharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(self, rhs: &Self) -> Self::Output {
@@ -104,20 +104,20 @@ impl<V: SharedValue> Add<&AdditiveShare<V>> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> AddAssign<&Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
     }
 }
 
-impl<V: SharedValue> AddAssign<Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> AddAssign<Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: Self) {
         AddAssign::add_assign(self, &rhs);
     }
 }
 
-impl<V: SharedValue> Neg for &AdditiveShare<V> {
+impl<V: WeakSharedValue> Neg for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn neg(self) -> Self::Output {
@@ -125,7 +125,7 @@ impl<V: SharedValue> Neg for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Neg for AdditiveShare<V> {
+impl<V: WeakSharedValue> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -133,7 +133,7 @@ impl<V: SharedValue> Neg for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
+impl<V: WeakSharedValue> Sub<Self> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -141,7 +141,7 @@ impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Sub<Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> Sub<Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -149,7 +149,7 @@ impl<V: SharedValue> Sub<Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(self, rhs: &Self) -> Self::Output {
@@ -157,7 +157,7 @@ impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> Sub<AdditiveShare<V>> for &AdditiveShare<V> {
+impl<V: WeakSharedValue> Sub<AdditiveShare<V>> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: AdditiveShare<V>) -> Self::Output {
@@ -165,14 +165,14 @@ impl<V: SharedValue> Sub<AdditiveShare<V>> for &AdditiveShare<V> {
     }
 }
 
-impl<V: SharedValue> SubAssign<&Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.0 -= rhs.0;
         self.1 -= rhs.1;
     }
 }
 
-impl<V: SharedValue> SubAssign<Self> for AdditiveShare<V> {
+impl<V: WeakSharedValue> SubAssign<Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: Self) {
         SubAssign::sub_assign(self, &rhs);
     }

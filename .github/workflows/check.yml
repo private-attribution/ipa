@@ -142,6 +142,8 @@ jobs:
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
+    # disabled due to https://github.com/private-attribution/ipa/issues/837
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

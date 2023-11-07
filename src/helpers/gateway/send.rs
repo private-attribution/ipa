@@ -30,7 +30,7 @@ pub struct SendingEnd<M: Message> {
 /// Sending channels, indexed by (role, step).
 #[derive(Default)]
 pub(super) struct GatewaySenders {
-    inner: DashMap<ChannelId, Arc<GatewaySender>>,
+    pub(super) inner: DashMap<ChannelId, Arc<GatewaySender>>,
 }
 
 pub(super) struct GatewaySender {
@@ -76,6 +76,16 @@ impl GatewaySender {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn waiting(&self) -> Vec<usize> {
+        self.ordering_tx.waiting()
+    }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn total_records(&self) -> TotalRecords {
+        self.total_records
     }
 }
 
