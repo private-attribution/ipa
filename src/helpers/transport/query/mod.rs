@@ -1,3 +1,5 @@
+pub mod oprf_shuffle;
+
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,

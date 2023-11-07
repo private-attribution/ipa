@@ -194,10 +194,31 @@ macro_rules! bit_array_impl {
             // = 01011001
             // Since the coefficients are in GF(2), we can just XOR these bitwise representations.
             // Note for x^7 + x^7 = 0 because 1 + 1 = 0 in GF(2)
-            impl std::ops::Add for $name {
+            impl <'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+                type Output = $name;
+                fn add(self, rhs: &'b $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<&$name> for $name {
                 type Output = Self;
-                fn add(self, rhs: Self) -> Self::Output {
-                    Self(self.0 ^ rhs.0)
+                fn add(self, rhs: &$name) -> Self::Output {
+                    std::ops::Add::add(&self, rhs)
+                }
+            }
+
+            impl std::ops::Add<$name> for &$name {
+                type Output = $name;
+                fn add(self, rhs: $name) -> Self::Output {
+                    std::ops::Add::add(self, &rhs)
+                }
+            }
+
+            impl std::ops::Add<$name> for $name {
+                type Output = Self;
+                fn add(self, rhs: $name) -> Self::Output {
+                    std::ops::Add::add(&self, &rhs)
                 }
             }
 

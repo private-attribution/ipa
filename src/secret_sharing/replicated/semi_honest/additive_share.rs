@@ -20,7 +20,6 @@ pub struct AdditiveShare<V: WeakSharedValue>(V, V);
 impl<V: WeakSharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
-
 impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 impl<V: WeakSharedValue + Debug> Debug for AdditiveShare<V> {

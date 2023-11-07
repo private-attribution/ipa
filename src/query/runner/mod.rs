@@ -1,7 +1,6 @@
 mod aggregate;
 mod ipa;
 mod oprf_ipa;
-
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 mod test_multiply;
 

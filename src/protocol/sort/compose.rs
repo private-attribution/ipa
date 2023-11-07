@@ -4,9 +4,9 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::Reshare,
+        basics::{apply_permutation::apply, Reshare},
         context::Context,
-        sort::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho},
+        sort::{shuffle::unshuffle_shares, ComposeStep::UnshuffleRho},
         RecordId,
     },
     secret_sharing::SecretSharing,
@@ -59,11 +59,9 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
+            basics::apply_permutation::apply,
             context::{Context, SemiHonestContext, UpgradableContext, Validator},
-            sort::{
-                apply::apply, compose::compose,
-                generate_permutation::shuffle_and_reveal_permutation,
-            },
+            sort::{compose::compose, generate_permutation::shuffle_and_reveal_permutation},
         },
         rand::thread_rng,
         test_fixture::{Reconstruct, Runner, TestWorld},
