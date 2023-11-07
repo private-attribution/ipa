@@ -368,13 +368,11 @@ where
         while let Some(row) = s.next().await {
             if row.prf_of_match_key == last_row_prf {
                 current_chunk.push(row);
+            } else if current_chunk.len() > 1 {
+                return Some((current_chunk, Some((s, row))));
             } else {
-                if current_chunk.len() > 1 {
-                    return Some((current_chunk, Some((s, row))));
-                } else {
-                    last_row_prf = row.prf_of_match_key;
-                    current_chunk = vec![row];
-                }
+                last_row_prf = row.prf_of_match_key;
+                current_chunk = vec![row];
             }
         }
         Some((current_chunk, None))
