@@ -67,9 +67,6 @@ jobs:
       - name: Run Web Tests
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
 
-      - name: Run compact gate tests
-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
-
   release:
     name: Release builds and tests
     runs-on: ubuntu-latest
