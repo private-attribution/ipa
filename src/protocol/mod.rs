@@ -7,8 +7,6 @@ pub mod dp;
 pub mod ipa;
 pub mod ipa_prf;
 pub mod modulus_conversion;
-#[cfg(feature = "descriptive-gate")]
-pub mod prf_sharding;
 pub mod prss;
 pub mod sort;
 pub mod step;

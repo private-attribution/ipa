@@ -1,6 +1,7 @@
 mod aggregate;
 mod ipa;
 mod oprf_ipa;
+#[cfg(feature = "descriptive-gate")]
 pub mod oprf_shuffle;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]

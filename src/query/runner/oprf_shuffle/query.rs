@@ -8,7 +8,7 @@ use crate::{
         query::{oprf_shuffle, QuerySize},
         BodyStream, Direction, RecordsStream,
     },
-    protocol::{context::Context, oprf::shuffle::shuffle},
+    protocol::{context::Context, ipa_prf::shuffle::shuffle},
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
