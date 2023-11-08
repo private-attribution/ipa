@@ -243,18 +243,18 @@ where
 impl<S> ArrayAccess for AdditiveShare<S>
 where
     S: ArrayAccess + WeakSharedValue,
-    <S as ArrayAccess>::Element: WeakSharedValue,
+    <S as ArrayAccess>::AAElement: WeakSharedValue,
 {
-    type Element = AdditiveShare<<S as ArrayAccess>::Element>;
+    type AAElement = AdditiveShare<<S as ArrayAccess>::AAElement>;
 
-    fn get(&self, index: usize) -> Option<Self::Element> {
+    fn get(&self, index: usize) -> Option<Self::AAElement> {
         self.0.get(index).zip(self.0.get(index)).map(
             |v|
                 AdditiveShare(v.0, v.1)
         )
     }
 
-    fn set(&mut self, index: usize, e: Self::Element) {
+    fn set(&mut self, index: usize, e: Self::AAElement) {
         self.0.set(index, e.0);
         self.1.set(index, e.1);
     }
@@ -283,13 +283,12 @@ where
     }
 }
 
-impl<'a, S, T> IntoIterator for &'a AdditiveShare<S>
+impl<'a, S> IntoIterator for &'a AdditiveShare<S>
 where
-    &'a S: IntoIterator<Item=T>,
-    S: WeakSharedValue + CustomArray<'a, T>,
-    T: WeakSharedValue,
+    &'a S: IntoIterator<Item= S::Element>,
+    S: CustomArray,
 {
-    type Item = AdditiveShare<T>;
+    type Item = AdditiveShare<S::Element>;
     type IntoIter = ASIterator<<&'a S as IntoIterator>::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -300,14 +299,14 @@ where
     }
 }
 
-impl<S, U> FromIterator<AdditiveShare<U>> for AdditiveShare<S>
+impl<S> FromIterator<AdditiveShare<S::AAElement>> for AdditiveShare<S>
     where
-        S: WeakSharedValue + ArrayAccess<Element=U>,
-        U: WeakSharedValue,
+        S: WeakSharedValue + ArrayAccess,
+        S::AAElement: WeakSharedValue,
 {
     fn from_iter<I>(iter: I) -> Self
         where
-            I: IntoIterator<Item = AdditiveShare<U>>,
+            I: IntoIterator<Item = AdditiveShare<S::AAElement>>,
     {
         let mut result = AdditiveShare::<S>::ZERO;
         for (i,v) in iter.into_iter().enumerate() {

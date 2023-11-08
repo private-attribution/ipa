@@ -58,44 +58,33 @@ pub trait Serializable: Sized {
 }
 
 pub trait ArrayAccess {
-    type Element;
+    type AAElement;
 
-    fn get(&self, index: usize) -> Option<Self::Element>;
+    fn get(&self, index: usize) -> Option<Self::AAElement>;
 
-    fn set(&mut self, index: usize, e: Self::Element);
+    fn set(&mut self, index: usize, e: Self::AAElement);
 }
 
 /// Custom Array trait
 /// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
-/// supports `IntoIterator` and `into_iter()`
+/// doesn't support `IntoIterator` and `into_iter()`, &'a S: IntoIterator<Item= S::Element> needs to be added manually in trait bound when used
 /// supports `From` for `Element`, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
-pub trait CustomArray<'a, T>
+pub trait CustomArray
     where
-        Self: WeakSharedValue + ArrayAccess<Element=T> + From<T> + FromIterator<T> +'a,
+        Self: WeakSharedValue + ArrayAccess<AAElement=Self::Element>
+        + From<Self::Element>
+        + FromIterator<Self::Element>,
         //&'a Self: IntoIterator<Item = T>,
-        T: WeakSharedValue,
+        Self::Element: WeakSharedValue,
 {
+    type Element;
 }
 
 /// impl Custom Array for all compatible structs
-impl<'a, S, T> CustomArray<'a, T> for S where
-    S: WeakSharedValue + ArrayAccess<Element=T> + From<T> + FromIterator<T> +'a,
-    //&'a S: IntoIterator<Item = T>,
-    T: WeakSharedValue,
+impl<S> CustomArray for S where
+    S: WeakSharedValue + ArrayAccess + From<Self::AAElement> + FromIterator<Self::AAElement> ,
+    Self::AAElement: WeakSharedValue,
 {
+    type Element = <S as ArrayAccess>::AAElement;
 }
-
-// pub trait CustomArray<'a>
-// where
-//     Self: ArrayAccess + From<<Self as ArrayAccess>::Element> + FromIterator<<Self as ArrayAccess>::Element> +'a,
-//     //&'a Self: IntoIterator<Item = <Self as ArrayAccess>::Element>,
-// {
-// }
-//
-// /// impl Custom Array for all compatible structs
-// impl<'a, S> CustomArray<'a> for S where
-//     S: ArrayAccess  + From<<S as ArrayAccess>::Element> + FromIterator<<S as ArrayAccess>::Element> + 'a,
-//     //&'a S: IntoIterator<Item = <S as ArrayAccess>::Element>,
-// {
-// }

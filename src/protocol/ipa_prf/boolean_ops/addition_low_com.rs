@@ -18,7 +18,7 @@ pub(crate) enum Step {
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<'a, C, XS, YS, T>(
+pub async fn integer_add<'a, C, XS, YS>(
     ctx: C,
     record_id: RecordId,
     x: &'a AdditiveShare<XS>,
@@ -26,13 +26,13 @@ pub async fn integer_add<'a, C, XS, YS, T>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    &'a AdditiveShare<XS>: IntoIterator<Item=AdditiveShare<T>>,
-    YS: CustomArray<'a, T>,
-    XS: CustomArray<'a, T>,
-    T: Field,
+    &'a XS: IntoIterator<Item=XS::Element>,
+    YS: CustomArray<Element=XS::Element>,
+    XS: CustomArray,
+    XS::Element: Field,
 {
 
-    let mut carry = AdditiveShare::<T>::ZERO;
+    let mut carry = AdditiveShare::<XS::Element>::ZERO;
 
 
     let mut result = AdditiveShare::<XS>::ZERO;
@@ -51,8 +51,8 @@ where
         );
     }
 
-    // Ok(result)
-    addition_circuit(ctx, record_id, x, y, &mut carry).await
+    Ok(result)
+    //addition_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
 // ///saturated unsigned integer addition
@@ -105,23 +105,19 @@ where
 ///for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
-async fn addition_circuit<'a, C, XS, YS, T>(
+async fn addition_circuit<'a, C, XS, YS>(
     ctx: C,
     record_id: RecordId,
     x: &'a AdditiveShare<XS>,
     y: &AdditiveShare<YS>,
-    carry: &mut AdditiveShare<T>,
+    carry: &mut AdditiveShare<XS::Element>,
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    &'a AdditiveShare<XS>: IntoIterator<Item=AdditiveShare<T>>,
-    // XS: CustomArray<'a, T>,
-    // YS: CustomArray<'a, T>,
-    XS: WeakSharedValue,
-    YS: WeakSharedValue,
-    YS: ArrayAccess<Element=T>,
-    XS: ArrayAccess<Element=T>,
-    T: Field,
+    &'a XS: IntoIterator<Item=XS::Element>,
+    XS: CustomArray,
+    YS: CustomArray<Element=XS::Element>,
+    XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
 

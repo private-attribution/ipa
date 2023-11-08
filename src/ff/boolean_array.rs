@@ -68,9 +68,9 @@ macro_rules! boolean_array_impl {
             pub struct $name(Store);
 
             impl ArrayAccess for $name {
-                type Element = Boolean;
+                type AAElement = Boolean;
 
-                fn get(&self, index: usize) -> Option<Self::Element> {
+                fn get(&self, index: usize) -> Option<Self::AAElement> {
                     if index < usize::try_from(<$name>::BITS).unwrap()
                     {
                         Some(self.0[index].into())
@@ -80,7 +80,7 @@ macro_rules! boolean_array_impl {
                     }
                 }
 
-                fn set(&mut self, index: usize, e: Self::Element) {
+                fn set(&mut self, index: usize, e: Self::AAElement) {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
                 }
