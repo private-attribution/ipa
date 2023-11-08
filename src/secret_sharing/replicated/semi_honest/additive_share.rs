@@ -268,12 +268,12 @@ where
     iterator_right: T,
 }
 
-impl<T, U> Iterator for ASIterator<T>
+impl<T> Iterator for ASIterator<T>
 where
-    T: Iterator<Item = U>,
-    U: WeakSharedValue,
+    T: Iterator,
+    T::Item: WeakSharedValue,
 {
-    type Item = AdditiveShare<U>;
+    type Item = AdditiveShare<T::Item>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.iterator_left.next(), self.iterator_right.next()) {
