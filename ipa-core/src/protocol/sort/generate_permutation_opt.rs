@@ -298,7 +298,9 @@ mod tests {
     }
 
     /// Passing 32 records for Fp31 doesn't work.
-    #[tokio::test]
+    ///
+    /// Requires one extra thread to cancel futures running in parallel with the one that panics.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[should_panic = "prime field ipa_core::ff::prime_field::fp31::Fp31 is too small to sort 32 records"]
     async fn fp31_overflow() {
         const COUNT: usize = 32;

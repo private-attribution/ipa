@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     future::IntoFuture,
     num::NonZeroUsize,
     pin::Pin,
@@ -39,15 +38,13 @@ pub fn assert_send<'a, O>(
 /// [`try_join_all`]: futures::future::try_join_all
 /// [`Stream`]: futures::stream::Stream
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<S, F, O>(active: NonZeroUsize, source: S) -> SequentialFutures<S, F>
+pub fn seq_join<'st, S, F, O>(active: NonZeroUsize, source: S) -> SequentialFutures<'st, S, F>
 where
-    S: Stream<Item = F> + Send,
-    F: Future<Output = O>,
+    S: Stream<Item = F> + Send + 'st,
+    F: Future<Output = O> + Send,
+    O: Send + 'static,
 {
-    SequentialFutures {
-        source: source.fuse(),
-        active: VecDeque::with_capacity(active.get()),
-    }
+    SequentialFutures::new(active, source)
 }
 
 /// The `SeqJoin` trait wraps `seq_try_join_all`, providing the `active` parameter
@@ -72,16 +69,37 @@ pub trait SeqJoin {
     /// [`active_work`]: Self::active_work
     /// [`parallel_join`]: Self::parallel_join
     /// [`join3`]: futures::future::join3
-    fn try_join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
+    fn try_join<'fut, I, F, O, E>(
+        &self,
+        iterable: I,
+    ) -> TryCollect<SeqTryJoinAll<'fut, I, F>, Vec<O>>
     where
         I: IntoIterator<Item = F> + Send,
-        I::IntoIter: Send,
-        F: Future<Output = Result<O, E>>,
+        I::IntoIter: Send + 'fut,
+        F: Future<Output = Result<O, E>> + Send + 'fut,
+        O: Send + 'static,
+        E: Send + 'static,
     {
         seq_try_join_all(self.active_work(), iterable)
     }
 
     /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
+    #[cfg(feature = "multi-threading")]
+    fn parallel_join<'a, I, F, O, E>(
+        &self,
+        iterable: I,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<O>, E>> + Send + 'a>>
+    where
+        I: IntoIterator<Item = F> + Send,
+        F: Future<Output = Result<O, E>> + Send + 'a,
+        O: Send + 'static,
+        E: Send + 'static,
+    {
+        multi_thread::parallel_join(iterable)
+    }
+
+    /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
+    #[cfg(not(feature = "multi-threading"))]
     fn parallel_join<I>(&self, iterable: I) -> futures::future::TryJoinAll<I::Item>
     where
         I: IntoIterator,
@@ -95,130 +113,335 @@ pub trait SeqJoin {
     fn active_work(&self) -> NonZeroUsize;
 }
 
-type SeqTryJoinAll<I, F> = SequentialFutures<StreamIter<<I as IntoIterator>::IntoIter>, F>;
+type SeqTryJoinAll<'st, I, F> =
+    SequentialFutures<'st, StreamIter<<I as IntoIterator>::IntoIter>, F>;
 
 /// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
 /// This awaits all the provided futures in order,
 /// aborting early if any future returns `Result::Err`.
-pub fn seq_try_join_all<I, F, O, E>(
+pub fn seq_try_join_all<'iter, I, F, O, E>(
     active: NonZeroUsize,
     source: I,
-) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
+) -> TryCollect<SeqTryJoinAll<'iter, I, F>, Vec<O>>
 where
     I: IntoIterator<Item = F> + Send,
-    I::IntoIter: Send,
-    F: Future<Output = Result<O, E>>,
+    I::IntoIter: Send + 'iter,
+    F: Future<Output = Result<O, E>> + Send + 'iter,
+    O: Send + 'static,
+    E: Send + 'static,
 {
     seq_join(active, iter(source)).try_collect()
 }
 
-enum ActiveItem<F: IntoFuture> {
-    Pending(Pin<Box<F::IntoFuture>>),
-    Resolved(F::Output),
-}
-
-impl<F: IntoFuture> ActiveItem<F> {
-    /// Drives this item to resolved state when value is ready to be taken out. Has no effect
-    /// if the value is ready.
-    ///
-    /// ## Panics
-    /// Panics if this item is completed
-    fn check_ready(&mut self, cx: &mut Context<'_>) -> bool {
-        let ActiveItem::Pending(f) = self else {
-            return true;
-        };
-        if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
-            *self = ActiveItem::Resolved(v);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Takes the resolved value out
-    ///
-    /// ## Panics
-    /// If the value is not ready yet.
-    #[must_use]
-    fn take(self) -> F::Output {
-        let ActiveItem::Resolved(v) = self else {
-            panic!("No value to take out");
-        };
-
-        v
-    }
-}
-
-#[pin_project]
-pub struct SequentialFutures<S, F>
-where
-    S: Stream<Item = F> + Send,
-    F: IntoFuture,
-{
-    #[pin]
-    source: futures::stream::Fuse<S>,
-    active: VecDeque<ActiveItem<F>>,
-}
-
-impl<S, F> Stream for SequentialFutures<S, F>
-where
-    S: Stream<Item = F> + Send,
-    F: IntoFuture,
-{
-    type Item = F::Output;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-
-        // Draw more values from the input, up to the capacity.
-        while this.active.len() < this.active.capacity() {
-            if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
-                this.active
-                    .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
-            } else {
-                break;
-            }
-        }
-
-        if let Some(item) = this.active.front_mut() {
-            if item.check_ready(cx) {
-                let v = this.active.pop_front().map(ActiveItem::take);
-                Poll::Ready(v)
-            } else {
-                for f in this.active.iter_mut().skip(1) {
-                    f.check_ready(cx);
-                }
-                Poll::Pending
-            }
-        } else if this.source.is_done() {
-            Poll::Ready(None)
-        } else {
-            Poll::Pending
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let in_progress = self.active.len();
-        let (lower, upper) = self.source.size_hint();
-        (
-            lower.saturating_add(in_progress),
-            upper.and_then(|u| u.checked_add(in_progress)),
-        )
-    }
-}
-
-impl<S, F> ExactSizeStream for SequentialFutures<S, F>
+impl<'fut, S, F> ExactSizeStream for SequentialFutures<'fut, S, F>
 where
     S: Stream<Item = F> + Send + ExactSizeStream,
     F: IntoFuture,
+    <F as IntoFuture>::IntoFuture: Send + 'fut,
+    <<F as IntoFuture>::IntoFuture as Future>::Output: Send + 'static,
 {
 }
 
-#[cfg(all(test, unit_test))]
-mod test {
+#[cfg(feature = "multi-threading")]
+pub type SequentialFutures<'fut, S, F> = multi_thread::SequentialFutures<'fut, S, F>;
+
+#[cfg(not(feature = "multi-threading"))]
+pub type SequentialFutures<'unused, S, F> = local::SequentialFutures<'unused, S, F>;
+
+/// Parallel and sequential join that use at most one thread. Good for unit testing and debugging,
+/// to get results in predictable order with fewer things happening at the same time.
+#[cfg(not(feature = "multi-threading"))]
+mod local {
+    use std::{collections::VecDeque, marker::PhantomData};
+
+    use super::*;
+
+    enum ActiveItem<F: IntoFuture> {
+        Pending(Pin<Box<F::IntoFuture>>),
+        Resolved(F::Output),
+    }
+
+    impl<F: IntoFuture> ActiveItem<F> {
+        /// Drives this item to resolved state when value is ready to be taken out. Has no effect
+        /// if the value is ready.
+        ///
+        /// ## Panics
+        /// Panics if this item is completed
+        fn check_ready(&mut self, cx: &mut Context<'_>) -> bool {
+            let ActiveItem::Pending(f) = self else {
+                return true;
+            };
+            if let Poll::Ready(v) = Future::poll(Pin::as_mut(f), cx) {
+                *self = ActiveItem::Resolved(v);
+                true
+            } else {
+                false
+            }
+        }
+
+        /// Takes the resolved value out
+        ///
+        /// ## Panics
+        /// If the value is not ready yet.
+        #[must_use]
+        fn take(self) -> F::Output {
+            let ActiveItem::Resolved(v) = self else {
+                panic!("No value to take out");
+            };
+
+            v
+        }
+    }
+
+    #[pin_project]
+    pub struct SequentialFutures<'unused, S, F>
+    where
+        S: Stream<Item = F> + Send,
+        F: IntoFuture,
+    {
+        #[pin]
+        source: futures::stream::Fuse<S>,
+        active: VecDeque<ActiveItem<F>>,
+        _marker: PhantomData<fn(&'unused ()) -> &'unused ()>,
+    }
+
+    impl<S, F> SequentialFutures<'_, S, F>
+    where
+        S: Stream<Item = F> + Send,
+        F: IntoFuture,
+    {
+        pub fn new(active: NonZeroUsize, source: S) -> Self {
+            Self {
+                source: source.fuse(),
+                active: VecDeque::with_capacity(active.get()),
+                _marker: PhantomData,
+            }
+        }
+    }
+
+    impl<S, F> Stream for SequentialFutures<'_, S, F>
+    where
+        S: Stream<Item = F> + Send,
+        F: IntoFuture,
+    {
+        type Item = F::Output;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let mut this = self.project();
+
+            // Draw more values from the input, up to the capacity.
+            while this.active.len() < this.active.capacity() {
+                if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
+                    this.active
+                        .push_back(ActiveItem::Pending(Box::pin(f.into_future())));
+                } else {
+                    break;
+                }
+            }
+
+            if let Some(item) = this.active.front_mut() {
+                if item.check_ready(cx) {
+                    let v = this.active.pop_front().map(ActiveItem::take);
+                    Poll::Ready(v)
+                } else {
+                    for f in this.active.iter_mut().skip(1) {
+                        f.check_ready(cx);
+                    }
+                    Poll::Pending
+                }
+            } else if this.source.is_done() {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let in_progress = self.active.len();
+            let (lower, upper) = self.source.size_hint();
+            (
+                lower.saturating_add(in_progress),
+                upper.and_then(|u| u.checked_add(in_progress)),
+            )
+        }
+    }
+}
+
+/// Both joins use executor tasks to drive futures to completion. Much faster than single-threaded
+/// version, so this is what we want to use in release/prod mode.
+#[cfg(feature = "multi-threading")]
+mod multi_thread {
+    use futures::future::BoxFuture;
+    use tracing::{Instrument, Span};
+
+    use super::*;
+
+    #[cfg(feature = "shuttle")]
+    mod shuttle_spawner {
+        use shuttle_crate::{
+            future,
+            future::{JoinError, JoinHandle},
+        };
+
+        use super::*;
+
+        /// Spawner implementation for Shuttle framework to run tests in parallel
+        pub(super) struct ShuttleSpawner;
+
+        unsafe impl<T> async_scoped::spawner::Spawner<T> for ShuttleSpawner
+        where
+            T: Send + 'static,
+        {
+            type FutureOutput = Result<T, JoinError>;
+            type SpawnHandle = JoinHandle<T>;
+
+            fn spawn<F: Future<Output = T> + Send + 'static>(&self, f: F) -> Self::SpawnHandle {
+                future::spawn(f)
+            }
+        }
+
+        unsafe impl async_scoped::spawner::Blocker for ShuttleSpawner {
+            fn block_on<T, F: Future<Output = T>>(&self, f: F) -> T {
+                future::block_on(f)
+            }
+        }
+    }
+
+    #[cfg(feature = "shuttle")]
+    type Spawner<'fut, T> = async_scoped::Scope<'fut, T, shuttle_spawner::ShuttleSpawner>;
+    #[cfg(not(feature = "shuttle"))]
+    type Spawner<'fut, T> = TokioScope<'fut, T>;
+
+    unsafe fn create_spawner<'fut, T: Send + 'static>() -> Spawner<'fut, T> {
+        #[cfg(feature = "shuttle")]
+        return async_scoped::Scope::create(shuttle_spawner::ShuttleSpawner);
+        #[cfg(not(feature = "shuttle"))]
+        return TokioScope::create(Tokio);
+    }
+
+    #[pin_project]
+    #[must_use = "Futures do nothing, unless polled"]
+    pub struct SequentialFutures<'fut, S, F>
+    where
+        S: Stream<Item = F> + Send + 'fut,
+        F: IntoFuture,
+        <<F as IntoFuture>::IntoFuture as Future>::Output: Send + 'static,
+    {
+        #[pin]
+        spawner: Spawner<'fut, F::Output>,
+        #[pin]
+        source: futures::stream::Fuse<S>,
+        capacity: usize,
+    }
+
+    impl<S, F> SequentialFutures<'_, S, F>
+    where
+        S: Stream<Item = F> + Send,
+        F: IntoFuture,
+        <<F as IntoFuture>::IntoFuture as Future>::Output: Send + 'static,
+    {
+        pub fn new(active: NonZeroUsize, source: S) -> Self {
+            SequentialFutures {
+                spawner: unsafe { create_spawner() },
+                source: source.fuse(),
+                capacity: active.get(),
+            }
+        }
+    }
+
+    impl<'fut, S, F> Stream for SequentialFutures<'fut, S, F>
+    where
+        S: Stream<Item = F> + Send,
+        F: IntoFuture,
+        <F as IntoFuture>::IntoFuture: Send + 'fut,
+        <<F as IntoFuture>::IntoFuture as Future>::Output: Send + 'static,
+    {
+        type Item = F::Output;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let mut this = self.project();
+
+            // Draw more values from the input, up to the capacity.
+            while this.spawner.remaining() < *this.capacity {
+                if let Poll::Ready(Some(f)) = this.source.as_mut().poll_next(cx) {
+                    // Making futures cancellable is critical to avoid hangs.
+                    // if one of them panics, unwinding causes spawner to drop and, in turn,
+                    // it blocks the thread to await all pending futures completion. If there is
+                    // a dependency between futures, pending one will never complete.
+                    // Cancellable futures will be cancelled when spawner is dropped which is
+                    // the behavior we want.
+                    this.spawner
+                        .spawn_cancellable(f.into_future().instrument(Span::current()), || {
+                            panic!("cancelled")
+                        });
+                } else {
+                    break;
+                }
+            }
+
+            // Poll spawner if it has work to do. If both source and spawner are empty, we're done
+            if this.spawner.remaining() > 0 {
+                this.spawner.as_mut().poll_next(cx).map(|v| match v {
+                    Some(Ok(v)) => Some(v),
+                    Some(Err(_)) => panic!("task is cancelled"),
+                    None => None,
+                })
+            } else if this.source.is_done() {
+                Poll::Ready(None)
+            } else {
+                Poll::Pending
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let in_progress = self.spawner.remaining();
+            let (lower, upper) = self.source.size_hint();
+            (
+                lower.saturating_add(in_progress),
+                upper.and_then(|u| u.checked_add(in_progress)),
+            )
+        }
+    }
+
+    /// TODO: change it to impl Future once https://github.com/rust-lang/rust/pull/115822 is
+    /// available in stable Rust.
+    pub(super) fn parallel_join<'fut, I, F, O, E>(iterable: I) -> BoxFuture<'fut, Result<Vec<O>, E>>
+    where
+        I: IntoIterator<Item = F> + Send,
+        F: Future<Output = Result<O, E>> + Send + 'fut,
+        O: Send + 'static,
+        E: Send + 'static,
+    {
+        // TODO: implement spawner for shuttle
+        let mut scope = {
+            let iter = iterable.into_iter();
+            // SAFETY: scope object does not escape this function. All futures are driven to
+            // completion inside it or cancelled if a panic occurs.
+            let mut scope = unsafe { create_spawner() };
+            for element in iter {
+                // it is important to make those cancellable.
+                // TODO: elaborate why
+                scope.spawn_cancellable(element.instrument(Span::current()), || {
+                    panic!("Future is cancelled.")
+                });
+            }
+            scope
+        };
+
+        Box::pin(async move {
+            let mut result = Vec::with_capacity(scope.len());
+            while let Some(item) = scope.next().await {
+                // join error is nothing we can do about
+                result.push(item.unwrap()?)
+            }
+            Ok(result)
+        })
+    }
+}
+
+#[cfg(all(test, unit_test, not(feature = "multi-threading")))]
+mod local_test {
     use std::{
-        convert::Infallible,
-        iter::once,
         num::NonZeroUsize,
         ptr::null,
         sync::{Arc, Mutex},
@@ -226,78 +449,12 @@ mod test {
     };
 
     use futures::{
-        future::{lazy, BoxFuture},
-        stream::{iter, poll_fn, poll_immediate, repeat_with},
-        Future, StreamExt,
+        future::lazy,
+        stream::{poll_fn, repeat_with},
+        StreamExt,
     };
 
-    use crate::seq_join::{seq_join, seq_try_join_all};
-
-    async fn immediate(count: u32) {
-        let capacity = NonZeroUsize::new(3).unwrap();
-        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
-            .collect::<Vec<_>>()
-            .await;
-        assert_eq!((0..count).collect::<Vec<_>>(), values);
-    }
-
-    #[tokio::test]
-    async fn within_capacity() {
-        immediate(2).await;
-        immediate(1).await;
-    }
-
-    #[tokio::test]
-    async fn over_capacity() {
-        immediate(10).await;
-    }
-
-    #[tokio::test]
-    async fn out_of_order() {
-        let capacity = NonZeroUsize::new(3).unwrap();
-        let barrier = tokio::sync::Barrier::new(2);
-        let unresolved: BoxFuture<'_, u32> = Box::pin(async {
-            barrier.wait().await;
-            0
-        });
-        let it = once(unresolved)
-            .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        let mut seq_futures = seq_join(capacity, iter(it));
-
-        assert_eq!(
-            Some(Poll::Pending),
-            poll_immediate(&mut seq_futures).next().await
-        );
-        barrier.wait().await;
-        assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
-    }
-
-    #[tokio::test]
-    async fn join_success() {
-        fn f<T: Send>(v: T) -> impl Future<Output = Result<T, Infallible>> {
-            lazy(move |_| Ok(v))
-        }
-
-        let active = NonZeroUsize::new(10).unwrap();
-        let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
-        assert_eq!((1..5).collect::<Vec<_>>(), res);
-    }
-
-    #[tokio::test]
-    async fn try_join_early_abort() {
-        const ERROR: &str = "error message";
-        fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
-            lazy(move |_| match i {
-                1 => Ok(1),
-                2 => Err(ERROR),
-                _ => panic!("should have aborted earlier"),
-            })
-        }
-
-        let active = NonZeroUsize::new(10).unwrap();
-        let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
-        assert_eq!(err, ERROR);
-    }
+    use super::*;
 
     fn fake_waker() -> Waker {
         use std::task::{RawWaker, RawWakerVTable};
@@ -365,8 +522,8 @@ mod test {
     }
 
     /// A fully synchronous test with a synthetic stream, all the way to the end.
-    #[test]
-    fn complete_stream() {
+    #[tokio::test]
+    async fn complete_stream() {
         const VALUE: u32 = 20;
         const COUNT: usize = 7;
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -406,5 +563,108 @@ mod test {
         let res = joined.poll_next_unpin(&mut cx);
         assert_count(&produced_r, 0);
         assert!(matches!(res, Poll::Ready(None)));
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod test {
+    use std::{convert::Infallible, iter::once};
+
+    use futures::{
+        future::{lazy, BoxFuture},
+        stream::{iter, poll_immediate},
+        Future, StreamExt,
+    };
+
+    use super::*;
+
+    async fn immediate(count: u32) {
+        let capacity = NonZeroUsize::new(3).unwrap();
+        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!((0..count).collect::<Vec<_>>(), values);
+    }
+
+    #[tokio::test]
+    async fn within_capacity() {
+        immediate(2).await;
+        immediate(1).await;
+    }
+
+    #[tokio::test]
+    async fn over_capacity() {
+        immediate(10).await;
+    }
+
+    #[tokio::test]
+    async fn out_of_order() {
+        let capacity = NonZeroUsize::new(3).unwrap();
+        let barrier = tokio::sync::Barrier::new(2);
+        let unresolved: BoxFuture<'_, u32> = Box::pin(async {
+            barrier.wait().await;
+            0
+        });
+        let it = once(unresolved)
+            .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
+        let mut seq_futures = seq_join(capacity, iter(it));
+
+        assert_eq!(
+            Some(Poll::Pending),
+            poll_immediate(&mut seq_futures).next().await
+        );
+        barrier.wait().await;
+        assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
+    }
+
+    #[tokio::test]
+    async fn join_success() {
+        fn f<T: Send>(v: T) -> impl Future<Output = Result<T, Infallible>> {
+            lazy(move |_| Ok(v))
+        }
+
+        let active = NonZeroUsize::new(10).unwrap();
+        let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
+        assert_eq!((1..5).collect::<Vec<_>>(), res);
+    }
+
+    /// This test has to use multi-threaded runtime because early return causes `TryCollect` to be
+    /// dropped and the remaining futures to be cancelled which can only happen if there is more
+    /// than one thread available.
+    ///
+    /// This behavior is only applicable when `seq_try_join_all` uses more than one thread, for
+    /// maintenance reasons, we use it even parallelism is turned off.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn try_join_early_abort() {
+        const ERROR: &str = "error message";
+        fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
+            lazy(move |_| match i {
+                1 => Ok(1),
+                2 => Err(ERROR),
+                _ => panic!("should have aborted earlier"),
+            })
+        }
+
+        let active = NonZeroUsize::new(10).unwrap();
+        let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
+        assert_eq!(err, ERROR);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn does_not_block_on_error() {
+        const ERROR: &str = "returning early is safe";
+        use std::pin::Pin;
+
+        fn f(i: u32) -> Pin<Box<dyn Future<Output = Result<u32, &'static str>> + Send>> {
+            match i {
+                1 => Box::pin(lazy(move |_| Ok(1))),
+                2 => Box::pin(lazy(move |_| Err(ERROR))),
+                _ => Box::pin(futures::future::pending()),
+            }
+        }
+
+        let active = NonZeroUsize::new(10).unwrap();
+        let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
+        assert_eq!(err, ERROR);
     }
 }

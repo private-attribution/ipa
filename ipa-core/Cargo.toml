@@ -61,6 +61,8 @@ step-trace = ["descriptive-gate"]
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
 descriptive-gate = []
 compact-gate = ["ipa-macros/compact-gate"]
+# Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
+multi-threading = ["async-scoped"]
 
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
@@ -73,6 +75,7 @@ ipa-macros = { version = "*", path = "../ipa-macros" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"
+async-scoped = { version = "0.7.1", features = ["use-tokio"], optional = true }
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
 axum-server = { version = "0.5.1", optional = true, features = [
     "rustls",

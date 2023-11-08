@@ -7,7 +7,7 @@ use super::{SharedValue, WeakSharedValue};
 use crate::ff::{AddSub, AddSubAssign, GaloisField};
 
 /// Secret sharing scheme i.e. Replicated secret sharing
-pub trait SecretSharing<V: WeakSharedValue>: Clone + Debug + Sized + Send + Sync {
+pub trait SecretSharing<V: WeakSharedValue>: Clone + Debug + Sized + Send + Sync + 'static {
     const ZERO: Self;
 }
 
@@ -21,6 +21,7 @@ pub trait Linear<V: SharedValue>:
     + Mul<V, Output = Self>
     + for<'r> Mul<&'r V, Output = Self>
     + Neg<Output = Self>
+    + 'static
 {
 }
 

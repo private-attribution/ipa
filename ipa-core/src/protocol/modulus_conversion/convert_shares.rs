@@ -292,17 +292,17 @@ where
 /// # Panics
 /// If the total record count on the context is unspecified.
 #[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
-pub fn convert_bits<F, V, C, S, VS>(
+pub fn convert_bits<'a, F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<BitDecomposed<S>, Error>>
+) -> impl Stream<Item = Result<BitDecomposed<S>, Error>> + 'a
 where
     F: PrimeField,
-    V: ToBitConversionTriples<Residual = ()>,
-    C: UpgradedContext<F, Share = S>,
+    V: ToBitConversionTriples<Residual = ()> + 'a,
+    C: UpgradedContext<F, Share = S> + 'a,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    VS: Stream<Item = V> + Unpin + Send,
+    VS: Stream<Item = V> + Unpin + Send + 'a,
     for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
@@ -313,35 +313,37 @@ where
 /// Note that unconverted fields are not upgraded, so they might need to be upgraded either before or
 /// after invoking this function.
 #[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
-pub fn convert_selected_bits<F, V, C, S, VS, R>(
+pub fn convert_selected_bits<'inp, F, V, C, S, VS, R>(
     ctx: C,
     binary_shares: VS,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>>
+) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>> + 'inp
 where
+    R: Send + 'static,
     F: PrimeField,
-    V: ToBitConversionTriples<Residual = R>,
-    C: UpgradedContext<F, Share = S>,
+    V: ToBitConversionTriples<Residual = R> + 'inp,
+    C: UpgradedContext<F, Share = S> + 'inp,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    VS: Stream<Item = V> + Unpin + Send,
+    VS: Stream<Item = V> + Unpin + Send + 'inp,
     for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
     convert_some_bits(ctx, binary_shares, RecordId::FIRST, bit_range)
 }
 
-pub(crate) fn convert_some_bits<F, V, C, S, VS, R>(
+pub(crate) fn convert_some_bits<'a, F, V, C, S, VS, R>(
     ctx: C,
     binary_shares: VS,
     first_record: RecordId,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>>
+) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>> + 'a
 where
+    R: Send + 'static,
     F: PrimeField,
-    V: ToBitConversionTriples<Residual = R>,
-    C: UpgradedContext<F, Share = S>,
+    V: ToBitConversionTriples<Residual = R> + 'a,
+    C: UpgradedContext<F, Share = S> + 'a,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    VS: Stream<Item = V> + Unpin + Send,
+    VS: Stream<Item = V> + Unpin + Send + 'a,
     for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
