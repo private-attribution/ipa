@@ -37,6 +37,8 @@ pub enum ReportFilter {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Config {
+    /// Number of unique users per event generator. The generator will generate events
+    /// for at most this many users.
     #[cfg_attr(feature = "clap", arg(long, default_value = "1000000000000"))]
     pub user_count: NonZeroU64,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
@@ -97,6 +99,8 @@ impl Config {
         }
     }
 
+    /// Returns the number of unique users per event generator. The generator will generate
+    /// events for at most this many users.
     fn user_count(&self) -> usize {
         usize::try_from(self.user_count.get()).unwrap()
     }
