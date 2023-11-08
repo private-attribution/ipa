@@ -1,5 +1,5 @@
 use std::{
-    num::{NonZeroU32, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     time::Instant,
 };
 
@@ -111,16 +111,36 @@ async fn run(args: Args) -> Result<(), Error> {
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
+    let (user_count, min_events_per_user, max_events_per_user, query_size) =
+        if args.oprf && cfg!(feature = "step-trace") {
+            // For the steps collection, OPRF mode requires a single user with the same number
+            // of dynamic steps as defined for `UserNthRowStep::Row`.
+            (
+                NonZeroU64::new(1).unwrap(),
+                NonZeroU32::new(64).unwrap(),
+                NonZeroU32::new(64).unwrap(),
+                64,
+            )
+        } else {
+            (
+                EventGeneratorConfig::default().user_count,
+                EventGeneratorConfig::default().min_events_per_user,
+                NonZeroU32::new(args.records_per_user).unwrap(),
+                args.query_size,
+            )
+        };
     let raw_data = EventGenerator::with_config(
         rng,
         EventGeneratorConfig {
+            user_count,
             max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+            min_events_per_user,
+            max_events_per_user,
             ..Default::default()
         },
     )
-    .take(args.query_size)
+    .take(query_size)
     .collect::<Vec<_>>();
 
     let order = if args.oprf {

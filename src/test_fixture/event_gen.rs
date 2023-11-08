@@ -37,14 +37,18 @@ pub enum ReportFilter {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Config {
+    /// Number of unique users per event generator. The generator will generate events
+    /// for at most this many users.
     #[cfg_attr(feature = "clap", arg(long, default_value = "1000000000000"))]
-    pub max_user_id: NonZeroU64,
+    pub user_count: NonZeroU64,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_trigger_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
     pub max_breakdown_key: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
     pub max_events_per_user: NonZeroU32,
+    #[cfg_attr(feature = "clap", arg(long, default_value = "1"))]
+    pub min_events_per_user: NonZeroU32,
     /// Indicates the types of reports that will appear in the output. Possible values
     /// are: only impressions, only conversions or both.
     #[cfg_attr(feature = "clap", arg(value_enum, long, default_value_t = ReportFilter::All))]
@@ -66,7 +70,7 @@ fn validate_probability(value: &str) -> Result<f32, String> {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000_000_000_000, 5, 20, 50)
+        Self::new(1_000_000_000_000, 5, 20, 1, 50)
     }
 }
 
@@ -77,23 +81,28 @@ impl Config {
     /// If any argument is 0.
     #[must_use]
     pub fn new(
-        max_user_id: u64,
+        user_count: u64,
         max_trigger_value: u32,
         max_breakdown_key: u32,
+        min_events_per_user: u32,
         max_events_per_user: u32,
     ) -> Self {
+        assert!(min_events_per_user < max_events_per_user);
         Self {
-            max_user_id: NonZeroU64::try_from(max_user_id).unwrap(),
+            user_count: NonZeroU64::try_from(user_count).unwrap(),
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
+            min_events_per_user: NonZeroU32::try_from(min_events_per_user).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
             conversion_probability: None,
         }
     }
 
-    fn max_user_id(&self) -> usize {
-        usize::try_from(self.max_user_id.get()).unwrap()
+    /// Returns the number of unique users per event generator. The generator will generate
+    /// events for at most this many users.
+    fn user_count(&self) -> usize {
+        usize::try_from(self.user_count.get()).unwrap()
     }
 }
 
@@ -138,8 +147,7 @@ pub struct EventGenerator<R: Rng> {
     config: Config,
     rng: R,
     users: Vec<UserStats>,
-    // even bit vector takes too long to initialize for MAX_USER_ID. Need a sparse structure
-    // here
+    // even bit vector takes too long to initialize. Need a sparse structure here
     used: HashSet<UserId>,
     current_ts: u64,
 }
@@ -214,7 +222,7 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn sample_user(&mut self) -> Option<UserStats> {
-        if self.used.len() == self.config.max_user_id() {
+        if self.used.len() == self.config.user_count() {
             return None;
         }
 
@@ -223,14 +231,16 @@ impl<R: Rng> EventGenerator<R> {
         Some(loop {
             let next = UserId::from(
                 self.rng
-                    .gen_range(UserId::FIRST.into()..=self.config.max_user_id.get()),
+                    .gen_range(UserId::FIRST.into()..=self.config.user_count.get()),
             );
             if valid(next) {
                 self.used.insert(next);
                 break UserStats::new(
                     next,
-                    self.rng
-                        .gen_range(1..=self.config.max_events_per_user.get()),
+                    self.rng.gen_range(
+                        self.config.min_events_per_user.get()
+                            ..=self.config.max_events_per_user.get(),
+                    ),
                 );
             }
         })
@@ -281,18 +291,19 @@ mod tests {
 
     #[test]
     fn exhaust() {
-        let mut gen = EventGenerator::with_config(
+        let gen = EventGenerator::with_config(
             thread_rng(),
             Config {
-                max_user_id: NonZeroU64::new(2).unwrap(),
-                max_events_per_user: NonZeroU32::new(1).unwrap(),
+                user_count: NonZeroU64::new(10).unwrap(),
+                min_events_per_user: NonZeroU32::new(10).unwrap(),
+                max_events_per_user: NonZeroU32::new(10).unwrap(),
                 ..Config::default()
             },
         );
 
-        assert!(gen.next().is_some());
-        assert!(gen.next().is_some());
-        assert!(gen.next().is_none());
+        let mut iter = gen.skip(99);
+        assert!(iter.next().is_some());
+        assert!(iter.next().is_none());
     }
 
     mod proptests {
@@ -362,14 +373,25 @@ mod tests {
                 1..u32::MAX,
                 1..u32::MAX,
                 1..u32::MAX,
+                1..u32::MAX,
                 report_filter_strategy(),
             )
                 .prop_map(
-                    |(max_trigger_value, max_breakdown_key, max_events_per_user, report_filter)| {
+                    |(
+                        max_trigger_value,
+                        max_breakdown_key,
+                        mut min_events_per_user,
+                        mut max_events_per_user,
+                        report_filter,
+                    )| {
+                        if min_events_per_user > max_events_per_user {
+                            std::mem::swap(&mut min_events_per_user, &mut max_events_per_user);
+                        }
                         Config {
-                            max_user_id: NonZeroU64::new(10_000).unwrap(),
+                            user_count: NonZeroU64::new(10_000).unwrap(),
                             max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
                             max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                            min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
                             max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
                             report_filter,
                             conversion_probability: match report_filter {
