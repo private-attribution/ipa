@@ -91,8 +91,6 @@ impl Config {
         max_events_per_user: u32,
         max_timestamp: u32,
     ) -> Self {
-        const TIMESTAMP_BITS: u32 = 20;
-        assert!(max_timestamp < (1 << TIMESTAMP_BITS));
         assert!(min_events_per_user < max_events_per_user);
         Self {
             user_count: NonZeroU64::try_from(user_count).unwrap(),
