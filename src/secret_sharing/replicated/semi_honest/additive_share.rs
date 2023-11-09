@@ -250,13 +250,13 @@ where
 
     fn get(&self, index: usize) -> Option<Self::Output> {
         self.0
-            .get(index)
-            .zip(self.0.get(index))
+            .get(index.clone())
+            .zip(self.1.get(index))
             .map(|v| AdditiveShare(v.0, v.1))
     }
 
     fn set(&mut self, index: usize, e: Self::Output) {
-        self.0.set(index, e.0);
+        self.0.set(index.clone(), e.0);
         self.1.set(index, e.1);
     }
 }

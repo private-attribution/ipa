@@ -21,17 +21,19 @@ pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<XS>,
-    y: &AdditiveShare<YS>,
+    y: &AdditiveShare<XS>,
+    // y: &AdditiveShare<YS>,
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray,
+    // YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    XS: WeakSharedValue + CustomArray +Field,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
     addition_circuit(ctx, record_id, x, y, &mut carry).await
+    // x.multiply(y, ctx.narrow(&Step::MultiplyWithCarry), RecordId(0)).await
 }
 
 ///saturated unsigned integer addition
@@ -98,34 +100,21 @@ where
     XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-
-    // for (i, v) in x.into_iter().enumerate() {
-    //     result.set(
-    //         i,
-    //         bit_adder(
-    //             ctx.narrow(&BitOpStep::from(i)),
-    //             record_id,
-    //             &v,
-    //             // y.get(i).as_ref(),
-    //             &y.get(i).unwrap(),
-    //             carry,
-    //         )
-    //         .await?,
-    //     );
-    // }
-
-    for i in 0..XS::BITS.try_into().unwrap() {
+    // let i=0;
+    for (i, v) in x.into_iter().enumerate() {
         result.set(
-            i,
+            i.clone(),
             bit_adder(
-                ctx.narrow(&BitOpStep::from(i)),
+                ctx.narrow(&BitOpStep::from(i.clone())),
                 record_id,
-                &x.get(i).unwrap(),
-                // y.get(i).as_ref(),
+                // &v,
+                &x.get(i.clone()).unwrap(),
                 &y.get(i).unwrap(),
+                // y.get(i).as_ref(),
+                // &y.get(i).unwrap(),
                 carry,
             )
-                .await?,
+            .await?,
         );
     }
 
@@ -151,13 +140,14 @@ where
     S: Field,
 {
     // let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
-    let output = x+AdditiveShare::<S>::ZERO ;//+ y;// + &*carry;
+    let output = x + y + &*carry;
+    //let output = x+AdditiveShare::<S>::ZERO ;//+ y;// + &*carry;
 
-    // *carry = &*carry
-    //     + (x + &*carry)
-    //         // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
-    //         .multiply(&(y + &*carry), ctx, record_id)
-    //         .await?;
+    *carry = &*carry
+        + (x + &*carry)
+            // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
+            .multiply(&(y + &*carry), ctx, record_id)
+            .await?;
 
     Ok(output)
 }
@@ -192,7 +182,7 @@ mod test {
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
-            let expected = (x + y) % u128::from(u64::MAX);
+            let expected = (x + y) % (1+u128::from(u64::MAX));
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
@@ -222,9 +212,9 @@ mod test {
             let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
-            let z = u128::from(u64::MAX);
+            let z = 1+u128::from(u64::MAX);
 
-            let expected = if x + y > z { z } else { (x + y) % z };
+            let expected = if x + y > z { z-1 } else { (x + y) % z };
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
