@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use futures::{
     stream::{iter, repeat},
-    Stream, StreamExt, TryStreamExt,
+    StreamExt, TryStreamExt,
 };
 
 use crate::{
@@ -89,19 +89,16 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = assert_stream_send(RecordsStream::<
-                IPAInputRow<F, MatchKey, BreakdownKey>,
-                _,
-            >::new(input_stream))
-            .try_concat()
-            .await?;
+            let mut v =
+                RecordsStream::<IPAInputRow<F, MatchKey, BreakdownKey>, _>::new(input_stream)
+                    .try_concat()
+                    .await?;
             v.truncate(sz);
             v
         } else {
-            assert_stream_send(LengthDelimitedStream::<
-                EncryptedReport<F, MatchKey, BreakdownKey, _>,
-                _,
-            >::new(input_stream))
+            LengthDelimitedStream::<EncryptedReport<F, MatchKey, BreakdownKey, _>, _>::new(
+                input_stream,
+            )
             .map_err(Into::<Error>::into)
             .map_ok(|enc_reports| {
                 iter(enc_reports.into_iter().map(|enc_report| {
@@ -145,16 +142,6 @@ where
 
         ipa(ctx, input.as_slice(), config).await
     }
-}
-
-/// Helps to convince the compiler that things are `Send`. Like `seq_join::assert_send`, but for
-/// streams.
-///
-/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
-pub fn assert_stream_send<'a, T>(
-    st: impl Stream<Item = T> + Send + 'a,
-) -> impl Stream<Item = T> + Send + 'a {
-    st
 }
 
 /// no dependency on `weak-field` feature because it is enabled in tests by default
