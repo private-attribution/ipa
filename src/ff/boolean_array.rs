@@ -54,9 +54,9 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, Field, Serializable, Expand},
                 secret_sharing::{
-                    replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+                    replicated::{semi_honest::{AdditiveShare,ASIterator}, ReplicatedSecretSharing},
                     SharedValue,
                 },
             };
@@ -68,9 +68,9 @@ macro_rules! boolean_array_impl {
             pub struct $name(Store);
 
             impl ArrayAccess for $name {
-                type AAElement = Boolean;
+                type Output = Boolean;
 
-                fn get(&self, index: usize) -> Option<Self::AAElement> {
+                fn get(&self, index: usize) -> Option<Self::Output> {
                     if index < usize::try_from(<$name>::BITS).unwrap()
                     {
                         Some(self.0[index].into())
@@ -80,21 +80,12 @@ macro_rules! boolean_array_impl {
                     }
                 }
 
-                fn set(&mut self, index: usize, e: Self::AAElement) {
+                fn set(&mut self, index: usize, e: Self::Output) {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
                 }
             }
 
-            impl From<Boolean> for $name {
-                fn from(s: Boolean) -> Self {
-                    let mut result = <$name>::ZERO;
-                    for i in 0..usize::try_from(<$name>::BITS).unwrap() {
-                        result.set(i, s);
-                    }
-                    result
-                }
-            }
 
             impl SharedValue for $name {
                 type Storage = Store;
@@ -222,7 +213,8 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl<'a> IntoIterator for &'a $name {
+            impl<'a> IntoIterator for &'a $name
+            {
                 type Item = Boolean;
                 type IntoIter = BAIterator<'a>;
 
@@ -247,41 +239,75 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl From<AdditiveShare<Boolean>> for AdditiveShare<$name> {
-                fn from(s: AdditiveShare<Boolean>) -> Self {
-                    AdditiveShare::<$name>::new(s.left().into(), s.right().into())
+            impl Expand for $name
+            {
+                type Input=Boolean;
+
+                fn expand(v: &Boolean) -> Self {
+                    let mut result = <$name>::ZERO;
+                    for i in 0..usize::try_from(<$name>::BITS).unwrap() {
+                        result.set(i, *v);
+                    }
+                    result
                 }
             }
 
-            // #[cfg(all(test, unit_test))]
-            // mod tests {
-            //     use rand::{thread_rng, Rng};
-            //
-            //     use super::*;
-            //
-            //     #[test]
-            //     fn set_boolean_array() {
-            //         let mut rng = thread_rng();
-            //         let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
-            //         let a = rng.gen::<Boolean>();
-            //         let mut ba = rng.gen::<$name>();
-            //         ba.set(i, a);
-            //         assert_eq!(ba.get(i), Some(a));
-            //     }
-            //
-            //     #[test]
-            //     fn iterate_boolean_array() {
-            //         let bits = $name::ONE;
-            //         let iter = bits.into_iter();
-            //         for (i, j) in iter.enumerate() {
-            //             if i == 0 {
-            //                 assert_eq!(j, Boolean::ONE);
-            //             } else {
-            //                 assert_eq!(j, Boolean::ZERO);
-            //             }
-            //         }
-            //     }
-            // }
+            impl<'a> IntoIterator for &'a AdditiveShare<$name>
+{
+
+type Item = AdditiveShare<Boolean>;
+type IntoIter = ASIterator<BAIterator<'a>>;
+
+fn into_iter(self) -> Self::IntoIter {
+ASIterator::<BAIterator<'a>> (self.0.into_iter(),self.1.into_iter())
+}
+}
+
+
+
+
+            #[cfg(all(test, unit_test))]
+            mod tests {
+                use rand::{thread_rng, Rng};
+
+                use super::*;
+
+                #[test]
+                fn set_boolean_array() {
+                    let mut rng = thread_rng();
+                    let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
+                    let a = rng.gen::<Boolean>();
+                    let mut ba = rng.gen::<$name>();
+                    ba.set(i, a);
+                    assert_eq!(ba.get(i), Some(a));
+                }
+
+                #[test]
+                fn iterate_boolean_array() {
+                    let bits = $name::ONE;
+                    let iter = bits.into_iter();
+                    for (i, j) in iter.enumerate() {
+                        if i == 0 {
+                            assert_eq!(j, Boolean::ONE);
+                        } else {
+                            assert_eq!(j, Boolean::ZERO);
+                        }
+                    }
+                }
+            }
+
+                #[test]
+    fn iterate_secret_shared_boolean_array() {
+        let bits = AdditiveShare::new($name::ONE,$name::ONE);
+        let iter = bits.into_iter();
+        for (i, j) in iter.enumerate() {
+            if i == 0 {
+                assert_eq!(j, AdditiveShare::new(Boolean::ONE,Boolean::ONE));
+            } else {
+                assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+            }
+        }
+    }
         }
 
         pub use $modname::$name;
@@ -321,53 +347,3 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0
     )
 );
-
-#[cfg(all(test, unit_test))]
-mod tests {
-    use rand::{thread_rng, Rng};
-    use crate::{
-        ff::{boolean::Boolean, ArrayAccess, Field},
-        secret_sharing::{
-            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-            SharedValue,
-        },
-    };
-
-    use super::*;
-
-    #[test]
-    fn set_boolean_array() {
-        let mut rng = thread_rng();
-        let i = rng.gen::<usize>() % usize::try_from(<BA64>::BITS).unwrap();
-        let a = rng.gen::<Boolean>();
-        let mut ba = rng.gen::<BA64>();
-        ba.set(i, a);
-        assert_eq!(ba.get(i), Some(a));
-    }
-
-    #[test]
-    fn iterate_boolean_array() {
-        let bits = BA64::ONE;
-        let iter = bits.into_iter();
-        for (i, j) in iter.enumerate() {
-            if i == 0 {
-                assert_eq!(j, Boolean::ONE);
-            } else {
-                assert_eq!(j, Boolean::ZERO);
-            }
-        }
-    }
-
-    #[test]
-    fn iterate_secret_shared_boolean_array() {
-        let bits = AdditiveShare::new(<BA64>::ONE,<BA64>::ONE);
-        let iter = bits.into_iter();
-        for (i, j) in iter.enumerate() {
-            if i == 0 {
-                assert_eq!(j, AdditiveShare::new(Boolean::ONE,Boolean::ONE));
-            } else {
-                assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
-            }
-        }
-    }
-}

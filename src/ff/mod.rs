@@ -18,7 +18,6 @@ use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
-use crate::secret_sharing::WeakSharedValue;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -58,33 +57,37 @@ pub trait Serializable: Sized {
 }
 
 pub trait ArrayAccess {
-    type AAElement;
+    type Output;
 
-    fn get(&self, index: usize) -> Option<Self::AAElement>;
+    fn get(&self, index: usize) -> Option<Self::Output>;
 
-    fn set(&mut self, index: usize, e: Self::AAElement);
+    fn set(&mut self, index: usize, e: Self::Output);
+}
+
+pub trait Expand {
+    type Input;
+
+    fn expand(v: &Self::Input) -> Self;
 }
 
 /// Custom Array trait
 /// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
 /// doesn't support `IntoIterator` and `into_iter()`, &'a S: IntoIterator<Item= S::Element> needs to be added manually in trait bound when used
-/// supports `From` for `Element`, all array elements will be set to the value of `Element`
+/// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
     where
-        Self: WeakSharedValue + ArrayAccess<AAElement=Self::Element>
-        + From<Self::Element>
+        Self: ArrayAccess<Output=Self::Element>
+        + Expand<Input=Self::Element>
         + FromIterator<Self::Element>,
         //&'a Self: IntoIterator<Item = T>,
-        Self::Element: WeakSharedValue,
 {
     type Element;
 }
 
 /// impl Custom Array for all compatible structs
 impl<S> CustomArray for S where
-    S: WeakSharedValue + ArrayAccess + From<Self::AAElement> + FromIterator<Self::AAElement> ,
-    Self::AAElement: WeakSharedValue,
+    S: ArrayAccess + Expand<Input=<S as ArrayAccess>::Output> + FromIterator<<S as ArrayAccess>::Output> ,
 {
-    type Element = <S as ArrayAccess>::AAElement;
+    type Element = <S as ArrayAccess>::Output;
 }
