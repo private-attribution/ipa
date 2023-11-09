@@ -5,7 +5,7 @@ use std::{
 
 use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U1, U4, U5};
+use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use crate::{
     ff::{Field, Serializable},
@@ -25,11 +25,21 @@ pub trait GaloisField:
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
+type U8_2 = BitArr!(for 9, in u8, Lsb0);
+type U8_3 = BitArr!(for 24, in u8, Lsb0);
 type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
 
 impl Block for U8_1 {
     type Size = U1;
+}
+
+impl Block for U8_2 {
+    type Size = U2;
+}
+
+impl Block for U8_3 {
+    type Size = U3;
 }
 
 impl Block for U8_4 {
@@ -121,7 +131,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -184,10 +194,31 @@ macro_rules! bit_array_impl {
             // = 01011001
             // Since the coefficients are in GF(2), we can just XOR these bitwise representations.
             // Note for x^7 + x^7 = 0 because 1 + 1 = 0 in GF(2)
-            impl std::ops::Add for $name {
+            impl <'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+                type Output = $name;
+                fn add(self, rhs: &'b $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<&$name> for $name {
                 type Output = Self;
-                fn add(self, rhs: Self) -> Self::Output {
-                    Self(self.0 ^ rhs.0)
+                fn add(self, rhs: &$name) -> Self::Output {
+                    std::ops::Add::add(&self, rhs)
+                }
+            }
+
+            impl std::ops::Add<$name> for &$name {
+                type Output = $name;
+                fn add(self, rhs: $name) -> Self::Output {
+                    std::ops::Add::add(self, &rhs)
+                }
+            }
+
+            impl std::ops::Add<$name> for $name {
+                type Output = Self;
+                fn add(self, rhs: $name) -> Self::Output {
+                    std::ops::Add::add(&self, &rhs)
                 }
             }
 
@@ -524,6 +555,8 @@ macro_rules! bit_array_impl {
                     assert_eq!(a, $name::deserialize(&buf));
                 }
             }
+
+            $( $( $extra )* )?
         }
 
         pub use $modname::$name;
@@ -537,7 +570,7 @@ bit_array_impl!(
     40,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
-    0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
+    0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128,
 );
 
 bit_array_impl!(
@@ -547,7 +580,17 @@ bit_array_impl!(
     32,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
-    0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
+    0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128,
+);
+
+bit_array_impl!(
+    bit_array_20,
+    Gf20Bit,
+    U8_3,
+    20,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    // x^20 + x^7 + x^3 + x^2 + 1
+    0b1000_0000_0000_1000_1101_u128,
 );
 
 bit_array_impl!(
@@ -557,7 +600,17 @@ bit_array_impl!(
     8,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
-    0b1_0001_1011_u128
+    0b1_0001_1011_u128,
+);
+
+bit_array_impl!(
+    bit_array_9,
+    Gf9Bit,
+    U8_2,
+    9,
+    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    // x^9 + x^4 + x^3 + x + 1
+    0b10_0001_1011_u128,
 );
 
 bit_array_impl!(
@@ -567,7 +620,7 @@ bit_array_impl!(
     5,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0),
     // x^5 + x^4 + x^3 + x^2 + x + 1
-    0b111_111_u128
+    0b111_111_u128,
 );
 
 bit_array_impl!(
@@ -577,7 +630,7 @@ bit_array_impl!(
     3,
     bitarr!(const u8, Lsb0; 1, 0, 0),
     // x^3 + x + 1
-    0b1_011_u128
+    0b1_011_u128,
 );
 
 bit_array_impl!(
@@ -587,5 +640,14 @@ bit_array_impl!(
     1,
     bitarr!(const u8, Lsb0; 1),
     // x
-    0b10_u128
+    0b10_u128,
+    {
+        impl From<bool> for Gf2 {
+            fn from(value: bool) -> Self {
+                let mut v = Gf2::ZERO;
+                v.0.set(0, value);
+                v
+            }
+        }
+    }
 );

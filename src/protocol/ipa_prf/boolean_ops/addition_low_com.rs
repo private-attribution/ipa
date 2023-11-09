@@ -99,18 +99,33 @@ where
 {
     let mut result = AdditiveShare::<XS>::ZERO;
 
-    for (i, v) in x.into_iter().enumerate() {
+    // for (i, v) in x.into_iter().enumerate() {
+    //     result.set(
+    //         i,
+    //         bit_adder(
+    //             ctx.narrow(&BitOpStep::from(i)),
+    //             record_id,
+    //             &v,
+    //             // y.get(i).as_ref(),
+    //             &y.get(i).unwrap(),
+    //             carry,
+    //         )
+    //         .await?,
+    //     );
+    // }
+
+    for i in 0..XS::BITS.try_into().unwrap() {
         result.set(
             i,
             bit_adder(
                 ctx.narrow(&BitOpStep::from(i)),
                 record_id,
-                &v,
+                &x.get(i).unwrap(),
                 // y.get(i).as_ref(),
                 &y.get(i).unwrap(),
                 carry,
             )
-            .await?,
+                .await?,
         );
     }
 
@@ -136,20 +151,20 @@ where
     S: Field,
 {
     // let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
-    let output = x + y + &*carry;
+    let output = x+AdditiveShare::<S>::ZERO ;//+ y;// + &*carry;
 
-    *carry = &*carry
-        + (x + &*carry)
-            // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
-            .multiply(&(y + &*carry), ctx, record_id)
-            .await?;
+    // *carry = &*carry
+    //     + (x + &*carry)
+    //         // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
+    //         .multiply(&(y + &*carry), ctx, record_id)
+    //         .await?;
 
     Ok(output)
 }
 
+
 #[cfg(all(test, unit_test))]
 mod test {
-    use bitvec::macros::internal::funty::Fundamental;
     use rand::Rng;
 
     use crate::{
@@ -193,7 +208,7 @@ mod test {
                 .await
                 .reconstruct()
                 .as_u128();
-            //assert_eq!((x, y, result.as_u128()), (x, y, expected.as_u128()));
+            assert_eq!((x, y, result), (x, y, expected));
         });
     }
 

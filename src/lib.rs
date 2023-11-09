@@ -16,6 +16,7 @@ pub mod error;
 pub mod ff;
 pub mod helpers;
 pub mod hpke;
+
 #[cfg(feature = "web-app")]
 pub mod net;
 pub mod protocol;
@@ -124,13 +125,21 @@ pub(crate) mod test_executor {
     }
 }
 
-#[cfg(all(feature = "in-memory-infra", feature = "real-world-infra"))]
-compile_error!("feature \"in-memory-infra\" and feature \"real-world-infra\" cannot be enabled at the same time");
+macro_rules! mutually_incompatible {
+    ($feature1:literal,$feature2:literal) => {
+        #[cfg(all(feature = $feature1, feature = $feature2))]
+        compile_error!(concat!(
+            "feature \"",
+            $feature1,
+            "\" and feature \"",
+            $feature2,
+            "\" can't be enabled at the same time"
+        ));
+    };
+}
 
-#[cfg(all(feature = "compact-gate", feature = "descriptive-date"))]
-compile_error!(
-    "feature \"compact-gate\" and feature \"descriptive-gate\" cannot be enabled at the same time"
-);
+mutually_incompatible!("in-memory-infra", "real-world-infra");
+mutually_incompatible!("compact-gate", "descriptive-gate");
 
 #[cfg(all(not(feature = "compact-gate"), not(feature = "descriptive-gate")))]
 compile_error!("feature \"compact-gate\" or \"descriptive-gate\" must be enabled");

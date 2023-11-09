@@ -2,10 +2,10 @@
 //
 // This is where we store arithmetic shared secret data models.
 
-pub mod boolean;
-pub mod boolean_array;
 pub mod curve_points;
 pub mod ec_prime_field;
+pub mod boolean;
+pub mod boolean_array;
 mod field;
 mod galois_field;
 mod prime_field;
@@ -13,7 +13,9 @@ mod prime_field;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 pub use field::{Field, FieldType};
-pub use galois_field::{GaloisField, Gf2, Gf32Bit, Gf3Bit, Gf40Bit, Gf5Bit, Gf8Bit};
+pub use galois_field::{
+    GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf5Bit, Gf8Bit, Gf9Bit,
+};
 use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;

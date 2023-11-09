@@ -30,7 +30,7 @@ pub struct SendingEnd<M: Message> {
 /// Sending channels, indexed by (role, step).
 #[derive(Default)]
 pub(super) struct GatewaySenders {
-    inner: DashMap<ChannelId, Arc<GatewaySender>>,
+    pub(super) inner: DashMap<ChannelId, Arc<GatewaySender>>,
 }
 
 pub(super) struct GatewaySender {
@@ -77,6 +77,16 @@ impl GatewaySender {
 
         Ok(())
     }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn waiting(&self) -> Vec<usize> {
+        self.ordering_tx.waiting()
+    }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn total_records(&self) -> TotalRecords {
+        self.total_records
+    }
 }
 
 impl<M: Message> SendingEnd<M> {
@@ -98,6 +108,7 @@ impl<M: Message> SendingEnd<M> {
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
+    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.role, gate = ?self.channel_id.gate.as_ref()))]
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,

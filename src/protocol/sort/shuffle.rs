@@ -1,15 +1,20 @@
 use embed_doc_image::embed_doc_image;
 use rand::{seq::SliceRandom, Rng};
 
-use super::{
-    apply::{apply, apply_inv},
-    ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
-};
+use super::ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3};
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{basics::Reshare, context::Context, step::Step, NoRecord, RecordId},
+    protocol::{
+        basics::{
+            apply_permutation::{apply, apply_inv},
+            Reshare,
+        },
+        context::Context,
+        step::Step,
+        NoRecord, RecordId,
+    },
     secret_sharing::SecretSharing,
 };
 

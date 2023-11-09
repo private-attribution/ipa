@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use futures_util::TryStreamExt;
 
-use super::ipa::assert_stream_send;
 use crate::{
     error::Error,
     ff::{Gf2, Gf8Bit, PrimeField, Serializable},
@@ -83,10 +82,9 @@ where
 
         let input = {
             //TODO: Replace `Gf8Bit` with an appropriate type specified by the config `contribution_bits`
-            let mut v = assert_stream_send(RecordsStream::<
-                SparseAggregateInputRow<Gf8Bit, BreakdownKey>,
-                _,
-            >::new(input_stream))
+            let mut v = RecordsStream::<SparseAggregateInputRow<Gf8Bit, BreakdownKey>, _>::new(
+                input_stream,
+            )
             .try_concat()
             .await?;
             v.truncate(sz);

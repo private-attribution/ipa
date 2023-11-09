@@ -464,7 +464,7 @@ pub mod tests {
         test_executor::{run, run_with},
         test_fixture::{
             input::GenericReportTestInput,
-            ipa::{ipa_in_the_clear, test_ipa, IpaSecurityModel},
+            ipa::{ipa_in_the_clear, test_ipa, CappingOrder, IpaSecurityModel},
             logging, EventGenerator, EventGeneratorConfig, Reconstruct, Runner, TestWorld,
             TestWorldConfig,
         },
@@ -782,6 +782,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 32;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: u32 = 8;
+        const MIN_RECORDS_PER_USER: u32 = 1;
         const MAX_RECORDS_PER_USER: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
         const ATTRIBUTION_WINDOW_SECONDS: Option<NonZeroU32> = NonZeroU32::new(86_400);
@@ -803,6 +804,7 @@ pub mod tests {
                 u64::from(NUM_USERS),
                 MAX_TRIGGER_VALUE,
                 MAX_BREAKDOWN_KEY,
+                MIN_RECORDS_PER_USER,
                 MAX_RECORDS_PER_USER,
             ),
         )
@@ -815,6 +817,7 @@ pub mod tests {
                 per_user_cap,
                 ATTRIBUTION_WINDOW_SECONDS,
                 MAX_BREAKDOWN_KEY,
+                &CappingOrder::CapOldestFirst,
             );
 
             let config = TestWorldConfig {

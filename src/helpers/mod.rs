@@ -1,7 +1,9 @@
 use std::{
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
+
+use generic_array::GenericArray;
 
 mod buffers;
 mod error;
@@ -15,11 +17,33 @@ use std::ops::{Index, IndexMut};
 #[cfg(test)]
 pub use buffers::OrderingSender;
 pub use error::{Error, Result};
+
+#[cfg(feature = "stall-detection")]
+mod gateway_exports {
+    use crate::helpers::{
+        gateway,
+        gateway::{stall_detection::Observed, InstrumentedGateway},
+    };
+
+    pub type Gateway = Observed<InstrumentedGateway>;
+    pub type SendingEnd<M> = Observed<gateway::SendingEnd<M>>;
+    pub type ReceivingEnd<M> = Observed<gateway::ReceivingEnd<M>>;
+}
+
+#[cfg(not(feature = "stall-detection"))]
+mod gateway_exports {
+    use crate::helpers::gateway;
+
+    pub type Gateway = gateway::Gateway;
+    pub type SendingEnd<M> = gateway::SendingEnd<M>;
+    pub type ReceivingEnd<M> = gateway::ReceivingEnd<M>;
+}
+
+pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{Gateway, TransportError, TransportImpl};
-pub use gateway::{GatewayConfig, ReceivingEnd, SendingEnd};
-use generic_array::GenericArray;
+pub use gateway::{TransportError, TransportImpl};
+pub use gateway_exports::{Gateway, ReceivingEnd, SendingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
@@ -195,7 +219,7 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(
     feature = "enable-serde",
@@ -384,7 +408,7 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct ChannelId {
     pub role: Role,
     // TODO: step could be either reference or owned value. references are convenient to use inside
@@ -439,6 +463,16 @@ pub enum TotalRecords {
     ///
     /// Using this is very inefficient, so avoid it.
     Indeterminate,
+}
+
+impl Display for TotalRecords {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TotalRecords::Unspecified => write!(f, "unspecified"),
+            TotalRecords::Specified(v) => write!(f, "{v}"),
+            TotalRecords::Indeterminate => write!(f, "∞"),
+        }
+    }
 }
 
 impl TotalRecords {

@@ -5,7 +5,6 @@ pub mod boolean;
 pub mod context;
 pub mod dp;
 pub mod ipa;
-#[cfg(feature = "ipa-prf")]
 pub mod ipa_prf;
 pub mod modulus_conversion;
 pub mod prss;
@@ -22,11 +21,13 @@ pub use basics::BasicProtocols;
 
 use crate::{
     error::Error,
-    ff::{Gf40Bit, Gf8Bit},
+    ff::{Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit},
 };
 
 pub type MatchKey = Gf40Bit;
 pub type BreakdownKey = Gf8Bit;
+pub type TriggerValue = Gf3Bit;
+pub type Timestamp = Gf32Bit;
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO(615): Generating this unique id may be tricky as it may involve communication between helpers and
@@ -84,6 +85,12 @@ impl TryFrom<&str> for QueryId {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
+
+impl Display for RecordId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {

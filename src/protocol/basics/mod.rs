@@ -1,3 +1,4 @@
+pub mod apply_permutation;
 pub mod check_zero;
 mod if_else;
 pub(crate) mod mul;

@@ -188,6 +188,11 @@ impl WaitingShard {
             self.wakers.pop_front().unwrap().w.wake();
         }
     }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn waiting(&self) -> impl Iterator<Item = usize> + '_ {
+        self.wakers.iter().map(|waker| waker.i)
+    }
 }
 
 /// A collection of wakers that are indexed by the send index (`i`).
@@ -223,6 +228,19 @@ impl Waiting {
 
     fn wake(&self, i: usize) {
         self.shard(i).wake(i);
+    }
+
+    /// Returns all records currently waiting to be sent in sorted order.
+    #[cfg(feature = "stall-detection")]
+    fn waiting(&self) -> Vec<usize> {
+        let mut records = Vec::new();
+        self.shards
+            .iter()
+            .for_each(|shard| records.extend(shard.lock().unwrap().waiting()));
+
+        records.sort_unstable();
+
+        records
     }
 }
 
@@ -374,6 +392,11 @@ impl OrderingSender {
         self: crate::sync::Arc<Self>,
     ) -> OrderedStream<crate::sync::Arc<Self>> {
         OrderedStream { sender: self }
+    }
+
+    #[cfg(feature = "stall-detection")]
+    pub fn waiting(&self) -> Vec<usize> {
+        self.waiting.waiting()
     }
 }
 

@@ -26,11 +26,11 @@ jobs:
     name: Basic Checks
     env:
       CARGO_INCREMENTAL: 0
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
+      - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -67,9 +67,6 @@ jobs:
       - name: Run Web Tests
         run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
 
-      - name: Run compact gate tests
-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
-
   release:
     name: Release builds and tests
     runs-on: ubuntu-latest
@@ -77,6 +74,7 @@ jobs:
       RUSTFLAGS: -C target-cpu=native
     steps:
       - uses: actions/checkout@v3
+      - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -110,6 +108,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -142,6 +141,8 @@ jobs:
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
+    # disabled due to https://github.com/private-attribution/ipa/issues/837
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
