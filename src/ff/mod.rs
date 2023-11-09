@@ -76,18 +76,20 @@ pub trait Expand {
 /// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
-    where
-        Self: ArrayAccess<Output=Self::Element>
-        + Expand<Input=Self::Element>
+where
+    Self: ArrayAccess<Output = Self::Element>
+        + Expand<Input = Self::Element>
         + FromIterator<Self::Element>,
-        //&'a Self: IntoIterator<Item = T>,
 {
     type Element;
 }
 
 /// impl Custom Array for all compatible structs
-impl<S> CustomArray for S where
-    S: ArrayAccess + Expand<Input=<S as ArrayAccess>::Output> + FromIterator<<S as ArrayAccess>::Output> ,
+impl<S> CustomArray for S
+where
+    S: ArrayAccess
+        + Expand<Input = <S as ArrayAccess>::Output>
+        + FromIterator<<S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
 }

@@ -14,7 +14,6 @@ fn assert_copy<C: Copy>(c: C) -> C {
     c
 }
 
-
 /// this might clash with Galois field, i.e. `galois_field.rs`
 /// so only use it for byte sizes for which Block has not been defined yet
 macro_rules! store_impl {
@@ -45,7 +44,6 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
-
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
     ( $modname:ident, $name:ident, $bits:expr, $one:expr ) => {
@@ -54,14 +52,17 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Field, Serializable, Expand},
+                ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable},
                 secret_sharing::{
-                    replicated::{semi_honest::{AdditiveShare,ASIterator}, ReplicatedSecretSharing},
+                    replicated::{
+                        semi_honest::{ASIterator, AdditiveShare},
+                        ReplicatedSecretSharing,
+                    },
                     SharedValue,
-                },
+        },
             };
 
-    type Store = BitArr!(for $bits, in u8, Lsb0);
+            type Store = BitArr!(for $bits, in u8, Lsb0);
 
             ///
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -71,11 +72,9 @@ macro_rules! boolean_array_impl {
                 type Output = Boolean;
 
                 fn get(&self, index: usize) -> Option<Self::Output> {
-                    if index < usize::try_from(<$name>::BITS).unwrap()
-                    {
+                    if index < usize::try_from(<$name>::BITS).unwrap() {
                         Some(self.0[index].into())
-                    } else
-                    {
+                    } else {
                         None
                     }
                 }
@@ -85,7 +84,6 @@ macro_rules! boolean_array_impl {
                     self.0.set(index, bool::from(e));
                 }
             }
-
 
             impl SharedValue for $name {
                 type Storage = Store;
@@ -213,8 +211,7 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl<'a> IntoIterator for &'a $name
-            {
+            impl<'a> IntoIterator for &'a $name {
                 type Item = Boolean;
                 type IntoIter = BAIterator<'a>;
 
@@ -226,22 +223,20 @@ macro_rules! boolean_array_impl {
             }
 
             impl FromIterator<Boolean> for $name {
-
                 fn from_iter<I>(iter: I) -> Self
                 where
                     I: IntoIterator<Item = Boolean>,
                 {
                     let mut result = $name::ONE;
-                    for (i,v) in iter.into_iter().enumerate() {
-                    result.set(i,v);
-                }
-                result
+                    for (i, v) in iter.into_iter().enumerate() {
+                        result.set(i, v);
+                    }
+                    result
                 }
             }
 
-            impl Expand for $name
-            {
-                type Input=Boolean;
+            impl Expand for $name {
+                type Input = Boolean;
 
                 fn expand(v: &Boolean) -> Self {
                     let mut result = <$name>::ZERO;
@@ -252,19 +247,14 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl<'a> IntoIterator for &'a AdditiveShare<$name>
-{
+            impl<'a> IntoIterator for &'a AdditiveShare<$name> {
+                type Item = AdditiveShare<Boolean>;
+                type IntoIter = ASIterator<BAIterator<'a>>;
 
-type Item = AdditiveShare<Boolean>;
-type IntoIter = ASIterator<BAIterator<'a>>;
-
-fn into_iter(self) -> Self::IntoIter {
-ASIterator::<BAIterator<'a>> (self.0.into_iter(),self.1.into_iter())
-}
-}
-
-
-
+                fn into_iter(self) -> Self::IntoIter {
+                    ASIterator::<BAIterator<'a>>(self.0.into_iter(), self.1.into_iter())
+                }
+            }
 
             #[cfg(all(test, unit_test))]
             mod tests {
@@ -296,24 +286,23 @@ ASIterator::<BAIterator<'a>> (self.0.into_iter(),self.1.into_iter())
                 }
             }
 
-                #[test]
-    fn iterate_secret_shared_boolean_array() {
-        let bits = AdditiveShare::new($name::ONE,$name::ONE);
-        let iter = bits.into_iter();
-        for (i, j) in iter.enumerate() {
-            if i == 0 {
-                assert_eq!(j, AdditiveShare::new(Boolean::ONE,Boolean::ONE));
-            } else {
-                assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+            #[test]
+            fn iterate_secret_shared_boolean_array() {
+                let bits = AdditiveShare::new($name::ONE, $name::ONE);
+                let iter = bits.into_iter();
+                for (i, j) in iter.enumerate() {
+                    if i == 0 {
+                        assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
+                    } else {
+                        assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+                    }
+                }
             }
-        }
-    }
         }
 
         pub use $modname::$name;
     };
 }
-
 
 //impl store for U6
 store_impl!(U8, 64);

@@ -18,7 +18,7 @@ use crate::{
 pub struct AdditiveShare<V: WeakSharedValue>(pub V, pub V);
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct ASIterator<T: Iterator> (pub T, pub T);
+pub struct ASIterator<T: Iterator>(pub T, pub T);
 
 impl<V: WeakSharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
@@ -250,10 +250,10 @@ where
     type Output = AdditiveShare<<S as ArrayAccess>::Output>;
 
     fn get(&self, index: usize) -> Option<Self::Output> {
-        self.0.get(index).zip(self.0.get(index)).map(
-            |v|
-                AdditiveShare(v.0, v.1)
-        )
+        self.0
+            .get(index)
+            .zip(self.0.get(index))
+            .map(|v| AdditiveShare(v.0, v.1))
     }
 
     fn set(&mut self, index: usize, e: Self::Output) {
@@ -270,10 +270,9 @@ where
     type Input = AdditiveShare<<S as Expand>::Input>;
 
     fn expand(v: &Self::Input) -> Self {
-        AdditiveShare(S::expand(&v.0),S::expand(&v.1))
+        AdditiveShare(S::expand(&v.0), S::expand(&v.1))
     }
 }
-
 
 impl<T> Iterator for ASIterator<T>
 where
@@ -291,20 +290,19 @@ where
 }
 
 impl<S> FromIterator<AdditiveShare<<S as ArrayAccess>::Output>> for AdditiveShare<S>
-    where
-        S: WeakSharedValue + ArrayAccess,
-        <S as ArrayAccess>::Output: WeakSharedValue,
+where
+    S: WeakSharedValue + ArrayAccess,
+    <S as ArrayAccess>::Output: WeakSharedValue,
 {
     fn from_iter<I>(iter: I) -> Self
-        where
-            I: IntoIterator<Item = AdditiveShare<<S as ArrayAccess>::Output>>,
+    where
+        I: IntoIterator<Item = AdditiveShare<<S as ArrayAccess>::Output>>,
     {
         let mut result = AdditiveShare::<S>::ZERO;
-        for (i,v) in iter.into_iter().enumerate() {
-            result.set(i,v);
+        for (i, v) in iter.into_iter().enumerate() {
+            result.set(i, v);
         }
         result
-
     }
 }
 

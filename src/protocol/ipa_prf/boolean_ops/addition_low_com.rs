@@ -2,11 +2,10 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{ArrayAccess, Expand, Field},
+    ff::{ArrayAccess, CustomArray, Expand, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
-use crate::ff::CustomArray;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -26,12 +25,11 @@ pub async fn integer_add<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item=AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue+CustomArray<Element=XS::Element>,
-    XS: WeakSharedValue+CustomArray,
+    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
+    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    XS: WeakSharedValue + CustomArray,
     XS::Element: Field,
 {
-
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
     addition_circuit(ctx, record_id, x, y, &mut carry).await
 }
@@ -50,9 +48,9 @@ pub async fn integer_sat_add<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item=AdditiveShare<XS::Element>>,
+    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     XS: CustomArray + Field,
-    YS: WeakSharedValue + CustomArray<Element=XS::Element>,
+    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
@@ -94,14 +92,14 @@ async fn addition_circuit<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item=AdditiveShare<XS::Element>>,
-    XS: WeakSharedValue+CustomArray,
-    YS: WeakSharedValue+CustomArray<Element=XS::Element>,
+    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
+    XS: WeakSharedValue + CustomArray,
+    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
 
-    for (i,v) in x.into_iter().enumerate() {
+    for (i, v) in x.into_iter().enumerate() {
         result.set(
             i,
             bit_adder(
@@ -117,7 +115,6 @@ where
     }
 
     Ok(result)
-
 }
 
 ///bit adder
@@ -131,7 +128,7 @@ async fn bit_adder<C, S>(
     record_id: RecordId,
     x: &AdditiveShare<S>,
     // y: Option<&AdditiveShare<S>>,
-    y:&AdditiveShare<S>,
+    y: &AdditiveShare<S>,
     carry: &mut AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
@@ -141,12 +138,11 @@ where
     // let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
     let output = x + y + &*carry;
 
-
     *carry = &*carry
         + (x + &*carry)
             // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
-        .multiply(&(y + &*carry), ctx, record_id)
-        .await?;
+            .multiply(&(y + &*carry), ctx, record_id)
+            .await?;
 
     Ok(output)
 }
