@@ -35,25 +35,22 @@ where
 }
 
 ///saturated unsigned integer addition
-/// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
-/// result is set to all one array (saturated, when carry of `x[x::BITS-1] + y[x::BITS-1] + Carry[x::BITS-2]` is 1)
-/// ideally it would be all one array when any of higher bits of y is non-zero (not implemented since we dont seem to need it)
+/// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<C, XS, YS>(
+pub async fn integer_sat_add<C, S>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<XS>,
-    y: &AdditiveShare<YS>,
-) -> Result<AdditiveShare<XS>, Error>
+    x: &AdditiveShare<S>,
+    y: &AdditiveShare<S>,
+) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    XS: CustomArray + Field,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS::Element: Field,
+    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
+    S: CustomArray + Field,
+    S::Element: Field,
 {
-    let mut carry = AdditiveShare::<XS::Element>::ZERO;
+    let mut carry = AdditiveShare::<S::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
         record_id,
@@ -65,7 +62,7 @@ where
 
     //if carry==1 {all 1 array, i.e. Array[carry]} else {result}:
     //compute carry*Array[carry]+(1-carry)*result = result+carry(Array[carry]-result)
-    let carry_array = AdditiveShare::<XS>::expand(&carry);
+    let carry_array = AdditiveShare::<S>::expand(&carry);
     let sat = result.clone()
         + carry_array
             .multiply(
@@ -148,7 +145,7 @@ mod test {
     use rand::Rng;
 
     use crate::{
-        ff::{boolean_array::BA64, Field},
+        ff::{boolean_array::{BA32,BA64}, Field},
         protocol,
         protocol::{
             context::Context,
@@ -208,7 +205,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_add::<_, BA64, BA64>(
+                    integer_sat_add::<_, BA64>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],
@@ -221,6 +218,37 @@ mod test {
                 .reconstruct()
                 .as_u128();
             assert_eq!((x, y, z, result), (x, y, z, expected));
+        });
+    }
+
+    #[test]
+    fn semi_honest_add_differing_lengths() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let mut rng = thread_rng();
+
+            let records=(rng.gen::<BA64>(), rng.gen::<BA32>());
+            let x = records.0.as_u128();
+            let y = records.1.as_u128();
+
+            let expected = (x + y) % (1+u128::from(u64::MAX));
+
+            let result = world
+                .semi_honest(records, |ctx, x_y| async move {
+                    integer_add::<_, BA64, BA32>(
+                        ctx.set_total_records(1),
+                        protocol::RecordId(0),
+                        &x_y.0,
+                        &x_y.1,
+                    )
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct()
+                .as_u128();
+            assert_eq!((x, y, result), (x, y, expected));
         });
     }
 }
