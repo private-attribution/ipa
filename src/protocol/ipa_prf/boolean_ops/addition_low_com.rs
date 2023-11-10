@@ -21,19 +21,17 @@ pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<XS>,
-    y: &AdditiveShare<XS>,
-    // y: &AdditiveShare<YS>,
+    y: &AdditiveShare<YS>,
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    // YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
     XS: WeakSharedValue + CustomArray +Field,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
     addition_circuit(ctx, record_id, x, y, &mut carry).await
-    // x.multiply(y, ctx.narrow(&Step::MultiplyWithCarry), RecordId(0)).await
 }
 
 ///saturated unsigned integer addition
@@ -100,18 +98,14 @@ where
     XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    // let i=0;
     for (i, v) in x.into_iter().enumerate() {
         result.set(
             i.clone(),
             bit_adder(
                 ctx.narrow(&BitOpStep::from(i.clone())),
                 record_id,
-                // &v,
-                &x.get(i.clone()).unwrap(),
-                &y.get(i).unwrap(),
-                // y.get(i).as_ref(),
-                // &y.get(i).unwrap(),
+                &v,
+                y.get(i).as_ref(),
                 carry,
             )
             .await?,
@@ -131,22 +125,18 @@ async fn bit_adder<C, S>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<S>,
-    // y: Option<&AdditiveShare<S>>,
-    y: &AdditiveShare<S>,
+    y: Option<&AdditiveShare<S>>,
     carry: &mut AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
     S: Field,
 {
-    // let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
-    let output = x + y + &*carry;
-    //let output = x+AdditiveShare::<S>::ZERO ;//+ y;// + &*carry;
+     let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
 
     *carry = &*carry
         + (x + &*carry)
-            // .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
-            .multiply(&(y + &*carry), ctx, record_id)
+            .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
             .await?;
 
     Ok(output)
