@@ -2,6 +2,7 @@ use std::{
     fmt::{Debug, Formatter},
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
+use std::ops::Not;
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
@@ -217,6 +218,14 @@ impl<V: SharedValue> From<(V, V)> for AdditiveShare<V> {
     fn from(s: (V, V)) -> Self {
         AdditiveShare::new(s.0, s.1)
     }
+}
+
+impl<V: std::ops::Not<Output=V>+WeakSharedValue> std::ops::Not for AdditiveShare<V> {
+type Output = Self;
+
+fn not(self) -> Self::Output {
+    AdditiveShare(!(self.0),!(self.1))
+}
 }
 
 impl<V: SharedValue> Serializable for AdditiveShare<V>

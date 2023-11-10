@@ -156,8 +156,7 @@ mod test {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    ///testing correctness of DY PRF evaluation
-    /// by checking MPC generated pseudonym with pseudonym generated in the clear
+    ///testing correctness of addition
     #[test]
     fn semi_honest_add() {
         run(|| async move {

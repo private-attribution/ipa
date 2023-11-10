@@ -256,6 +256,18 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl std::ops::Not for $name {
+                type Output = Self;
+
+                fn not(self) -> Self::Output {
+                    let mut result = <$name>::ZERO;
+                    for i in 0..usize::try_from(<$name>::BITS).unwrap() {
+                        result.set(i, !self.get(i).unwrap());
+                    }
+                    result
+                }
+            }
+
             #[cfg(all(test, unit_test))]
             mod tests {
                 use rand::{thread_rng, Rng};
