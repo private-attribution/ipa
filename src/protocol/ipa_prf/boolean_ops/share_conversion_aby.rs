@@ -146,10 +146,10 @@ where
 /// carry is defined as carry{i} = carry{i-1} xor (x{i-1} xor carry{i-1})(y{i-1} xor carry{i-1})
 /// for all i where x{i-1}=0: carry{i} = carry{i-1}y{i-1}
 /// therefore for j>=0,
-/// y{m+j} := rs{m+j} xor (`carry_x` * product_(k=m)^(m+j-1)rs{k})
+/// y{m+j} := rs{m+j} xor (`carry_x` * `product_(k=m)^(m+j-1)rs{k})`
 /// this will result in leakage (rs{255}=0, rs{254}=0)
-/// y{255} := `carry_x` * product_(k=m)^(255)rs{k})
-/// y{254} := `carry_x` * product_(k=m)^(254)rs{k})
+/// y{255} := `carry_x` * `product_(k=m)^(255)rs{k})`
+/// y{254} := `carry_x` * `product_(k=m)^(254)rs{k})`
 /// however, these terms are only non-zero when all rs{k} terms are non-zero
 /// this happens with probability 1/(2^(256-m)) which is negligible for small m
 /// # Errors

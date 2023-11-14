@@ -221,7 +221,7 @@ macro_rules! boolean_array_impl {
             }
 
             // complains that no iter method exists, suppressed warnings
-            #[allow(clippy::into_iter_without_iter)]
+            #[allow(clippy::into_iter_on_ref)]
             impl<'a> IntoIterator for &'a $name {
                 type Item = Boolean;
                 type IntoIter = BAIterator<'a>;
@@ -234,7 +234,7 @@ macro_rules! boolean_array_impl {
             }
 
             // complains that no iter method exists, suppressed warnings
-            #[allow(clippy::into_iter_without_iter)]
+            #[allow(clippy::into_iter_on_ref)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
                 type IntoIter = ASIterator<BAIterator<'a>>;
