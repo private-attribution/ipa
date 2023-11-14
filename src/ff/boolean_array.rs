@@ -3,9 +3,9 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{Unsigned, U8};
+use typenum::{U32, U8};
 
-use crate::ff::boolean::Boolean;
+use crate::{ff::boolean::Boolean, secret_sharing::Block};
 
 /// The implementation below cannot be constrained without breaking Rust's
 /// macro processor.  This noop ensures that the instance of `GenericArray` used
@@ -17,16 +17,11 @@ fn assert_copy<C: Copy>(c: C) -> C {
 /// this might clash with Galois field, i.e. `galois_field.rs`
 /// so only use it for byte sizes for which Block has not been defined yet
 macro_rules! store_impl {
-    ( $arraylength:ty, $bits:expr ) => {
-        //type $store = BitArr!(for $bits, in u8, Lsb0);
-        use crate::{
-            secret_sharing::Block,
-        };
-
+    (
+    $arraylength:ty, $bits:expr ) => {
         impl Block for BitArr!(for $bits, in u8, Lsb0) {
             type Size = $arraylength;
         }
-
     };
 }
 
@@ -46,27 +41,27 @@ impl<'a> Iterator for BAIterator<'a> {
 
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
-    ( $modname:ident, $name:ident, $bits:expr, $one:expr ) => {
+    ( $modname:ident, $name:ident, $bits:expr, $bytes:expr, $one:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
+            use hkdf::Hkdf;
+            use sha2::Sha256;
+
             use super::*;
             use crate::{
                 ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable},
                 secret_sharing::{
-                    replicated::{
-                        semi_honest::{ASIterator, AdditiveShare},
-                        ReplicatedSecretSharing,
-                    },
+                    replicated::semi_honest::{ASIterator, AdditiveShare},
                     SharedValue,
-        },
+                },
             };
 
             type Store = BitArr!(for $bits, in u8, Lsb0);
 
-            ///
+    ///
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-            pub struct $name(Store);
+            pub struct $name(pub Store);
 
             impl ArrayAccess for $name {
                 type Output = Boolean;
@@ -143,11 +138,13 @@ macro_rules! boolean_array_impl {
                     (*self).into()
                 }
 
+                /// uses hashing in order to be compatible with larger array sizes
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
-                    let v = &(v.into() & MASK).to_le_bytes()
-                        [..<Self as Serializable>::Size::to_usize()];
-                    Self(<Store>::new(v.try_into().unwrap()))
+                    let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
+                    let mut okm = [0u8; $bytes];
+                    //error invalid length from expand only happens when okm is very large
+                    hk.expand(&[], &mut okm).unwrap();
+                    <$name>::deserialize(&okm.into())
                 }
             }
 
@@ -211,30 +208,6 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl<'a> IntoIterator for &'a $name {
-                type Item = Boolean;
-                type IntoIter = BAIterator<'a>;
-
-                fn into_iter(self) -> Self::IntoIter {
-                    BAIterator {
-                        iterator: self.0.iter(),
-                    }
-                }
-            }
-
-            impl FromIterator<Boolean> for $name {
-                fn from_iter<I>(iter: I) -> Self
-                where
-                    I: IntoIterator<Item = Boolean>,
-                {
-                    let mut result = $name::ONE;
-                    for (i, v) in iter.into_iter().enumerate() {
-                        result.set(i, v);
-                    }
-                    result
-                }
-            }
-
             impl Expand for $name {
                 type Input = Boolean;
 
@@ -247,6 +220,21 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            // complains that no iter method exists, suppressed warnings
+            #[allow(clippy::into_iter_without_iter)]
+            impl<'a> IntoIterator for &'a $name {
+                type Item = Boolean;
+                type IntoIter = BAIterator<'a>;
+
+                fn into_iter(self) -> Self::IntoIter {
+                    BAIterator {
+                        iterator: self.0.iter(),
+                    }
+                }
+            }
+
+            // complains that no iter method exists, suppressed warnings
+            #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
                 type IntoIter = ASIterator<BAIterator<'a>>;
@@ -300,6 +288,7 @@ macro_rules! boolean_array_impl {
 
             #[test]
             fn iterate_secret_shared_boolean_array() {
+                use crate::secret_sharing::replicated::ReplicatedSecretSharing;
                 let bits = AdditiveShare::new($name::ONE, $name::ONE);
                 let iter = bits.into_iter();
                 for (i, j) in iter.enumerate() {
@@ -316,14 +305,18 @@ macro_rules! boolean_array_impl {
     };
 }
 
-//impl store for U6
+//impl store for U8
 store_impl!(U8, 64);
+
+//impl store for U32
+store_impl!(U32, 256);
 
 //impl BA32
 boolean_array_impl!(
     boolean_array_32,
     BA32,
     32,
+    4,
     bitarr ! ( const u8, Lsb0;
         1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -337,6 +330,7 @@ boolean_array_impl!(
     boolean_array_64,
     BA64,
     64,
+    8,
     bitarr ! ( const u8, Lsb0;
         1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -348,3 +342,67 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0
     )
 );
+
+// impl BA256
+// used to convert into Fp25519
+boolean_array_impl!(
+    boolean_array_256,
+    BA256,
+    256,
+    32,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0
+    )
+);
+
+// mod tests {
+//     use rand::{thread_rng, Rng};
+//
+//     use super::*;
+//
+//     use crate::{
+//         ff::Serializable,
+//     };
+//
+//     ///test serialize and deserialize
+//     #[test]
+//     fn serde_BA256() {
+//         let mut rng = thread_rng();
+//         let input = rng.gen::<BA256>();
+//         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
+//         input.serialize(&mut a);
+//         let output = BA256::deserialize(&a);
+//         assert_eq!(input, output);
+//     }
+// }

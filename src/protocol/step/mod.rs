@@ -53,7 +53,7 @@ impl Step for str {}
 /// updated with a new step scheme.
 #[derive(Step)]
 pub enum BitOpStep {
-    #[dynamic(64)]
+    #[dynamic(256)]
     Bit(usize),
 }
 

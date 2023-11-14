@@ -5,7 +5,7 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    ff::{Field, Serializable},
+    ff::{boolean_array::BA256, Field, Serializable},
     secret_sharing::{Block, SharedValue},
 };
 
@@ -125,6 +125,25 @@ impl From<Scalar> for Fp25519 {
     }
 }
 
+/// conversion from BA256 into Fp25519
+impl From<BA256> for Fp25519 {
+    fn from(s: BA256) -> Self {
+        let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+        s.serialize(&mut buf);
+        Fp25519::deserialize(&buf)
+    }
+}
+
+/// BA256 mod field prime
+impl BA256 {
+    #[must_use]
+    pub fn mod_fp25519(&self) -> Self {
+        let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+        Fp25519::from(*self).serialize(&mut buf);
+        BA256::deserialize(&buf)
+    }
+}
+
 ///conversion from and to unsigned integers, preserving entropy, for testing purposes only
 #[cfg(test)]
 macro_rules! sc_hash_impl {
@@ -203,7 +222,10 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{ec_prime_field::Fp25519, Serializable},
+        ff::{
+            boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess,
+            Serializable,
+        },
         secret_sharing::SharedValue,
     };
 
@@ -265,5 +287,18 @@ mod test {
         let a = rng.gen::<Fp25519>();
         let ia = a.invert();
         assert_eq!(a * ia, Fp25519(Scalar::ONE));
+    }
+
+    /// test conversion BA256 to Fp25519
+    #[test]
+    fn test_ba256_to_fp25519() {
+        let mut rng = thread_rng();
+        let mut b = rng.gen::<BA256>();
+        b.set(255, Boolean::ZERO);
+        b.set(254, Boolean::ZERO);
+        b.set(253, Boolean::ZERO);
+        b.set(252, Boolean::ZERO);
+        b.set(251, Boolean::ZERO);
+        assert_eq!(b.clone().mod_fp25519(), b);
     }
 }

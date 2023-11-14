@@ -1,12 +1,14 @@
+#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{ArrayAccess, CustomArray, Expand, Field},
+    ff::{ArrayAccess, CustomArray, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
+#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedAddition,
@@ -27,7 +29,7 @@ where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray +Field,
+    XS: WeakSharedValue + CustomArray + Field,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
@@ -35,9 +37,11 @@ where
 }
 
 ///saturated unsigned integer addition
+/// currently not used, but it is tested
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 pub async fn integer_sat_add<C, S>(
     ctx: C,
     record_id: RecordId,
@@ -50,6 +54,7 @@ where
     S: CustomArray + Field,
     S::Element: Field,
 {
+    use crate::ff::Expand;
     let mut carry = AdditiveShare::<S::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
@@ -97,9 +102,9 @@ where
     let mut result = AdditiveShare::<XS>::ZERO;
     for (i, v) in x.into_iter().enumerate() {
         result.set(
-            i.clone(),
+            i,
             bit_adder(
-                ctx.narrow(&BitOpStep::from(i.clone())),
+                ctx.narrow(&BitOpStep::from(i)),
                 record_id,
                 &v,
                 y.get(i).as_ref(),
@@ -129,23 +134,29 @@ where
     C: Context,
     S: Field,
 {
-     let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
+    let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
 
     *carry = &*carry
         + (x + &*carry)
-            .multiply(&(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry), ctx, record_id)
+            .multiply(
+                &(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry),
+                ctx,
+                record_id,
+            )
             .await?;
 
     Ok(output)
 }
-
 
 #[cfg(all(test, unit_test))]
 mod test {
     use rand::Rng;
 
     use crate::{
-        ff::{boolean_array::{BA32,BA64}, Field},
+        ff::{
+            boolean_array::{BA32, BA64},
+            Field,
+        },
         protocol,
         protocol::{
             context::Context,
@@ -168,7 +179,7 @@ mod test {
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
-            let expected = (x + y) % (1+u128::from(u64::MAX));
+            let expected = (x + y) % (1 + u128::from(u64::MAX));
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
@@ -198,9 +209,9 @@ mod test {
             let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
-            let z = 1+u128::from(u64::MAX);
+            let z = 1 + u128::from(u64::MAX);
 
-            let expected = if x + y > z { z-1 } else { (x + y) % z };
+            let expected = if x + y > z { z - 1 } else { (x + y) % z };
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
@@ -227,11 +238,11 @@ mod test {
 
             let mut rng = thread_rng();
 
-            let records=(rng.gen::<BA64>(), rng.gen::<BA32>());
+            let records = (rng.gen::<BA64>(), rng.gen::<BA32>());
             let x = records.0.as_u128();
             let y = records.1.as_u128();
 
-            let expected = (x + y) % (1+u128::from(u64::MAX));
+            let expected = (x + y) % (1 + u128::from(u64::MAX));
 
             let result = world
                 .semi_honest(records, |ctx, x_y| async move {
@@ -241,8 +252,8 @@ mod test {
                         &x_y.0,
                         &x_y.1,
                     )
-                        .await
-                        .unwrap()
+                    .await
+                    .unwrap()
                 })
                 .await
                 .reconstruct()

@@ -2,10 +2,10 @@
 //
 // This is where we store arithmetic shared secret data models.
 
-pub mod curve_points;
-pub mod ec_prime_field;
 pub mod boolean;
 pub mod boolean_array;
+pub mod curve_points;
+pub mod ec_prime_field;
 mod field;
 mod galois_field;
 mod prime_field;
@@ -74,14 +74,12 @@ pub trait Expand {
 
 /// Custom Array trait
 /// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
-/// doesn't support `IntoIterator` and `into_iter()`, &'a S: IntoIterator<Item= S::Element> needs to be added manually in trait bound when used
+/// doesn't support `IntoIterator` and `into_iter()`, `&'a S: IntoIterator<Item= S::Element>` needs to be added manually in trait bound when used
 /// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
 where
-    Self: ArrayAccess<Output = Self::Element>
-        + Expand<Input = Self::Element>
-        + FromIterator<Self::Element>,
+    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
 {
     type Element;
 }
@@ -89,9 +87,7 @@ where
 /// impl Custom Array for all compatible structs
 impl<S> CustomArray for S
 where
-    S: ArrayAccess
-        + Expand<Input = <S as ArrayAccess>::Output>
-        + FromIterator<<S as ArrayAccess>::Output>,
+    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
 }
