@@ -7,9 +7,7 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        boolean::{
-            bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
-        },
+        boolean::bitwise_less_than_prime::BitwiseLessThanPrime,
         context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
@@ -21,6 +19,8 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SecretSharing,
     },
 };
+
+use super::generate_random_bits::one_random_bit;
 
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
