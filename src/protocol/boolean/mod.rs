@@ -12,7 +12,6 @@ use crate::{
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 
-pub mod add_constant;
 pub mod bitwise_equal;
 pub mod bitwise_less_than_prime;
 pub mod comparison;
