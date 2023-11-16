@@ -759,6 +759,7 @@ where
         // The result is true if the time delta is `[0, attribution_window_seconds)`
         // If we want to include the upper bound, we need to use `bitwise_greater_than_constant()`
         // and negate the result.
+        // TODO: Change to `lte` protocol once #844 is landed.
         bitwise_less_than_constant(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
             record_id,
@@ -1072,6 +1073,7 @@ pub mod tests {
         // In OPRF, the attribution window's upper bound is excluded - i.e., [0..ATTRIBUTION_WINDOW_SECONDS).
         // Ex. If attribution window is 200s and the time difference from the nearest source event
         // to the trigger event is 200s, then the trigger event is NOT attributed.
+        // TODO: Modify the test case once #844 is landed. i.e., change the second test input row ts to `201`.
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
 
         run(|| async move {
@@ -1088,19 +1090,19 @@ pub mod tests {
                 oprf_test_input_with_timestamp(234, true, 0, 5, 199), // tsΔ = 199, attributed to 12
                 /* Third User */
                 oprf_test_input_with_timestamp(345, false, 20, 0, 0),
-                oprf_test_input_with_timestamp(345, true, 0, 7, 100), // tsΔ = 100, attributed to 20
+                oprf_test_input_with_timestamp(345, true, 0, 3, 100), // tsΔ = 100, attributed to 20
                 oprf_test_input_with_timestamp(345, false, 18, 0, 200),
                 oprf_test_input_with_timestamp(345, false, 12, 0, 300),
-                oprf_test_input_with_timestamp(345, true, 0, 7, 400), // tsΔ = 100, attributed to 12
-                oprf_test_input_with_timestamp(345, true, 0, 7, 499), // tsΔ = 199, attributed to 12
-                oprf_test_input_with_timestamp(345, true, 0, 7, 500), // tsΔ = 200, not attributed
-                oprf_test_input_with_timestamp(345, true, 0, 7, 700), // tsΔ = 400, not attributed
+                oprf_test_input_with_timestamp(345, true, 0, 3, 400), // tsΔ = 100, attributed to 12
+                oprf_test_input_with_timestamp(345, true, 0, 3, 499), // tsΔ = 199, attributed to 12
+                oprf_test_input_with_timestamp(345, true, 0, 3, 500), // tsΔ = 200, not attributed
+                oprf_test_input_with_timestamp(345, true, 0, 3, 700), // tsΔ = 400, not attributed
             ];
 
             let mut expected = [0_u128; 32];
-            expected[12] = 19;
+            expected[12] = 11;
             expected[17] = 7;
-            expected[20] = 10;
+            expected[20] = 6;
 
             let num_saturating_bits: usize = 5;
 

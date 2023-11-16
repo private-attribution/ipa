@@ -152,7 +152,8 @@ async fn run(args: Args) -> Result<(), Error> {
         CappingOrder::CapOldestFirst
     };
 
-    // TODO: Note that how we apply the attribution window to IPA and OPRF IPA is different.
+    // TODO: Remove the below comment once #844 is landed.
+    // Note that how we apply the attribution window to IPA and OPRF IPA is different.
     // For IPA, trigger events are considered within the window if [0..window] (upper bound inclusive).
     // For OPRF, trigger events are considered within the window if [0..window) (upper bound exclusive).
     let expected_results = ipa_in_the_clear(
