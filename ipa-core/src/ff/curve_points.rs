@@ -7,7 +7,7 @@ use typenum::U32;
 
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
-    secret_sharing::{Block, WeakSharedValue},
+    secret_sharing::{Block, SharedValue},
 };
 
 impl Block for CompressedRistretto {
@@ -29,14 +29,14 @@ impl Block for CompressedRistretto {
 pub struct RP25519(CompressedRistretto);
 
 /// Implementing trait for secret sharing
-impl WeakSharedValue for RP25519 {
+impl SharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
     const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
 }
 
 impl Serializable for RP25519 {
-    type Size = <<RP25519 as WeakSharedValue>::Storage as Block>::Size;
+    type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
@@ -182,7 +182,7 @@ mod test {
 
     use crate::{
         ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
-        secret_sharing::WeakSharedValue,
+        secret_sharing::SharedValue,
     };
 
     cp_hash_impl!(u32);

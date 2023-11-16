@@ -64,7 +64,7 @@ use crate::{
         Role::{H1, H2, H3},
     },
     protocol::{step::Gate, RecordId},
-    secret_sharing::WeakSharedValue,
+    secret_sharing::SharedValue,
 };
 
 // TODO work with ArrayLength only
@@ -433,7 +433,7 @@ impl Debug for ChannelId {
 pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
 /// Any shared value can be send as a message
-impl<V: WeakSharedValue> Message for V {}
+impl<V: SharedValue> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;

@@ -17,7 +17,7 @@ use crate::{
     report::{EventType, OprfReport, Report},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        IntoShares, WeakSharedValue,
+        IntoShares, SharedValue,
     },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -362,9 +362,9 @@ where
 
 impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
+    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
+    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let is_trigger = Replicated::new(

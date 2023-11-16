@@ -20,7 +20,7 @@ use crate::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, WeakSharedValue},
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
 
 // TODO(679): This needs to come from configuration.
@@ -416,9 +416,9 @@ where
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OprfReport<BK, TV, TS>
 where
-    BK: WeakSharedValue,
-    TV: WeakSharedValue,
-    TS: WeakSharedValue,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue,
 {
     pub match_key: Replicated<BA64>,
     pub is_trigger: Replicated<Boolean>,
@@ -442,8 +442,7 @@ impl Serializable for u64 {
     }
 }
 
-impl<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> Serializable
-    for OprfReport<BK, TV, TS>
+impl<BK: SharedValue, TV: SharedValue, TS: SharedValue> Serializable for OprfReport<BK, TV, TS>
 where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
