@@ -116,7 +116,6 @@ fn update_expected_output_for_user<'a, I: IntoIterator<Item = &'a TestRawDataRec
     attribution_window_seconds: Option<NonZeroU32>,
     order: &CappingOrder,
 ) {
-    // TODO: change how we apply the window to IPA and OPRF IPA
     let within_window = |value: u64| -> bool {
         if let Some(window) = attribution_window_seconds {
             value <= u64::from(window.get())
