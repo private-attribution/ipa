@@ -53,7 +53,7 @@ pub enum Error {
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
-    InvalidQueryParameter(String),
+    InvalidQueryParameter(BoxError),
     #[error("invalid report: {0}")]
     InvalidReport(#[from] InvalidReportError),
     #[error("unsupported: {0}")]

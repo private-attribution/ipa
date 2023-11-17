@@ -322,21 +322,21 @@ pub(in crate::protocol) mod test {
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic]
+    #[should_panic(expected = "attempting to do a multiplication that can be performed locally")]
     fn no_work_vzz() {
         (ZeroPositions::Pvzz, ZeroPositions::Pvzz).work_for(Role::H1);
     }
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic]
+    #[should_panic(expected = "attempting to do a multiplication that can be performed locally")]
     fn no_work_vzv() {
         (ZeroPositions::Pzvz, ZeroPositions::Pzvz).work_for(Role::H2);
     }
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic]
+    #[should_panic(expected = "attempting to do a multiplication that can be performed locally")]
     fn no_work_zzv() {
         (ZeroPositions::Pzzv, ZeroPositions::Pzzv).work_for(Role::H3);
     }

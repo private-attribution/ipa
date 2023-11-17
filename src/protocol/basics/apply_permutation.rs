@@ -30,6 +30,9 @@ pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
 /// reordered into (D, C, A, B).
 ///
 /// ![Apply inv steps][applyinv]
+///
+/// ## Panics
+/// If permutation size and values size do not match.
 pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
     assert_eq!(permutation.len(), values.len());
     let mut permuted = bitvec![0; permutation.len()];
