@@ -47,7 +47,7 @@ where
     if (u128::from(cap) * 2) >= F::PRIME.into() {
         return Err(crate::error::Error::InvalidQueryParameter(format!(
             "The cap {cap} must be less than 1/2 of the prime modulus to make overflow detectable, and propagable."
-        )));
+        ).into()));
     }
 
     //
@@ -527,7 +527,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic]
+    #[should_panic(
+        expected = "must be less than 1/2 of the prime modulus to make overflow detectable, and propagable"
+    )]
     pub async fn invalid_cap_value() {
         // Input doesn't matter here, since the test should panic before the computation starts.
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = credit_capping_test_input!(

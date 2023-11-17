@@ -73,6 +73,9 @@ where
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 ///
 /// ![Shuffle steps][shuffle]
+///
+/// ## Errors
+/// If the underlying multiplicaion protocol fails on any of the input records.
 pub async fn shuffle_shares<C, I>(
     input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
