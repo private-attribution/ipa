@@ -1,6 +1,7 @@
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
+#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},

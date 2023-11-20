@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     GenerateSecretSharing,
