@@ -16,7 +16,7 @@ pub(crate) enum Step {
     MultiplyWithCarry,
 }
 
-///Comparison operation
+/// Comparison operation
 /// outputs x>=y
 /// # Errors
 /// propagates errors from multiply
@@ -34,13 +34,15 @@ where
     XS: WeakSharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
+    // we need to initialize carry to 1 for x>=y,
+    // since there are three shares 1+1+1 = 1 mod 2, so setting left = 1 and right = 1 works
     let mut carry = AdditiveShare(XS::Element::ONE, XS::Element::ONE);
     // we don't care about the subtraction, we just want the carry
     let _ = subtraction_circuit(ctx, record_id, x, y, &mut carry).await;
     Ok(carry)
 }
 
-///Comparison operation
+/// Comparison operation
 /// outputs x>y
 /// # Errors
 /// propagates errors from multiply
@@ -58,13 +60,14 @@ where
     XS: WeakSharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
+    // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
     // we don't care about the subtraction, we just want the carry
     let _ = subtraction_circuit(ctx, record_id, x, y, &mut carry).await;
     Ok(carry)
 }
 
-///non-saturated unsigned integer subtraction
+/// non-saturated unsigned integer subtraction
 /// subtracts y from x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// when y>x, it computes `(x+"XS::MaxValue")-y`
 /// # Errors
@@ -83,11 +86,12 @@ where
     XS: WeakSharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
+    // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare(XS::Element::ONE, XS::Element::ONE);
     subtraction_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
-///saturated unsigned integer subtraction
+/// saturated unsigned integer subtraction
 /// subtracts y from x, Output has same length as x (we dont seem to need support for different length)
 /// when y>x, it outputs 0
 /// # Errors
@@ -115,18 +119,19 @@ where
     )
     .await?;
 
-    //carry computes carry=(x>=y)
-    //if carry==0 {all 0 array, i.e. Array[carry]} else {result}:
-    //compute (1-carry)*Array[carry]+carry*result =carry*result
+    // carry computes carry=(x>=y)
+    // if carry==0 {all 0 array, i.e. Array[carry]} else {result}:
+    // compute (1-carry)*Array[carry]+carry*result =carry*result
     let sat = AdditiveShare::<S>::expand(&carry)
         .multiply(&result, ctx.narrow(&Step::MultiplyWithCarry), record_id)
         .await?;
     Ok(sat)
 }
 
-///subtraction using bit subtractor
+/// subtraction using bit subtractor
 /// subtracts y from x, Output has same length as x (carries and indices of y too large for x are ignored)
-///implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1/3.2
+/// implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1/3.2
+///
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
@@ -162,10 +167,18 @@ where
     Ok(result)
 }
 
-///bit subtractor
-///implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1/3.2
-///output = x + !(c + y)
-///update carry to carry = ( x + carry)(!(y + carry)) + carry
+/// This improved one-bit subtractor that only requires a single multiplication was taken from:
+/// "Improved Garbled Circuit Building Blocks and Applications to Auctions and Computing Minima"
+/// `https://encrypto.de/papers/KSS09.pdf`
+/// Section 3.1 Integer Addition, Subtraction and Multiplication
+///
+/// For each bit, the `difference_bit` denoted with `result` can be efficiently computed as:
+/// `d_i = x_i ⊕ !y_i ⊕ c_i` i.e. `result = x + !(c + y)`
+///
+/// The `carry_out` bit can be efficiently computed with just a single multiplication as:
+/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) ∧ !(y_i ⊕ c_i))`
+/// i.e. update `carry` to `carry = ( x + carry)(!(y + carry)) + carry`
+///
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
@@ -217,7 +230,7 @@ mod test {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    ///testing correctness of Not
+    /// testing correctness of Not
     /// just because we need it for subtractions
     #[test]
     fn test_not() {
@@ -249,7 +262,7 @@ mod test {
         );
     }
 
-    ///testing comparisons geq
+    /// testing comparisons geq
     #[test]
     fn semi_honest_compare_geq() {
         run(|| async move {
@@ -296,7 +309,7 @@ mod test {
         });
     }
 
-    ///testing comparisons gt
+    /// testing comparisons gt
     #[test]
     fn semi_honest_compare_gt() {
         run(|| async move {
@@ -308,7 +321,7 @@ mod test {
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
-            let expected = x >= y;
+            let expected = x > y;
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
@@ -343,7 +356,7 @@ mod test {
         });
     }
 
-    ///testing correctness of subtraction
+    /// testing correctness of subtraction
     #[test]
     fn semi_honest_sub() {
         run(|| async move {
@@ -354,8 +367,9 @@ mod test {
             let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
+            let z = 1_u128 << 64;
 
-            let expected = ((x + 1 + u128::from(u64::MAX)) - y) % (1 + u128::from(u64::MAX));
+            let expected = ((x + z) - y) % z;
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
@@ -416,8 +430,9 @@ mod test {
             let records = (rng.gen::<BA64>(), rng.gen::<BA32>());
             let x = records.0.as_u128();
             let y = records.1.as_u128();
+            let z = 1_u128 << 64;
 
-            let expected = ((x + 1 + u128::from(u64::MAX)) - y) % (1 + u128::from(u64::MAX));
+            let expected = ((x + z) - y) % z;
 
             let result = world
                 .semi_honest(records, |ctx, x_y| async move {

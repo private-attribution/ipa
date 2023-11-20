@@ -15,7 +15,7 @@ pub(crate) enum Step {
     MultiplyWithCarry,
 }
 
-///non-saturated unsigned integer addition
+/// non-saturated unsigned integer addition
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
@@ -36,7 +36,7 @@ where
     addition_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
-///saturated unsigned integer addition
+/// saturated unsigned integer addition
 /// currently not used, but it is tested
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
@@ -79,10 +79,10 @@ where
     Ok(sat)
 }
 
-///addition using bit adder
+/// addition using bit adder
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
-///implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1
-///for all i: output[i] = x[i] + (c[i-1] + y[i])
+/// implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1
+/// for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
 async fn addition_circuit<C, XS, YS>(
@@ -117,10 +117,10 @@ where
     Ok(result)
 }
 
-///bit adder
-///implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1
-///output = x + (c + y)
-///update carry to carry = ( x + carry)(y + carry) + carry
+/// bit adder
+/// implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1
+/// output = x + (c + y)
+/// update carry to carry = ( x + carry)(y + carry) + carry
 /// # Errors
 /// propagates errors from multiply
 async fn bit_adder<C, S>(
@@ -167,7 +167,7 @@ mod test {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    ///testing correctness of addition
+    /// testing correctness of addition
     #[test]
     fn semi_honest_add() {
         run(|| async move {
@@ -179,7 +179,7 @@ mod test {
             let x = records[0].as_u128();
             let y = records[1].as_u128();
 
-            let expected = (x + y) % (1 + u128::from(u64::MAX));
+            let expected = (x + y) % (1_u128 << 64);
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
@@ -209,7 +209,7 @@ mod test {
             let records: Vec<BA64> = vec![rng.gen::<BA64>(), rng.gen::<BA64>()];
             let x = records[0].as_u128();
             let y = records[1].as_u128();
-            let z = 1 + u128::from(u64::MAX);
+            let z = 1_u128 << 64;
 
             let expected = if x + y > z { z - 1 } else { (x + y) % z };
 
@@ -242,7 +242,7 @@ mod test {
             let x = records.0.as_u128();
             let y = records.1.as_u128();
 
-            let expected = (x + y) % (1 + u128::from(u64::MAX));
+            let expected = (x + y) % (1_u128 << 64);
 
             let result = world
                 .semi_honest(records, |ctx, x_y| async move {

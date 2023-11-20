@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-/// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
+/// Trait for partial reveal protocol to open a shared secret to all helpers except helper `left_out` inside the MPC ring.
 #[async_trait]
 pub trait PartialReveal<C: Context, B: RecordBinding>: Sized {
     type Output;

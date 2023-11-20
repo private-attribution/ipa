@@ -27,133 +27,71 @@ pub(crate) enum Step {
     RevealY,
 }
 
-/// share conversion from Boolean array of size n to integer mod 2^n
-/// See ABY3 (`https://eprint.iacr.org/2018/403.pdf`):
+/// share conversion
+/// from Boolean array of size n to integer mod p, where p is modulus of elliptic curve field `Fp25519`
+/// We follow the ABY3 (`https://eprint.iacr.org/2018/403.pdf`)
+/// however ABY does not directly allow to convert into integers `mod p` for a prime `p` only to integers `mod 2^n`
 ///
-/// currently not used and also not tested
+/// We first explain standard ABY:
+/// We convert a Boolean Sharing of `x` to an Arithmetic Sharing of `x` in `Fp25519` as follows:
+/// sample random Boolean Sharing `sh_r` of `r`, set share `r_1`, `r_2` to `0` (i.e. `H1` will not know `r = r3`)
+/// sample random Boolean Sharing `sh_s` of `s`, set share `r_2`, `r_3` to `0` (i.e. `H2` will not know `s = r1`)
+/// compute integer addition of `x`,`r`,`s`: `y = x + (r + s)` in MPC using the Boolean shares
+/// reveal `y` to `H1`, `H2`
+/// new shares are `H1`: `(-s, y)`, `H2`: `(y, -r)`, `H3`: `(-r,-s)`
+/// this is correct since:
+/// `r + s + y = r + s + x - r - s = x`
 ///
-/// We convert a Boolean Sharing of x to an Arithmetic Sharing of x as follows:
-/// sample random Boolean Sharing of r, set share `r_1`, `r_2` to 0 (i.e. H1 will not know r)
-/// sample random Boolean Sharing of s, set share `s_2`, `s_3` to 0 (i.e. H2 will not know s)
-/// compute integer addition of x,r,s: y = x+(r+s) in MPC using the Boolean shares
-/// reveal y to H1, H2
-/// new shares are H1: (-s, y), H2: (y, -r), H3: (-r,-s)
-/// r+s+y = r+s+x-r-s = x
 ///
-/// unfortunately, we cannot exploit that x might have much lower bit length than the Arithmetic share
-/// by sampling masks r+s from the same bit length (and setting higher order bits to 0)
-/// this is due to the fact that y needs to be revealed (which requires to reveal at least 2 bits more
-/// than the bit length of x even when r+s has 0 as higher order bits, due to carries)
-/// r+s needs to mask these additional bits which cause additional carries that need to be masked as well
-/// # Errors
-/// Propagates Errors from Interger Subtraction and Partial Reveal
-#[allow(dead_code)]
-async fn convert<C, B, A>(
-    ctx: C,
-    record_id: RecordId,
-    x: &AdditiveShare<B>,
-) -> Result<AdditiveShare<A>, Error>
-where
-    C: Context,
-    for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
-    B: WeakSharedValue + CustomArray + Field,
-    B::Element: Field + std::ops::Not<Output = B::Element>,
-    A: WeakSharedValue,
-    A: From<B>,
-{
-    // we generate r <- (r1,r2,r3) and redefine r = (0,0,r3), and s = (r1,0,0)
-    let mut sh_r: AdditiveShare<B> = ctx
-        .narrow(&Step::GenerateSecretSharing)
-        .prss()
-        .generate_replicated(record_id);
-
-    // set r2=0
-    match ctx.role() {
-        Role::H1 => sh_r.1 = <B as WeakSharedValue>::ZERO,
-        Role::H2 => sh_r.0 = <B as WeakSharedValue>::ZERO,
-        Role::H3 => (),
-    }
-
-    //generate s from r
-    let mut sh_s = sh_r.clone();
-
-    //redefine (r, s): H1: ((0,0),(r1,0)), H2: ((0,r3),(0,0)), H3: ((r3,0),(0,r1))
-    match ctx.role() {
-        Role::H1 => {
-            sh_r.0 = <B as WeakSharedValue>::ZERO;
-        }
-        Role::H2 => {
-            sh_s.1 = <B as WeakSharedValue>::ZERO;
-        }
-        Role::H3 => {
-            sh_r.1 = <B as WeakSharedValue>::ZERO;
-            sh_s.0 = <B as WeakSharedValue>::ZERO;
-        }
-    }
-
-    let sh_rs = integer_add(
-        ctx.narrow(&Step::IntegerAddBetweenMasks),
-        record_id,
-        &sh_r,
-        &sh_s,
-    )
-    .await?;
-
-    let sh_y = integer_add(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, x).await?;
-
-    let y = sh_y
-        .partial_reveal(ctx.narrow(&Step::RevealY), record_id, Role::H3)
-        .await?;
-
-    match ctx.role() {
-        Role::H1 => Ok(AdditiveShare::<A>(
-            A::from(sh_s.0).neg(),
-            A::from(y.unwrap()),
-        )),
-        Role::H2 => Ok(AdditiveShare::<A>(
-            A::from(y.unwrap()),
-            A::from(sh_r.1).neg(),
-        )),
-        Role::H3 => Ok(AdditiveShare::<A>(
-            A::from(sh_r.0).neg(),
-            A::from(sh_s.1).neg(),
-        )),
-    }
-}
-
-/// similar to convert however converting Boolean arrays to `Fp25519` takes special treatment
-/// requires `BA256` (to handle carries),
-/// can only be used securely to convert `BAt` to `Fp25519`,
+/// We now adjust the ABY strategy to work for conversion into `Fp25519`
+/// This can only be used securely to convert `BAt` to `Fp25519`,
 /// where t < 256 - statistical security parameter due to leakage
 ///
 /// leakage free alternative needs secure mod p operation after each addition
 /// (which can be performed using secure subtraction)
 ///
-/// we use a `BA256` for masks r, s and set the 2 most significant bits to 0.
-/// this allows us to compute Boolean shares of r + s without reducing it mod 256
-/// further it allows us to compute x + r + s without reducing it mod 256
+/// The high level idea is to use small enough masks `r` and `s`
+/// such that when adding them to a small enough `x` it holds that `x + r + s = (x + r + s mod 2^256)`.
+/// once we have computed shares of `y = (x + r + s mod 2^256)`
+/// we can compute `y mod p = (x + r + s mod 2^256) mod p = x + r + s mod p` to get shares in `Fp25519`.
+/// Since the masks are small, it causes leakage.
 ///
-/// We can then reveal x+r+s via `partial_reveal` and reduce it with mod p, where p is the prime of `Fp25519`
+/// we use a `BA256` for masks `r`, `s` and set the two most significant bits to `0`.
+/// this allows us to compute Boolean shares of `r + s` such that `r + s = (r + s mod 2^256)`
+/// further it allows us to compute `x + r + s` such that `x + r + s = (x + r + s mod 2^256)`
 ///
-/// in the process, we need to make sure that highest order `PRSS` masks added by `multiply`
-/// are set to zero since they would also cause carries in the integer addition
+/// We can then reveal `y = x+r+s` via `partial_reveal` and then compute `y mod p`.
 ///
-/// Setting the most significant bits to 0 leaks information about x:
-/// assuming x has m bits, revealing y = x + rs (where rs = r + s) leaks the following information
+/// In the process, we need to make sure that highest order `PRSS` masks added by `multiply`
+/// are set to zero since otherwise `rs = r + s` would be large and thus
+/// `x + rs = (x + r + s mod 2^256)` would not hold anymore when `x + rs > 2^256`.
+///
+/// Using small masks `r`, `s` leaks information about `x`.
+/// This is ok because of the following analysis:
+/// assuming `x` has `m` bits,
+/// revealing `y = x + rs` (where `rs = r + s`) leaks the following information
+///
 /// (see `bit_adder` in `protocol::ipa_prf::boolean_ops::addition_low_com::integer_add`):
-/// y{m} := rs{m} xor x{m} xor `carry_x`
-/// where x{m} is 0 and `carry_x` is carry{m-1} which contains information about x
-/// carry is defined as carry{i} = carry{i-1} xor (x{i-1} xor carry{i-1})(y{i-1} xor carry{i-1})
-/// for all i where x{i-1}=0: carry{i} = carry{i-1}y{i-1}
-/// therefore for j>=0,
-/// y{m+j} := rs{m+j} xor (`carry_x` * `product_(k=m)^(m+j-1)rs{k})`
-/// this will result in leakage (rs{255}=0, rs{254}=0)
-/// y{255} := `carry_x` * `product_(k=m)^(255)rs{k})`
-/// y{254} := `carry_x` * `product_(k=m)^(254)rs{k})`
-/// however, these terms are only non-zero when all rs{k} terms are non-zero
-/// this happens with probability 1/(2^(256-m)) which is negligible for small m
+/// `y_{m} := rs_{m} xor x_{m} xor carry_x`
+/// where `x_{m}` is `0` and `carry_x` is `carry_{m-1}` which contains information about `x`
+/// The goal is to hide `carry_x` sufficiently using the higher order bits of mask `rs`.
+/// Recap that the carries are defined as
+/// `carry_{i} = carry_{i-1} xor (x_{i-1} xor carry_{i-1})(y_{i-1} xor carry_{i-1})`
+/// Further it holds that:
+/// for all `i` where `x_{i-1}=0`: `carry{i} = carry{i-1}y{i-1}`
+///
+/// Notice that for `j>=0` mask `rs_{m+j}` hides `carry_x`:
+/// `y_{m+j} := rs_{m+j} xor (carry_x * product_(k=m)^(m+j-1)rs{k})`
+///
+/// Thus, the only leakage about `carry_x` happens in bits `255` and `254` where `rs{255}=0` and `rs{254}=0`:
+/// `y_{255} := carry_x * product_(k=m)^(255)rs{k})`
+/// `y_{254} := carry_x * product_(k=m)^(254)rs{k})`
+///
+/// However, these terms are only non-zero when all `rs_{k}` terms are non-zero
+/// this happens with probability `1/(2^(256-m))` which is negligible for a sufficiently small `m`
+///
 /// # Errors
-/// Propagates Errors from Interger Subtraction and Partial Reveal
+/// Propagates Errors from Integer Subtraction and Partial Reveal
 #[cfg(all(test, unit_test))]
 async fn convert_to_fp25519<C, B>(
     ctx: C,
@@ -165,50 +103,68 @@ where
     for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
     B: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
-    // we generate r <- (r1,r2,r3) and redefine r = (0,0,r3), and s = (r1,0,0)
-    let mut sh_r: AdditiveShare<BA256> = ctx
-        .narrow(&Step::GenerateSecretSharing)
-        .prss()
-        .generate_replicated(record_id);
+    // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
+    // the two highest bits are set to 0 to allow carries for two additions
+    let (sh_r,sh_s) = {
 
-    // set 2 highest order bits to 0 to allow carries for two additions
-    sh_r.set(255, AdditiveShare::<Boolean>::ZERO);
-    sh_r.set(254, AdditiveShare::<Boolean>::ZERO);
+        // this closure generates sh_r, sh_r from PRSS randomness r
 
-    // set r2=0
-    match ctx.role() {
-        Role::H1 => sh_r.1 = <BA256 as WeakSharedValue>::ZERO,
-        Role::H2 => sh_r.0 = <BA256 as WeakSharedValue>::ZERO,
-        Role::H3 => (),
-    }
+        // we generate random values r = (r1,r2,r3) using PRSS
+        // r: H1: (r1,r2), H2: (r2,r3), H3: (r3, r1)
+        let mut r: AdditiveShare<BA256> = ctx
+            .narrow(&Step::GenerateSecretSharing)
+            .prss()
+            .generate_replicated(record_id);
 
-    //generate s from r
-    let mut sh_s = AdditiveShare::<BA256>::ZERO;
+        // set 2 highest order bits of r1, r2, r3 to 0
+        r.set(255, AdditiveShare::<Boolean>::ZERO);
+        r.set(254, AdditiveShare::<Boolean>::ZERO);
 
-    //redefine (r, s): H1: ((0,0),(r1,0)), H2: ((0,r3),(0,0)), H3: ((r3,0),(0,r1))
-    match ctx.role() {
-        Role::H1 => sh_r.0 = <BA256 as WeakSharedValue>::ZERO,
-        Role::H2 => sh_s.1 = <BA256 as WeakSharedValue>::ZERO,
-        Role::H3 => {
-            sh_r.1 = <BA256 as WeakSharedValue>::ZERO;
-            sh_s.0 = <BA256 as WeakSharedValue>::ZERO;
+        // generate sh_r, sh_s
+        // sh_r: H1: (0,0), H2: (0,r3), H3: (r3, 0)
+        // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
+        match ctx.role() {
+            Role::H1 => {
+                (
+                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO,<BA256 as WeakSharedValue>::ZERO),
+                    AdditiveShare(r.0,<BA256 as WeakSharedValue>::ZERO)
+                )
+            }
+            Role::H2 => {
+                (
+                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
+                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, <BA256 as WeakSharedValue>::ZERO)
+                )
+            }
+            Role::H3 => {
+                (
+                    AdditiveShare(r.0,<BA256 as WeakSharedValue>::ZERO),
+                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1)
+                )
+            }
         }
-    }
+    };
 
-    // addition r+s might cause carry, so we need 253 bits
-    let mut sh_rs = integer_add::<_, BA256, BA256>(
-        ctx.narrow(&Step::IntegerAddBetweenMasks),
-        record_id,
-        &sh_r,
-        &sh_s,
-    )
-    .await?;
+    // addition r+s might cause carry,
+    // this is no problem since we have set bit 254 of sh_r and sh_s to 0
+    let sh_rs = {
+        let mut rs_with_higherorderbits = integer_add::<_, BA256, BA256>(
+            ctx.narrow(&Step::IntegerAddBetweenMasks),
+            record_id,
+            &sh_r,
+            &sh_s,
+        ).await?;
 
-    //PRSS/Multiply masks added random highest order bit,
-    // remove them to not cause overflow in second addition (which is mod 256):
-    sh_rs.set(255, AdditiveShare::<Boolean>::ZERO);
+        // PRSS/Multiply masks added random highest order bit,
+        // remove them to not cause overflow in second addition (which is mod 256):
+        rs_with_higherorderbits.set(255, AdditiveShare::<Boolean>::ZERO);
 
-    //addition x+rs, where rs=r+s might cause carry
+        // return rs
+        rs_with_higherorderbits
+    };
+
+    // addition x+rs, where rs=r+s might cause carry
+    // this is not a problem since bit 255 of rs is set to 0
     let sh_y =
         integer_add::<_, BA256, B>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, x)
             .await?;
@@ -258,7 +214,7 @@ where
 
 /// inserts a smaller array into a larger
 /// allows share conversion between secret shared Boolean Array types like 'BA64' and 'BA256'
-/// we don't use it right except for testing purposes
+/// we don't use it right now except for testing purposes
 #[cfg(all(test, unit_test))]
 pub fn expand_shared_array<XS, YS>(
     x: &AdditiveShare<XS>,

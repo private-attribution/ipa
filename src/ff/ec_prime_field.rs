@@ -290,15 +290,20 @@ mod test {
     }
 
     /// test conversion BA256 to Fp25519
+    /// only checks that for b<p, b mod p = b
     #[test]
     fn test_ba256_to_fp25519() {
         let mut rng = thread_rng();
         let mut b = rng.gen::<BA256>();
+
+        // we set bits > p to 0
         b.set(255, Boolean::ZERO);
         b.set(254, Boolean::ZERO);
         b.set(253, Boolean::ZERO);
         b.set(252, Boolean::ZERO);
         b.set(251, Boolean::ZERO);
+
+        // since largest bits are set to 0, mod_fp25519 should not change b
         assert_eq!(b.clone().mod_fp25519(), b);
     }
 }

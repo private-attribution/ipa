@@ -382,27 +382,6 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0
+        0, 0, 0, 0, 0, 0, 0, 0
     )
 );
-
-// mod tests {
-//     use rand::{thread_rng, Rng};
-//
-//     use super::*;
-//
-//     use crate::{
-//         ff::Serializable,
-//     };
-//
-//     ///test serialize and deserialize
-//     #[test]
-//     fn serde_BA256() {
-//         let mut rng = thread_rng();
-//         let input = rng.gen::<BA256>();
-//         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
-//         input.serialize(&mut a);
-//         let output = BA256::deserialize(&a);
-//         assert_eq!(input, output);
-//     }
-// }
