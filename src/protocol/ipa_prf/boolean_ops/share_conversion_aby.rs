@@ -105,8 +105,7 @@ where
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
-    let (sh_r,sh_s) = {
-
+    let (sh_r, sh_s) = {
         // this closure generates sh_r, sh_r from PRSS randomness r
 
         // we generate random values r = (r1,r2,r3) using PRSS
@@ -124,24 +123,24 @@ where
         // sh_r: H1: (0,0), H2: (0,r3), H3: (r3, 0)
         // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
         match ctx.role() {
-            Role::H1 => {
-                (
-                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO,<BA256 as WeakSharedValue>::ZERO),
-                    AdditiveShare(r.0,<BA256 as WeakSharedValue>::ZERO)
-                )
-            }
-            Role::H2 => {
-                (
-                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
-                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, <BA256 as WeakSharedValue>::ZERO)
-                )
-            }
-            Role::H3 => {
-                (
-                    AdditiveShare(r.0,<BA256 as WeakSharedValue>::ZERO),
-                    AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1)
-                )
-            }
+            Role::H1 => (
+                AdditiveShare(
+                    <BA256 as WeakSharedValue>::ZERO,
+                    <BA256 as WeakSharedValue>::ZERO,
+                ),
+                AdditiveShare(r.0, <BA256 as WeakSharedValue>::ZERO),
+            ),
+            Role::H2 => (
+                AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
+                AdditiveShare(
+                    <BA256 as WeakSharedValue>::ZERO,
+                    <BA256 as WeakSharedValue>::ZERO,
+                ),
+            ),
+            Role::H3 => (
+                AdditiveShare(r.0, <BA256 as WeakSharedValue>::ZERO),
+                AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
+            ),
         }
     };
 
@@ -153,7 +152,8 @@ where
             record_id,
             &sh_r,
             &sh_s,
-        ).await?;
+        )
+        .await?;
 
         // PRSS/Multiply masks added random highest order bit,
         // remove them to not cause overflow in second addition (which is mod 256):
