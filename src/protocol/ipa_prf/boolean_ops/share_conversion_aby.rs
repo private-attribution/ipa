@@ -1,6 +1,7 @@
 #[cfg(all(test, unit_test))]
 use std::ops::Neg;
 
+#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 #[cfg(all(test, unit_test))]
