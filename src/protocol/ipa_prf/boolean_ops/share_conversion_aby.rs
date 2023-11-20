@@ -3,20 +3,16 @@ use std::ops::Neg;
 
 use ipa_macros::Step;
 
+#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
-    ff::{CustomArray, Field},
+    ff::{CustomArray, Field, boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess},
     helpers::Role,
     protocol::{
         basics::PartialReveal, context::Context,
         ipa_prf::boolean_ops::addition_low_com::integer_add, prss::SharedRandomness, RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
-};
-#[cfg(all(test, unit_test))]
-use crate::{
-    ff::{boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess},
-    secret_sharing::replicated::ReplicatedSecretSharing,
+    secret_sharing::{replicated::{semi_honest::AdditiveShare,ReplicatedSecretSharing}, WeakSharedValue},
 };
 
 #[derive(Step)]

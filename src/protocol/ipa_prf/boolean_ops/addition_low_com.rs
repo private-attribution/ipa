@@ -19,6 +19,7 @@ pub(crate) enum Step {
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -85,6 +86,7 @@ where
 /// for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 async fn addition_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -123,6 +125,7 @@ where
 /// update carry to carry = ( x + carry)(y + carry) + carry
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 async fn bit_adder<C, S>(
     ctx: C,
     record_id: RecordId,
