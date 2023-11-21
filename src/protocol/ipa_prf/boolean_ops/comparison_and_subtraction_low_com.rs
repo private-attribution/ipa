@@ -338,6 +338,7 @@ mod test {
 
             assert_eq!(result, <Boolean>::from(expected));
 
+            // check that x is not greater than itself
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
                     compare_gt::<_, BA64, BA64>(

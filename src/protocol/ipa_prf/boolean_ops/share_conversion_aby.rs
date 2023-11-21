@@ -218,7 +218,7 @@ where
 
 /// inserts a smaller array into a larger
 /// allows share conversion between secret shared Boolean Array types like 'BA64' and 'BA256'
-/// we don't use it right now except for testing purposes
+/// only used for testing purposes
 #[cfg(all(test, unit_test))]
 pub fn expand_shared_array<XS, YS>(
     x: &AdditiveShare<XS>,
