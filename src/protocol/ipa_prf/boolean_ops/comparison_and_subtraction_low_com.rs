@@ -122,10 +122,9 @@ where
     // carry computes carry=(x>=y)
     // if carry==0 {all 0 array, i.e. Array[carry]} else {result}:
     // compute (1-carry)*Array[carry]+carry*result =carry*result
-    let sat = AdditiveShare::<S>::expand(&carry)
+    AdditiveShare::<S>::expand(&carry)
         .multiply(&result, ctx.narrow(&Step::MultiplyWithCarry), record_id)
-        .await?;
-    Ok(sat)
+        .await
 }
 
 /// subtraction using bit subtractor

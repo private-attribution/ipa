@@ -5,7 +5,12 @@ use ipa_macros::Step;
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
+    protocol::{
+        basics::{if_else, SecureMul},
+        context::Context,
+        step::BitOpStep,
+        RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
@@ -13,7 +18,7 @@ use crate::{
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedAddition,
-    MultiplyWithCarry,
+    IfElse,
 }
 
 /// non-saturated unsigned integer addition
@@ -67,18 +72,18 @@ where
     )
     .await?;
 
-    //if carry==1 {all 1 array, i.e. Array[carry]} else {result}:
-    //compute carry*Array[carry]+(1-carry)*result = result+carry(Array[carry]-result)
+    // expand carry bit to array
     let carry_array = AdditiveShare::<S>::expand(&carry);
-    let sat = result.clone()
-        + carry_array
-            .multiply(
-                &(carry_array.clone() - result),
-                ctx.narrow(&Step::MultiplyWithCarry),
-                record_id,
-            )
-            .await?;
-    Ok(sat)
+
+    // if carry_array==1 then {carry_array} else {result}:
+    if_else(
+        ctx.narrow(&Step::IfElse),
+        record_id,
+        &carry_array,
+        &carry_array,
+        &result,
+    )
+    .await
 }
 
 /// addition using bit adder

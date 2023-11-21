@@ -248,7 +248,7 @@ where
     }
 }
 
-///Implement `ArrayAccess` for `AdditiveShare` over `WeakSharedValue` that implements `ArrayAccess`
+/// Implement `ArrayAccess` for `AdditiveShare` over `WeakSharedValue` that implements `ArrayAccess`
 impl<S> ArrayAccess for AdditiveShare<S>
 where
     S: ArrayAccess + WeakSharedValue,

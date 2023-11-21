@@ -54,7 +54,7 @@ impl<C: Context, V: WeakSharedValue> PartialReveal<C, RecordId> for Replicated<V
     {
         let (left, right) = self.as_tuple();
 
-        //send except to left_out
+        // send except to left_out
         if ctx.role().peer(Direction::Right) != left_out {
             ctx.send_channel(ctx.role().peer(Direction::Right))
                 .send(record_id, left)
@@ -98,7 +98,7 @@ impl<'a, F: ExtendableField> PartialReveal<UpgradedMaliciousContext<'a, F>, Reco
         let right_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Right));
 
         // Send share to helpers to the right and left
-        //send except to left_out
+        // send except to left_out
         if ctx.role().peer(Direction::Left) != left_out {
             left_sender.send(record_id, right).await?;
         }
