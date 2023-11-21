@@ -3,18 +3,14 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    helpers::Direction,
     protocol::{
-        basics::{
-            apply_permutation::{apply, apply_inv},
-            Reshare,
-        },
+        basics::Reshare,
         context::Context,
         sort::{
-            shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
-            ShuffleStep::{self, Shuffle1, Shuffle2, Shuffle3},
+            shuffle::{shuffle_or_unshuffle_once, ShuffleOrUnshuffle},
+            ShuffleStep::{Shuffle1, Shuffle2, Shuffle3},
         },
-        NoRecord, RecordId,
+        RecordId,
     },
 };
 
@@ -30,40 +26,6 @@ impl From<usize> for InnerVectorElementStep {
     }
 }
 
-/// `shuffle_once` is called for the helpers
-/// i)   2 helpers receive permutation pair and choose the permutation to be applied
-/// ii)  2 helpers apply the permutation to their shares
-/// iii) reshare to `to_helper`
-#[tracing::instrument(name = "shuffle_once", skip_all, fields(to = ?shuffle_for_helper(which_step)))]
-async fn shuffle_once<C, I>(
-    mut input: Vec<I>,
-    random_permutations: (&[u32], &[u32]),
-    shuffle_or_unshuffle: ShuffleOrUnshuffle,
-    ctx: &C,
-    which_step: ShuffleStep,
-) -> Result<Vec<I>, Error>
-where
-    C: Context,
-    I: Reshare<C, RecordId> + Send + Sync,
-{
-    let to_helper = shuffle_for_helper(which_step);
-    let ctx = ctx.narrow(&which_step);
-
-    if to_helper != ctx.role() {
-        let permutation_to_apply = if to_helper.peer(Direction::Left) == ctx.role() {
-            random_permutations.0
-        } else {
-            random_permutations.1
-        };
-
-        match shuffle_or_unshuffle {
-            ShuffleOrUnshuffle::Shuffle => apply_inv(permutation_to_apply, &mut input),
-            ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
-        }
-    }
-    input.reshare(ctx, NoRecord, to_helper).await
-}
-
 #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
 /// Shuffle calls `shuffle_once` three times with 2 helpers shuffling the shares each time.
 /// Order of calling `shuffle_once` is shuffle with (H2, H3), (H3, H1) and (H1, H2).
@@ -73,6 +35,9 @@ where
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 ///
 /// ![Shuffle steps][shuffle]
+///
+/// ## Errors
+/// If the underlying multiplicaion protocol fails on any of the input records.
 pub async fn shuffle_shares<C, I>(
     input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
@@ -82,7 +47,7 @@ where
     C: Context,
     I: Reshare<C, RecordId> + Send + Sync,
 {
-    let input = shuffle_once(
+    let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
@@ -90,7 +55,7 @@ where
         Shuffle1,
     )
     .await?;
-    let input = shuffle_once(
+    let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,
@@ -98,7 +63,7 @@ where
         Shuffle2,
     )
     .await?;
-    shuffle_once(
+    shuffle_or_unshuffle_once(
         input,
         random_permutations,
         ShuffleOrUnshuffle::Shuffle,

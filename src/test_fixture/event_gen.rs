@@ -45,6 +45,9 @@ pub struct Config {
     pub max_trigger_value: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
     pub max_breakdown_key: NonZeroU32,
+    #[cfg_attr(feature = "clap", arg(long, hide = true, default_value = "604800"))]
+    // 7 days < 20 bits
+    pub max_timestamp: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
     pub max_events_per_user: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "1"))]
@@ -70,7 +73,7 @@ fn validate_probability(value: &str) -> Result<f32, String> {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::new(1_000_000_000_000, 5, 20, 1, 50)
+        Self::new(1_000_000_000_000, 5, 20, 1, 50, 604_800)
     }
 }
 
@@ -86,12 +89,14 @@ impl Config {
         max_breakdown_key: u32,
         min_events_per_user: u32,
         max_events_per_user: u32,
+        max_timestamp: u32,
     ) -> Self {
         assert!(min_events_per_user < max_events_per_user);
         Self {
             user_count: NonZeroU64::try_from(user_count).unwrap(),
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
+            max_timestamp: NonZeroU32::try_from(max_timestamp).unwrap(),
             min_events_per_user: NonZeroU32::try_from(min_events_per_user).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
@@ -149,7 +154,6 @@ pub struct EventGenerator<R: Rng> {
     users: Vec<UserStats>,
     // even bit vector takes too long to initialize. Need a sparse structure here
     used: HashSet<UserId>,
-    current_ts: u64,
 }
 
 impl<R: Rng> EventGenerator<R> {
@@ -163,24 +167,21 @@ impl<R: Rng> EventGenerator<R> {
             rng,
             users: vec![],
             used: HashSet::new(),
-            current_ts: 0,
         }
     }
 
     fn gen_event(&mut self, user_id: UserId) -> TestRawDataRecord {
-        if self.rng.gen() {
-            // The next event would have timestamp upto 60 seconds after the previous
-            // event generated. On an average, we should be able to start seeing spacing
-            // of 7 days in query size of 100k or greater.
-            self.current_ts += self.rng.gen_range(1..=60);
-        }
+        // Generate a new random timestamp between [0..`max_timestamp`).
+        // This means the generated events must be sorted by timestamp before being
+        // fed into the IPA protocols.
+        let current_ts = self.rng.gen_range(0..self.config.max_timestamp.get());
 
         match self.config.report_filter {
             ReportFilter::All => {
                 if self.rng.gen() {
-                    self.gen_trigger(user_id)
+                    self.gen_trigger(user_id, current_ts)
                 } else {
-                    self.gen_source(user_id)
+                    self.gen_source(user_id, current_ts)
                 }
             }
             ReportFilter::TriggerOnly => {
@@ -191,30 +192,30 @@ impl<R: Rng> EventGenerator<R> {
                     } else {
                         UserId::EPHEMERAL
                     };
-                self.gen_trigger(user_id)
+                self.gen_trigger(user_id, current_ts)
             }
-            ReportFilter::SourceOnly => self.gen_source(user_id),
+            ReportFilter::SourceOnly => self.gen_source(user_id, current_ts),
         }
     }
 
-    fn gen_trigger(&mut self, user_id: UserId) -> TestRawDataRecord {
+    fn gen_trigger(&mut self, user_id: UserId, timestamp: u32) -> TestRawDataRecord {
         let trigger_value = self.rng.gen_range(1..self.config.max_trigger_value.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),
-            timestamp: self.current_ts,
+            timestamp: timestamp.into(),
             is_trigger_report: true,
             breakdown_key: 0,
             trigger_value,
         }
     }
 
-    fn gen_source(&mut self, user_id: UserId) -> TestRawDataRecord {
+    fn gen_source(&mut self, user_id: UserId, timestamp: u32) -> TestRawDataRecord {
         let breakdown_key = self.rng.gen_range(0..self.config.max_breakdown_key.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),
-            timestamp: self.current_ts,
+            timestamp: timestamp.into(),
             is_trigger_report: false,
             breakdown_key,
             trigger_value: 0,
@@ -391,6 +392,7 @@ mod tests {
                             user_count: NonZeroU64::new(10_000).unwrap(),
                             max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
                             max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                            max_timestamp: NonZeroU32::new(604_800).unwrap(),
                             min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
                             max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
                             report_filter,
@@ -409,7 +411,6 @@ mod tests {
 
             let gen = EventGenerator::with_config(StdRng::seed_from_u64(rng_seed), config.clone());
             let mut events_per_users = HashMap::<_, u32>::new();
-            let mut last_ts = 0;
             for event in gen.take(total_events) {
                 let counter = events_per_users.entry(event.user_id).or_default();
                 *counter += 1_u32;
@@ -422,14 +423,10 @@ mod tests {
                     "Generated breakdown key greater than {max_breakdown}"
                 );
 
-                // basic correctness checks
-                assert!(
-                    event.timestamp >= last_ts,
-                    "Found an event with timestamp preceding the previous event timestamp"
-                );
+                // Basic correctness checks. timestamps are not checked as the order of events
+                // is not guaranteed. The caller must sort the events by timestamp before
+                // feeding them into IPA.
                 config.is_valid(&event);
-
-                last_ts = event.timestamp;
             }
         }
 

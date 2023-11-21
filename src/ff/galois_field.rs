@@ -463,7 +463,7 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
-                #[should_panic]
+                #[should_panic(expected = "index < usize::try_from")]
                 pub fn out_of_count_index() {
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic

@@ -38,6 +38,22 @@ impl From<usize> for BucketStep {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum MoveToBucketError {
+    #[error("Bad value for the breakdown key: {0}")]
+    InvalidBreakdownKey(String),
+}
+
+impl From<MoveToBucketError> for Error {
+    fn from(error: MoveToBucketError) -> Self {
+        match error {
+            e @ MoveToBucketError::InvalidBreakdownKey(_) => {
+                Error::InvalidQueryParameter(Box::new(e))
+            }
+        }
+    }
+}
+
 #[embed_doc_image("tree-aggregation", "images/tree_aggregation.png")]
 /// This function moves a single value to a correct bucket using tree aggregation approach
 ///
@@ -57,6 +73,9 @@ impl From<usize> for BucketStep {
 /// extra processing to ensure contribution doesn't end up in a wrong bucket. However, this requires extra multiplications.
 /// This would potentially not be needed in IPA (as the breakdown key is provided by the report collector, so a bad value only spoils their own result) but useful for PAM.
 /// This can be by passing `robust` as true.
+///
+/// ## Errors
+/// If `breakdown_count` does not fit into `BK` bits or greater than or equal to $2^9$
 pub async fn move_single_value_to_bucket<BK, C, S, F>(
     ctx: C,
     record_id: RecordId,
@@ -71,17 +90,23 @@ where
     S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
     F: PrimeField + ExtendableField,
 {
+    const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
     let mut step: usize = 1 << BK::BITS;
 
-    assert!(
-        breakdown_count <= 1 << BK::BITS,
-        "Asking for more buckets ({breakdown_count}) than bits in the key ({}) allow",
-        BK::BITS
-    );
-    assert!(
-        breakdown_count <= 512,
-        "Our step implementation (BucketStep) cannot go past 256"
-    );
+    if breakdown_count > step {
+        Err(MoveToBucketError::InvalidBreakdownKey(format!(
+            "Asking for more buckets ({breakdown_count}) than bits in the breakdown key ({}) allow",
+            BK::BITS
+        )))?;
+    }
+
+    if breakdown_count > MAX_BREAKDOWNS {
+        Err(MoveToBucketError::InvalidBreakdownKey(
+            "Our step implementation (BucketStep) cannot go past {MAX_BREAKDOWNS} breakdown keys"
+                .to_string(),
+        ))?;
+    }
+
     let mut row_contribution = vec![value; breakdown_count];
 
     for (tree_depth, bit_of_bdkey) in bd_key.iter().enumerate().rev() {
@@ -222,7 +247,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Asking for more buckets")]
     fn move_out_of_range_too_many_buckets_type() {
         run(move || async move {
             _ = move_to_bucket(MAX_BREAKDOWN_COUNT + 1, 0, false).await;
@@ -230,7 +255,7 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Asking for more buckets")]
     fn move_out_of_range_too_many_buckets_steps() {
         run(move || async move {
             let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf9Bit::BITS);

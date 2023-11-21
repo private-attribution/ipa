@@ -492,7 +492,9 @@ pub mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "Attempt access a sequential PRSS for protocol/test after another access"
+    )]
     fn indexed_then_sequential() {
         let [p1, _p2, _p3] = participants();
 
@@ -502,7 +504,9 @@ pub mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "Attempt to get an indexed PRSS for protocol/test after retrieving a sequential PRSS"
+    )]
     fn sequential_then_indexed() {
         let [p1, _p2, _p3] = participants();
 
@@ -526,7 +530,9 @@ pub mod test {
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic]
+    #[should_panic(
+        expected = "Generated randomness for index '100' twice using the same key 'protocol/test'"
+    )]
     fn indexed_rejects_the_same_index() {
         let [p1, _p2, _p3] = participants();
         let step = Gate::default().narrow("test");

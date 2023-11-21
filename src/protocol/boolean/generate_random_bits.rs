@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use futures::stream::{iter as stream_iter, Stream, StreamExt};
+use futures::stream::{iter as stream_iter, StreamExt};
 
 use crate::{
     error::Error,
@@ -9,9 +9,7 @@ use crate::{
     protocol::{
         basics::SecureMul,
         context::{prss::InstrumentedIndexedSharedRandomness, Context, UpgradedContext},
-        modulus_conversion::{
-            convert_bits, convert_some_bits, BitConversionTriple, ToBitConversionTriples,
-        },
+        modulus_conversion::{convert_some_bits, BitConversionTriple, ToBitConversionTriples},
         prss::SharedRandomness,
         RecordId,
     },
@@ -94,27 +92,6 @@ impl<F: PrimeField, C: Context> Iterator for RawRandomBitIter<F, C> {
         self.record_id += 1;
         Some(v)
     }
-}
-
-/// Produce a stream of random bits using the provided context.
-///
-/// # Panics
-/// If the provided context has an unspecified total record count.
-/// An indeterminate limit works, but setting a fixed value greatly helps performance.
-pub fn random_bits<F, C>(ctx: C) -> impl Stream<Item = Result<BitDecomposed<C::Share>, Error>>
-where
-    F: PrimeField,
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F> + SecureMul<C>,
-{
-    debug_assert!(ctx.total_records().is_specified());
-    let iter = RawRandomBitIter::<F, C> {
-        ctx: ctx.clone(),
-        record_id: RecordId(0),
-        _f: PhantomData,
-    };
-    let bits = 0..(u128::BITS - F::PRIME.into().leading_zeros());
-    convert_bits(ctx, stream_iter(iter), bits)
 }
 
 /// # Errors

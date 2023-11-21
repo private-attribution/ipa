@@ -589,7 +589,9 @@ where
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
         difference_to_cap: BitDecomposed::new(vec![Replicated::ZERO; TV::BITS as usize]),
-        source_event_timestamp: BitDecomposed::new(vec![Replicated::ZERO; TS::BITS as usize]),
+        source_event_timestamp: BitDecomposed::decompose(TS::BITS, |i| {
+            input_row.timestamp.map(|v| Gf2::truncate_from(v[i]))
+        }),
     }
 }
 
@@ -757,6 +759,7 @@ where
         // The result is true if the time delta is `[0, attribution_window_seconds)`
         // If we want to include the upper bound, we need to use `bitwise_greater_than_constant()`
         // and negate the result.
+        // TODO: Change to `lte` protocol once #844 is landed.
         bitwise_less_than_constant(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
             record_id,
@@ -834,6 +837,8 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use std::num::NonZeroU32;
+
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf20Bit, Gf3Bit, Gf5Bit},
@@ -1054,6 +1059,71 @@ pub mod tests {
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
                     >(ctx, input_rows, num_saturating_bits, None, &histogram)
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
+        // In OPRF, the attribution window's upper bound is excluded - i.e., [0..ATTRIBUTION_WINDOW_SECONDS).
+        // Ex. If attribution window is 200s and the time difference from the nearest source event
+        // to the trigger event is 200s, then the trigger event is NOT attributed.
+        // TODO: Modify the test case once #844 is landed. i.e., change the second test input row ts to `201`.
+        const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
+
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit>> = vec![
+                /* First User */
+                oprf_test_input_with_timestamp(123, false, 17, 0, 1),
+                oprf_test_input_with_timestamp(123, true, 0, 7, 200), // tsΔ = 199, attributed to 17
+                oprf_test_input_with_timestamp(123, false, 20, 0, 200),
+                oprf_test_input_with_timestamp(123, true, 0, 3, 300), // tsΔ = 100, attributed to 20
+                /* Second User */
+                oprf_test_input_with_timestamp(234, false, 12, 0, 0),
+                oprf_test_input_with_timestamp(234, true, 0, 5, 199), // tsΔ = 199, attributed to 12
+                /* Third User */
+                oprf_test_input_with_timestamp(345, false, 20, 0, 0),
+                oprf_test_input_with_timestamp(345, true, 0, 3, 100), // tsΔ = 100, attributed to 20
+                oprf_test_input_with_timestamp(345, false, 18, 0, 200),
+                oprf_test_input_with_timestamp(345, false, 12, 0, 300),
+                oprf_test_input_with_timestamp(345, true, 0, 3, 400), // tsΔ = 100, attributed to 12
+                oprf_test_input_with_timestamp(345, true, 0, 3, 499), // tsΔ = 199, attributed to 12
+                oprf_test_input_with_timestamp(345, true, 0, 3, 500), // tsΔ = 200, not attributed
+                oprf_test_input_with_timestamp(345, true, 0, 3, 700), // tsΔ = 400, not attributed
+            ];
+
+            let mut expected = [0_u128; 32];
+            expected[12] = 11;
+            expected[17] = 7;
+            expected[20] = 6;
+
+            let num_saturating_bits: usize = 5;
+
+            let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    attribution_and_capping_and_aggregation::<
+                        _,
+                        Gf5Bit,
+                        Gf3Bit,
+                        Gf20Bit,
+                        Replicated<Fp32BitPrime>,
+                        Fp32BitPrime,
+                    >(
+                        ctx,
+                        input_rows,
+                        num_saturating_bits,
+                        NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
+                        &histogram,
+                    )
                     .await
                     .unwrap()
                 })

@@ -12,7 +12,6 @@ use crate::{
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 
-pub mod add_constant;
 pub mod bitwise_equal;
 pub mod bitwise_less_than_prime;
 pub mod comparison;
@@ -24,7 +23,6 @@ pub mod solved_bits;
 mod xor;
 
 pub use comparison::greater_than_constant;
-pub use generate_random_bits::random_bits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
 
