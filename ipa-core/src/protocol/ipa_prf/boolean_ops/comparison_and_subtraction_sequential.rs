@@ -1,7 +1,5 @@
-#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Expand, Field},
@@ -9,7 +7,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
-#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedSubtraction,
@@ -20,7 +17,6 @@ pub(crate) enum Step {
 /// outputs x>=y
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn compare_geq<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -46,7 +42,6 @@ where
 /// outputs x>y
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn compare_gt<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -72,7 +67,6 @@ where
 /// when y>x, it computes `(x+"XS::MaxValue")-y`
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn integer_sub<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -96,7 +90,6 @@ where
 /// when y>x, it outputs 0
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn integer_sat_sub<C, S>(
     ctx: C,
     record_id: RecordId,
@@ -133,7 +126,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 async fn subtraction_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -180,7 +172,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 async fn bit_subtractor<C, S>(
     ctx: C,
     record_id: RecordId,

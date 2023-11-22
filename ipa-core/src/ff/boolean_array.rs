@@ -308,6 +308,41 @@ store_impl!(U8, 64);
 //impl store for U32
 store_impl!(U32, 256);
 
+//impl BA3
+boolean_array_impl!(
+    boolean_array_3,
+    BA3,
+    3,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0
+    )
+);
+
+//impl BA5
+boolean_array_impl!(
+    boolean_array_5,
+    BA5,
+    5,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0
+    )
+);
+
+//impl BA20
+boolean_array_impl!(
+    boolean_array_20,
+    BA20,
+    20,
+    3,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0
+    )
+);
+
 //impl BA32
 boolean_array_impl!(
     boolean_array_32,

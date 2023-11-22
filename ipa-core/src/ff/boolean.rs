@@ -3,8 +3,10 @@ use typenum::U1;
 
 use crate::{
     ff::{Field, Serializable},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, SharedValue, replicated::malicious::ExtendableField},
 };
+
+use super::Gf32Bit;
 
 impl Block for bool {
     type Size = U1;
@@ -13,6 +15,14 @@ impl Block for bool {
 ///implements shared value framework for bool
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Boolean(bool);
+
+impl ExtendableField for Boolean {
+    type ExtendedField = Gf32Bit;
+
+    fn to_extended(&self) -> Self::ExtendedField {
+        Gf32Bit::try_from(self.as_u128()).unwrap()
+    }
+}
 
 ///trait for secret sharing
 impl SharedValue for Boolean {

@@ -64,6 +64,8 @@ pub trait ArrayAccess {
     fn get(&self, index: usize) -> Option<Self::Output>;
 
     fn set(&mut self, index: usize, e: Self::Output);
+
+    fn len(&self) -> usize;
 }
 
 pub trait Expand {

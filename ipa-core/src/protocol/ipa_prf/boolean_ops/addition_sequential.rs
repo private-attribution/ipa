@@ -1,4 +1,3 @@
-#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
@@ -8,7 +7,6 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
-#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedAddition,
@@ -19,7 +17,6 @@ pub(crate) enum Step {
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
-#[allow(dead_code)]
 pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -42,21 +39,21 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
-pub async fn integer_sat_add<C, S>(
+pub async fn integer_sat_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<S>,
-    y: &AdditiveShare<S>,
-) -> Result<AdditiveShare<S>, Error>
+    x: &AdditiveShare<XS>,
+    y: &AdditiveShare<YS>,
+) -> Result<(AdditiveShare<XS::Element>, AdditiveShare<XS>), Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
-    S: CustomArray + Field,
-    S::Element: Field,
+    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
+    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    XS: CustomArray + Field,
+    XS::Element: Field,
 {
-    use crate::{ff::Expand, protocol::basics::if_else};
-    let mut carry = AdditiveShare::<S::Element>::ZERO;
+    use crate::ff::Expand;
+    let mut carry = AdditiveShare::<XS::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
         record_id,
@@ -67,17 +64,19 @@ where
     .await?;
 
     // expand carry bit to array
-    let carry_array = AdditiveShare::<S>::expand(&carry);
+    let carry_array = AdditiveShare::<XS>::expand(&carry);
 
     // if carry_array==1 then {carry_array} else {result}:
-    if_else(
+    let saturated_bits = if_else(
         ctx.narrow(&Step::IfElse),
         record_id,
         &carry_array,
         &carry_array,
         &result,
     )
-    .await
+    .await?;
+
+    Ok((carry, saturated_bits))
 }
 
 /// addition using bit adder
@@ -86,7 +85,6 @@ where
 /// for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
-#[allow(dead_code)]
 async fn addition_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
