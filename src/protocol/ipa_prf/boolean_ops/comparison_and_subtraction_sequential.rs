@@ -219,7 +219,7 @@ mod test {
         protocol,
         protocol::{
             context::Context,
-            ipa_prf::boolean_ops::comparison_and_subtraction_low_com::{
+            ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
             },
         },

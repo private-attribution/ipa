@@ -1,3 +1,3 @@
-mod addition_low_com;
-mod comparison_and_subtraction_low_com;
+mod addition_sequential;
+mod comparison_and_subtraction_sequential;
 mod share_conversion_aby;
