@@ -5,7 +5,7 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    ff::{Field, Serializable},
+    ff::{boolean_array::BA256, Field, Serializable},
     secret_sharing::{Block, SharedValue},
 };
 
@@ -122,6 +122,25 @@ impl std::ops::MulAssign for Fp25519 {
 impl From<Scalar> for Fp25519 {
     fn from(s: Scalar) -> Self {
         Fp25519(s)
+    }
+}
+
+/// conversion from BA256 into Fp25519
+impl From<BA256> for Fp25519 {
+    fn from(s: BA256) -> Self {
+        let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+        s.serialize(&mut buf);
+        Fp25519::deserialize(&buf)
+    }
+}
+
+/// BA256 mod field prime
+impl BA256 {
+    #[must_use]
+    pub fn mod_fp25519(&self) -> Self {
+        let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+        Fp25519::from(*self).serialize(&mut buf);
+        BA256::deserialize(&buf)
     }
 }
 

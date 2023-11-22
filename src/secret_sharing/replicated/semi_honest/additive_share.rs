@@ -7,7 +7,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::Serializable,
+    ff::{ArrayAccess, Expand, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
         SharedValue, WeakSharedValue,
@@ -15,7 +15,10 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: WeakSharedValue>(V, V);
+pub struct AdditiveShare<V: WeakSharedValue>(pub V, pub V);
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ASIterator<T: Iterator>(pub T, pub T);
 
 impl<V: WeakSharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
@@ -216,6 +219,14 @@ impl<V: SharedValue> From<(V, V)> for AdditiveShare<V> {
     }
 }
 
+impl<V: std::ops::Not<Output = V> + WeakSharedValue> std::ops::Not for AdditiveShare<V> {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        AdditiveShare(!(self.0), !(self.1))
+    }
+}
+
 impl<V: SharedValue> Serializable for AdditiveShare<V>
 where
     V::Size: Add<V::Size>,
@@ -234,6 +245,71 @@ where
         let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
 
         Self::new(left, right)
+    }
+}
+
+/// Implement `ArrayAccess` for `AdditiveShare` over `WeakSharedValue` that implements `ArrayAccess`
+impl<S> ArrayAccess for AdditiveShare<S>
+where
+    S: ArrayAccess + WeakSharedValue,
+    <S as ArrayAccess>::Output: WeakSharedValue,
+{
+    type Output = AdditiveShare<<S as ArrayAccess>::Output>;
+
+    fn get(&self, index: usize) -> Option<Self::Output> {
+        self.0
+            .get(index)
+            .zip(self.1.get(index))
+            .map(|v| AdditiveShare(v.0, v.1))
+    }
+
+    fn set(&mut self, index: usize, e: Self::Output) {
+        self.0.set(index, e.0);
+        self.1.set(index, e.1);
+    }
+}
+
+impl<S> Expand for AdditiveShare<S>
+where
+    S: Expand + WeakSharedValue,
+    <S as Expand>::Input: WeakSharedValue,
+{
+    type Input = AdditiveShare<<S as Expand>::Input>;
+
+    fn expand(v: &Self::Input) -> Self {
+        AdditiveShare(S::expand(&v.0), S::expand(&v.1))
+    }
+}
+
+impl<T> Iterator for ASIterator<T>
+where
+    T: Iterator,
+    T::Item: WeakSharedValue,
+{
+    type Item = AdditiveShare<T::Item>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.0.next(), self.1.next()) {
+            (Some(left), Some(right)) => Some(AdditiveShare(left, right)),
+            _ => None,
+        }
+    }
+}
+
+impl<S> FromIterator<AdditiveShare<<S as ArrayAccess>::Output>> for AdditiveShare<S>
+where
+    S: WeakSharedValue + ArrayAccess,
+    <S as ArrayAccess>::Output: WeakSharedValue,
+{
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = AdditiveShare<<S as ArrayAccess>::Output>>,
+    {
+        let mut result = AdditiveShare::<S>::ZERO;
+        for (i, v) in iter.into_iter().enumerate() {
+            result.set(i, v);
+        }
+        result
     }
 }
 

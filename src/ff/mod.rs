@@ -2,6 +2,8 @@
 //
 // This is where we store arithmetic shared secret data models.
 
+pub mod boolean;
+pub mod boolean_array;
 pub mod curve_points;
 pub mod ec_prime_field;
 mod field;
@@ -54,4 +56,38 @@ pub trait Serializable: Sized {
     ///
     /// [`serialize`]: Self::serialize
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
+}
+
+pub trait ArrayAccess {
+    type Output;
+
+    fn get(&self, index: usize) -> Option<Self::Output>;
+
+    fn set(&mut self, index: usize, e: Self::Output);
+}
+
+pub trait Expand {
+    type Input;
+
+    fn expand(v: &Self::Input) -> Self;
+}
+
+/// Custom Array trait
+/// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
+/// doesn't support `IntoIterator` and `into_iter()`, `&'a S: IntoIterator<Item= S::Element>` needs to be added manually in trait bound when used
+/// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
+/// supports `FromIterator` to collect an iterator of elements back into the original type
+pub trait CustomArray
+where
+    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
+{
+    type Element;
+}
+
+/// impl Custom Array for all compatible structs
+impl<S> CustomArray for S
+where
+    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
+{
+    type Element = <S as ArrayAccess>::Output;
 }
