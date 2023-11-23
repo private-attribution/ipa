@@ -250,7 +250,7 @@ pub async fn test_oprf_ipa<F>(
         ff::{
             boolean::Boolean,
             boolean_array::{BA20, BA3, BA5},
-            Field, Gf2,
+            Field,
         },
         protocol::{
             basics::ShareKnownValue,

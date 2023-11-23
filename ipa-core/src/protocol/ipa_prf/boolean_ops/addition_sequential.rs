@@ -98,7 +98,7 @@ where
     XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
+    for (i, v) in x.into_iter().take(XS::BITS.try_into().unwrap()).enumerate() {
         result.set(
             i,
             bit_adder(

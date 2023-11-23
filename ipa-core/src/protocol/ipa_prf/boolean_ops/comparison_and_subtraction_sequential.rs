@@ -141,7 +141,7 @@ where
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
+    for (i, v) in x.into_iter().take(XS::BITS.try_into().unwrap()).enumerate() {
         result.set(
             i,
             bit_subtractor(

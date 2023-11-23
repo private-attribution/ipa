@@ -25,7 +25,7 @@ use crate::{
             malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SharedValue, WeakSharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, WeakSharedValue,
     },
     seq_join::{seq_join, SeqJoin},
 };
@@ -213,24 +213,23 @@ impl<
     type Residual = ();
 
     fn bits(&self) -> u32 {
-        (self.attributed_breakdown_key_bits.0.len() + self.capped_attributed_trigger_value.0.len())
-            .try_into()
-            .unwrap()
+        (BK::BITS + TV::BITS).try_into().unwrap()
     }
 
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
         assert!(i < self.bits());
         let i: usize = i.try_into().unwrap();
-        let bit_left = if i < self.attributed_breakdown_key_bits.0.len() {
+        let bk_bits: usize = BK::BITS.try_into().unwrap();
+        let bit_left = if i < bk_bits {
             self.attributed_breakdown_key_bits.0.get(i).unwrap() == Boolean::ONE
         } else {
-            let i = i - self.attributed_breakdown_key_bits.0.len();
+            let i = i - bk_bits;
             self.capped_attributed_trigger_value.0.get(i).unwrap() == Boolean::ONE
         };
-        let bit_right = if i < self.attributed_breakdown_key_bits.1.len() {
+        let bit_right = if i < bk_bits {
             self.attributed_breakdown_key_bits.1.get(i).unwrap() == Boolean::ONE
         } else {
-            let i = i - self.attributed_breakdown_key_bits.1.len();
+            let i = i - bk_bits;
             self.capped_attributed_trigger_value.1.get(i).unwrap() == Boolean::ONE
         };
         BitConversionTriple::new(role, bit_left, bit_right)

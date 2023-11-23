@@ -3,7 +3,7 @@ use std::iter::zip;
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
-    ff::{boolean::Boolean, CustomArray, Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
