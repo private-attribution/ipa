@@ -4,7 +4,11 @@ use futures::TryStreamExt;
 
 use crate::{
     error::Error,
-    ff::{Field, Gf2, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA20, BA3, BA5},
+        Field, PrimeField, Serializable,
+    },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
         BodyStream, RecordsStream,
@@ -43,10 +47,10 @@ impl<C, F> OprfIpaQuery<C, F>
 where
     C: UpgradableContext,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable + ShareKnownValue<C, F>,
-    Replicated<Gf2>: Serializable + ShareKnownValue<C, Gf2>,
+    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(
@@ -63,11 +67,9 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = RecordsStream::<OprfReport<Timestamp, BreakdownKey, TriggerValue>, _>::new(
-                input_stream,
-            )
-            .try_concat()
-            .await?;
+            let mut v = RecordsStream::<OprfReport<BA20, BA5, BA3>, _>::new(input_stream)
+                .try_concat()
+                .await?;
             v.truncate(sz);
             v
         } else {
@@ -82,9 +84,9 @@ where
             .into_iter()
             .map(|single_row| {
                 let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                    Replicated::share_known_value(&ctx, Gf2::ONE)
+                    Replicated::share_known_value(&ctx, Boolean::ONE)
                 } else {
-                    Replicated::share_known_value(&ctx, Gf2::ZERO)
+                    Replicated::share_known_value(&ctx, Boolean::ZERO)
                 };
                 PrfShardedIpaInputRow {
                     prf_of_match_key: single_row.mk_oprf,
@@ -97,23 +99,17 @@ where
             .collect::<Vec<_>>();
         // Until then, we convert the output to something next function is happy about.
 
-        let user_cap: i32 = config.per_user_credit_cap.try_into().unwrap();
-        assert!(
-            user_cap & (user_cap - 1) == 0,
-            "This code only works for a user cap which is a power of 2"
-        );
-
         attribution_and_capping_and_aggregation::<
             C,
-            BreakdownKey,
-            TriggerValue,
-            Timestamp,
+            BA5,  // BreakdownKey,
+            BA3,  // TriggerValue,
+            BA20, // Timestamp,
+            BA5,  // Saturating Sum
             Replicated<F>,
             F,
         >(
             ctx,
             sharded_input,
-            user_cap.ilog2().try_into().unwrap(),
             config.attribution_window_seconds,
             ref_to_histogram,
         )

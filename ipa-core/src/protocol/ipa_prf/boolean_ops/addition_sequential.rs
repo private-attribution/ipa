@@ -179,7 +179,7 @@ mod test {
 
             let expected = (x + y) % (1_u128 << 64);
 
-            let result = world
+            let (_, result) = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
                     integer_add::<_, BA64, BA64>(
                         ctx.set_total_records(1),
@@ -191,9 +191,8 @@ mod test {
                     .unwrap()
                 })
                 .await
-                .reconstruct()
-                .as_u128();
-            assert_eq!((x, y, result), (x, y, expected));
+                .reconstruct();
+            assert_eq!((x, y, result.as_u128()), (x, y, expected));
         });
     }
 
@@ -242,7 +241,7 @@ mod test {
 
             let expected = (x + y) % (1_u128 << 64);
 
-            let result = world
+            let (_, result) = world
                 .semi_honest(records, |ctx, x_y| async move {
                     integer_add::<_, BA64, BA32>(
                         ctx.set_total_records(1),
@@ -254,9 +253,8 @@ mod test {
                     .unwrap()
                 })
                 .await
-                .reconstruct()
-                .as_u128();
-            assert_eq!((x, y, result), (x, y, expected));
+                .reconstruct();
+            assert_eq!((x, y, result.as_u128()), (x, y, expected));
         });
     }
 }

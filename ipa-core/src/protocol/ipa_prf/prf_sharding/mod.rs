@@ -412,6 +412,9 @@ where
     for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
     for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -572,14 +575,14 @@ where
     SS: WeakSharedValue,
 {
     InputsRequiredFromPrevRow {
-        ever_encountered_a_source_event: input_row.is_trigger_bit.neg(),
-        attributed_breakdown_key_bits: input_row.breakdown_key,
+        ever_encountered_a_source_event: input_row.is_trigger_bit.clone().neg(),
+        attributed_breakdown_key_bits: input_row.breakdown_key.clone(),
         saturating_sum: Replicated::<SS>::ZERO,
         is_saturated: Replicated::<Boolean>::ZERO,
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
         difference_to_cap: Replicated::<TV>::ZERO,
-        source_event_timestamp: input_row.timestamp,
+        source_event_timestamp: input_row.timestamp.clone(),
     }
 }
 
@@ -826,7 +829,7 @@ pub mod tests {
     use crate::{
         ff::{
             boolean::Boolean, boolean_array::BA20, boolean_array::BA3, boolean_array::BA5,
-            CustomArray, Field, Fp32BitPrime, Gf3Bit,
+            CustomArray, Field, Fp32BitPrime,
         },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
@@ -949,26 +952,26 @@ pub mod tests {
         fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
             let [s0, s1, s2] = self;
             let bk_key_bits = [
-                s0.attributed_breakdown_key_bits,
-                s1.attributed_breakdown_key_bits,
-                s2.attributed_breakdown_key_bits,
+                s0.attributed_breakdown_key_bits.clone(),
+                s1.attributed_breakdown_key_bits.clone(),
+                s2.attributed_breakdown_key_bits.clone(),
             ]
             .reconstruct();
             let capped_attributed_tv = [
-                s0.capped_attributed_trigger_value,
-                s1.capped_attributed_trigger_value,
-                s2.capped_attributed_trigger_value,
+                s0.capped_attributed_trigger_value.clone(),
+                s1.capped_attributed_trigger_value.clone(),
+                s2.capped_attributed_trigger_value.clone(),
             ]
             .reconstruct();
 
             let mut bd_key_decimal = 0_u128;
             for i in 0..bk_key_bits.len() {
-                bd_key_decimal += (bk_key_bits.get(i).unwrap().as_u128() << i);
+                bd_key_decimal += bk_key_bits.get(i).unwrap().as_u128() << i;
             }
 
             let mut tv_decimal = 0_u128;
             for i in 0..capped_attributed_tv.len() {
-                tv_decimal += (capped_attributed_tv.get(i).unwrap().as_u128() << i);
+                tv_decimal += capped_attributed_tv.get(i).unwrap().as_u128() << i;
             }
 
             PreAggregationTestOutputInDecimal {

@@ -77,6 +77,10 @@ macro_rules! boolean_array_impl {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
                 }
+
+                fn len(&self) -> usize {
+                    self.0.len()
+                }
             }
 
             impl SharedValue for $name {

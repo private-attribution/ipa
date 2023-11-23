@@ -18,7 +18,7 @@ use crate::{
         PublicKeyRegistry,
     },
     protocol::ipa_prf::prf_sharding::GroupingKey,
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, WeakSharedValue},
 };
 
 // TODO(679): This needs to come from configuration.
@@ -414,9 +414,9 @@ where
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OprfReport<TS, BK, TV>
 where
-    TS: GaloisField,
-    BK: GaloisField,
-    TV: GaloisField,
+    TS: WeakSharedValue,
+    BK: WeakSharedValue,
+    TV: WeakSharedValue,
 {
     pub timestamp: Replicated<TS>,
     pub mk_oprf: u64,
@@ -425,7 +425,9 @@ where
     pub trigger_value: Replicated<TV>,
 }
 
-impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> GroupingKey for OprfReport<TS, BK, TV> {
+impl<TS: WeakSharedValue, BK: WeakSharedValue, TV: WeakSharedValue> GroupingKey
+    for OprfReport<TS, BK, TV>
+{
     fn get_grouping_key(&self) -> u64 {
         self.mk_oprf
     }
@@ -446,7 +448,8 @@ impl Serializable for u64 {
     }
 }
 
-impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> Serializable for OprfReport<TS, BK, TV>
+impl<TS: WeakSharedValue, BK: WeakSharedValue, TV: WeakSharedValue> Serializable
+    for OprfReport<TS, BK, TV>
 where
     Replicated<TS>: Serializable,
     Replicated<BK>: Serializable,

@@ -172,7 +172,7 @@ pub mod tests {
                 |ctx, (breakdown_key_share, value_share)| async move {
                     let validator = ctx.validator();
                     let ctx = validator.context();
-                    move_single_value_to_bucket::<Gf8Bit, _, _, Fp32BitPrime>(
+                    move_single_value_to_bucket::<_, _, Fp32BitPrime>(
                         ctx.set_total_records(1),
                         RecordId::from(0),
                         breakdown_key_share,
@@ -266,7 +266,7 @@ pub mod tests {
                     |ctx, (breakdown_key_share, value_share)| async move {
                         let validator = ctx.validator();
                         let ctx = validator.context();
-                        move_single_value_to_bucket::<Gf9Bit, _, _, Fp32BitPrime>(
+                        move_single_value_to_bucket::<_, _, Fp32BitPrime>(
                             ctx.set_total_records(1),
                             RecordId::from(0),
                             breakdown_key_share,

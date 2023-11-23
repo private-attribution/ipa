@@ -3,7 +3,7 @@ use std::iter::zip;
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{boolean::Boolean, CustomArray, Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
@@ -13,7 +13,9 @@ use crate::{
     },
     rand::Rng,
     report::{EventType, OprfReport, Report},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
+    },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
         ipa::TestRawDataRecord,
@@ -357,9 +359,9 @@ where
 
 impl<TS, BK, TV> IntoShares<OprfReport<TS, BK, TV>> for TestRawDataRecord
 where
-    TS: GaloisField + IntoShares<Replicated<TS>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    TV: GaloisField + IntoShares<Replicated<TV>>,
+    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
+    TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<TS, BK, TV>; 3] {
         let event_type = if self.is_trigger_report {
@@ -367,8 +369,9 @@ where
         } else {
             EventType::Source
         };
-        let timestamp: [Replicated<TS>; 3] =
-            TS::try_from(self.timestamp.into()).unwrap().share_with(rng);
+        let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
+            .unwrap()
+            .share_with(rng);
         let breakdown_key = BK::try_from(self.breakdown_key.into())
             .unwrap()
             .share_with(rng);

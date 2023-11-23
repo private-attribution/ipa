@@ -147,7 +147,7 @@ where
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
-        let mut rs_with_higherorderbits = integer_add::<_, BA256, BA256>(
+        let (_, mut rs_with_higherorderbits) = integer_add::<_, BA256, BA256>(
             ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
@@ -165,7 +165,7 @@ where
 
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
-    let sh_y =
+    let (_, sh_y) =
         integer_add::<_, BA256, B>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, x)
             .await?;
 

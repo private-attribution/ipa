@@ -6,7 +6,7 @@ use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     ipa_test_input,
-    protocol::{ipa::ipa, BreakdownKey, MatchKey, Timestamp, TriggerValue},
+    protocol::{ipa::ipa, BreakdownKey, MatchKey},
     report::OprfReport,
     secret_sharing::{
         replicated::{
@@ -247,7 +247,11 @@ pub async fn test_oprf_ipa<F>(
     semi_honest::AdditiveShare<F>: Serializable,
 {
     use crate::{
-        ff::{Field, Gf2},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA20, BA3, BA5},
+            Field, Gf2,
+        },
         protocol::{
             basics::ShareKnownValue,
             ipa_prf::prf_sharding::{
@@ -275,14 +279,14 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<F> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>| async move {
+            |ctx, input_rows: Vec<OprfReport<BA20, BA5, BA3>>| async move {
                 let sharded_input = input_rows
                     .into_iter()
                     .map(|single_row| {
                         let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                            Replicated::share_known_value(&ctx, Gf2::ONE)
+                            Replicated::share_known_value(&ctx, Boolean::ONE)
                         } else {
-                            Replicated::share_known_value(&ctx, Gf2::ZERO)
+                            Replicated::share_known_value(&ctx, Boolean::ZERO)
                         };
                         PrfShardedIpaInputRow {
                             prf_of_match_key: single_row.mk_oprf,
@@ -296,15 +300,15 @@ pub async fn test_oprf_ipa<F>(
 
                 attribution_and_capping_and_aggregation::<
                     _,
-                    BreakdownKey,
-                    TriggerValue,
-                    Timestamp,
+                    BA5,  // BreakdownKey,
+                    BA3,  // TriggerValue,
+                    BA20, // Timestamp,
+                    BA5,  // Saturating Sum
                     Replicated<F>,
                     F,
                 >(
                     ctx,
                     sharded_input,
-                    user_cap.ilog2().try_into().unwrap(),
                     config.attribution_window_seconds,
                     ref_to_histogram,
                 )
