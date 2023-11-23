@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::{Field, Gf2, PrimeField},
     protocol::{
-        boolean::saturating_sum::one_bit_subtractor, context::Context, step::BitOpStep,
+        context::Context, step::BitOpStep,
         BasicProtocols, RecordId,
     },
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
@@ -84,50 +84,6 @@ impl<S> BitDecomposed<S> {
         })
     }
 
-    /// Subtraction of two bit-wise secret shares, `self - rhs`, in two's complement.
-    /// Subtracting a value larger than `self` value will cause the result to overflow.
-    /// Be especially careful as the overflow is not checked and could lead to a privacy
-    /// violation (e.g., invalid capping).
-    ///
-    /// # Errors
-    /// If one of the multiplications errors
-    /// # Panics
-    /// If something try to subtract a bit decomposed value larger than this `BitDecomposed` can accommodate
-    pub async fn sub<C>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        rhs: &BitDecomposed<S>,
-    ) -> Result<BitDecomposed<S>, Error>
-    where
-        C: Context,
-        S: LinearSecretSharing<Gf2> + BasicProtocols<C, Gf2>,
-        for<'a> &'a S: LinearRefOps<'a, S, Gf2>,
-    {
-        assert!(self.len() >= rhs.len());
-
-        let mut output = vec![];
-        let mut carry_in = S::share_known_value(&ctx, Gf2::ONE);
-        let zero = S::ZERO;
-        for i in 0..self.len() {
-            let c = ctx.narrow(&BitOpStep::from(i));
-            let compute_carry_out = i < self.len() - 1;
-            let difference_bit = one_bit_subtractor(
-                c,
-                record_id,
-                &self[i],
-                rhs.get(i).unwrap_or(&zero),
-                &mut carry_in,
-                compute_carry_out,
-            )
-            .await?;
-
-            output.push(difference_bit);
-        }
-
-        Ok(BitDecomposed::new(output))
-    }
-
     #[must_use]
     ///
     /// # Panics
@@ -170,56 +126,5 @@ impl<S> IntoIterator for BitDecomposed<S> {
     type IntoIter = <Vec<S> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.bits.into_iter()
-    }
-}
-
-#[cfg(all(test, unit_test))]
-mod tests {
-    use crate::{
-        ff::Gf2,
-        protocol::{context::Context, RecordId},
-        secret_sharing::BitDecomposed,
-        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
-    };
-
-    #[tokio::test]
-    pub async fn subtraction() {
-        // `lhs >= rhs`
-        assert_eq!(0, subtract(1, 2, 1, 2).await);
-        assert_eq!(1, subtract(2, 2, 1, 2).await);
-        assert_eq!(1, subtract(3, 2, 2, 2).await);
-        assert_eq!(2, subtract(3, 2, 1, 2).await);
-        assert_eq!(3, subtract(3, 2, 0, 2).await);
-        assert_eq!(2, subtract(3, 5, 1, 5).await);
-        assert_eq!(6, subtract(7, 5, 1, 2).await);
-        assert_eq!(6, subtract(7, 5, 1, 5).await);
-
-        // `lhs < rhs` so the result is an unsigned integer in two's complement
-        // representation in whatever many bits of the `lhs`
-        assert_eq!(3, subtract(0, 2, 1, 2).await);
-        assert_eq!(31, subtract(1, 5, 2, 2).await);
-        assert_eq!(30, subtract(1, 5, 3, 2).await);
-        assert_eq!(26, subtract(1, 5, 7, 5).await);
-    }
-
-    async fn subtract(a: u32, num_a_bits: u32, b: u32, num_b_bits: u32) -> u128 {
-        let world = TestWorld::default();
-
-        let a_bits = get_bits::<Gf2>(a, num_a_bits);
-        let b_bits = get_bits::<Gf2>(b, num_b_bits);
-
-        let foo = world
-            .semi_honest(
-                (a_bits, b_bits),
-                |ctx, (a_bits, b_bits): (BitDecomposed<_>, BitDecomposed<_>)| async move {
-                    a_bits
-                        .sub(ctx.set_total_records(1), RecordId::from(0), &b_bits)
-                        .await
-                        .unwrap()
-                },
-            )
-            .await;
-
-        foo.reconstruct()
     }
 }

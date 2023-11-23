@@ -83,6 +83,8 @@ where
 /// for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
+///
+///
 async fn addition_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -115,10 +117,23 @@ where
     Ok(result)
 }
 
-/// bit adder
-/// implementing `https://encrypto.de/papers/KSS09.pdf` from Section 3.1
-/// output = x + (c + y)
-/// update carry to carry = ( x + carry)(y + carry) + carry
+///
+/// This one-bit adder that only requires a single multiplication was taken from:
+/// "Improved Garbled Circuit Building Blocks and Applications to Auctions and Computing Minima"
+/// `https://encrypto.de/papers/KSS09.pdf`
+///
+/// Section 3.1 Integer Addition, Subtraction and Multiplication
+///
+/// For each bit, the `sum_bit` can be efficiently computed as just `s_i = x_i ⊕ y_i ⊕ c_i`
+/// This can be computed "for free" in Gf2
+///
+/// The `carry_out` bit can be efficiently computed with just a single multiplication as:
+/// `c_(i+1) = c_i ⊕ ((x_i ⊕ c_i) & (y_i ⊕ c_i))`
+///
+/// Returns `sum_bit`
+///
+/// The mutable refernce to `carry` is mutated to take on the value of the `carry_out` bit
+///
 /// # Errors
 /// propagates errors from multiply
 async fn bit_adder<C, S>(
