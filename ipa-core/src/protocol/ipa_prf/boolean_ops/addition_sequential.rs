@@ -1,3 +1,4 @@
+#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
+#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedAddition,
@@ -40,6 +42,7 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 pub async fn integer_sat_add<C, S>(
     ctx: C,
     record_id: RecordId,

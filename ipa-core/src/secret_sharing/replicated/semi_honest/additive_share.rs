@@ -267,10 +267,6 @@ where
         self.0.set(index, e.0);
         self.1.set(index, e.1);
     }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
 }
 
 impl<S> Expand for AdditiveShare<S>

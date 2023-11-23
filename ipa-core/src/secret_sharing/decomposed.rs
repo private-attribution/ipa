@@ -2,11 +2,7 @@ use std::{fmt::Debug, ops::Deref};
 
 use crate::{
     error::Error,
-    ff::{Field, Gf2, PrimeField},
-    protocol::{
-        context::Context, step::BitOpStep,
-        BasicProtocols, RecordId,
-    },
+    ff::PrimeField,
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
