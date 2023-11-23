@@ -67,9 +67,10 @@ impl<T: ObserveState> Observed<T> {
 }
 
 mod gateway {
+
     use delegate::delegate;
 
-    use super::*;
+    use super::{receive, send, AtomicUsize, Debug, Formatter, ObserveState, Observed, Weak};
     use crate::{
         helpers::{
             gateway::{Gateway, State},
@@ -126,7 +127,7 @@ mod gateway {
                         let mut last_sn_seen = 0;
                         loop {
                             ::tokio::time::sleep(config.progress_check_interval).await;
-                            let now = gateway.get_sn().upgrade().map(|v| v.load(Ordering::Relaxed));
+                            let now = gateway.get_sn().upgrade().map(|v| v.load(core::sync::atomic::Ordering::Relaxed));
                             if let Some(now) = now {
                                 if now == last_sn_seen {
                                     if let Some(state) = gateway.get_state() {
@@ -215,7 +216,7 @@ mod receive {
         fmt::{Debug, Formatter},
     };
 
-    use super::*;
+    use super::{ObserveState, Observed};
     use crate::{
         helpers::{
             error::Error,
@@ -273,7 +274,7 @@ mod send {
         fmt::{Debug, Formatter},
     };
 
-    use super::*;
+    use super::{ObserveState, Observed};
     use crate::{
         helpers::{
             error::Error,

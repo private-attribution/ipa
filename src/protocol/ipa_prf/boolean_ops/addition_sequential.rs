@@ -1,16 +1,10 @@
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
-    protocol::{
-        basics::{if_else, SecureMul},
-        context::Context,
-        step::BitOpStep,
-        RecordId,
-    },
+    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
@@ -25,7 +19,7 @@ pub(crate) enum Step {
 /// adds y to x, Output has same length as x (carries and indices of y too large for x are ignored)
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -61,7 +55,7 @@ where
     S: CustomArray + Field,
     S::Element: Field,
 {
-    use crate::ff::Expand;
+    use crate::{ff::Expand, protocol::basics::if_else};
     let mut carry = AdditiveShare::<S::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
@@ -92,7 +86,7 @@ where
 /// for all i: output[i] = x[i] + (c[i-1] + y[i])
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 async fn addition_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -131,7 +125,6 @@ where
 /// update carry to carry = ( x + carry)(y + carry) + carry
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 async fn bit_adder<C, S>(
     ctx: C,
     record_id: RecordId,

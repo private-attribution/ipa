@@ -1,10 +1,7 @@
-#[cfg(all(test, unit_test))]
 use std::ops::Neg;
 
-#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
     ff::{
@@ -22,7 +19,6 @@ use crate::{
     },
 };
 
-#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     GenerateSecretSharing,
@@ -96,7 +92,7 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 async fn convert_to_fp25519<C, B>(
     ctx: C,
     record_id: RecordId,
