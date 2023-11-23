@@ -3,7 +3,7 @@ use typenum::U1;
 
 use crate::{
     ff::{Field, Serializable},
-    secret_sharing::{Block, SharedValue, replicated::malicious::ExtendableField},
+    secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
 };
 
 use super::Gf32Bit;

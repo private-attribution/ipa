@@ -1,9 +1,4 @@
-use std::{
-    iter::zip,
-    num::NonZeroU32,
-    ops::Neg,
-    pin::pin,
-};
+use std::{num::NonZeroU32, ops::Neg, pin::pin};
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{
@@ -19,14 +14,10 @@ use crate::{
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
-        boolean::{comparison::bitwise_less_than_constant, or::or},
+        boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_sat_add,
-            comparison_and_subtraction_sequential::integer_sub,
-        },
+        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::integer_sub,
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
-        step::BitOpStep,
         RecordId,
     },
     secret_sharing::{
@@ -39,7 +30,9 @@ use crate::{
     seq_join::{seq_join, SeqJoin},
 };
 
-use super::boolean_ops::{addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt};
+use super::boolean_ops::{
+    addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt,
+};
 
 pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
@@ -169,12 +162,12 @@ impl<
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
-            integer_sub::<C, TV, SS>(
+            integer_sub(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,
                 &Replicated::<TV>::ZERO,
                 &updated_sum,
-            )
+            ),
         )
         .await?;
 
@@ -191,6 +184,7 @@ impl<
         self.ever_encountered_a_source_event = ever_encountered_a_source_event;
         self.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
         self.saturating_sum = updated_sum;
+        self.is_saturated = is_saturated;
         self.difference_to_cap = difference_to_cap;
         self.source_event_timestamp = source_event_timestamp;
 
@@ -541,9 +535,8 @@ where
         return Ok(Vec::new());
     }
     let first_row = &rows_for_user[0];
-    let mut prev_row_inputs = initialize_new_device_attribution_variables::<BK, TV, TS, SS>(
-        first_row,
-    );
+    let mut prev_row_inputs =
+        initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
 
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
@@ -756,7 +749,8 @@ where
             record_id,
             &time_delta_bits,
             &Replicated::<TS>::new(constant_bits, constant_bits),
-        ).await?;
+        )
+        .await?;
         Ok(time_delta_gt_attribution_window.neg())
     } else {
         // if there is no attribution window, then all trigger events are attributed
@@ -793,7 +787,7 @@ async fn compute_capped_trigger_value<C, TV>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: WeakSharedValue + CustomArray::<Element = Boolean> + Field,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
@@ -802,7 +796,8 @@ where
     let is_saturated_array = Replicated::<TV>::expand(is_saturated);
 
     // expand is_saturated_and_prev_row_not_saturated to array
-    let is_saturated_and_prev_row_not_saturated_array = Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
+    let is_saturated_and_prev_row_not_saturated_array =
+        Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
 
     let attributed_trigger_value_or_zero = if_else(
         narrowed_ctx1,
@@ -819,7 +814,8 @@ where
         &is_saturated_and_prev_row_not_saturated_array,
         prev_row_diff_to_cap,
         &attributed_trigger_value_or_zero,
-    ).await
+    )
+    .await
 }
 
 #[cfg(all(test, unit_test))]
@@ -828,12 +824,14 @@ pub mod tests {
 
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, Fp32BitPrime, boolean::Boolean, boolean_array::BA3, boolean_array::BA5, boolean_array::BA20},
+        ff::{
+            boolean::Boolean, boolean_array::BA20, boolean_array::BA3, boolean_array::BA5,
+            CustomArray, Field, Fp32BitPrime, Gf3Bit,
+        },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
-            SharedValue, WeakSharedValue,
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -873,7 +871,11 @@ pub mod tests {
         trigger_value: u8,
         timestamp: u32,
     ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
-        let is_trigger_bit = if is_trigger { Boolean::ONE } else { Boolean::ZERO };
+        let is_trigger_bit = if is_trigger {
+            Boolean::ONE
+        } else {
+            Boolean::ZERO
+        };
 
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
@@ -888,12 +890,6 @@ pub mod tests {
     struct PreAggregationTestOutputInDecimal {
         attributed_breakdown_key: u128,
         capped_attributed_trigger_value: u128,
-    }
-
-    #[derive(Debug, PartialEq)]
-    struct PreAggregationTestInputInBits {
-        attributed_breakdown_key: BitDecomposed<Gf2>,
-        capped_attributed_trigger_value: BitDecomposed<Gf2>,
     }
 
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
@@ -944,64 +940,40 @@ pub mod tests {
         }
     }
 
-    impl IntoShares<CappedAttributionOutputs> for PreAggregationTestInputInBits {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [CappedAttributionOutputs; 3] {
-            let PreAggregationTestInputInBits {
-                attributed_breakdown_key,
-                capped_attributed_trigger_value,
-            } = self;
-
-            let [attributed_breakdown_key0, attributed_breakdown_key1, attributed_breakdown_key2] =
-                attributed_breakdown_key.share_with(rng);
-            let [capped_attributed_trigger_value0, capped_attributed_trigger_value1, capped_attributed_trigger_value2] =
-                capped_attributed_trigger_value.share_with(rng);
-
-            [
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key0,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value0,
-                },
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key1,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value1,
-                },
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key2,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value2,
-                },
-            ]
-        }
-    }
-
-    impl Reconstruct<PreAggregationTestOutputInDecimal> for [&CappedAttributionOutputs; 3] {
+    impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
+        for [&CappedAttributionOutputs<BK, TV>; 3]
+    where
+        BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    {
         fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
             let [s0, s1, s2] = self;
-            let attributed_breakdown_key_bits: BitDecomposed<Gf2> = BitDecomposed::new(
-                s0.attributed_breakdown_key_bits
-                    .iter()
-                    .zip(s1.attributed_breakdown_key_bits.iter())
-                    .zip(s2.attributed_breakdown_key_bits.iter())
-                    .map(|((a, b), c)| [a, b, c].reconstruct()),
-            );
-            let capped_attributed_trigger_value_bits: BitDecomposed<Gf2> = BitDecomposed::new(
-                s0.capped_attributed_trigger_value
-                    .iter()
-                    .zip(s1.capped_attributed_trigger_value.iter())
-                    .zip(s2.capped_attributed_trigger_value.iter())
-                    .map(|((a, b), c)| [a, b, c].reconstruct()),
-            );
+            let bk_key_bits = [
+                s0.attributed_breakdown_key_bits,
+                s1.attributed_breakdown_key_bits,
+                s2.attributed_breakdown_key_bits,
+            ]
+            .reconstruct();
+            let capped_attributed_tv = [
+                s0.capped_attributed_trigger_value,
+                s1.capped_attributed_trigger_value,
+                s2.capped_attributed_trigger_value,
+            ]
+            .reconstruct();
+
+            let mut bd_key_decimal = 0_u128;
+            for i in 0..bk_key_bits.len() {
+                bd_key_decimal += (bk_key_bits.get(i).unwrap().as_u128() << i);
+            }
+
+            let mut tv_decimal = 0_u128;
+            for i in 0..capped_attributed_tv.len() {
+                tv_decimal += (capped_attributed_tv.get(i).unwrap().as_u128() << i);
+            }
 
             PreAggregationTestOutputInDecimal {
-                attributed_breakdown_key: attributed_breakdown_key_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
-                capped_attributed_trigger_value: capped_attributed_trigger_value_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
+                attributed_breakdown_key: bd_key_decimal,
+                capped_attributed_trigger_value: tv_decimal,
             }
         }
     }
@@ -1011,7 +983,7 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
                 oprf_test_input(123, false, 17, 0),
                 oprf_test_input(123, true, 0, 7),
@@ -1042,9 +1014,10 @@ pub mod tests {
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping_and_aggregation::<
                         _,
-                        Gf5Bit,
-                        Gf3Bit,
-                        Gf20Bit,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
                     >(ctx, input_rows, None, &histogram)
@@ -1068,7 +1041,7 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
                 oprf_test_input_with_timestamp(123, false, 17, 0, 1),
                 oprf_test_input_with_timestamp(123, true, 0, 7, 200), // tsΔ = 199, attributed to 17
@@ -1099,9 +1072,10 @@ pub mod tests {
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping_and_aggregation::<
                         _,
-                        Gf5Bit,
-                        Gf3Bit,
-                        Gf20Bit,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
                     >(

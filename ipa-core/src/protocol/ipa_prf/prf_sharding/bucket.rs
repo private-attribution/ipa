@@ -3,7 +3,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{GaloisField, PrimeField, Serializable},
+    ff::{PrimeField, Serializable},
     protocol::{
         basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
         RecordId,
