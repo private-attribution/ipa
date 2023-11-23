@@ -76,7 +76,7 @@ impl From<MoveToBucketError> for Error {
 ///
 /// ## Errors
 /// If `breakdown_count` does not fit into `BK` bits or greater than or equal to $2^9$
-pub async fn move_single_value_to_bucket<BK, C, S, F>(
+pub async fn move_single_value_to_bucket<C, S, F>(
     ctx: C,
     record_id: RecordId,
     bd_key: BitDecomposed<S>,
@@ -85,18 +85,17 @@ pub async fn move_single_value_to_bucket<BK, C, S, F>(
     robust: bool,
 ) -> Result<Vec<S>, Error>
 where
-    BK: GaloisField,
     C: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
     F: PrimeField + ExtendableField,
 {
     const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
-    let mut step: usize = 1 << BK::BITS;
+    let mut step: usize = 1 << bd_key.len();
 
     if breakdown_count > step {
         Err(MoveToBucketError::InvalidBreakdownKey(format!(
             "Asking for more buckets ({breakdown_count}) than bits in the breakdown key ({}) allow",
-            BK::BITS
+            bd_key.len()
         )))?;
     }
 

@@ -22,7 +22,7 @@ pub async fn integer_add<C, XS, YS>(
     record_id: RecordId,
     x: &AdditiveShare<XS>,
     y: &AdditiveShare<YS>,
-) -> Result<AdditiveShare<XS>, Error>
+) -> Result<(AdditiveShare<XS::Element>, AdditiveShare<XS>), Error>
 where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
@@ -31,7 +31,8 @@ where
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
-    addition_circuit(ctx, record_id, x, y, &mut carry).await
+    let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
+    Ok((carry, sum))
 }
 
 /// saturated unsigned integer addition
@@ -39,21 +40,20 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sat_add<C, XS, YS>(
+pub async fn integer_sat_add<C, S>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<XS>,
-    y: &AdditiveShare<YS>,
-) -> Result<(AdditiveShare<XS::Element>, AdditiveShare<XS>), Error>
+    x: &AdditiveShare<S>,
+    y: &AdditiveShare<S>,
+) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: CustomArray + Field,
-    XS::Element: Field,
+    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
+    S: CustomArray + Field,
+    S::Element: Field,
 {
     use crate::ff::Expand;
-    let mut carry = AdditiveShare::<XS::Element>::ZERO;
+    let mut carry = AdditiveShare::<S::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
         record_id,
@@ -64,19 +64,17 @@ where
     .await?;
 
     // expand carry bit to array
-    let carry_array = AdditiveShare::<XS>::expand(&carry);
+    let carry_array = AdditiveShare::<S>::expand(&carry);
 
     // if carry_array==1 then {carry_array} else {result}:
-    let saturated_bits = if_else(
+    if_else(
         ctx.narrow(&Step::IfElse),
         record_id,
         &carry_array,
         &carry_array,
         &result,
     )
-    .await?;
-
-    Ok((carry, saturated_bits))
+    .await
 }
 
 /// addition using bit adder

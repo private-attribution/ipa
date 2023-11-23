@@ -39,6 +39,8 @@ use crate::{
     seq_join::{seq_join, SeqJoin},
 };
 
+use super::boolean_ops::{addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt};
+
 pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
@@ -105,6 +107,9 @@ impl<
     ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
         C: Context,
+        for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+        for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+        for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -150,7 +155,7 @@ impl<
         )
         .await?;
 
-        let (is_saturated, updated_sum) = integer_sat_add(
+        let (is_saturated, updated_sum) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -160,14 +165,14 @@ impl<
 
         let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
             is_saturated.multiply(
-                &self.is_saturated.neg(),
+                &self.is_saturated.clone().neg(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
-            integer_sub(
+            integer_sub::<C, TV, SS>(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,
-                &Replicated::<TV>::expand(Boolean::ZERO),
+                &Replicated::<TV>::ZERO,
                 &updated_sum,
             )
         )
@@ -409,6 +414,10 @@ where
     TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -467,7 +476,7 @@ where
             .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
             .set_total_records(num_outputs),
         flattenned_stream,
-        0..BK::BITS + TV::BITS,
+        0..<BK as WeakSharedValue>::BITS + <TV as WeakSharedValue>::BITS,
     );
 
     // move each value to the correct bucket
@@ -481,14 +490,14 @@ where
         .map(|(i, (bk_and_tv_bits, ctx))| {
             let record_id: RecordId = RecordId::from(i);
             let bk_and_tv_bits = bk_and_tv_bits.unwrap();
-            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(BK::BITS);
+            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(<BK as WeakSharedValue>::BITS);
             async move {
-                bucket::move_single_value_to_bucket::<BK, _, _, _>(
+                bucket::move_single_value_to_bucket(
                     ctx,
                     record_id,
                     bk_bits,
                     BitDecomposed::to_additive_sharing_in_large_field_consuming(tv_bits),
-                    1 << BK::BITS,
+                    1 << <BK as WeakSharedValue>::BITS,
                     false,
                 )
                 .await
@@ -499,7 +508,7 @@ where
     let row_contributions = seq_join(prime_field_ctx.active_work(), row_contributions_stream);
     row_contributions
         .try_fold(
-            vec![S::ZERO; 1 << BK::BITS],
+            vec![S::ZERO; 1 << <BK as WeakSharedValue>::BITS],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -518,10 +527,14 @@ async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
 ) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
 where
     C: Context,
-    BK: WeakSharedValue + CustomArray<Element = Boolean>,
-    TV: WeakSharedValue + CustomArray<Element = Boolean>,
-    TS: WeakSharedValue + CustomArray<Element = Boolean>,
-    SS: WeakSharedValue + CustomArray<Element = Boolean>,
+    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -596,7 +609,7 @@ where
     BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
     // expand is_trigger_bit to array
-    let is_trigger_bit_array = Replicated::<BK>::expand(&is_trigger_bit);
+    let is_trigger_bit_array = Replicated::<BK>::expand(is_trigger_bit);
 
     if_else(
         ctx,
@@ -626,7 +639,7 @@ where
         None => Ok(prev_row_timestamp_bits.clone()),
         Some(_) => {
             // expand is_trigger_bit to array
-            let is_trigger_bit_array = Replicated::<TS>::expand(&is_trigger_bit);
+            let is_trigger_bit_array = Replicated::<TS>::expand(is_trigger_bit);
 
             if_else(
                 ctx,
@@ -663,7 +676,9 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
 where
     C: Context,
     TV: WeakSharedValue + CustomArray<Element = Boolean> + Field, // + ToBitConversionTriples,
-    TS: WeakSharedValue + CustomArray<Element = Boolean>,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -718,6 +733,8 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: WeakSharedValue,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -728,17 +745,19 @@ where
         )
         .await?;
 
-        // The result is true if the time delta is `[0, attribution_window_seconds)`
-        // If we want to include the upper bound, we need to use `bitwise_greater_than_constant()`
-        // and negate the result.
-        // TODO: Change to `lte` protocol once #844 is landed.
-        bitwise_less_than_constant(
+        let mut constant_bits = <TS as WeakSharedValue>::ZERO;
+        for i in 0..<TS as WeakSharedValue>::BITS {
+            let bit = Boolean::from((attribution_window_seconds.get() >> i) & 1 == 1);
+            constant_bits.set(i.try_into().unwrap(), bit);
+        }
+
+        let time_delta_gt_attribution_window = compare_gt(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
-            u128::from(attribution_window_seconds.get()),
-        )
-        .await
+            &Replicated::<TS>::new(constant_bits, constant_bits),
+        ).await?;
+        Ok(time_delta_gt_attribution_window.neg())
     } else {
         // if there is no attribution window, then all trigger events are attributed
         Ok(Replicated::share_known_value(&ctx, Boolean::ONE))
@@ -774,43 +793,33 @@ async fn compute_capped_trigger_value<C, TV>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: WeakSharedValue,
+    TV: WeakSharedValue + CustomArray::<Element = Boolean> + Field,
 {
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
-    let zero = &Replicated::share_known_value(&narrowed_ctx1, Boolean::ZERO);
+    // expand is_saturated to array
+    let is_saturated_array = Replicated::<TV>::expand(is_saturated);
 
-    let x = ctx
-        .parallel_join(
-            zip(attributed_trigger_value.iter(), prev_row_diff_to_cap.iter())
-                .enumerate()
-                .map(|(i, (bit, prev_bit))| {
-                    let c1 = narrowed_ctx1.narrow(&BitOpStep::from(i));
-                    let c2 = narrowed_ctx2.narrow(&BitOpStep::from(i));
-                    async move {
-                        let (not_saturated_case, just_saturated_case) = try_join(
-                            if_else(c1, record_id, is_saturated, zero, bit),
-                            if_else(
-                                c2,
-                                record_id,
-                                is_saturated_and_prev_row_not_saturated,
-                                prev_bit,
-                                zero,
-                            ),
-                        )
-                        .await?;
-                        Ok::<_, Error>(not_saturated_case + &just_saturated_case)
-                    }
-                }),
-        )
-        .await?;
+    // expand is_saturated_and_prev_row_not_saturated to array
+    let is_saturated_and_prev_row_not_saturated_array = Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
 
-    let mut result = Replicated::<TV>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
-        result.set(i, v);
-    }
-    Ok(result)
+    let attributed_trigger_value_or_zero = if_else(
+        narrowed_ctx1,
+        record_id,
+        &is_saturated_array,
+        &Replicated::new(<TV as WeakSharedValue>::ZERO, <TV as WeakSharedValue>::ZERO),
+        &attributed_trigger_value,
+    )
+    .await?;
+
+    if_else(
+        narrowed_ctx2,
+        record_id,
+        &is_saturated_and_prev_row_not_saturated_array,
+        prev_row_diff_to_cap,
+        &attributed_trigger_value_or_zero,
+    ).await
 }
 
 #[cfg(all(test, unit_test))]
