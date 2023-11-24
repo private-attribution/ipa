@@ -23,7 +23,6 @@ impl ExtendableField for Boolean {
     }
 }
 
-///trait for secret sharing
 impl SharedValue for Boolean {
     type Storage = bool;
     const BITS: u32 = 1;

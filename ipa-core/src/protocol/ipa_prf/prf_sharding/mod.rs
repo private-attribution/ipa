@@ -146,7 +146,7 @@ impl<
         )
         .await?;
 
-        let (is_saturated, updated_sum) = integer_add(
+        let (updated_sum, is_saturated) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -215,19 +215,20 @@ impl<
         assert!(i < self.bits());
         let i: usize = i.try_into().unwrap();
         let bk_bits: usize = BK::BITS.try_into().unwrap();
-        let bit_left = if i < bk_bits {
-            self.attributed_breakdown_key_bits.0.get(i).unwrap() == Boolean::ONE
+        if i < bk_bits {
+            BitConversionTriple::new(
+                role,
+                self.attributed_breakdown_key_bits.0.get(i).unwrap() == Boolean::ONE,
+                self.attributed_breakdown_key_bits.1.get(i).unwrap() == Boolean::ONE,
+            )
         } else {
             let i = i - bk_bits;
-            self.capped_attributed_trigger_value.0.get(i).unwrap() == Boolean::ONE
-        };
-        let bit_right = if i < bk_bits {
-            self.attributed_breakdown_key_bits.1.get(i).unwrap() == Boolean::ONE
-        } else {
-            let i = i - bk_bits;
-            self.capped_attributed_trigger_value.1.get(i).unwrap() == Boolean::ONE
-        };
-        BitConversionTriple::new(role, bit_left, bit_right)
+            BitConversionTriple::new(
+                role,
+                self.capped_attributed_trigger_value.0.get(i).unwrap() == Boolean::ONE,
+                self.capped_attributed_trigger_value.1.get(i).unwrap() == Boolean::ONE,
+            )
+        }
     }
 
     fn into_triples<F, I>(
@@ -467,7 +468,7 @@ where
             .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
             .set_total_records(num_outputs),
         flattenned_stream,
-        0..<BK as WeakSharedValue>::BITS + <TV as WeakSharedValue>::BITS,
+        0..(<BK as WeakSharedValue>::BITS + <TV as WeakSharedValue>::BITS),
     );
 
     // move each value to the correct bucket
@@ -598,7 +599,6 @@ where
     C: Context,
     BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
-    // expand is_trigger_bit to array
     let is_trigger_bit_array = Replicated::<BK>::expand(is_trigger_bit);
 
     if_else(
@@ -628,7 +628,6 @@ where
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
         Some(_) => {
-            // expand is_trigger_bit to array
             let is_trigger_bit_array = Replicated::<TS>::expand(is_trigger_bit);
 
             if_else(
@@ -696,7 +695,6 @@ where
         did_trigger_get_attributed.clone()
     };
 
-    // expand zero_out_flag to array
     let zero_out_flag_array = Replicated::<TV>::expand(&zero_out_flag);
 
     if_else(
@@ -735,11 +733,7 @@ where
         )
         .await?;
 
-        let mut constant_bits = <TS as WeakSharedValue>::ZERO;
-        for i in 0..<TS as WeakSharedValue>::BITS {
-            let bit = Boolean::from((attribution_window_seconds.get() >> i) & 1 == 1);
-            constant_bits.set(i.try_into().unwrap(), bit);
-        }
+        let constant_bits = TS::truncate_from(attribution_window_seconds.get());
 
         let time_delta_gt_attribution_window = compare_gt(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
@@ -789,10 +783,8 @@ where
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
-    // expand is_saturated to array
     let is_saturated_array = Replicated::<TV>::expand(is_saturated);
 
-    // expand is_saturated_and_prev_row_not_saturated to array
     let is_saturated_and_prev_row_not_saturated_array =
         Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
 
@@ -959,23 +951,9 @@ pub mod tests {
             ]
             .reconstruct();
 
-            let mut bd_key_decimal = 0_u128;
-            for i in 0..<BK as WeakSharedValue>::BITS {
-                bd_key_decimal += bk_key_bits.get(i.try_into().unwrap()).unwrap().as_u128() << i;
-            }
-
-            let mut tv_decimal = 0_u128;
-            for i in 0..<TV as WeakSharedValue>::BITS {
-                tv_decimal += capped_attributed_tv
-                    .get(i.try_into().unwrap())
-                    .unwrap()
-                    .as_u128()
-                    << i;
-            }
-
             PreAggregationTestOutputInDecimal {
-                attributed_breakdown_key: bd_key_decimal,
-                capped_attributed_trigger_value: tv_decimal,
+                attributed_breakdown_key: bk_key_bits.as_u128(),
+                capped_attributed_trigger_value: capped_attributed_tv.as_u128(),
             }
         }
     }
@@ -991,10 +969,10 @@ pub mod tests {
                 oprf_test_input(123, true, 0, 7),
                 oprf_test_input(123, false, 20, 0),
                 oprf_test_input(123, true, 0, 3),
-                // /* Second User */
+                /* Second User */
                 oprf_test_input(234, false, 12, 0),
                 oprf_test_input(234, true, 0, 5),
-                // /* Third User */
+                /* Third User */
                 oprf_test_input(345, false, 20, 0),
                 oprf_test_input(345, true, 0, 7),
                 oprf_test_input(345, false, 18, 0),
