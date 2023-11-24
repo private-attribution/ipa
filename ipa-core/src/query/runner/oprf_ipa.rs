@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA5},
+        boolean_array::{BA20, BA3, BA5, BA8},
         Field, PrimeField, Serializable,
     },
     helpers::{
@@ -66,7 +66,7 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = RecordsStream::<OprfReport<BA20, BA5, BA3>, _>::new(input_stream)
+            let mut v = RecordsStream::<OprfReport<BA20, BA8, BA3>, _>::new(input_stream)
                 .try_concat()
                 .await?;
             v.truncate(sz);
@@ -100,7 +100,7 @@ where
 
         attribution_and_capping_and_aggregation::<
             C,
-            BA5,  // BreakdownKey,
+            BA8,  // BreakdownKey,
             BA3,  // TriggerValue,
             BA20, // Timestamp,
             BA5,  // Saturating Sum

@@ -8,9 +8,6 @@ use futures_util::{
 };
 use ipa_macros::Step;
 
-use super::boolean_ops::{
-    addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt,
-};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
@@ -19,7 +16,10 @@ use crate::{
         basics::{if_else, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::integer_sub,
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add,
+            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+        },
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         RecordId,
     },
