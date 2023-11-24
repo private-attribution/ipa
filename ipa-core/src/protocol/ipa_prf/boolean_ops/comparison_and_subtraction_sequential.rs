@@ -1,3 +1,4 @@
+#[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
 
+#[cfg(all(test, unit_test))]
 #[derive(Step)]
 pub(crate) enum Step {
     SaturatedSubtraction,
@@ -17,6 +19,7 @@ pub(crate) enum Step {
 /// outputs x>=y
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 pub async fn compare_geq<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -90,6 +93,7 @@ where
 /// when y>x, it outputs 0
 /// # Errors
 /// propagates errors from multiply
+#[cfg(all(test, unit_test))]
 pub async fn integer_sat_sub<C, S>(
     ctx: C,
     record_id: RecordId,
@@ -141,7 +145,7 @@ where
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().take(XS::BITS.try_into().unwrap()).enumerate() {
+    for (i, v) in x.into_iter().enumerate() {
         result.set(
             i,
             bit_subtractor(
@@ -204,7 +208,7 @@ mod test {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA32, BA64},
+            boolean_array::{BA3, BA32, BA5, BA64},
             Expand, Field,
         },
         protocol,
@@ -400,6 +404,33 @@ mod test {
                         protocol::RecordId(0),
                         &x_y[0],
                         &x_y[1],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct()
+                .as_u128();
+            assert_eq!((x, y, result), (x, y, expected));
+        });
+    }
+
+    #[test]
+    fn test_overflow_behavior() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let x = BA3::truncate_from(0_u128);
+            let y = BA5::truncate_from(28_u128);
+            let expected = 4_u128;
+
+            let result = world
+                .semi_honest((x, y), |ctx, x_y| async move {
+                    integer_sub(
+                        ctx.set_total_records(1),
+                        protocol::RecordId(0),
+                        &x_y.0,
+                        &x_y.1,
                     )
                     .await
                     .unwrap()

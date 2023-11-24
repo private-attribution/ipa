@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, ops::Neg, pin::pin};
+use std::{num::NonZeroU32, ops::Not, pin::pin};
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{
@@ -104,7 +104,7 @@ impl<
         for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
         for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
-        let is_source_event = input_row.is_trigger_bit.clone().neg();
+        let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
             ever_encountered_a_source_event,
@@ -135,9 +135,6 @@ impl<
         )
         .await?;
 
-    println!("Breakdown key of most recent source event: {:?}", attributed_breakdown_key_bits);
-    println!("Source event timestamp: {:?}", source_event_timestamp);
-
         let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
             ctx.narrow(&Step::AttributedTriggerValue),
             record_id,
@@ -150,9 +147,7 @@ impl<
         )
         .await?;
 
-        println!("Attributed Trigger Value: {:?}", attributed_trigger_value);
-
-        let (is_saturated, updated_sum) = integer_add(
+        let (is_saturated, updated_sum): (Replicated<Boolean>, _) = integer_add::<_, SS, TV>(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -160,11 +155,9 @@ impl<
         )
         .await?;
 
-        println!("Is Saturated: {:?}, Updated Sum: {:?}", is_saturated, updated_sum);
-
         let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
             is_saturated.multiply(
-                &self.is_saturated.clone().neg(),
+                &self.is_saturated.clone().not(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
@@ -177,8 +170,6 @@ impl<
         )
         .await?;
 
-        println!("Is Saturated And Prev Row Not Saturated: {:?}, Difference to Cap: {:?}", is_saturated_and_prev_row_not_saturated, difference_to_cap);
-
         let capped_attributed_trigger_value = compute_capped_trigger_value(
             ctx,
             record_id,
@@ -188,8 +179,6 @@ impl<
             &attributed_trigger_value,
         )
         .await?;
-
-        println!("Capped Attributed Trigger Value: {:?}", capped_attributed_trigger_value);
 
         self.ever_encountered_a_source_event = ever_encountered_a_source_event;
         self.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
@@ -223,7 +212,7 @@ impl<
     type Residual = ();
 
     fn bits(&self) -> u32 {
-        (BK::BITS + TV::BITS).try_into().unwrap()
+        BK::BITS + TV::BITS
     }
 
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
@@ -584,7 +573,7 @@ where
     SS: WeakSharedValue,
 {
     InputsRequiredFromPrevRow {
-        ever_encountered_a_source_event: input_row.is_trigger_bit.clone().neg(),
+        ever_encountered_a_source_event: input_row.is_trigger_bit.clone().not(),
         attributed_breakdown_key_bits: input_row.breakdown_key.clone(),
         saturating_sum: Replicated::<SS>::ZERO,
         is_saturated: Replicated::<Boolean>::ZERO,
@@ -763,7 +752,7 @@ where
             &Replicated::<TS>::new(constant_bits, constant_bits),
         )
         .await?;
-        Ok(time_delta_gt_attribution_window.neg())
+        Ok(time_delta_gt_attribution_window.not())
     } else {
         // if there is no attribution window, then all trigger events are attributed
         Ok(Replicated::share_known_value(&ctx, Boolean::ONE))
@@ -816,7 +805,7 @@ where
         record_id,
         &is_saturated_array,
         &Replicated::new(<TV as WeakSharedValue>::ZERO, <TV as WeakSharedValue>::ZERO),
-        &attributed_trigger_value,
+        attributed_trigger_value,
     )
     .await?;
 
@@ -1015,18 +1004,16 @@ pub mod tests {
                 oprf_test_input(345, false, 12, 0),
                 oprf_test_input(345, true, 0, 7),
                 oprf_test_input(345, true, 0, 7),
-                // oprf_test_input(345, true, 0, 7),
-                // oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
             ];
 
             let mut expected = [0_u128; 32];
-            //expected[12] = 30;
-            expected[12] = 19;
+            expected[12] = 30;
             expected[17] = 7;
             expected[20] = 10;
 
-            //let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
-            let histogram = [3, 3, 2, 2, 1, 1];
+            let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -1048,12 +1035,8 @@ pub mod tests {
         });
     }
 
-    //#[test]
+    #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
-        // In OPRF, the attribution window's upper bound is excluded - i.e., [0..ATTRIBUTION_WINDOW_SECONDS).
-        // Ex. If attribution window is 200s and the time difference from the nearest source event
-        // to the trigger event is 200s, then the trigger event is NOT attributed.
-        // TODO: Modify the test case once #844 is landed. i.e., change the second test input row ts to `201`.
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
 
         run(|| async move {
@@ -1067,7 +1050,7 @@ pub mod tests {
                 oprf_test_input_with_timestamp(123, true, 0, 3, 300), // tsΔ = 100, attributed to 20
                 /* Second User */
                 oprf_test_input_with_timestamp(234, false, 12, 0, 0),
-                oprf_test_input_with_timestamp(234, true, 0, 5, 199), // tsΔ = 199, attributed to 12
+                oprf_test_input_with_timestamp(234, true, 0, 5, 200), // tsΔ = 200, attributed to 12
                 /* Third User */
                 oprf_test_input_with_timestamp(345, false, 20, 0, 0),
                 oprf_test_input_with_timestamp(345, true, 0, 3, 100), // tsΔ = 100, attributed to 20
@@ -1075,7 +1058,7 @@ pub mod tests {
                 oprf_test_input_with_timestamp(345, false, 12, 0, 300),
                 oprf_test_input_with_timestamp(345, true, 0, 3, 400), // tsΔ = 100, attributed to 12
                 oprf_test_input_with_timestamp(345, true, 0, 3, 499), // tsΔ = 199, attributed to 12
-                oprf_test_input_with_timestamp(345, true, 0, 3, 500), // tsΔ = 200, not attributed
+                oprf_test_input_with_timestamp(345, true, 0, 3, 501), // tsΔ = 201, not attributed
                 oprf_test_input_with_timestamp(345, true, 0, 3, 700), // tsΔ = 400, not attributed
             ];
 

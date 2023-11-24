@@ -44,9 +44,6 @@ macro_rules! boolean_array_impl {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
-            use hkdf::Hkdf;
-            use sha2::Sha256;
-
             use super::*;
             use crate::{
                 ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable},
@@ -137,13 +134,7 @@ macro_rules! boolean_array_impl {
                     (*self).into()
                 }
 
-                /// uses hashing in order to be compatible with larger array sizes
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    // let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
-                    // let mut okm = [0u8; $bytes];
-                    // //error invalid length from expand only happens when okm is very large
-                    // hk.expand(&[], &mut okm).unwrap();
-                    // <$name>::deserialize(&okm.into())
                     let v = v.into();
                     let mut val = Self::ZERO;
                     for i in 0..$bits {
