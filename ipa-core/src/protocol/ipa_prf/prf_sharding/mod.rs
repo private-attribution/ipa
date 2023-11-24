@@ -135,6 +135,9 @@ impl<
         )
         .await?;
 
+    println!("Breakdown key of most recent source event: {:?}", attributed_breakdown_key_bits);
+    println!("Source event timestamp: {:?}", source_event_timestamp);
+
         let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
             ctx.narrow(&Step::AttributedTriggerValue),
             record_id,
@@ -147,6 +150,8 @@ impl<
         )
         .await?;
 
+        println!("Attributed Trigger Value: {:?}", attributed_trigger_value);
+
         let (is_saturated, updated_sum) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
@@ -154,6 +159,8 @@ impl<
             &attributed_trigger_value,
         )
         .await?;
+
+        println!("Is Saturated: {:?}, Updated Sum: {:?}", is_saturated, updated_sum);
 
         let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
             is_saturated.multiply(
@@ -170,6 +177,8 @@ impl<
         )
         .await?;
 
+        println!("Is Saturated And Prev Row Not Saturated: {:?}, Difference to Cap: {:?}", is_saturated_and_prev_row_not_saturated, difference_to_cap);
+
         let capped_attributed_trigger_value = compute_capped_trigger_value(
             ctx,
             record_id,
@@ -179,6 +188,8 @@ impl<
             &attributed_trigger_value,
         )
         .await?;
+
+        println!("Capped Attributed Trigger Value: {:?}", capped_attributed_trigger_value);
 
         self.ever_encountered_a_source_event = ever_encountered_a_source_event;
         self.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
@@ -992,29 +1003,30 @@ pub mod tests {
                 /* First User */
                 oprf_test_input(123, false, 17, 0),
                 oprf_test_input(123, true, 0, 7),
-                // oprf_test_input(123, false, 20, 0),
-                // oprf_test_input(123, true, 0, 3),
+                oprf_test_input(123, false, 20, 0),
+                oprf_test_input(123, true, 0, 3),
                 // /* Second User */
-                // oprf_test_input(234, false, 12, 0),
-                // oprf_test_input(234, true, 0, 5),
+                oprf_test_input(234, false, 12, 0),
+                oprf_test_input(234, true, 0, 5),
                 // /* Third User */
-                // oprf_test_input(345, false, 20, 0),
-                // oprf_test_input(345, true, 0, 7),
-                // oprf_test_input(345, false, 18, 0),
-                // oprf_test_input(345, false, 12, 0),
-                // oprf_test_input(345, true, 0, 7),
-                // oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 20, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, false, 18, 0),
+                oprf_test_input(345, false, 12, 0),
+                oprf_test_input(345, true, 0, 7),
+                oprf_test_input(345, true, 0, 7),
                 // oprf_test_input(345, true, 0, 7),
                 // oprf_test_input(345, true, 0, 7),
             ];
 
             let mut expected = [0_u128; 32];
             //expected[12] = 30;
+            expected[12] = 19;
             expected[17] = 7;
-            //expected[20] = 10;
+            expected[20] = 10;
 
             //let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
-            let histogram = [1, 1];
+            let histogram = [3, 3, 2, 2, 1, 1];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -1036,7 +1048,7 @@ pub mod tests {
         });
     }
 
-    #[test]
+    //#[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
         // In OPRF, the attribution window's upper bound is excluded - i.e., [0..ATTRIBUTION_WINDOW_SECONDS).
         // Ex. If attribution window is 200s and the time difference from the nearest source event

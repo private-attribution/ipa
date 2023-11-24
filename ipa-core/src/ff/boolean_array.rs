@@ -139,11 +139,18 @@ macro_rules! boolean_array_impl {
 
                 /// uses hashing in order to be compatible with larger array sizes
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
-                    let mut okm = [0u8; $bytes];
-                    //error invalid length from expand only happens when okm is very large
-                    hk.expand(&[], &mut okm).unwrap();
-                    <$name>::deserialize(&okm.into())
+                    // let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
+                    // let mut okm = [0u8; $bytes];
+                    // //error invalid length from expand only happens when okm is very large
+                    // hk.expand(&[], &mut okm).unwrap();
+                    // <$name>::deserialize(&okm.into())
+                    let v = v.into();
+                    let mut val = Self::ZERO;
+                    for i in 0..$bits {
+                        val.set(i, Boolean::from((v >> i & 1) == 1));
+                    }
+
+                    val
                 }
             }
 
