@@ -63,7 +63,7 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = RecordsStream::<OprfReport<Timestamp, BreakdownKey, TriggerValue>, _>::new(
+            let mut v = RecordsStream::<OprfReport<BreakdownKey, TriggerValue, Timestamp>, _>::new(
                 input_stream,
             )
             .try_concat()

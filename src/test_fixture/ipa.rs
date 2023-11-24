@@ -275,7 +275,7 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<F> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>| async move {
+            |ctx, input_rows: Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>| async move {
                 let sharded_input = input_rows
                     .into_iter()
                     .map(|single_row| {

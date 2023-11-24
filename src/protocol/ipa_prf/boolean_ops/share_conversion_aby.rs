@@ -92,8 +92,7 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
-#[allow(dead_code)]
-async fn convert_to_fp25519<C, B>(
+pub async fn convert_to_fp25519<C, B>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<B>,

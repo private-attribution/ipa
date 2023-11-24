@@ -1,3 +1,3 @@
 mod addition_sequential;
 mod comparison_and_subtraction_sequential;
-mod share_conversion_aby;
+pub mod share_conversion_aby;

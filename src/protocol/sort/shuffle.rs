@@ -65,7 +65,7 @@ pub(super) fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
 #[tracing::instrument(name = "shuffle_once", skip_all, fields(to = ?shuffle_for_helper(which_step)))]
-pub async fn shuffle_or_unshuffle_once<S, C>(
+pub(crate) async fn shuffle_or_unshuffle_once<S, C>(
     mut input: Vec<S>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,

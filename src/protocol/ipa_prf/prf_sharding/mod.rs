@@ -38,12 +38,21 @@ pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
+#[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
     pub prf_of_match_key: u64,
     pub is_trigger_bit: Replicated<Gf2>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+}
+
+impl<BK: GaloisField, TS: GaloisField, TV: GaloisField> GroupingKey
+    for PrfShardedIpaInputRow<BK, TV, TS>
+{
+    fn get_grouping_key(&self) -> u64 {
+        self.prf_of_match_key
+    }
 }
 
 impl<BK: GaloisField, TV: GaloisField, TS: GaloisField> PrfShardedIpaInputRow<BK, TV, TS> {

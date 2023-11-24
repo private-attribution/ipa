@@ -412,7 +412,7 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OprfReport<TS, BK, TV>
+pub struct OprfReport<BK, TV, TS>
 where
     TS: GaloisField,
     BK: GaloisField,
@@ -425,7 +425,7 @@ where
     pub trigger_value: Replicated<TV>,
 }
 
-impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> GroupingKey for OprfReport<TS, BK, TV> {
+impl<BK: GaloisField, TS: GaloisField, TV: GaloisField> GroupingKey for OprfReport<BK, TV, TS> {
     fn get_grouping_key(&self) -> u64 {
         self.mk_oprf
     }
@@ -446,7 +446,7 @@ impl Serializable for u64 {
     }
 }
 
-impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> Serializable for OprfReport<TS, BK, TV>
+impl<TS: GaloisField, BK: GaloisField, TV: GaloisField> Serializable for OprfReport<BK, TV, TS>
 where
     Replicated<TS>: Serializable,
     Replicated<BK>: Serializable,

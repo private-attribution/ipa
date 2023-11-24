@@ -3,17 +3,20 @@ use std::iter::zip;
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{boolean_array::BA64, Field, GaloisField, Gf2, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
         },
         ipa::IPAInputRow,
+        ipa_prf::PrfIpaInputRow,
         BreakdownKey, MatchKey,
     },
     rand::Rng,
     report::{EventType, OprfReport, Report},
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+    },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
         ipa::TestRawDataRecord,
@@ -355,13 +358,13 @@ where
     }
 }
 
-impl<TS, BK, TV> IntoShares<OprfReport<TS, BK, TV>> for TestRawDataRecord
+impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    TS: GaloisField + IntoShares<Replicated<TS>>,
     BK: GaloisField + IntoShares<Replicated<BK>>,
     TV: GaloisField + IntoShares<Replicated<TV>>,
+    TS: GaloisField + IntoShares<Replicated<TS>>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<TS, BK, TV>; 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let event_type = if self.is_trigger_report {
             EventType::Trigger
         } else {
@@ -387,5 +390,50 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
+    }
+}
+
+impl<BK, TV, TS> IntoShares<PrfIpaInputRow<BK, TV, TS>> for TestRawDataRecord
+where
+    BK: GaloisField + IntoShares<Replicated<BK>>,
+    TV: GaloisField + IntoShares<Replicated<TV>>,
+    TS: GaloisField + IntoShares<Replicated<TS>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [PrfIpaInputRow<BK, TV, TS>; 3] {
+        let timestamp: [Replicated<TS>; 3] =
+            TS::try_from(self.timestamp.into()).unwrap().share_with(rng);
+        let breakdown_key = BK::try_from(self.breakdown_key.into())
+            .unwrap()
+            .share_with(rng);
+        let trigger_value = TV::try_from(self.trigger_value.into())
+            .unwrap()
+            .share_with(rng);
+        let is_trigger_bit = if self.is_trigger_report {
+            Gf2::ONE.share_with(rng)
+        } else {
+            Gf2::ZERO.share_with(rng)
+        };
+        let match_key = BA64::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
+
+        let shares = zip(
+            zip(zip(timestamp, breakdown_key), zip(trigger_value, match_key)),
+            is_trigger_bit,
+        )
+        .map(
+            |(((ts_share, bk_share), (tv_share, match_key_share)), is_trigger_bit_share)| {
+                PrfIpaInputRow {
+                    match_key: match_key_share,
+                    is_trigger_bit: is_trigger_bit_share,
+                    breakdown_key: bk_share,
+                    trigger_value: tv_share,
+                    timestamp: ts_share,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+        let output: [PrfIpaInputRow<BK, TV, TS>; 3] = shares.try_into().unwrap();
+        output
     }
 }
