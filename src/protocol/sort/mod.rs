@@ -29,7 +29,7 @@ pub(crate) enum SortStep {
 }
 
 #[derive(Step, Clone, Copy)]
-pub(crate) enum ShuffleStep {
+pub enum ShuffleStep {
     Shuffle1,
     Shuffle2,
     Shuffle3,
