@@ -1,9 +1,12 @@
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
+#[cfg(all(test, unit_test))]
+use crate::ff::Expand;
+
 use crate::{
     error::Error,
-    ff::{ArrayAccess, CustomArray, Expand, Field},
+    ff::{ArrayAccess, CustomArray, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
