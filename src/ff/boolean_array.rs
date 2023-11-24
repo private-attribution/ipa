@@ -191,16 +191,14 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            #[allow(clippy::from_over_into)]
-            impl Into<u128> for $name {
+            impl From<$name> for u128 {
                 /// Infallible conversion from this data type to `u128`. We assume that the
                 /// inner value is at most 128-bit long. That is, the integer value must be
                 /// less than or equal to `2^Self::BITS`. Should be long enough for our use
                 /// case.
-                fn into(self) -> u128 {
+                fn from(v: $name) -> u128 {
                     debug_assert!(<$name>::BITS <= 128);
-                    self.0
-                        .iter()
+                    v.0.iter()
                         .by_refs()
                         .enumerate()
                         .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
