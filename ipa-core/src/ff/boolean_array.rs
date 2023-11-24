@@ -328,6 +328,17 @@ boolean_array_impl!(
     )
 );
 
+//impl BA8
+boolean_array_impl!(
+    boolean_array_8,
+    BA8,
+    8,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0
+    )
+);
+
 //impl BA20
 boolean_array_impl!(
     boolean_array_20,

@@ -249,7 +249,7 @@ pub async fn test_oprf_ipa<F>(
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5},
+            boolean_array::{BA20, BA3, BA5, BA8},
             Field,
         },
         protocol::{
@@ -279,7 +279,7 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<F> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<BA20, BA5, BA3>>| async move {
+            |ctx, input_rows: Vec<OprfReport<BA20, BA8, BA3>>| async move {
                 let sharded_input = input_rows
                     .into_iter()
                     .map(|single_row| {
@@ -300,7 +300,7 @@ pub async fn test_oprf_ipa<F>(
 
                 attribution_and_capping_and_aggregation::<
                     _,
-                    BA5,  // BreakdownKey,
+                    BA8,  // BreakdownKey,
                     BA3,  // TriggerValue,
                     BA20, // Timestamp,
                     BA5,  // Saturating Sum

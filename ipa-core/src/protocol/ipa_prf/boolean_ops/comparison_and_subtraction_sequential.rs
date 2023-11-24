@@ -3,7 +3,6 @@ use ipa_macros::Step;
 
 #[cfg(all(test, unit_test))]
 use crate::ff::Expand;
-
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
