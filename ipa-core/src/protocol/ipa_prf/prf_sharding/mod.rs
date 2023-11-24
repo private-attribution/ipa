@@ -8,6 +8,9 @@ use futures_util::{
 };
 use ipa_macros::Step;
 
+use super::boolean_ops::{
+    addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt,
+};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
@@ -28,10 +31,6 @@ use crate::{
         BitDecomposed, Linear as LinearSecretSharing, WeakSharedValue,
     },
     seq_join::{seq_join, SeqJoin},
-};
-
-use super::boolean_ops::{
-    addition_sequential::integer_add, comparison_and_subtraction_sequential::compare_gt,
 };
 
 pub mod bucket;
@@ -147,7 +146,7 @@ impl<
         )
         .await?;
 
-        let (is_saturated, updated_sum): (Replicated<Boolean>, _) = integer_add::<_, SS, TV>(
+        let (is_saturated, updated_sum) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -196,10 +195,7 @@ impl<
 }
 
 #[derive(Debug)]
-pub struct CappedAttributionOutputs<
-    BK: WeakSharedValue + CustomArray<Element = Boolean>,
-    TV: WeakSharedValue + CustomArray<Element = Boolean>,
-> {
+pub struct CappedAttributionOutputs<BK: WeakSharedValue, TV: WeakSharedValue> {
     pub attributed_breakdown_key_bits: Replicated<BK>,
     pub capped_attributed_trigger_value: Replicated<TV>,
 }
@@ -669,7 +665,7 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field, // + ToBitConversionTriples,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
@@ -826,7 +822,8 @@ pub mod tests {
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{
-            boolean::Boolean, boolean_array::BA20, boolean_array::BA3, boolean_array::BA5,
+            boolean::Boolean,
+            boolean_array::{BA20, BA3, BA5},
             CustomArray, Field, Fp32BitPrime,
         },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,

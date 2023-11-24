@@ -1,12 +1,11 @@
 use generic_array::GenericArray;
 use typenum::U1;
 
+use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
     secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
 };
-
-use super::Gf32Bit;
 
 impl Block for bool {
     type Size = U1;
