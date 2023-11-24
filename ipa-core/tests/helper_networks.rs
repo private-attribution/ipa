@@ -6,7 +6,7 @@ use common::{
     spawn_helpers, tempdir::TempDir, test_ipa, test_multiply, test_network, CommandExt,
     UnwrapStatusExt, HELPER_BIN,
 };
-use ipa::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
+use ipa_core::{cli::CliPaths, helpers::HelperIdentity, test_fixture::ipa::IpaSecurityModel};
 
 #[test]
 #[cfg(all(test, web_test))]

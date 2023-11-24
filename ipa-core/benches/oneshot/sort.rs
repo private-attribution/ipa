@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use futures::stream::iter as stream_iter;
-use ipa::{
+use ipa_core::{
     error::Error,
     ff::{Field, Fp32BitPrime, GaloisField},
     helpers::GatewayConfig,

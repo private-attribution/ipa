@@ -1,5 +1,5 @@
 [package]
-name = "ipa"
+name = "ipa-core"
 version = "0.1.0"
 rust-version = "1.64.0"
 edition = "2021"
@@ -160,7 +160,6 @@ rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tempfile = "3"
 
 [lib]
-name = "ipa"
 path = "src/lib.rs"
 bench = false
 

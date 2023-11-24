@@ -8,7 +8,7 @@ use std::{
 
 use clap::{self, Parser, Subcommand};
 use hyper::http::uri::Scheme;
-use ipa::{
+use ipa_core::{
     cli::{
         client_config_setup, keygen, test_setup, ConfGenArgs, KeygenArgs, TestSetupArgs, Verbosity,
     },

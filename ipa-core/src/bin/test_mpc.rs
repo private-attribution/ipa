@@ -3,7 +3,7 @@ use std::{error::Error, fmt::Debug, ops::Add, path::PathBuf};
 use clap::{Parser, Subcommand};
 use generic_array::ArrayLength;
 use hyper::http::uri::Scheme;
-use ipa::{
+use ipa_core::{
     cli::{
         playbook::{make_clients, secure_mul, validate, InputSource},
         Verbosity,

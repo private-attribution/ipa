@@ -6,7 +6,7 @@ mod common;
 use std::num::NonZeroU32;
 
 use common::test_ipa_with_config;
-use ipa::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
+use ipa_core::{helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel};
 
 fn test_compact_gate<I: TryInto<NonZeroU32>>(
     mode: IpaSecurityModel,

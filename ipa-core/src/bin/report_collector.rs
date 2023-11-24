@@ -12,7 +12,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use hyper::http::uri::Scheme;
-use ipa::{
+use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
         playbook::{make_clients, playbook_ipa, playbook_oprf_ipa, validate, InputSource},

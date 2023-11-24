@@ -11,7 +11,7 @@ use std::{
 };
 
 use command_fds::CommandFdExt;
-use ipa::{
+use ipa_core::{
     cli::IpaQueryResult, helpers::query::IpaQueryConfig, test_fixture::ipa::IpaSecurityModel,
 };
 use rand::thread_rng;
