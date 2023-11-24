@@ -27,7 +27,7 @@ macro_rules! store_impl {
 
 /// iterator for Boolean arrays
 pub struct BAIterator<'a> {
-    iterator: Iter<'a, u8, Lsb0>,
+    iterator: std::iter::Take<Iter<'a, u8, Lsb0>>,
 }
 
 ///impl Iterator for all Boolean arrays
@@ -228,7 +228,7 @@ macro_rules! boolean_array_impl {
 
                 fn into_iter(self) -> Self::IntoIter {
                     BAIterator {
-                        iterator: self.0.iter(),
+                        iterator: self.0.iter().take(usize::try_from(<$name>::BITS).unwrap()),
                     }
                 }
             }
