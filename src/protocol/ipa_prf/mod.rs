@@ -1,7 +1,10 @@
+#[cfg(feature = "descriptive-gate")]
 use std::iter::repeat;
 
+#[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
+#[cfg(feature = "descriptive-gate")]
 use crate::{
     error::Error,
     ff::{boolean_array::BA64, GaloisField, Gf2, PrimeField, Serializable},
@@ -31,12 +34,14 @@ pub mod prf_sharding;
 #[cfg(feature = "descriptive-gate")]
 pub mod shuffle;
 
+#[cfg(feature = "descriptive-gate")]
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[derive(Debug)]
 pub struct PrfIpaInputRow<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
     pub match_key: Replicated<BA64>,
@@ -59,6 +64,7 @@ pub struct PrfIpaInputRow<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
+#[cfg(feature = "descriptive-gate")]
 pub async fn oprf_ipa<C, BK, TV, TS, F>(
     ctx: C,
     input_rows: Vec<PrfIpaInputRow<BK, TV, TS>>,

@@ -2,21 +2,24 @@ use std::iter::zip;
 
 use rand::{distributions::Standard, prelude::Distribution};
 
+#[cfg(feature = "descriptive-gate")]
 use crate::{
-    ff::{boolean_array::BA64, Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{boolean_array::BA64, Gf2},
+    protocol::ipa_prf::PrfIpaInputRow,
+    secret_sharing::SharedValue,
+};
+use crate::{
+    ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
         },
         ipa::IPAInputRow,
-        ipa_prf::PrfIpaInputRow,
         BreakdownKey, MatchKey,
     },
     rand::Rng,
     report::{EventType, OprfReport, Report},
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
         ipa::TestRawDataRecord,
@@ -393,6 +396,7 @@ where
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<BK, TV, TS> IntoShares<PrfIpaInputRow<BK, TV, TS>> for TestRawDataRecord
 where
     BK: GaloisField + IntoShares<Replicated<BK>>,
