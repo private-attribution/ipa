@@ -6,8 +6,8 @@ use std::{
 
 use crate::tree::Node;
 
-const TARGET_CRATE: &str = "ipa";
-const STEPS_FILE_PATH: &str = "/../src/protocol/step/";
+const TARGET_CRATE: &str = "ipa-core";
+const STEPS_FILE_PATH: &str = "/../ipa-core/src/protocol/step/";
 pub(crate) const STEPS_FILE_NAME: &str = "steps.txt";
 
 #[derive(Clone, Debug)]
