@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
-            boolean_ops::share_conversion_aby::convert_to_fp25519,
+            boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
                 attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
@@ -80,6 +80,8 @@ where
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
+    use std::iter::zip;
+
     let user_cap: i32 = config.per_user_credit_cap.try_into().unwrap();
     assert!(
         user_cap & (user_cap - 1) == 0,
@@ -99,19 +101,27 @@ where
     let prf_key = gen_prf_key(&convert_ctx);
 
     let pseudonymed_user_ids = ctx
-        .parallel_join(input_rows.iter().zip(repeat(prf_key)).enumerate().map(
-            |(idx, (record, prf_key))| {
-                let convert_ctx = convert_ctx.clone();
-                let eval_ctx = eval_ctx.clone();
-                async move {
-                    let record_id = RecordId::from(idx);
-                    let prf_of_match_key =
-                        convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key)
-                            .await?;
-                    eval_dy_prf(eval_ctx, record_id, &prf_key, &prf_of_match_key).await
-                }
-            },
-        ))
+        .parallel_join(
+            input_rows
+                .iter()
+                .zip(zip(
+                    repeat(prf_key),
+                    zip(repeat(convert_ctx), repeat(eval_ctx)),
+                ))
+                .enumerate()
+                .map(
+                    |(idx, (record, (prf_key, (convert_ctx, eval_ctx))))| async move {
+                        let record_id = RecordId::from(idx);
+                        let prf_of_match_key = convert_to_fp25519::<_, BA64>(
+                            convert_ctx,
+                            record_id,
+                            &record.match_key,
+                        )
+                        .await?;
+                        eval_dy_prf(eval_ctx, record_id, &prf_key, &prf_of_match_key).await
+                    },
+                ),
+        )
         .await?;
     let pseudonymed_inputs = input_rows
         .into_iter()
@@ -139,7 +149,6 @@ where
 }
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
-
 pub mod tests {
     use crate::{
         ff::Fp31,
