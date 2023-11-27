@@ -98,11 +98,11 @@ pub fn expand(input: TokenStream) -> TokenStream {
     );
 
     // implement `AsRef<str>`
-    extend_or_error!(out, impl_as_ref(&ident, &data));
+    extend_or_error!(out, impl_as_ref(ident, data));
     // implement `StepNarrow<T>` if `compact-gate` feature is enabled. we need the if
     // statement here to avoid a compile error when `collect_steps.py` is run.
     if cfg!(feature = "compact-gate") {
-        extend_or_error!(out, impl_step_narrow(&ident, &data));
+        extend_or_error!(out, impl_step_narrow(ident, data));
     }
 
     out.into()
@@ -161,7 +161,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
 /// a `StepNarrow` implementation.
 fn impl_step_narrow(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2, syn::Error> {
     // get a list of IPA protocol steps from `steps.txt` that match the enum
-    let meta = match get_meta_data_for(&ident, &data) {
+    let meta = match get_meta_data_for(ident, data) {
         Ok(steps) => steps,
         Err(e) => return Err(e),
     };
@@ -279,11 +279,9 @@ fn get_meta_data_for(
         }
         _ => Err(syn::Error::new_spanned(
             ident,
-            format!(
-                "ipa_macros::step found multiple enums that have the same name and \
-            contain at least one variant with the same name. Consider renaming the \
-            enum/variant to avoid this conflict.",
-            ),
+            "ipa_macros::step found multiple enums that have the same name and contain at \
+            least one variant with the same name. Consider renaming the enum/variant to \
+            avoid this conflict.",
         )),
     }
 }

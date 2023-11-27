@@ -57,19 +57,16 @@ pub fn expand(item: TokenStream) -> TokenStream {
     ));
 
     // replace `u16` with the type acquired from the AST
-    expanded.extend(
-        quote!(
-            impl Compact {
-                pub fn deserialize(s: &str) -> Compact {
-                    Self(match s {
-                        #(#deserialize_map)*
-                        _ => static_deserialize_state_map(s),
-                    })
-                }
+    expanded.extend(quote!(
+        impl Compact {
+            pub fn deserialize(s: &str) -> Compact {
+                Self(match s {
+                    #(#deserialize_map)*
+                    _ => static_deserialize_state_map(s),
+                })
             }
-        )
-        .into_iter(),
-    );
+        }
+    ));
 
     expanded.into()
 }

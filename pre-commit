@@ -91,10 +91,10 @@ check "Tests" \
     cargo test
 
 check "Web tests" \
-    cargo test --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+    cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
 
 check "Concurrency tests" \
-    cargo test --release --features shuttle
+    cargo test -p ipa-core --release --features shuttle
 
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62
