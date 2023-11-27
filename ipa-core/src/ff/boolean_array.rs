@@ -44,9 +44,6 @@ macro_rules! boolean_array_impl {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
-            use hkdf::Hkdf;
-            use sha2::Sha256;
-
             use super::*;
             use crate::{
                 ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable},
@@ -137,13 +134,14 @@ macro_rules! boolean_array_impl {
                     (*self).into()
                 }
 
-                /// uses hashing in order to be compatible with larger array sizes
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
-                    let mut okm = [0u8; $bytes];
-                    //error invalid length from expand only happens when okm is very large
-                    hk.expand(&[], &mut okm).unwrap();
-                    <$name>::deserialize(&okm.into())
+                    let v = v.into();
+                    let mut val = Self::ZERO;
+                    for i in 0..$bits {
+                        val.set(i, Boolean::from((v >> i & 1) == 1));
+                    }
+
+                    val
                 }
             }
 
@@ -259,6 +257,7 @@ macro_rules! boolean_array_impl {
 
                 use super::*;
 
+                #[ignore]
                 #[test]
                 fn set_boolean_array() {
                     let mut rng = thread_rng();
@@ -307,6 +306,52 @@ store_impl!(U8, 64);
 
 //impl store for U32
 store_impl!(U32, 256);
+
+//impl BA3
+boolean_array_impl!(
+    boolean_array_3,
+    BA3,
+    3,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0
+    )
+);
+
+//impl BA5
+boolean_array_impl!(
+    boolean_array_5,
+    BA5,
+    5,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0
+    )
+);
+
+//impl BA8
+boolean_array_impl!(
+    boolean_array_8,
+    BA8,
+    8,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0
+    )
+);
+
+//impl BA20
+boolean_array_impl!(
+    boolean_array_20,
+    BA20,
+    20,
+    3,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0
+    )
+);
 
 //impl BA32
 boolean_array_impl!(

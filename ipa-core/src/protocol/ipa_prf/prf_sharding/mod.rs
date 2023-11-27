@@ -1,8 +1,4 @@
-use std::{
-    iter::{repeat, zip},
-    num::NonZeroU32,
-    pin::pin,
-};
+use std::{num::NonZeroU32, ops::Not, pin::pin};
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{
@@ -14,14 +10,17 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
-        boolean::{comparison::bitwise_less_than_constant, or::or, saturating_sum::SaturatingSum},
+        boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add,
+            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+        },
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
-        step::BitOpStep,
         RecordId,
     },
     secret_sharing::{
@@ -29,7 +28,7 @@ use crate::{
             malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, WeakSharedValue,
     },
     seq_join::{seq_join, SeqJoin},
 };
@@ -38,43 +37,35 @@ pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
-pub struct PrfShardedIpaInputRow<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
+pub struct PrfShardedIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> {
     pub prf_of_match_key: u64,
-    pub is_trigger_bit: Replicated<Gf2>,
+    pub is_trigger_bit: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
 }
 
-impl<BK: GaloisField, TV: GaloisField, TS: GaloisField> PrfShardedIpaInputRow<BK, TV, TS> {
-    pub fn breakdown_key_bits(&self) -> BitDecomposed<Replicated<Gf2>> {
-        BitDecomposed::decompose(BK::BITS, |i| {
-            self.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
-        })
-    }
-
-    pub fn trigger_value_bits(&self) -> BitDecomposed<Replicated<Gf2>> {
-        BitDecomposed::decompose(TV::BITS, |i| {
-            self.trigger_value.map(|v| Gf2::truncate_from(v[i]))
-        })
-    }
-
-    pub fn timestamp_bits(&self) -> BitDecomposed<Replicated<Gf2>> {
-        BitDecomposed::decompose(TS::BITS, |i| {
-            self.timestamp.map(|v| Gf2::truncate_from(v[i]))
-        })
-    }
+struct InputsRequiredFromPrevRow<
+    BK: WeakSharedValue,
+    TV: WeakSharedValue,
+    TS: WeakSharedValue,
+    SS: WeakSharedValue,
+> {
+    ever_encountered_a_source_event: Replicated<Boolean>,
+    attributed_breakdown_key_bits: Replicated<BK>,
+    saturating_sum: Replicated<SS>,
+    is_saturated: Replicated<Boolean>,
+    difference_to_cap: Replicated<TV>,
+    source_event_timestamp: Replicated<TS>,
 }
 
-struct InputsRequiredFromPrevRow {
-    ever_encountered_a_source_event: Replicated<Gf2>,
-    attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
-    saturating_sum: SaturatingSum<Replicated<Gf2>>,
-    difference_to_cap: BitDecomposed<Replicated<Gf2>>,
-    source_event_timestamp: BitDecomposed<Replicated<Gf2>>,
-}
-
-impl InputsRequiredFromPrevRow {
+impl<
+        BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    > InputsRequiredFromPrevRow<BK, TV, TS, SS>
+{
     ///
     /// This function contains the main logic for the per-user attribution circuit.
     /// Multiple rows of data about a single user are processed in-order from oldest to newest.
@@ -99,30 +90,20 @@ impl InputsRequiredFromPrevRow {
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    pub async fn compute_row_with_previous<C, BK, TV, TS>(
+    pub async fn compute_row_with_previous<C>(
         &mut self,
         ctx: C,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
-        num_saturating_sum_bits: usize,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<CappedAttributionOutputs, Error>
+    ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
-        C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
-        BK: GaloisField,
-        TV: GaloisField,
-        TS: GaloisField,
+        C: Context,
+        for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+        for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+        for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
-        let (bd_key, tv, timestamp) = (
-            input_row.breakdown_key_bits(),
-            input_row.trigger_value_bits(),
-            input_row.timestamp_bits(),
-        );
-
-        assert_eq!(self.saturating_sum.sum.len(), num_saturating_sum_bits);
-
-        let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
-        let is_source_event = &share_of_one - &input_row.is_trigger_bit;
+        let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
             ever_encountered_a_source_event,
@@ -140,7 +121,7 @@ impl InputsRequiredFromPrevRow {
                 record_id,
                 &input_row.is_trigger_bit,
                 &self.attributed_breakdown_key_bits,
-                &bd_key,
+                &input_row.breakdown_key,
             ),
             timestamp_of_most_recent_source_event(
                 ctx.narrow(&Step::SourceEventTimestamp),
@@ -148,7 +129,7 @@ impl InputsRequiredFromPrevRow {
                 attribution_window_seconds,
                 &input_row.is_trigger_bit,
                 &self.source_event_timestamp,
-                &timestamp,
+                &input_row.timestamp,
             ),
         )
         .await?;
@@ -158,32 +139,32 @@ impl InputsRequiredFromPrevRow {
             record_id,
             &input_row.is_trigger_bit,
             &ever_encountered_a_source_event,
-            &tv,
+            &input_row.trigger_value,
             attribution_window_seconds,
-            &timestamp,
+            &input_row.timestamp,
             &source_event_timestamp,
         )
         .await?;
 
-        let updated_sum = self
-            .saturating_sum
-            .add(
-                ctx.narrow(&Step::ComputeSaturatingSum),
-                record_id,
-                &attributed_trigger_value,
-            )
-            .await?;
+        let (updated_sum, is_saturated) = integer_add(
+            ctx.narrow(&Step::ComputeSaturatingSum),
+            record_id,
+            &self.saturating_sum,
+            &attributed_trigger_value,
+        )
+        .await?;
 
         let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
-            updated_sum.is_saturated.multiply(
-                &(share_of_one - &self.saturating_sum.is_saturated),
+            is_saturated.multiply(
+                &self.is_saturated.clone().not(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
-            updated_sum.truncated_delta_to_saturation_point(
+            integer_sub(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,
-                TV::BITS,
+                &Replicated::<TV>::ZERO,
+                &updated_sum,
             ),
         )
         .await?;
@@ -191,7 +172,7 @@ impl InputsRequiredFromPrevRow {
         let capped_attributed_trigger_value = compute_capped_trigger_value(
             ctx,
             record_id,
-            &updated_sum.is_saturated,
+            &is_saturated,
             &is_saturated_and_prev_row_not_saturated,
             &self.difference_to_cap,
             &attributed_trigger_value,
@@ -201,6 +182,7 @@ impl InputsRequiredFromPrevRow {
         self.ever_encountered_a_source_event = ever_encountered_a_source_event;
         self.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
         self.saturating_sum = updated_sum;
+        self.is_saturated = is_saturated;
         self.difference_to_cap = difference_to_cap;
         self.source_event_timestamp = source_event_timestamp;
 
@@ -213,30 +195,40 @@ impl InputsRequiredFromPrevRow {
 }
 
 #[derive(Debug)]
-pub struct CappedAttributionOutputs {
-    pub attributed_breakdown_key_bits: BitDecomposed<Replicated<Gf2>>,
-    pub capped_attributed_trigger_value: BitDecomposed<Replicated<Gf2>>,
+pub struct CappedAttributionOutputs<BK: WeakSharedValue, TV: WeakSharedValue> {
+    pub attributed_breakdown_key_bits: Replicated<BK>,
+    pub capped_attributed_trigger_value: Replicated<TV>,
 }
 
-impl ToBitConversionTriples for CappedAttributionOutputs {
+impl<
+        BK: WeakSharedValue + CustomArray<Element = Boolean>,
+        TV: WeakSharedValue + CustomArray<Element = Boolean>,
+    > ToBitConversionTriples for CappedAttributionOutputs<BK, TV>
+{
     type Residual = ();
 
     fn bits(&self) -> u32 {
-        (self.attributed_breakdown_key_bits.len() + self.capped_attributed_trigger_value.len())
-            .try_into()
-            .unwrap()
+        BK::BITS + TV::BITS
     }
 
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
         assert!(i < self.bits());
         let i: usize = i.try_into().unwrap();
-        let bit = if i < self.attributed_breakdown_key_bits.len() {
-            &self.attributed_breakdown_key_bits[i]
+        let bk_bits: usize = BK::BITS.try_into().unwrap();
+        if i < bk_bits {
+            BitConversionTriple::new(
+                role,
+                self.attributed_breakdown_key_bits.0.get(i).unwrap() == Boolean::ONE,
+                self.attributed_breakdown_key_bits.1.get(i).unwrap() == Boolean::ONE,
+            )
         } else {
-            let i = i - self.attributed_breakdown_key_bits.len();
-            &self.capped_attributed_trigger_value[i]
-        };
-        BitConversionTriple::new(role, bit.left() == Gf2::ONE, bit.right() == Gf2::ONE)
+            let i = i - bk_bits;
+            BitConversionTriple::new(
+                role,
+                self.capped_attributed_trigger_value.0.get(i).unwrap() == Boolean::ONE,
+                self.capped_attributed_trigger_value.1.get(i).unwrap() == Boolean::ONE,
+            )
+        }
     }
 
     fn into_triples<F, I>(
@@ -329,7 +321,7 @@ where
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
 {
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
@@ -356,9 +348,9 @@ fn chunk_rows_by_user<IS, BK, TV, TS>(
     first_row: PrfShardedIpaInputRow<BK, TV, TS>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
 where
-    BK: GaloisField,
-    TV: GaloisField,
-    TS: GaloisField,
+    BK: WeakSharedValue,
+    TV: WeakSharedValue,
+    TS: WeakSharedValue,
     IS: Stream<Item = PrfShardedIpaInputRow<BK, TV, TS>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -396,30 +388,32 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn attribution_and_capping_and_aggregation<C, BK, TV, TS, S, F>(
+pub async fn attribution_and_capping_and_aggregation<C, BK, TV, TS, SS, S, F>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
-    num_saturating_sum_bits: usize,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
 ) -> Result<Vec<S>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
-    BK: GaloisField,
-    TV: GaloisField,
-    TS: GaloisField,
+    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
 {
-    assert!(num_saturating_sum_bits > TV::BITS as usize);
-    assert!(TV::BITS > 0);
-    assert!(BK::BITS > 0);
-    assert!(TS::BITS > 0);
-
-    // Get the validator and context to use for Gf2 multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
+    // Get the validator and context to use for Boolean multiplication operations
+    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
     let binary_m_ctx = binary_validator.context();
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
@@ -455,11 +449,10 @@ where
         #[allow(clippy::async_yields_async)]
         // this is ok, because seq join wants a stream of futures
         async move {
-            evaluate_per_user_attribution_circuit(
+            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
                 contexts,
                 record_ids,
                 rows_for_user,
-                num_saturating_sum_bits,
                 attribution_window_seconds,
             )
         }
@@ -475,7 +468,7 @@ where
             .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
             .set_total_records(num_outputs),
         flattenned_stream,
-        0..BK::BITS + TV::BITS,
+        0..(<BK as WeakSharedValue>::BITS + <TV as WeakSharedValue>::BITS),
     );
 
     // move each value to the correct bucket
@@ -489,14 +482,14 @@ where
         .map(|(i, (bk_and_tv_bits, ctx))| {
             let record_id: RecordId = RecordId::from(i);
             let bk_and_tv_bits = bk_and_tv_bits.unwrap();
-            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(BK::BITS);
+            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(<BK as WeakSharedValue>::BITS);
             async move {
-                bucket::move_single_value_to_bucket::<BK, _, _, _>(
+                bucket::move_single_value_to_bucket(
                     ctx,
                     record_id,
                     bk_bits,
                     BitDecomposed::to_additive_sharing_in_large_field_consuming(tv_bits),
-                    1 << BK::BITS,
+                    1 << <BK as WeakSharedValue>::BITS,
                     false,
                 )
                 .await
@@ -507,7 +500,7 @@ where
     let row_contributions = seq_join(prime_field_ctx.active_work(), row_contributions_stream);
     row_contributions
         .try_fold(
-            vec![S::ZERO; 1 << BK::BITS],
+            vec![S::ZERO; 1 << <BK as WeakSharedValue>::BITS],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -518,29 +511,30 @@ where
         .await
 }
 
-async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS>(
+async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
     ctx_for_row_number: Vec<C>,
     record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
-    num_saturating_sum_bits: usize,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<CappedAttributionOutputs>, Error>
+) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
-    BK: GaloisField,
-    TV: GaloisField,
-    TS: GaloisField,
+    C: Context,
+    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
         return Ok(Vec::new());
     }
     let first_row = &rows_for_user[0];
-    let mut prev_row_inputs = initialize_new_device_attribution_variables(
-        Replicated::share_known_value(&ctx_for_row_number[0], Gf2::ONE),
-        first_row,
-        num_saturating_sum_bits,
-    );
+    let mut prev_row_inputs =
+        initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
 
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
@@ -552,7 +546,6 @@ where
                 ctx_for_this_row_depth,
                 record_id_for_this_row_depth,
                 row,
-                num_saturating_sum_bits,
                 attribution_window_seconds,
             )
             .await?;
@@ -567,31 +560,24 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<BK, TV, TS>(
-    share_of_one: Replicated<Gf2>,
+fn initialize_new_device_attribution_variables<BK, TV, TS, SS>(
     input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
-    num_saturating_sum_bits: usize,
-) -> InputsRequiredFromPrevRow
+) -> InputsRequiredFromPrevRow<BK, TV, TS, SS>
 where
-    BK: GaloisField,
-    TV: GaloisField,
-    TS: GaloisField,
+    BK: WeakSharedValue,
+    TV: WeakSharedValue,
+    TS: WeakSharedValue,
+    SS: WeakSharedValue,
 {
     InputsRequiredFromPrevRow {
-        ever_encountered_a_source_event: share_of_one - &input_row.is_trigger_bit,
-        attributed_breakdown_key_bits: BitDecomposed::decompose(BK::BITS, |i| {
-            input_row.breakdown_key.map(|v| Gf2::truncate_from(v[i]))
-        }),
-        saturating_sum: SaturatingSum::new(
-            BitDecomposed::new(vec![Replicated::ZERO; num_saturating_sum_bits]),
-            Replicated::ZERO,
-        ),
+        ever_encountered_a_source_event: input_row.is_trigger_bit.clone().not(),
+        attributed_breakdown_key_bits: input_row.breakdown_key.clone(),
+        saturating_sum: Replicated::<SS>::ZERO,
+        is_saturated: Replicated::<Boolean>::ZERO,
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
-        difference_to_cap: BitDecomposed::new(vec![Replicated::ZERO; TV::BITS as usize]),
-        source_event_timestamp: BitDecomposed::decompose(TS::BITS, |i| {
-            input_row.timestamp.map(|v| Gf2::truncate_from(v[i]))
-        }),
+        difference_to_cap: Replicated::<TV>::ZERO,
+        source_event_timestamp: input_row.timestamp.clone(),
     }
 }
 
@@ -602,63 +588,56 @@ where
 /// The logic here is extremely simple. For each row:
 /// (a) if it is a source event, take the current `breakdown_key`.
 /// (b) if it is a trigger event, take the `breakdown_key` from the preceding line
-async fn breakdown_key_of_most_recent_source_event<C>(
+async fn breakdown_key_of_most_recent_source_event<C, BK>(
     ctx: C,
     record_id: RecordId,
-    is_trigger_bit: &Replicated<Gf2>,
-    prev_row_breakdown_key_bits: &BitDecomposed<Replicated<Gf2>>,
-    cur_row_breakdown_key_bits: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+    is_trigger_bit: &Replicated<Boolean>,
+    prev_row_breakdown_key_bits: &Replicated<BK>,
+    cur_row_breakdown_key_bits: &Replicated<BK>,
+) -> Result<Replicated<BK>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
+    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
-    Ok(BitDecomposed::new(
-        ctx.parallel_join(
-            cur_row_breakdown_key_bits
-                .iter()
-                .zip(prev_row_breakdown_key_bits.iter())
-                .enumerate()
-                .map(|(i, (cur_bit, prev_bit))| {
-                    let c = ctx.narrow(&BitOpStep::from(i));
-                    async move { if_else(c, record_id, is_trigger_bit, prev_bit, cur_bit).await }
-                }),
-        )
-        .await?,
-    ))
+    let is_trigger_bit_array = Replicated::<BK>::expand(is_trigger_bit);
+
+    if_else(
+        ctx,
+        record_id,
+        &is_trigger_bit_array,
+        prev_row_breakdown_key_bits,
+        cur_row_breakdown_key_bits,
+    )
+    .await
 }
 
 /// Same as above but for timestamps. If `attribution_window_seconds` is `None`, just
 /// return the previous row's timestamp. The bits aren't used but saves some multiplications.
-async fn timestamp_of_most_recent_source_event<C>(
+async fn timestamp_of_most_recent_source_event<C, TS>(
     ctx: C,
     record_id: RecordId,
     attribution_window_seconds: Option<NonZeroU32>,
-    is_trigger_bit: &Replicated<Gf2>,
-    prev_row_timestamp_bits: &BitDecomposed<Replicated<Gf2>>,
-    cur_row_timestamp_bits: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+    is_trigger_bit: &Replicated<Boolean>,
+    prev_row_timestamp_bits: &Replicated<TS>,
+    cur_row_timestamp_bits: &Replicated<TS>,
+) -> Result<Replicated<TS>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
         Some(_) => {
-            Ok(BitDecomposed::new(
-                ctx
-                    .parallel_join(
-                        cur_row_timestamp_bits
-                            .iter()
-                            .zip(prev_row_timestamp_bits.iter())
-                            .enumerate()
-                            .map(|(i, (cur_bit, prev_bit))| {
-                                let c = ctx.narrow(&BitOpStep::from(i));
-                                async move {
-                                    if_else(c, record_id, is_trigger_bit, prev_bit, cur_bit).await
-                                }
-                            }),
-                    )
-                    .await?,
-            ))
+            let is_trigger_bit_array = Replicated::<TS>::expand(is_trigger_bit);
+
+            if_else(
+                ctx,
+                record_id,
+                &is_trigger_bit_array,
+                prev_row_timestamp_bits,
+                cur_row_timestamp_bits,
+            )
+            .await
         }
     }
 }
@@ -673,18 +652,22 @@ where
 /// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
 #[allow(clippy::too_many_arguments)]
-async fn zero_out_trigger_value_unless_attributed<C>(
+async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
     ctx: C,
     record_id: RecordId,
-    is_trigger_bit: &Replicated<Gf2>,
-    ever_encountered_a_source_event: &Replicated<Gf2>,
-    trigger_value: &BitDecomposed<Replicated<Gf2>>,
+    is_trigger_bit: &Replicated<Boolean>,
+    ever_encountered_a_source_event: &Replicated<Boolean>,
+    trigger_value: &Replicated<TV>,
     attribution_window_seconds: Option<NonZeroU32>,
-    trigger_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
-    source_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+    trigger_event_timestamp: &Replicated<TS>,
+    source_event_timestamp: &Replicated<TS>,
+) -> Result<Replicated<TV>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -712,64 +695,57 @@ where
         did_trigger_get_attributed.clone()
     };
 
-    Ok(BitDecomposed::new(
-        ctx.parallel_join(
-            trigger_value
-                .iter()
-                .zip(repeat(zero_out_flag))
-                .enumerate()
-                .map(|(i, (trigger_value_bit, zero_out_flag))| {
-                    let c = ctx.narrow(&BitOpStep::from(i));
-                    async move {
-                        trigger_value_bit
-                            .multiply(&zero_out_flag, c, record_id)
-                            .await
-                    }
-                }),
-        )
-        .await?,
-    ))
+    let zero_out_flag_array = Replicated::<TV>::expand(&zero_out_flag);
+
+    if_else(
+        ctx,
+        record_id,
+        &zero_out_flag_array,
+        trigger_value,
+        &Replicated::<TV>::ZERO,
+    )
+    .await
 }
 
 /// If the `attribution_window_seconds` is not `None`, we calculate the time
 /// difference between the trigger event and the most recent source event, and
 /// returns a secret-shared bit indicating if the trigger event is within the
 /// attribution window.
-async fn is_trigger_event_within_attribution_window<C>(
+async fn is_trigger_event_within_attribution_window<C, TS>(
     ctx: C,
     record_id: RecordId,
     attribution_window_seconds: Option<NonZeroU32>,
-    trigger_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
-    source_event_timestamp: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<Replicated<Gf2>, Error>
+    trigger_event_timestamp: &Replicated<TS>,
+    source_event_timestamp: &Replicated<TS>,
+) -> Result<Replicated<Boolean>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
+    TS: WeakSharedValue,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
-        assert_eq!(trigger_event_timestamp.len(), source_event_timestamp.len());
+        let time_delta_bits = integer_sub(
+            ctx.narrow(&Step::ComputeTimeDelta),
+            record_id,
+            trigger_event_timestamp,
+            source_event_timestamp,
+        )
+        .await?;
 
-        let time_delta_bits = trigger_event_timestamp
-            .sub(
-                ctx.narrow(&Step::ComputeTimeDelta),
-                record_id,
-                source_event_timestamp,
-            )
-            .await?;
+        let constant_bits = TS::truncate_from(attribution_window_seconds.get());
 
-        // The result is true if the time delta is `[0, attribution_window_seconds)`
-        // If we want to include the upper bound, we need to use `bitwise_greater_than_constant()`
-        // and negate the result.
-        // TODO: Change to `lte` protocol once #844 is landed.
-        bitwise_less_than_constant(
+        let time_delta_gt_attribution_window = compare_gt(
             ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
-            u128::from(attribution_window_seconds.get()),
+            &Replicated::<TS>::new(constant_bits, constant_bits),
         )
-        .await
+        .await?;
+        Ok(time_delta_gt_attribution_window.not())
     } else {
         // if there is no attribution window, then all trigger events are attributed
-        Ok(Replicated::share_known_value(&ctx, Gf2::ONE))
+        Ok(Replicated::share_known_value(&ctx, Boolean::ONE))
     }
 }
 
@@ -792,47 +768,43 @@ where
 /// ELSE
 ///     - return zero
 ///
-async fn compute_capped_trigger_value<C>(
+async fn compute_capped_trigger_value<C, TV>(
     ctx: C,
     record_id: RecordId,
-    is_saturated: &Replicated<Gf2>,
-    is_saturated_and_prev_row_not_saturated: &Replicated<Gf2>,
-    prev_row_diff_to_cap: &BitDecomposed<Replicated<Gf2>>,
-    attributed_trigger_value: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+    is_saturated: &Replicated<Boolean>,
+    is_saturated_and_prev_row_not_saturated: &Replicated<Boolean>,
+    prev_row_diff_to_cap: &Replicated<TV>,
+    attributed_trigger_value: &Replicated<TV>,
+) -> Result<Replicated<TV>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: Context,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
 {
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
-    let zero = &Replicated::share_known_value(&narrowed_ctx1, Gf2::ZERO);
+    let is_saturated_array = Replicated::<TV>::expand(is_saturated);
 
-    Ok(BitDecomposed::new(
-        ctx.parallel_join(
-            zip(attributed_trigger_value.iter(), prev_row_diff_to_cap.iter())
-                .enumerate()
-                .map(|(i, (bit, prev_bit))| {
-                    let c1 = narrowed_ctx1.narrow(&BitOpStep::from(i));
-                    let c2 = narrowed_ctx2.narrow(&BitOpStep::from(i));
-                    async move {
-                        let (not_saturated_case, just_saturated_case) = try_join(
-                            if_else(c1, record_id, is_saturated, zero, bit),
-                            if_else(
-                                c2,
-                                record_id,
-                                is_saturated_and_prev_row_not_saturated,
-                                prev_bit,
-                                zero,
-                            ),
-                        )
-                        .await?;
-                        Ok::<_, Error>(not_saturated_case + &just_saturated_case)
-                    }
-                }),
-        )
-        .await?,
-    ))
+    let is_saturated_and_prev_row_not_saturated_array =
+        Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
+
+    let attributed_trigger_value_or_zero = if_else(
+        narrowed_ctx1,
+        record_id,
+        &is_saturated_array,
+        &Replicated::new(<TV as WeakSharedValue>::ZERO, <TV as WeakSharedValue>::ZERO),
+        attributed_trigger_value,
+    )
+    .await?;
+
+    if_else(
+        narrowed_ctx2,
+        record_id,
+        &is_saturated_and_prev_row_not_saturated_array,
+        prev_row_diff_to_cap,
+        &attributed_trigger_value_or_zero,
+    )
+    .await
 }
 
 #[cfg(all(test, unit_test))]
@@ -841,20 +813,27 @@ pub mod tests {
 
     use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
-        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf20Bit, Gf3Bit, Gf5Bit},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA20, BA3, BA5},
+            CustomArray, Field, Fp32BitPrime,
+        },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, IntoShares,
-            SharedValue,
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<BK: GaloisField, TV: GaloisField, TS: GaloisField> {
+    struct PreShardedAndSortedOPRFTestInput<
+        BK: WeakSharedValue,
+        TV: WeakSharedValue,
+        TS: WeakSharedValue,
+    > {
         prf_of_match_key: u64,
-        is_trigger_bit: Gf2,
+        is_trigger_bit: Boolean,
         breakdown_key: BK,
         trigger_value: TV,
         timestamp: TS,
@@ -865,7 +844,7 @@ pub mod tests {
         is_trigger: bool,
         breakdown_key: u8,
         trigger_value: u8,
-    ) -> PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit> {
+    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
         oprf_test_input_with_timestamp(
             prf_of_match_key,
             is_trigger,
@@ -881,15 +860,19 @@ pub mod tests {
         breakdown_key: u8,
         trigger_value: u8,
         timestamp: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit> {
-        let is_trigger_bit = if is_trigger { Gf2::ONE } else { Gf2::ZERO };
+    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
+        let is_trigger_bit = if is_trigger {
+            Boolean::ONE
+        } else {
+            Boolean::ZERO
+        };
 
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            breakdown_key: Gf5Bit::truncate_from(breakdown_key),
-            trigger_value: Gf3Bit::truncate_from(trigger_value),
-            timestamp: Gf20Bit::truncate_from(timestamp),
+            breakdown_key: BA5::truncate_from(breakdown_key),
+            trigger_value: BA3::truncate_from(trigger_value),
+            timestamp: BA20::truncate_from(timestamp),
         }
     }
 
@@ -899,18 +882,12 @@ pub mod tests {
         capped_attributed_trigger_value: u128,
     }
 
-    #[derive(Debug, PartialEq)]
-    struct PreAggregationTestInputInBits {
-        attributed_breakdown_key: BitDecomposed<Gf2>,
-        capped_attributed_trigger_value: BitDecomposed<Gf2>,
-    }
-
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
         for PreShardedAndSortedOPRFTestInput<BK, TV, TS>
     where
-        BK: GaloisField + IntoShares<Replicated<BK>>,
-        TV: GaloisField + IntoShares<Replicated<TV>>,
-        TS: GaloisField + IntoShares<Replicated<TS>>,
+        BK: WeakSharedValue + IntoShares<Replicated<BK>>,
+        TV: WeakSharedValue + IntoShares<Replicated<TV>>,
+        TS: WeakSharedValue + IntoShares<Replicated<TS>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<BK, TV, TS>; 3] {
             let PreShardedAndSortedOPRFTestInput {
@@ -953,64 +930,30 @@ pub mod tests {
         }
     }
 
-    impl IntoShares<CappedAttributionOutputs> for PreAggregationTestInputInBits {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [CappedAttributionOutputs; 3] {
-            let PreAggregationTestInputInBits {
-                attributed_breakdown_key,
-                capped_attributed_trigger_value,
-            } = self;
-
-            let [attributed_breakdown_key0, attributed_breakdown_key1, attributed_breakdown_key2] =
-                attributed_breakdown_key.share_with(rng);
-            let [capped_attributed_trigger_value0, capped_attributed_trigger_value1, capped_attributed_trigger_value2] =
-                capped_attributed_trigger_value.share_with(rng);
-
-            [
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key0,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value0,
-                },
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key1,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value1,
-                },
-                CappedAttributionOutputs {
-                    attributed_breakdown_key_bits: attributed_breakdown_key2,
-                    capped_attributed_trigger_value: capped_attributed_trigger_value2,
-                },
-            ]
-        }
-    }
-
-    impl Reconstruct<PreAggregationTestOutputInDecimal> for [&CappedAttributionOutputs; 3] {
+    impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
+        for [&CappedAttributionOutputs<BK, TV>; 3]
+    where
+        BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    {
         fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
             let [s0, s1, s2] = self;
-            let attributed_breakdown_key_bits: BitDecomposed<Gf2> = BitDecomposed::new(
-                s0.attributed_breakdown_key_bits
-                    .iter()
-                    .zip(s1.attributed_breakdown_key_bits.iter())
-                    .zip(s2.attributed_breakdown_key_bits.iter())
-                    .map(|((a, b), c)| [a, b, c].reconstruct()),
-            );
-            let capped_attributed_trigger_value_bits: BitDecomposed<Gf2> = BitDecomposed::new(
-                s0.capped_attributed_trigger_value
-                    .iter()
-                    .zip(s1.capped_attributed_trigger_value.iter())
-                    .zip(s2.capped_attributed_trigger_value.iter())
-                    .map(|((a, b), c)| [a, b, c].reconstruct()),
-            );
+            let bk_key_bits = [
+                s0.attributed_breakdown_key_bits.clone(),
+                s1.attributed_breakdown_key_bits.clone(),
+                s2.attributed_breakdown_key_bits.clone(),
+            ]
+            .reconstruct();
+            let capped_attributed_tv = [
+                s0.capped_attributed_trigger_value.clone(),
+                s1.capped_attributed_trigger_value.clone(),
+                s2.capped_attributed_trigger_value.clone(),
+            ]
+            .reconstruct();
 
             PreAggregationTestOutputInDecimal {
-                attributed_breakdown_key: attributed_breakdown_key_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
-                capped_attributed_trigger_value: capped_attributed_trigger_value_bits
-                    .iter()
-                    .map(Field::as_u128)
-                    .enumerate()
-                    .fold(0_u128, |acc, (i, x)| acc + (x << i)),
+                attributed_breakdown_key: bk_key_bits.as_u128(),
+                capped_attributed_trigger_value: capped_attributed_tv.as_u128(),
             }
         }
     }
@@ -1020,7 +963,7 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
                 oprf_test_input(123, false, 17, 0),
                 oprf_test_input(123, true, 0, 7),
@@ -1045,20 +988,19 @@ pub mod tests {
             expected[17] = 7;
             expected[20] = 10;
 
-            let num_saturating_bits: usize = 5;
-
             let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping_and_aggregation::<
                         _,
-                        Gf5Bit,
-                        Gf3Bit,
-                        Gf20Bit,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
-                    >(ctx, input_rows, num_saturating_bits, None, &histogram)
+                    >(ctx, input_rows, None, &histogram)
                     .await
                     .unwrap()
                 })
@@ -1070,16 +1012,12 @@ pub mod tests {
 
     #[test]
     fn semi_honest_aggregation_capping_attribution_with_attribution_window() {
-        // In OPRF, the attribution window's upper bound is excluded - i.e., [0..ATTRIBUTION_WINDOW_SECONDS).
-        // Ex. If attribution window is 200s and the time difference from the nearest source event
-        // to the trigger event is 200s, then the trigger event is NOT attributed.
-        // TODO: Modify the test case once #844 is landed. i.e., change the second test input row ts to `201`.
         const ATTRIBUTION_WINDOW_SECONDS: u32 = 200;
 
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf5Bit, Gf3Bit, Gf20Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
                 oprf_test_input_with_timestamp(123, false, 17, 0, 1),
                 oprf_test_input_with_timestamp(123, true, 0, 7, 200), // tsΔ = 199, attributed to 17
@@ -1087,7 +1025,7 @@ pub mod tests {
                 oprf_test_input_with_timestamp(123, true, 0, 3, 300), // tsΔ = 100, attributed to 20
                 /* Second User */
                 oprf_test_input_with_timestamp(234, false, 12, 0, 0),
-                oprf_test_input_with_timestamp(234, true, 0, 5, 199), // tsΔ = 199, attributed to 12
+                oprf_test_input_with_timestamp(234, true, 0, 5, 200), // tsΔ = 200, attributed to 12
                 /* Third User */
                 oprf_test_input_with_timestamp(345, false, 20, 0, 0),
                 oprf_test_input_with_timestamp(345, true, 0, 3, 100), // tsΔ = 100, attributed to 20
@@ -1095,7 +1033,7 @@ pub mod tests {
                 oprf_test_input_with_timestamp(345, false, 12, 0, 300),
                 oprf_test_input_with_timestamp(345, true, 0, 3, 400), // tsΔ = 100, attributed to 12
                 oprf_test_input_with_timestamp(345, true, 0, 3, 499), // tsΔ = 199, attributed to 12
-                oprf_test_input_with_timestamp(345, true, 0, 3, 500), // tsΔ = 200, not attributed
+                oprf_test_input_with_timestamp(345, true, 0, 3, 501), // tsΔ = 201, not attributed
                 oprf_test_input_with_timestamp(345, true, 0, 3, 700), // tsΔ = 400, not attributed
             ];
 
@@ -1104,23 +1042,21 @@ pub mod tests {
             expected[17] = 7;
             expected[20] = 6;
 
-            let num_saturating_bits: usize = 5;
-
             let histogram = [3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
                     attribution_and_capping_and_aggregation::<
                         _,
-                        Gf5Bit,
-                        Gf3Bit,
-                        Gf20Bit,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
                     >(
                         ctx,
                         input_rows,
-                        num_saturating_bits,
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
                         &histogram,
                     )

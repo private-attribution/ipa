@@ -2,9 +2,10 @@
 use ipa_macros::Step;
 
 #[cfg(all(test, unit_test))]
+use crate::ff::Expand;
 use crate::{
     error::Error,
-    ff::{ArrayAccess, CustomArray, Expand, Field},
+    ff::{ArrayAccess, CustomArray, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
 };
@@ -46,7 +47,6 @@ where
 /// outputs x>y
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn compare_gt<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -72,7 +72,6 @@ where
 /// when y>x, it computes `(x+"XS::MaxValue")-y`
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 pub async fn integer_sub<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -133,7 +132,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 async fn subtraction_circuit<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -180,7 +178,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
 async fn bit_subtractor<C, S>(
     ctx: C,
     record_id: RecordId,
@@ -213,7 +210,7 @@ mod test {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA32, BA64},
+            boolean_array::{BA3, BA32, BA5, BA64},
             Expand, Field,
         },
         protocol,
@@ -409,6 +406,33 @@ mod test {
                         protocol::RecordId(0),
                         &x_y[0],
                         &x_y[1],
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct()
+                .as_u128();
+            assert_eq!((x, y, result), (x, y, expected));
+        });
+    }
+
+    #[test]
+    fn test_overflow_behavior() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let x = BA3::truncate_from(0_u128);
+            let y = BA5::truncate_from(28_u128);
+            let expected = 4_u128;
+
+            let result = world
+                .semi_honest((x, y), |ctx, x_y| async move {
+                    integer_sub(
+                        ctx.set_total_records(1),
+                        protocol::RecordId(0),
+                        &x_y.0,
+                        &x_y.1,
                     )
                     .await
                     .unwrap()

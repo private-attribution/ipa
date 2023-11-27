@@ -1,9 +1,10 @@
 use generic_array::GenericArray;
 use typenum::U1;
 
+use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
 };
 
 impl Block for bool {
@@ -14,7 +15,14 @@ impl Block for bool {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Boolean(bool);
 
-///trait for secret sharing
+impl ExtendableField for Boolean {
+    type ExtendedField = Gf32Bit;
+
+    fn to_extended(&self) -> Self::ExtendedField {
+        Gf32Bit::try_from(self.as_u128()).unwrap()
+    }
+}
+
 impl SharedValue for Boolean {
     type Storage = bool;
     const BITS: u32 = 1;
