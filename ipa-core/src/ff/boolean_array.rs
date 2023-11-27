@@ -17,8 +17,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 /// this might clash with Galois field, i.e. `galois_field.rs`
 /// so only use it for byte sizes for which Block has not been defined yet
 macro_rules! store_impl {
-    (
-    $arraylength:ty, $bits:expr ) => {
+    ($arraylength:ty, $bits:expr) => {
         impl Block for BitArr!(for $bits, in u8, Lsb0) {
             type Size = $arraylength;
         }
@@ -41,7 +40,7 @@ impl<'a> Iterator for BAIterator<'a> {
 
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
-    ( $modname:ident, $name:ident, $bits:expr, $bytes:expr, $one:expr ) => {
+    ($modname:ident, $name:ident, $bits:expr, $bytes:expr, $one:expr) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -192,16 +191,14 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            #[allow(clippy::from_over_into)]
-            impl Into<u128> for $name {
+            impl From<$name> for u128 {
                 /// Infallible conversion from this data type to `u128`. We assume that the
                 /// inner value is at most 128-bit long. That is, the integer value must be
                 /// less than or equal to `2^Self::BITS`. Should be long enough for our use
                 /// case.
-                fn into(self) -> u128 {
+                fn from(v: $name) -> u128 {
                     debug_assert!(<$name>::BITS <= 128);
-                    self.0
-                        .iter()
+                    v.0.iter()
                         .by_refs()
                         .enumerate()
                         .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
@@ -317,12 +314,12 @@ boolean_array_impl!(
     BA32,
     32,
     4,
-    bitarr ! ( const u8, Lsb0;
+    bitarr![const u8, Lsb0;
         1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0
-    )
+    ]
 );
 
 //impl BA64
@@ -331,7 +328,7 @@ boolean_array_impl!(
     BA64,
     64,
     8,
-    bitarr ! ( const u8, Lsb0;
+    bitarr![const u8, Lsb0;
         1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -340,7 +337,7 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0
-    )
+    ]
 );
 
 // impl BA256
@@ -350,7 +347,7 @@ boolean_array_impl!(
     BA256,
     256,
     32,
-    bitarr ! ( const u8, Lsb0;
+    bitarr![const u8, Lsb0;
         1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -383,5 +380,5 @@ boolean_array_impl!(
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0
-    )
+    ]
 );
