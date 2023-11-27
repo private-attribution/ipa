@@ -59,7 +59,7 @@ where
     S: CustomArray + Field,
     S::Element: Field,
 {
-    use crate::ff::Expand;
+    use crate::{ff::Expand, protocol::basics::if_else};
     let mut carry = AdditiveShare::<S::Element>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
