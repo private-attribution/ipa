@@ -426,7 +426,7 @@ where
 }
 
 impl<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> GroupingKey
-    for OprfReport<TS, BK, TV>
+    for OprfReport<BK, TV, TS>
 {
     fn get_grouping_key(&self) -> u64 {
         self.mk_oprf

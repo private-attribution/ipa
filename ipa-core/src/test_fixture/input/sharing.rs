@@ -3,13 +3,9 @@ use std::iter::zip;
 use rand::{distributions::Standard, prelude::Distribution};
 
 #[cfg(feature = "descriptive-gate")]
+use crate::{ff::boolean_array::BA64, protocol::ipa_prf::PrfIpaInputRow};
 use crate::{
-    ff::{boolean_array::BA64, Gf2},
-    protocol::ipa_prf::PrfIpaInputRow,
-    secret_sharing::SharedValue,
-};
-use crate::{
-    ff::{Field, GaloisField, PrimeField, Serializable},
+    ff::{boolean::Boolean, Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
@@ -402,9 +398,9 @@ where
 #[cfg(feature = "descriptive-gate")]
 impl<BK, TV, TS> IntoShares<PrfIpaInputRow<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    TV: GaloisField + IntoShares<Replicated<TV>>,
-    TS: GaloisField + IntoShares<Replicated<TS>>,
+    BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
+    TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
+    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [PrfIpaInputRow<BK, TV, TS>; 3] {
         let timestamp: [Replicated<TS>; 3] =
@@ -416,9 +412,9 @@ where
             .unwrap()
             .share_with(rng);
         let is_trigger_bit = if self.is_trigger_report {
-            Gf2::ONE.share_with(rng)
+            Boolean::ONE.share_with(rng)
         } else {
-            Gf2::ZERO.share_with(rng)
+            Boolean::ZERO.share_with(rng)
         };
         let match_key = BA64::try_from(u128::from(self.user_id))
             .unwrap()

@@ -1,10 +1,10 @@
 #[cfg(feature = "descriptive-gate")]
 use std::iter::repeat;
+use std::iter::zip;
 
 #[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
-use crate::ff::boolean::Boolean;
 #[cfg(feature = "descriptive-gate")]
 use crate::{
     error::Error,
@@ -26,9 +26,7 @@ use crate::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
 };
-use std::iter::zip;
-
-use crate::secret_sharing::WeakSharedValue;
+use crate::{ff::boolean::Boolean, secret_sharing::WeakSharedValue};
 
 #[cfg(feature = "descriptive-gate")]
 mod boolean_ops;
@@ -82,6 +80,13 @@ where
     TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
     SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
@@ -147,9 +152,12 @@ where
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
     use crate::{
-        ff::Fp31,
+        ff::{
+            boolean_array::{BA20, BA3, BA5, BA8},
+            Fp31,
+        },
         helpers::query::IpaQueryConfig,
-        protocol::{ipa_prf::oprf_ipa, BreakdownKey, Timestamp, TriggerValue},
+        protocol::ipa_prf::oprf_ipa,
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -204,7 +212,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BreakdownKey, TriggerValue, Timestamp, Fp31>(
+                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(
                         ctx,
                         input_rows,
                         IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
