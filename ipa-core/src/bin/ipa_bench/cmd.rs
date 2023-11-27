@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use ipa::cli::Verbosity;
+use ipa_core::cli::Verbosity;
 use rand::{rngs::StdRng, SeedableRng};
 use tracing::{debug, error, info};
 

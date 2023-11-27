@@ -6,8 +6,8 @@ use std::{
 
 use crate::tree::Node;
 
-const TARGET_CRATE: &str = "ipa";
-const STEPS_FILE_PATH: &str = "/../src/protocol/step/";
+const TARGET_CRATE: &str = "ipa-core";
+const STEPS_FILE_PATH: &str = "/../ipa-core/src/protocol/step/";
 pub(crate) const STEPS_FILE_NAME: &str = "steps.txt";
 
 #[derive(Clone, Debug)]
@@ -42,8 +42,8 @@ pub(crate) fn ipa_state_transition_map() -> Node<StepMetaData> {
         .map(|(i, path)| {
             let id = u16::try_from(i + 1).unwrap();
             let path_list = path
-                .split("/")
-                .map(|s| split_step_module_and_name(s))
+                .split('/')
+                .map(split_step_module_and_name)
                 .collect::<Vec<_>>();
             let depth = u8::try_from(path_list.len()).unwrap();
             let (module, name) = path_list.last().unwrap();

@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use clap::Parser;
-use ipa::{ff::Fp31, secret_sharing::SharedValue, test_fixture::circuit};
+use ipa_core::{ff::Fp31, secret_sharing::SharedValue, test_fixture::circuit};
 
 #[derive(Debug, Parser)]
 pub struct CircuitArgs {

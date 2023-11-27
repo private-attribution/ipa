@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use ipa::{
+use ipa_core::{
     error::Error,
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
