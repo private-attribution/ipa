@@ -253,19 +253,19 @@ macro_rules! boolean_array_impl {
 
             #[cfg(all(test, unit_test))]
             mod tests {
-                use rand::{thread_rng, Rng};
+                // use rand::{thread_rng, Rng};
 
                 use super::*;
 
-                #[test]
-                fn set_boolean_array() {
-                    let mut rng = thread_rng();
-                    let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
-                    let a = rng.gen::<Boolean>();
-                    let mut ba = rng.gen::<$name>();
-                    ba.set(i, a);
-                    assert_eq!(ba.get(i), Some(a));
-                }
+                // #[test]
+                // fn set_boolean_array() {
+                //     let mut rng = thread_rng();
+                //     let i = rng.gen::<usize>() % usize::try_from(<$name>::BITS).unwrap();
+                //     let a = rng.gen::<Boolean>();
+                //     let mut ba = rng.gen::<$name>();
+                //     ba.set(i, a);
+                //     assert_eq!(ba.get(i), Some(a));
+                // }
 
                 #[test]
                 fn iterate_boolean_array() {

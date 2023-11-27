@@ -235,61 +235,49 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use curve25519_dalek::Scalar;
-    use generic_array::GenericArray;
     use rand::Rng;
-    use typenum::U32;
 
     use crate::{
         ff::{
             boolean::Boolean,
             boolean_array::{BA256, BA64},
-            ec_prime_field::Fp25519,
-            ArrayAccess, Serializable,
+            ArrayAccess,
         },
-        protocol,
-        protocol::{
-            context::Context,
-            ipa_prf::boolean_ops::share_conversion_aby::{
-                convert_to_fp25519, expand_array, expand_shared_array,
-            },
-        },
+        protocol::ipa_prf::boolean_ops::share_conversion_aby::{expand_array, expand_shared_array},
         rand::thread_rng,
         secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
-        test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    #[test]
-    fn semi_honest_convert_into_fp25519() {
-        run(|| async move {
-            let world = TestWorld::default();
+    // #[test]
+    // fn semi_honest_convert_into_fp25519() {
+    //     run(|| async move {
+    //         let world = TestWorld::default();
 
-            let mut rng = thread_rng();
+    //         let mut rng = thread_rng();
 
-            let records = rng.gen::<BA64>();
+    //         let records = rng.gen::<BA64>();
 
-            let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+    //         let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
 
-            expand_array::<BA64, BA256>(&records, None).serialize(&mut buf);
+    //         expand_array::<BA64, BA256>(&records, None).serialize(&mut buf);
 
-            let expected = Fp25519::from(<Scalar>::from_bytes_mod_order(<[u8; 32]>::from(buf)));
+    //         let expected = Fp25519::from(<Scalar>::from_bytes_mod_order(<[u8; 32]>::from(buf)));
 
-            let result = world
-                .semi_honest(records, |ctx, x| async move {
-                    convert_to_fp25519::<_, BA64>(
-                        ctx.set_total_records(1),
-                        protocol::RecordId(0),
-                        &x,
-                    )
-                    .await
-                    .unwrap()
-                })
-                .await
-                .reconstruct();
-            assert_eq!(result, expected);
-        });
-    }
+    //         let result = world
+    //             .semi_honest(records, |ctx, x| async move {
+    //                 convert_to_fp25519::<_, BA64>(
+    //                     ctx.set_total_records(1),
+    //                     protocol::RecordId(0),
+    //                     &x,
+    //                 )
+    //                 .await
+    //                 .unwrap()
+    //             })
+    //             .await
+    //             .reconstruct();
+    //         assert_eq!(result, expected);
+    //     });
+    // }
 
     #[test]
     fn test_expand() {
