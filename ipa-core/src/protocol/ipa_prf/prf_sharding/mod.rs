@@ -146,7 +146,7 @@ impl<
         )
         .await?;
 
-        let (updated_sum, is_saturated) = integer_add(
+        let (updated_sum, overflow_bit) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -154,8 +154,8 @@ impl<
         )
         .await?;
 
-        let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
-            is_saturated.multiply(
+        let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
+            overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
@@ -169,11 +169,16 @@ impl<
         )
         .await?;
 
+        // Tricky way of expressing an `OR` condition, but with no additional multiplications:
+        //   Logically: "Did this row just become saturated OR was the previous row already saturated"
+        //   This works because these conditions cannot both be true
+        let is_saturated = &self.is_saturated + &overflow_bit_and_prev_row_not_saturated;
+
         let capped_attributed_trigger_value = compute_capped_trigger_value(
             ctx,
             record_id,
             &is_saturated,
-            &is_saturated_and_prev_row_not_saturated,
+            &overflow_bit_and_prev_row_not_saturated,
             &self.difference_to_cap,
             &attributed_trigger_value,
         )
@@ -1077,24 +1082,26 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
+            type SaturatingSumType = BA5;
+
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
-                /* First User */
                 oprf_test_input_with_timestamp(10251308645, false, 218, 0, 29135),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 179334),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 313530),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 5, 327956),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 368968),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 1, 453715),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 2, 471555),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 530458),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 536295),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 600360),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 179334), // running-sum = 3
+                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 313530), // running-sum = 6
+                oprf_test_input_with_timestamp(10251308645, true, 0, 5, 327956), // running-sum = 11
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 368968), // running-sum = 17
+                oprf_test_input_with_timestamp(10251308645, true, 0, 1, 453715), // running-sum = 18
+                oprf_test_input_with_timestamp(10251308645, true, 0, 2, 471555), // running-sum = 20
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 530458), // running-sum = 26
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 536295), // running-sum = 32
+                // This next record should get zeroed out due to the per-user cap of 32
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 600360), // running-sum = 38
             ];
 
             let mut expected = [0_u128; 256];
-            expected[218] = 32;
+            expected[218] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
 
-            let histogram = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            const HISTOGRAM: [usize; 10] = [1; 10];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
@@ -1103,15 +1110,10 @@ pub mod tests {
                         BA8,
                         BA3,
                         BA20,
-                        BA5,
+                        SaturatingSumType,
                         Replicated<Fp32BitPrime>,
                         Fp32BitPrime,
-                    >(
-                        ctx,
-                        input_rows,
-                        None,
-                        &histogram,
-                    )
+                    >(ctx, input_rows, None, &HISTOGRAM)
                     .await
                     .unwrap()
                 })
@@ -1119,6 +1121,5 @@ pub mod tests {
                 .reconstruct();
             assert_eq!(result, &expected);
         });
-
     }
 }
