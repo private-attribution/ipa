@@ -169,7 +169,7 @@ mod test {
         protocol,
         protocol::{
             context::Context,
-            ipa_prf::boolean_ops::addition_low_com::{integer_add, integer_sat_add},
+            ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
         },
         rand::thread_rng,
         test_executor::run,

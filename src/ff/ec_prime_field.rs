@@ -222,10 +222,7 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{
-            boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess,
-            Serializable,
-        },
+        ff::{ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
     };
 
@@ -287,23 +284,5 @@ mod test {
         let a = rng.gen::<Fp25519>();
         let ia = a.invert();
         assert_eq!(a * ia, Fp25519(Scalar::ONE));
-    }
-
-    /// test conversion BA256 to Fp25519
-    /// only checks that for b<p, b mod p = b
-    #[test]
-    fn test_ba256_to_fp25519() {
-        let mut rng = thread_rng();
-        let mut b = rng.gen::<BA256>();
-
-        // we set bits > p to 0
-        b.set(255, Boolean::ZERO);
-        b.set(254, Boolean::ZERO);
-        b.set(253, Boolean::ZERO);
-        b.set(252, Boolean::ZERO);
-        b.set(251, Boolean::ZERO);
-
-        // since largest bits are set to 0, mod_fp25519 should not change b
-        assert_eq!(b.clone().mod_fp25519(), b);
     }
 }
