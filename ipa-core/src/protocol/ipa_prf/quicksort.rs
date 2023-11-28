@@ -25,8 +25,13 @@ pub(crate) enum Step {
     Reveal,
 }
 
-/// insecure quicksort using MPC comparisons
+/// insecure quicksort using MPC comparisons and a key extraction function f
+///
+/// f takes as input an element in the slice and outputs the key by which we sort by
+/// follows partially the function signature of `sort_by_key`, see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`
+///
 /// set desc = true for descending ordering
+///
 /// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements
 /// To see why this leaks information: assume that all elements are equal,
 /// then quicksort runs in time O(n^2) while for unique elements, it is only expected to run in time O(n log n)
@@ -39,15 +44,18 @@ pub(crate) enum Step {
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
 #[cfg(all(test, unit_test))]
-pub async fn quicksort_insecure<C, S>(
+pub async fn quicksort_by_key_insecure<C, K, F, S>(
     ctx: C,
-    list: &mut [AdditiveShare<S>],
+    list: &mut [S],
     desc: bool,
+    f: F,
 ) -> Result<(), Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
-    S: WeakSharedValue + Field + CustomArray<Element = Boolean>,
+    S: Send + std::marker::Sync,
+    F: FnMut(&S) -> &AdditiveShare<K> + std::marker::Send + Clone + std::marker::Sync,
+    for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
+    K: WeakSharedValue + Field + CustomArray<Element = Boolean>,
 {
     // create stack
     let mut stack: Vec<(C, usize, usize)> = vec![];
@@ -62,21 +70,23 @@ where
         if b_l + 1 < b_r {
             // set up iterator
             let mut iterator = list[b_l..b_r].iter();
-            // first element is pivot
-            let pivot = iterator.next().unwrap();
+            // first element is pivot, apply key extraction function f
+            let pivot = f.clone()(iterator.next().unwrap());
             // create pointer to context for moving into closure
             let pctx = &ctx;
             // precompute comparison against pivot and reveal result in parallel
             let comp = seq_join(
                 ctx.active_work(),
                 stream_iter(iterator.enumerate().map(|(n, x)| {
+                    let mut fc = f.clone();
                     async move {
                         // compare current element against pivot
                         let sh_comp = compare_gt(
                             pctx.narrow(&Step::Compare)
                                 .set_total_records(b_r - (b_l + 1)),
                             RecordId::from(n),
-                            x,
+                            // apply key extraction function f to element x
+                            fc(x),
                             pivot,
                         )
                         .await?;
@@ -130,7 +140,7 @@ pub mod tests {
     use crate::{
         error::Error,
         ff::{boolean_array::BA64, Field},
-        protocol::{context::Context, ipa_prf::quicksort::quicksort_insecure},
+        protocol::{context::Context, ipa_prf::quicksort::quicksort_by_key_insecure},
         rand::thread_rng,
         secret_sharing::replicated::semi_honest::AdditiveShare,
         test_executor::run,
@@ -146,7 +156,7 @@ pub mod tests {
         C: Context,
     {
         let mut list_mut = list.to_vec();
-        quicksort_insecure(ctx, &mut list_mut[..], desc).await?;
+        quicksort_by_key_insecure(ctx, &mut list_mut[..], desc, |x| x).await?;
         let mut result: Vec<AdditiveShare<BA64>> = vec![];
         list_mut.iter().for_each(|x| result.push(x.clone()));
         Ok(result)
