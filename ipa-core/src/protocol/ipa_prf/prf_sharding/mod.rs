@@ -815,7 +815,7 @@ pub mod tests {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5},
+            boolean_array::{BA20, BA3, BA5, BA8},
             CustomArray, Field, Fp32BitPrime,
         },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
@@ -854,13 +854,16 @@ pub mod tests {
         )
     }
 
-    fn oprf_test_input_with_timestamp(
+    fn oprf_test_input_with_timestamp<BK>(
         prf_of_match_key: u64,
         is_trigger: bool,
         breakdown_key: u8,
         trigger_value: u8,
         timestamp: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
+    ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
+    where
+        BK: WeakSharedValue + Field,
+    {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
@@ -870,7 +873,7 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            breakdown_key: BA5::truncate_from(breakdown_key),
+            breakdown_key: BK::truncate_from(breakdown_key),
             trigger_value: BA3::truncate_from(trigger_value),
             timestamp: BA20::truncate_from(timestamp),
         }
@@ -1067,5 +1070,55 @@ pub mod tests {
                 .reconstruct();
             assert_eq!(result, &expected);
         });
+    }
+
+    #[test]
+    fn capping_bugfix() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
+                /* First User */
+                oprf_test_input_with_timestamp(10251308645, false, 218, 0, 29135),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 179334),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 313530),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 5, 327956),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 368968),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 1, 453715),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 2, 471555),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 530458),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 536295),
+                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 600360),
+            ];
+
+            let mut expected = [0_u128; 256];
+            expected[218] = 32;
+
+            let histogram = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    attribution_and_capping_and_aggregation::<
+                        _,
+                        BA8,
+                        BA3,
+                        BA20,
+                        BA5,
+                        Replicated<Fp32BitPrime>,
+                        Fp32BitPrime,
+                    >(
+                        ctx,
+                        input_rows,
+                        None,
+                        &histogram,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+
     }
 }
