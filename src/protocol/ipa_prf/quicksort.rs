@@ -146,7 +146,7 @@ pub mod tests {
         C: Context,
     {
         let mut list_mut = list.to_vec();
-        quicksort_insecure(ctx,  &mut list_mut[..], desc).await?;
+        quicksort_insecure(ctx, &mut list_mut[..], desc).await?;
         let mut result: Vec<AdditiveShare<BA64>> = vec![];
         list_mut.iter().for_each(|x| result.push(x.clone()));
         Ok(result)
