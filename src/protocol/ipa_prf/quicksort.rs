@@ -41,7 +41,7 @@ pub(crate) enum Step {
 #[cfg(all(test, unit_test))]
 pub async fn quicksort_insecure<C, S>(
     ctx: C,
-    list: &mut Vec<(AdditiveShare<S>, ())>,
+    list: &mut [AdditiveShare<S>],
     desc: bool,
 ) -> Result<(), Error>
 where
@@ -61,7 +61,7 @@ where
         // check whether sort is needed
         if b_l + 1 < b_r {
             // set up iterator
-            let mut iterator = list[b_l..b_r].iter().map(|(x, ())| x);
+            let mut iterator = list[b_l..b_r].iter();
             // first element is pivot
             let pivot = iterator.next().unwrap();
             // create pointer to context for moving into closure
@@ -145,10 +145,10 @@ pub mod tests {
     where
         C: Context,
     {
-        let mut list_mut = list.iter().map(|x| (x.clone(), ())).collect::<Vec<_>>();
-        quicksort_insecure(ctx, &mut list_mut, desc).await?;
+        let mut list_mut = list.to_vec();
+        quicksort_insecure(ctx,  &mut list_mut[..], desc).await?;
         let mut result: Vec<AdditiveShare<BA64>> = vec![];
-        list_mut.iter().for_each(|(x, ())| result.push(x.clone()));
+        list_mut.iter().for_each(|x| result.push(x.clone()));
         Ok(result)
     }
 
