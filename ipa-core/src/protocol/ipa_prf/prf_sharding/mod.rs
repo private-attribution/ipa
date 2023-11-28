@@ -1082,7 +1082,7 @@ pub mod tests {
 
     #[test]
     fn capping_bugfix() {
-        const HISTOGRAM: [usize; 10] = [1; 10];
+        const HISTOGRAM: [usize; 10] = [5, 5, 5, 5, 5, 5, 5, 2, 1, 1];
 
         run(|| async move {
             let world = TestWorld::default();
@@ -1091,6 +1091,7 @@ pub mod tests {
             type SaturatingSumType = BA5;
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
+                /* First User (perfectly saturates, then one extra) */
                 oprf_test_input(10_251_308_645, false, 218, 0),
                 oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 3
                 oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 6
@@ -1102,10 +1103,50 @@ pub mod tests {
                 oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 32
                 // This next record should get zeroed out due to the per-user cap of 32
                 oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 38
+                /* Second User (imperfectly saturates, then a few extra) */
+                oprf_test_input(1, false, 53, 0),
+                oprf_test_input(1, true, 0, 7), // running-sum = 7
+                oprf_test_input(1, true, 0, 7), // running-sum = 14
+                oprf_test_input(1, true, 0, 7), // running-sum = 21
+                oprf_test_input(1, true, 0, 7), // running-sum = 28
+                // This record should be partially capped
+                oprf_test_input(1, true, 0, 7), // running-sum = 35
+                // The next two records should be fully capped
+                oprf_test_input(1, true, 0, 7), // running-sum = 42
+                oprf_test_input(1, true, 0, 7), // running-sum = 49
+                /* Third User (perfectly saturates, no extras) */
+                oprf_test_input(2, false, 12, 0),
+                oprf_test_input(2, true, 0, 6), // running-sum = 6
+                oprf_test_input(2, true, 0, 4), // running-sum = 10
+                oprf_test_input(2, true, 0, 6), // running-sum = 16
+                oprf_test_input(2, true, 0, 4), // running-sum = 20
+                oprf_test_input(2, true, 0, 6), // running-sum = 26
+                oprf_test_input(2, true, 0, 6), // running-sum = 32
+                /* Fourth User (imperfectly saturates, no extras) */
+                oprf_test_input(3, false, 78, 0),
+                oprf_test_input(3, true, 0, 7), // running-sum = 7
+                oprf_test_input(3, true, 0, 6), // running-sum = 13
+                oprf_test_input(3, true, 0, 5), // running-sum = 18
+                oprf_test_input(3, true, 0, 7), // running-sum = 25
+                oprf_test_input(3, true, 0, 6), // running-sum = 31
+                // The next row should be partially capped
+                oprf_test_input(3, true, 0, 5), // running-sum = 36
+                /* Fifth User (does not saturate) */
+                oprf_test_input(4, false, 44, 0),
+                oprf_test_input(4, true, 0, 4), // running-sum = 4
+                oprf_test_input(4, true, 0, 5), // running-sum = 9
+                oprf_test_input(4, true, 0, 6), // running-sum = 15
+                oprf_test_input(4, true, 0, 5), // running-sum = 20
+                oprf_test_input(4, true, 0, 4), // running-sum = 24
+                oprf_test_input(4, true, 0, 7), // running-sum = 31
             ];
 
             let mut expected = [0_u128; 256];
             expected[218] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[53] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[12] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[78] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[44] = 31; // The 5th user did not saturate
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
