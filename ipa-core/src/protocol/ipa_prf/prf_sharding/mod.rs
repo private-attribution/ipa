@@ -37,6 +37,7 @@ pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
+#[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> {
     pub prf_of_match_key: u64,
     pub is_trigger_bit: Replicated<Boolean>,
@@ -560,7 +561,6 @@ where
 
         output.push(capped_attribution_outputs);
     }
-
     Ok(output)
 }
 

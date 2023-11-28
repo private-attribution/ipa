@@ -137,7 +137,9 @@ macro_rules! boolean_array_impl {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = v.into();
                     let mut val = Self::ZERO;
-                    for i in 0..$bits {
+                    // HACK! Needs to be removed when we fix Issue #812
+                    let max_bitshift = std::cmp::min(128, $bits);
+                    for i in 0..max_bitshift {
                         val.set(i, Boolean::from((v >> i & 1) == 1));
                     }
 

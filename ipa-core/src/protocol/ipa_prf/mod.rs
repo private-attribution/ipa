@@ -41,6 +41,7 @@ pub mod shuffle;
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
+    ConvertInputRowsToPrf,
 }
 
 #[cfg(feature = "descriptive-gate")]
@@ -92,63 +93,75 @@ where
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
     // We might want to do it earlier as that's a cleaner code
+    let prfd_inputs =
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
 
-    let convert_ctx = ctx
-        .narrow(&Step::ConvertFp25519)
-        .set_total_records(input_rows.len());
-    let eval_ctx = ctx
-        .narrow(&Step::EvalPrf)
-        .set_total_records(input_rows.len());
-
-    let prf_key = gen_prf_key(&convert_ctx);
-
-    let pseudonymed_user_ids = ctx
-        .parallel_join(
-            input_rows
-                .iter()
-                .zip(zip(
-                    repeat(prf_key),
-                    zip(repeat(convert_ctx), repeat(eval_ctx)),
-                ))
-                .enumerate()
-                .map(
-                    |(idx, (record, (prf_key, (convert_ctx, eval_ctx))))| async move {
-                        let record_id = RecordId::from(idx);
-                        let prf_of_match_key = convert_to_fp25519::<_, BA64>(
-                            convert_ctx,
-                            record_id,
-                            &record.match_key,
-                        )
-                        .await?;
-                        eval_dy_prf(eval_ctx, record_id, &prf_key, &prf_of_match_key).await
-                    },
-                ),
-        )
-        .await?;
-    let pseudonymed_inputs = input_rows
-        .into_iter()
-        .zip(pseudonymed_user_ids.into_iter())
-        .map(|(input, pseudonym)| PrfShardedIpaInputRow {
-            prf_of_match_key: pseudonym,
-            is_trigger_bit: input.is_trigger_bit,
-            breakdown_key: input.breakdown_key,
-            trigger_value: input.trigger_value,
-            timestamp: input.timestamp,
-        })
-        .collect::<Vec<_>>();
-
-    let histogram = compute_histogram_of_users_with_row_count(&pseudonymed_inputs);
+    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
 
     // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
     attribution_and_capping_and_aggregation::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
-        pseudonymed_inputs,
+        prfd_inputs,
         config.attribution_window_seconds,
         &histogram,
     )
     .await
 }
 
+async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
+    ctx: C,
+    input_rows: Vec<PrfIpaInputRow<BK, TV, TS>>,
+) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
+    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
+    F: PrimeField + ExtendableField,
+    Replicated<F>: Serializable,
+{
+    let ctx = ctx.set_total_records(input_rows.len());
+    let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
+    let eval_ctx = ctx.narrow(&Step::EvalPrf);
+
+    let prf_key = gen_prf_key(&convert_ctx);
+
+    ctx.parallel_join(
+        input_rows
+            .into_iter()
+            .zip(zip(
+                repeat(prf_key),
+                zip(repeat(convert_ctx), repeat(eval_ctx)),
+            ))
+            .enumerate()
+            .map(
+                |(idx, (record, (prf_key, (convert_ctx, eval_ctx))))| async move {
+                    let record_id = RecordId::from(idx);
+                    let prf_of_match_key =
+                        convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key)
+                            .await?;
+                    let prf_of_match_key =
+                        eval_dy_prf(eval_ctx, record_id, &prf_key, &prf_of_match_key).await?;
+
+                    Ok::<_, Error>(PrfShardedIpaInputRow {
+                        prf_of_match_key,
+                        is_trigger_bit: record.is_trigger_bit,
+                        breakdown_key: record.breakdown_key,
+                        trigger_value: record.trigger_value,
+                        timestamp: record.timestamp,
+                    })
+                },
+            ),
+    )
+    .await
+}
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
     use crate::{
