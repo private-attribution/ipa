@@ -844,12 +844,15 @@ pub mod tests {
         timestamp: TS,
     }
 
-    fn oprf_test_input(
+    fn oprf_test_input<BK>(
         prf_of_match_key: u64,
         is_trigger: bool,
         breakdown_key: u8,
         trigger_value: u8,
-    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
+    ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
+    where
+        BK: WeakSharedValue + Field,
+    {
         oprf_test_input_with_timestamp(
             prf_of_match_key,
             is_trigger,
@@ -1079,29 +1082,30 @@ pub mod tests {
 
     #[test]
     fn capping_bugfix() {
+        const HISTOGRAM: [usize; 10] = [1; 10];
+
         run(|| async move {
             let world = TestWorld::default();
 
+            #[allow(clippy::items_after_statements)]
             type SaturatingSumType = BA5;
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
-                oprf_test_input_with_timestamp(10251308645, false, 218, 0, 29135),
-                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 179334), // running-sum = 3
-                oprf_test_input_with_timestamp(10251308645, true, 0, 3, 313530), // running-sum = 6
-                oprf_test_input_with_timestamp(10251308645, true, 0, 5, 327956), // running-sum = 11
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 368968), // running-sum = 17
-                oprf_test_input_with_timestamp(10251308645, true, 0, 1, 453715), // running-sum = 18
-                oprf_test_input_with_timestamp(10251308645, true, 0, 2, 471555), // running-sum = 20
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 530458), // running-sum = 26
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 536295), // running-sum = 32
+                oprf_test_input(10_251_308_645, false, 218, 0),
+                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 3
+                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 6
+                oprf_test_input(10_251_308_645, true, 0, 5), // running-sum = 11
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 17
+                oprf_test_input(10_251_308_645, true, 0, 1), // running-sum = 18
+                oprf_test_input(10_251_308_645, true, 0, 2), // running-sum = 20
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 26
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 32
                 // This next record should get zeroed out due to the per-user cap of 32
-                oprf_test_input_with_timestamp(10251308645, true, 0, 6, 600360), // running-sum = 38
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 38
             ];
 
             let mut expected = [0_u128; 256];
             expected[218] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
-
-            const HISTOGRAM: [usize; 10] = [1; 10];
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
