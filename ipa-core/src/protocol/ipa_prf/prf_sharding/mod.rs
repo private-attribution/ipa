@@ -146,7 +146,7 @@ impl<
         )
         .await?;
 
-        let (updated_sum, is_saturated) = integer_add(
+        let (updated_sum, overflow_bit) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
@@ -154,8 +154,8 @@ impl<
         )
         .await?;
 
-        let (is_saturated_and_prev_row_not_saturated, difference_to_cap) = try_join(
-            is_saturated.multiply(
+        let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
+            overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
@@ -169,11 +169,16 @@ impl<
         )
         .await?;
 
+        // Tricky way of expressing an `OR` condition, but with no additional multiplications:
+        //   Logically: "Did this row just become saturated OR was the previous row already saturated"
+        //   This works because these conditions cannot both be true
+        let is_saturated = &self.is_saturated + &overflow_bit_and_prev_row_not_saturated;
+
         let capped_attributed_trigger_value = compute_capped_trigger_value(
             ctx,
             record_id,
             &is_saturated,
-            &is_saturated_and_prev_row_not_saturated,
+            &overflow_bit_and_prev_row_not_saturated,
             &self.difference_to_cap,
             &attributed_trigger_value,
         )
@@ -815,7 +820,7 @@ pub mod tests {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5},
+            boolean_array::{BA20, BA3, BA5, BA8},
             CustomArray, Field, Fp32BitPrime,
         },
         protocol::ipa_prf::prf_sharding::attribution_and_capping_and_aggregation,
@@ -839,12 +844,15 @@ pub mod tests {
         timestamp: TS,
     }
 
-    fn oprf_test_input(
+    fn oprf_test_input<BK>(
         prf_of_match_key: u64,
         is_trigger: bool,
         breakdown_key: u8,
         trigger_value: u8,
-    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
+    ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
+    where
+        BK: WeakSharedValue + Field,
+    {
         oprf_test_input_with_timestamp(
             prf_of_match_key,
             is_trigger,
@@ -854,13 +862,16 @@ pub mod tests {
         )
     }
 
-    fn oprf_test_input_with_timestamp(
+    fn oprf_test_input_with_timestamp<BK>(
         prf_of_match_key: u64,
         is_trigger: bool,
         breakdown_key: u8,
         trigger_value: u8,
         timestamp: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20> {
+    ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
+    where
+        BK: WeakSharedValue + Field,
+    {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
@@ -870,7 +881,7 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            breakdown_key: BA5::truncate_from(breakdown_key),
+            breakdown_key: BK::truncate_from(breakdown_key),
             trigger_value: BA3::truncate_from(trigger_value),
             timestamp: BA20::truncate_from(timestamp),
         }
@@ -1060,6 +1071,94 @@ pub mod tests {
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
                         &histogram,
                     )
+                    .await
+                    .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, &expected);
+        });
+    }
+
+    #[test]
+    fn capping_bugfix() {
+        const HISTOGRAM: [usize; 10] = [5, 5, 5, 5, 5, 5, 5, 2, 1, 1];
+
+        run(|| async move {
+            let world = TestWorld::default();
+
+            #[allow(clippy::items_after_statements)]
+            type SaturatingSumType = BA5;
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
+                /* First User (perfectly saturates, then one extra) */
+                oprf_test_input(10_251_308_645, false, 218, 0),
+                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 3
+                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 6
+                oprf_test_input(10_251_308_645, true, 0, 5), // running-sum = 11
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 17
+                oprf_test_input(10_251_308_645, true, 0, 1), // running-sum = 18
+                oprf_test_input(10_251_308_645, true, 0, 2), // running-sum = 20
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 26
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 32
+                // This next record should get zeroed out due to the per-user cap of 32
+                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 38
+                /* Second User (imperfectly saturates, then a few extra) */
+                oprf_test_input(1, false, 53, 0),
+                oprf_test_input(1, true, 0, 7), // running-sum = 7
+                oprf_test_input(1, true, 0, 7), // running-sum = 14
+                oprf_test_input(1, true, 0, 7), // running-sum = 21
+                oprf_test_input(1, true, 0, 7), // running-sum = 28
+                // This record should be partially capped
+                oprf_test_input(1, true, 0, 7), // running-sum = 35
+                // The next two records should be fully capped
+                oprf_test_input(1, true, 0, 7), // running-sum = 42
+                oprf_test_input(1, true, 0, 7), // running-sum = 49
+                /* Third User (perfectly saturates, no extras) */
+                oprf_test_input(2, false, 12, 0),
+                oprf_test_input(2, true, 0, 6), // running-sum = 6
+                oprf_test_input(2, true, 0, 4), // running-sum = 10
+                oprf_test_input(2, true, 0, 6), // running-sum = 16
+                oprf_test_input(2, true, 0, 4), // running-sum = 20
+                oprf_test_input(2, true, 0, 6), // running-sum = 26
+                oprf_test_input(2, true, 0, 6), // running-sum = 32
+                /* Fourth User (imperfectly saturates, no extras) */
+                oprf_test_input(3, false, 78, 0),
+                oprf_test_input(3, true, 0, 7), // running-sum = 7
+                oprf_test_input(3, true, 0, 6), // running-sum = 13
+                oprf_test_input(3, true, 0, 5), // running-sum = 18
+                oprf_test_input(3, true, 0, 7), // running-sum = 25
+                oprf_test_input(3, true, 0, 6), // running-sum = 31
+                // The next row should be partially capped
+                oprf_test_input(3, true, 0, 5), // running-sum = 36
+                /* Fifth User (does not saturate) */
+                oprf_test_input(4, false, 44, 0),
+                oprf_test_input(4, true, 0, 4), // running-sum = 4
+                oprf_test_input(4, true, 0, 5), // running-sum = 9
+                oprf_test_input(4, true, 0, 6), // running-sum = 15
+                oprf_test_input(4, true, 0, 5), // running-sum = 20
+                oprf_test_input(4, true, 0, 4), // running-sum = 24
+                oprf_test_input(4, true, 0, 7), // running-sum = 31
+            ];
+
+            let mut expected = [0_u128; 256];
+            expected[218] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[53] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[12] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[78] = 1 << SaturatingSumType::BITS; // per-user cap is 2^5
+            expected[44] = 31; // The 5th user did not saturate
+
+            let result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    attribution_and_capping_and_aggregation::<
+                        _,
+                        BA8,
+                        BA3,
+                        BA20,
+                        SaturatingSumType,
+                        Replicated<Fp32BitPrime>,
+                        Fp32BitPrime,
+                    >(ctx, input_rows, None, &HISTOGRAM)
                     .await
                     .unwrap()
                 })
