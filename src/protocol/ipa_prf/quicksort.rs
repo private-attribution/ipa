@@ -10,7 +10,7 @@ use crate::{
     ff::{boolean::Boolean, CustomArray, Field},
     protocol::{
         basics::Reveal, context::Context,
-        ipa_prf::boolean_ops::comparison_and_subtraction_low_com::compare_gt, RecordId,
+        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
     seq_join::seq_join,
