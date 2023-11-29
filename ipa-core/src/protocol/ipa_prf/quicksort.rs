@@ -1,10 +1,6 @@
-#[cfg(all(test, unit_test))]
-use {
-    futures::stream::{iter as stream_iter, TryStreamExt},
-    ipa_macros::Step,
-};
+use futures::stream::{iter as stream_iter, TryStreamExt};
+use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
 use crate::{
     error::Error,
     ff::{boolean::Boolean, CustomArray, Field},
@@ -17,7 +13,6 @@ use crate::{
 };
 
 #[derive(Step)]
-#[cfg(all(test, unit_test))]
 pub(crate) enum Step {
     Left,
     Right,
@@ -43,7 +38,6 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-#[cfg(all(test, unit_test))]
 pub async fn quicksort_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
@@ -52,8 +46,8 @@ pub async fn quicksort_by_key_insecure<C, K, F, S>(
 ) -> Result<(), Error>
 where
     C: Context,
-    S: Send + std::marker::Sync,
-    F: FnMut(&S) -> &AdditiveShare<K> + std::marker::Send + Clone + std::marker::Sync,
+    S: Send + Sync,
+    F: Fn(&S) -> &AdditiveShare<K> + Send + Sync,
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: WeakSharedValue + Field + CustomArray<Element = Boolean>,
 {
@@ -71,14 +65,14 @@ where
             // set up iterator
             let mut iterator = list[b_l..b_r].iter();
             // first element is pivot, apply key extraction function f
-            let pivot = f.clone()(iterator.next().unwrap());
+            let pivot = f(iterator.next().unwrap());
             // create pointer to context for moving into closure
             let pctx = &ctx;
+            let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
             let comp = seq_join(
                 ctx.active_work(),
                 stream_iter(iterator.enumerate().map(|(n, x)| {
-                    let mut fc = f.clone();
                     async move {
                         // compare current element against pivot
                         let sh_comp = compare_gt(
@@ -86,7 +80,7 @@ where
                                 .set_total_records(b_r - (b_l + 1)),
                             RecordId::from(n),
                             // apply key extraction function f to element x
-                            fc(x),
+                            pf(x),
                             pivot,
                         )
                         .await?;
@@ -135,6 +129,7 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use ipa_macros::Step;
     use rand::Rng;
 
     use crate::{
@@ -146,6 +141,11 @@ pub mod tests {
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+
+    #[derive(Step)]
+    pub(crate) enum Step {
+        TestReverse,
+    }
 
     pub async fn quicksort_insecure_test<C>(
         ctx: C,
@@ -192,6 +192,152 @@ pub mod tests {
                         quicksort_insecure_test::<_>(ctx, &records, desc)
                             .await
                             .unwrap()
+                    })
+                    .await
+                    .reconstruct();
+
+                assert_eq!(
+                    // convert into more readable format
+                    result
+                        .into_iter()
+                        .map(|x| x.as_u128())
+                        .collect::<Vec<u128>>(),
+                    expected
+                );
+            }
+        });
+    }
+
+    // test for identical elements
+    #[test]
+    fn test_quicksort_insecure_semi_honest_identical() {
+        run(|| async move {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+
+            // test cases for both, ascending and descending
+            let bools = vec![false, true];
+
+            for desc in bools {
+                // generate vector of random values
+                let element = rng.gen::<BA64>();
+                let mut records: Vec<BA64> = vec![<BA64>::ONE; 20];
+                records.iter_mut().for_each(|x| *x = element);
+
+                // convert expected into more readable format
+                let mut expected: Vec<u128> =
+                    records.clone().into_iter().map(|x| x.as_u128()).collect();
+                // sort expected
+                expected.sort_unstable();
+
+                if desc {
+                    expected.reverse();
+                }
+
+                // compute mpc sort
+                let result: Vec<_> = world
+                    .semi_honest(records.into_iter(), |ctx, records| async move {
+                        quicksort_insecure_test::<_>(ctx, &records, desc)
+                            .await
+                            .unwrap()
+                    })
+                    .await
+                    .reconstruct();
+
+                assert_eq!(
+                    // convert into more readable format
+                    result
+                        .into_iter()
+                        .map(|x| x.as_u128())
+                        .collect::<Vec<u128>>(),
+                    expected
+                );
+            }
+        });
+    }
+
+    // test for empty list
+    #[test]
+    fn test_quicksort_insecure_semi_honest_empty() {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            // test cases for both, ascending and descending
+            let bools = vec![false, true];
+
+            for desc in bools {
+                // generate vector of random values
+                let records: Vec<BA64> = vec![];
+
+                // convert expected into more readable format
+                let mut expected: Vec<u128> =
+                    records.clone().into_iter().map(|x| x.as_u128()).collect();
+                // sort expected
+                expected.sort_unstable();
+
+                if desc {
+                    expected.reverse();
+                }
+
+                // compute mpc sort
+                let result: Vec<_> = world
+                    .semi_honest(records.into_iter(), |ctx, records| async move {
+                        quicksort_insecure_test::<_>(ctx, &records, desc)
+                            .await
+                            .unwrap()
+                    })
+                    .await
+                    .reconstruct();
+
+                assert_eq!(
+                    // convert into more readable format
+                    result
+                        .into_iter()
+                        .map(|x| x.as_u128())
+                        .collect::<Vec<u128>>(),
+                    expected
+                );
+            }
+        });
+    }
+
+    // test for reversely sorted list
+    #[test]
+    fn test_quicksort_insecure_semi_honest_reverse() {
+        run(|| async move {
+            let world = TestWorld::default();
+            let mut rng = thread_rng();
+
+            // test cases for both, ascending and descending
+            let bools = vec![false, true];
+
+            for desc in bools {
+                // generate vector of random values
+                let mut records: Vec<BA64> = vec![<BA64>::ONE; 20];
+                records.iter_mut().for_each(|x| *x = rng.gen::<BA64>());
+
+                // convert expected into more readable format
+                let mut expected: Vec<u128> =
+                    records.clone().into_iter().map(|x| x.as_u128()).collect();
+                // sort expected
+                expected.sort_unstable();
+
+                if desc {
+                    expected.reverse();
+                }
+
+                // compute mpc sort
+                let result: Vec<_> = world
+                    .semi_honest(records.into_iter(), |ctx, records| async move {
+                        quicksort_insecure_test::<_>(
+                            ctx.narrow(&Step::TestReverse),
+                            &quicksort_insecure_test::<_>(ctx, &records, !desc)
+                                .await
+                                .unwrap(),
+                            desc,
+                        )
+                        .await
+                        .unwrap()
                     })
                     .await
                     .reconstruct();
