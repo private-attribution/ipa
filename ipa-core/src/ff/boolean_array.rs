@@ -138,7 +138,7 @@ macro_rules! boolean_array_impl {
                     let v = v.into();
                     let mut val = Self::ZERO;
                     for i in 0..$bits {
-                        val.set(i, Boolean::from(v <= 128 && (v >> i & 1) == 1));
+                        val.set(i, Boolean::from(i < 128 && (v >> i & 1) == 1));
                     }
 
                     val
