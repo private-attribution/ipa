@@ -9,15 +9,17 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U1, U8, U9};
+use typenum::{Unsigned, U1, U11, U8};
 
 use crate::{
-    ff::{GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean, boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField,
+        Serializable,
+    },
     hpke::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
         PublicKeyRegistry,
     },
-    protocol::ipa_prf::prf_sharding::GroupingKey,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, WeakSharedValue},
 };
 
@@ -418,19 +420,11 @@ where
     TV: WeakSharedValue,
     TS: WeakSharedValue,
 {
-    pub mk_oprf: u64,
-    pub event_type: EventType,
+    pub match_key: Replicated<BA64>,
+    pub event_type: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
-}
-
-impl<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> GroupingKey
-    for OprfReport<BK, TV, TS>
-{
-    fn get_grouping_key(&self) -> u64 {
-        self.mk_oprf
-    }
 }
 
 impl Serializable for u64 {
@@ -454,34 +448,34 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U9>,
+    <Replicated<BK> as Serializable>::Size: Add<U11>,
     <Replicated<TS> as Serializable>::Size:
-        Add<<<Replicated<BK> as Serializable>::Size as Add<U9>>::Output>,
+        Add<<<Replicated<BK> as Serializable>::Size as Add<U11>>::Output>,
     <Replicated<TV> as Serializable>::Size: Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
         >>::Output,
     >,
     <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
         >>::Output,
     >>::Output: ArrayLength,
 {
     type Size = <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U9>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
         >>::Output,
     >>::Output;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let sizeof_u64 = size_of::<u64>();
-        let sizeof_eventtype = size_of::<EventType>();
+        let sizeof_u64 = size_of::<u64>() * 2;
+        let sizeof_eventtype = size_of::<Boolean>() * 2;
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
 
-        self.mk_oprf
+        self.match_key
             .serialize(GenericArray::from_mut_slice(&mut buf[..sizeof_u64]));
 
         self.timestamp.serialize(GenericArray::from_mut_slice(
@@ -503,14 +497,15 @@ where
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let sizeof_u64 = size_of::<u64>();
-        let sizeof_eventtype = size_of::<EventType>();
+        let sizeof_u64 = size_of::<u64>() * 2;
+        let sizeof_eventtype = size_of::<Boolean>() * 2;
 
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
 
-        let mk_oprf = u64::deserialize(GenericArray::from_slice(&buf[..sizeof_u64]));
+        let match_key =
+            Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..sizeof_u64]));
         let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64..sizeof_u64 + ts_sz],
         ));
@@ -520,12 +515,12 @@ where
         let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
-        let event_type = EventType::deserialize(GenericArray::from_slice(
+        let event_type = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64 + ts_sz + bk_sz + tv_sz
                 ..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
         ));
         Self {
-            mk_oprf,
+            match_key,
             event_type,
             breakdown_key,
             trigger_value,

@@ -3,6 +3,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 
+#[cfg(test)]
 pub mod sharing;
 
 // Struct that holds all possible fields of the input to IPA. Used for tests only.

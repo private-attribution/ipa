@@ -1,11 +1,11 @@
-use std::iter::zip;
+use std::iter::{repeat, zip};
 
 use rand::{distributions::Standard, prelude::Distribution};
 
 #[cfg(feature = "descriptive-gate")]
-use crate::{ff::boolean_array::BA64, protocol::ipa_prf::PrfIpaInputRow};
+use crate::{ff::boolean::Boolean, ff::boolean_array::BA64};
 use crate::{
-    ff::{boolean::Boolean, Field, GaloisField, PrimeField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
@@ -16,7 +16,8 @@ use crate::{
     rand::Rng,
     report::{EventType, OprfReport, Report},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        IntoShares, WeakSharedValue,
     },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -366,11 +367,11 @@ where
     TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
-        let event_type = if self.is_trigger_report {
-            EventType::Trigger
-        } else {
-            EventType::Source
-        };
+        let event_type =
+            Replicated::new(Boolean::from(true), Boolean::from(self.is_trigger_report));
+        let match_key = BA64::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
         let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
             .unwrap()
             .share_with(rng);
@@ -381,62 +382,21 @@ where
             .unwrap()
             .share_with(rng);
 
-        zip(zip(timestamp, breakdown_key), trigger_value)
-            .map(|((ts_share, bk_share), tv_share)| OprfReport {
-                timestamp: ts_share,
-                mk_oprf: self.user_id,
-                event_type,
-                breakdown_key: bk_share,
-                trigger_value: tv_share,
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
-    }
-}
-
-#[cfg(feature = "descriptive-gate")]
-impl<BK, TV, TS> IntoShares<PrfIpaInputRow<BK, TV, TS>> for TestRawDataRecord
-where
-    BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [PrfIpaInputRow<BK, TV, TS>; 3] {
-        let timestamp: [Replicated<TS>; 3] =
-            TS::try_from(self.timestamp.into()).unwrap().share_with(rng);
-        let breakdown_key = BK::try_from(self.breakdown_key.into())
-            .unwrap()
-            .share_with(rng);
-        let trigger_value = TV::try_from(self.trigger_value.into())
-            .unwrap()
-            .share_with(rng);
-        let is_trigger_bit = if self.is_trigger_report {
-            Boolean::ONE.share_with(rng)
-        } else {
-            Boolean::ZERO.share_with(rng)
-        };
-        let match_key = BA64::try_from(u128::from(self.user_id))
-            .unwrap()
-            .share_with(rng);
-
-        let shares = zip(
-            zip(zip(timestamp, breakdown_key), zip(trigger_value, match_key)),
-            is_trigger_bit,
+        zip(
+            zip(zip(match_key, zip(timestamp, breakdown_key)), trigger_value),
+            repeat(event_type),
         )
         .map(
-            |(((ts_share, bk_share), (tv_share, match_key_share)), is_trigger_bit_share)| {
-                PrfIpaInputRow {
-                    match_key: match_key_share,
-                    is_trigger_bit: is_trigger_bit_share,
-                    breakdown_key: bk_share,
-                    trigger_value: tv_share,
-                    timestamp: ts_share,
-                }
+            |(((match_key_share, (ts_share, bk_share)), tv_share), event_type_share)| OprfReport {
+                timestamp: ts_share,
+                match_key: match_key_share,
+                event_type: event_type_share,
+                breakdown_key: bk_share,
+                trigger_value: tv_share,
             },
         )
-        .collect::<Vec<_>>();
-        let output: [PrfIpaInputRow<BK, TV, TS>; 3] = shares.try_into().unwrap();
-        output
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
     }
 }

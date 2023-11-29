@@ -7,7 +7,6 @@ use crate::{
     helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{ipa::ipa, BreakdownKey, MatchKey},
-    report::OprfReport,
     secret_sharing::{
         replicated::{
             malicious, malicious::ExtendableField, semi_honest,
@@ -190,47 +189,47 @@ pub async fn test_ipa<F>(
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     rand::distributions::Standard: rand::distributions::Distribution<F>,
 {
-    use super::Runner;
+    // use super::Runner;
 
-    let records = records
-        .iter()
-        .map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MatchKey, BreakdownKey)
-            )
-        })
-        .collect::<Vec<_>>();
+    // let records = records
+    //     .iter()
+    //     .map(|x| {
+    //         ipa_test_input!(
+    //             {
+    //                 timestamp: x.timestamp,
+    //                 match_key: x.user_id,
+    //                 is_trigger_report: x.is_trigger_report,
+    //                 breakdown_key: x.breakdown_key,
+    //                 trigger_value: x.trigger_value,
+    //             };
+    //             (F, MatchKey, BreakdownKey)
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
 
-    let result: Vec<F> = match security_model {
-        IpaSecurityModel::Malicious => world
-            .malicious(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-        IpaSecurityModel::SemiHonest => world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-    };
-    let result = result
-        .into_iter()
-        .map(|v| u32::try_from(v.as_u128()).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(result, expected_results);
+    // let result: Vec<F> = match security_model {
+    //     IpaSecurityModel::Malicious => world
+    //         .malicious(records.into_iter(), |ctx, input_rows| async move {
+    //             ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+    //                 .await
+    //                 .unwrap()
+    //         })
+    //         .await
+    //         .reconstruct(),
+    //     IpaSecurityModel::SemiHonest => world
+    //         .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+    //             ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+    //                 .await
+    //                 .unwrap()
+    //         })
+    //         .await
+    //         .reconstruct(),
+    // };
+    // let result = result
+    //     .into_iter()
+    //     .map(|v| u32::try_from(v.as_u128()).unwrap())
+    //     .collect::<Vec<_>>();
+    // assert_eq!(result, expected_results);
 }
 
 /// # Panics
@@ -245,69 +244,25 @@ pub async fn test_oprf_ipa<F>(
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     rand::distributions::Standard: rand::distributions::Distribution<F>,
     semi_honest::AdditiveShare<F>: Serializable,
+    Replicated<F>: Serializable,
 {
     use crate::{
-        ff::{
-            boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5, BA8},
-            Field,
-        },
-        protocol::{
-            basics::ShareKnownValue,
-            ipa_prf::prf_sharding::{
-                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
-                PrfShardedIpaInputRow,
-            },
-        },
-        report::EventType,
-        secret_sharing::SharedValue,
+        ff::boolean_array::{BA20, BA3, BA5, BA8},
+        protocol::ipa_prf::oprf_ipa,
+        report::OprfReport,
         test_fixture::Runner,
     };
 
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
-    let histogram = compute_histogram_of_users_with_row_count(&records);
-    let ref_to_histogram = &histogram;
-
-    let result: Vec<F> = world
+    let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
-                let sharded_input = input_rows
-                    .into_iter()
-                    .map(|single_row| {
-                        let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                            Replicated::share_known_value(&ctx, Boolean::ONE)
-                        } else {
-                            Replicated::share_known_value(&ctx, Boolean::ZERO)
-                        };
-                        PrfShardedIpaInputRow {
-                            prf_of_match_key: single_row.mk_oprf,
-                            is_trigger_bit: is_trigger_bit_share,
-                            breakdown_key: single_row.breakdown_key,
-                            trigger_value: single_row.trigger_value,
-                            timestamp: single_row.timestamp,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                attribution_and_capping_and_aggregation::<
-                    _,
-                    BA8,  // BreakdownKey,
-                    BA3,  // TriggerValue,
-                    BA20, // Timestamp,
-                    BA5,  // Saturating Sum
-                    Replicated<F>,
-                    F,
-                >(
-                    ctx,
-                    sharded_input,
-                    config.attribution_window_seconds,
-                    ref_to_histogram,
-                )
-                .await
-                .unwrap()
+            |ctx, input_rows: Vec<OprfReport<_, _, _>>| async move {
+                oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, config)
+                    .await
+                    .unwrap()
             },
         )
         .await

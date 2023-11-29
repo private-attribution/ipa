@@ -1,14 +1,15 @@
 #[cfg(feature = "descriptive-gate")]
-use std::iter::repeat;
-use std::iter::zip;
+use std::iter::{repeat, zip};
 
 #[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
 #[cfg(feature = "descriptive-gate")]
+use crate::report::OprfReport;
+#[cfg(feature = "descriptive-gate")]
 use crate::{
     error::Error,
-    ff::{boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
+    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     protocol::{
         context::{UpgradableContext, UpgradedContext},
@@ -22,13 +23,12 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::replicated::{
-        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        WeakSharedValue,
     },
 };
-use crate::{ff::boolean::Boolean, secret_sharing::WeakSharedValue};
 
-#[cfg(feature = "descriptive-gate")]
 mod boolean_ops;
 #[cfg(feature = "descriptive-gate")]
 pub mod prf_eval;
@@ -42,16 +42,6 @@ pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
-}
-
-#[cfg(feature = "descriptive-gate")]
-#[derive(Debug)]
-pub struct PrfIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> {
-    pub match_key: Replicated<BA64>,
-    pub is_trigger_bit: Replicated<Boolean>,
-    pub breakdown_key: Replicated<BK>,
-    pub trigger_value: Replicated<TV>,
-    pub timestamp: Replicated<TS>,
 }
 
 /// IPA OPRF Protocol
@@ -70,7 +60,7 @@ pub struct PrfIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakShar
 #[cfg(feature = "descriptive-gate")]
 pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
     ctx: C,
-    input_rows: Vec<PrfIpaInputRow<BK, TV, TS>>,
+    input_rows: Vec<OprfReport<BK, TV, TS>>,
     config: IpaQueryConfig,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
@@ -93,6 +83,7 @@ where
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
     // We might want to do it earlier as that's a cleaner code
+
     let prfd_inputs =
         compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
 
@@ -108,9 +99,10 @@ where
     .await
 }
 
+#[cfg(feature = "descriptive-gate")]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
-    input_rows: Vec<PrfIpaInputRow<BK, TV, TS>>,
+    input_rows: Vec<OprfReport<BK, TV, TS>>,
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
@@ -152,7 +144,7 @@ where
 
                     Ok::<_, Error>(PrfShardedIpaInputRow {
                         prf_of_match_key,
-                        is_trigger_bit: record.is_trigger_bit,
+                        is_trigger_bit: record.event_type,
                         breakdown_key: record.breakdown_key,
                         trigger_value: record.trigger_value,
                         timestamp: record.timestamp,

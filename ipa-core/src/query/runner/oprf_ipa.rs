@@ -7,7 +7,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA20, BA3, BA5, BA8},
-        Field, PrimeField, Serializable,
+        PrimeField, Serializable,
     },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
@@ -16,15 +16,11 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        ipa_prf::prf_sharding::{
-            attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
-            PrfShardedIpaInputRow,
-        },
+        ipa_prf::oprf_ipa,
     },
-    report::{EventType, OprfReport},
-    secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        SharedValue,
+    report::OprfReport,
+    secret_sharing::replicated::{
+        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
 };
 
@@ -75,43 +71,17 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
-        let histogram = compute_histogram_of_users_with_row_count(&input);
-        let ref_to_histogram = &histogram;
-
         // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
-        let sharded_input = input
+        let sharded_inputs = input
             .into_iter()
-            .map(|single_row| {
-                let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                    Replicated::share_known_value(&ctx, Boolean::ONE)
-                } else {
-                    Replicated::share_known_value(&ctx, Boolean::ZERO)
-                };
-                PrfShardedIpaInputRow {
-                    prf_of_match_key: single_row.mk_oprf,
-                    is_trigger_bit: is_trigger_bit_share,
-                    breakdown_key: single_row.breakdown_key,
-                    trigger_value: single_row.trigger_value,
-                    timestamp: single_row.timestamp,
-                }
+            .map(|single_row| OprfReport {
+                match_key: single_row.match_key,
+                event_type: single_row.event_type,
+                breakdown_key: single_row.breakdown_key,
+                trigger_value: single_row.trigger_value,
+                timestamp: single_row.timestamp,
             })
             .collect::<Vec<_>>();
-        // Until then, we convert the output to something next function is happy about.
-
-        attribution_and_capping_and_aggregation::<
-            C,
-            BA8,  // BreakdownKey,
-            BA3,  // TriggerValue,
-            BA20, // Timestamp,
-            BA5,  // Saturating Sum
-            Replicated<F>,
-            F,
-        >(
-            ctx,
-            sharded_input,
-            config.attribution_window_seconds,
-            ref_to_histogram,
-        )
-        .await
+        oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, sharded_inputs, config).await
     }
 }
