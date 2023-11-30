@@ -393,7 +393,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn attr_cap_aggr<C, BK, TV, TS, SS, S, F>(
+pub async fn attribute_cap_aggregate<C, BK, TV, TS, SS, S, F>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
@@ -823,7 +823,7 @@ pub mod tests {
             boolean_array::{BA20, BA3, BA5, BA8},
             CustomArray, Field, Fp32BitPrime,
         },
-        protocol::ipa_prf::prf_sharding::attr_cap_aggr,
+        protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
         rand::Rng,
         secret_sharing::{
             replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
@@ -1003,9 +1003,15 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attr_cap_aggr::<_, BA5, BA3, BA20, BA5, Replicated<Fp32BitPrime>, Fp32BitPrime>(
-                        ctx, input_rows, None, &histogram,
-                    )
+                    attribute_cap_aggregate::<
+                        _,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
+                        Replicated<Fp32BitPrime>,
+                        Fp32BitPrime,
+                    >(ctx, input_rows, None, &histogram)
                     .await
                     .unwrap()
                 })
@@ -1051,7 +1057,15 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attr_cap_aggr::<_, BA5, BA3, BA20, BA5, Replicated<Fp32BitPrime>, Fp32BitPrime>(
+                    attribute_cap_aggregate::<
+                        _,
+                        BA5,
+                        BA3,
+                        BA20,
+                        BA5,
+                        Replicated<Fp32BitPrime>,
+                        Fp32BitPrime,
+                    >(
                         ctx,
                         input_rows,
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
@@ -1136,7 +1150,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attr_cap_aggr::<
+                    attribute_cap_aggregate::<
                         _,
                         BA8,
                         BA3,

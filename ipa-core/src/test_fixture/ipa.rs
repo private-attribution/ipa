@@ -235,6 +235,7 @@ pub async fn test_ipa<F>(
 
 /// # Panics
 /// If any of the IPA protocol modules panic
+#[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
@@ -255,7 +256,8 @@ pub async fn test_oprf_ipa<F>(
         protocol::{
             basics::ShareKnownValue,
             ipa_prf::prf_sharding::{
-                attr_cap_aggr, compute_histogram_of_users_with_row_count, PrfShardedIpaInputRow,
+                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
+                PrfShardedIpaInputRow,
             },
         },
         report::EventType,
@@ -299,7 +301,7 @@ pub async fn test_oprf_ipa<F>(
                 let aw = config.attribution_window_seconds;
 
                 match config.per_user_credit_cap {
-                    8 => attr_cap_aggr::<_, BA8, BA3, BA20, BA3, Replicated<F>, F>(
+                    8 => attribute_cap_aggregate::<_, BA8, BA3, BA20, BA3, Replicated<F>, F>(
                         ctx,
                         sharded_input,
                         aw,
@@ -307,7 +309,7 @@ pub async fn test_oprf_ipa<F>(
                     )
                     .await
                     .unwrap(),
-                    16 => attr_cap_aggr::<
+                    16 => attribute_cap_aggregate::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -318,7 +320,7 @@ pub async fn test_oprf_ipa<F>(
                     >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
                     .unwrap(),
-                    32 => attr_cap_aggr::<
+                    32 => attribute_cap_aggregate::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -329,7 +331,7 @@ pub async fn test_oprf_ipa<F>(
                     >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
                     .unwrap(),
-                    64 => attr_cap_aggr::<
+                    64 => attribute_cap_aggregate::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -340,7 +342,7 @@ pub async fn test_oprf_ipa<F>(
                     >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
                     .unwrap(),
-                    128 => attr_cap_aggr::<
+                    128 => attribute_cap_aggregate::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,

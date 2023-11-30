@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA5, BA8},
+        boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
         Field, PrimeField, Serializable,
     },
     helpers::{
@@ -17,7 +17,8 @@ use crate::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::prf_sharding::{
-            attr_cap_aggr, compute_histogram_of_users_with_row_count, PrfShardedIpaInputRow,
+            attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
+            PrfShardedIpaInputRow,
         },
     },
     report::{EventType, OprfReport},
@@ -41,6 +42,7 @@ impl<C, F> OprfIpaQuery<C, F> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 impl<C, F> OprfIpaQuery<C, F>
 where
     C: UpgradableContext,
@@ -96,21 +98,86 @@ where
             })
             .collect::<Vec<_>>();
         // Until then, we convert the output to something next function is happy about.
-
-        attr_cap_aggr::<
-            C,
-            BA8,  // BreakdownKey,
-            BA3,  // TriggerValue,
-            BA20, // Timestamp,
-            BA5,  // Saturating Sum
-            Replicated<F>,
-            F,
-        >(
-            ctx,
-            sharded_input,
-            config.attribution_window_seconds,
-            ref_to_histogram,
-        )
-        .await
+        match config.per_user_credit_cap {
+            8 => attribute_cap_aggregate::<
+                C,
+                BA8,  // BreakdownKey,
+                BA3,  // TriggerValue,
+                BA20, // Timestamp,
+                BA3,  // Saturating Sum
+                Replicated<F>,
+                F,
+            >(
+                ctx,
+                sharded_input,
+                config.attribution_window_seconds,
+                ref_to_histogram,
+            )
+            .await,
+            16 => attribute_cap_aggregate::<
+                C,
+                BA8,  // BreakdownKey,
+                BA3,  // TriggerValue,
+                BA20, // Timestamp,
+                BA4,  // Saturating Sum
+                Replicated<F>,
+                F,
+            >(
+                ctx,
+                sharded_input,
+                config.attribution_window_seconds,
+                ref_to_histogram,
+            )
+            .await,
+            32 => attribute_cap_aggregate::<
+                C,
+                BA8,  // BreakdownKey,
+                BA3,  // TriggerValue,
+                BA20, // Timestamp,
+                BA5,  // Saturating Sum
+                Replicated<F>,
+                F,
+            >(
+                ctx,
+                sharded_input,
+                config.attribution_window_seconds,
+                ref_to_histogram,
+            )
+            .await,
+            64 => attribute_cap_aggregate::<
+                C,
+                BA8,  // BreakdownKey,
+                BA3,  // TriggerValue,
+                BA20, // Timestamp,
+                BA6,  // Saturating Sum
+                Replicated<F>,
+                F,
+            >(
+                ctx,
+                sharded_input,
+                config.attribution_window_seconds,
+                ref_to_histogram,
+            )
+            .await,
+            128 => attribute_cap_aggregate::<
+                C,
+                BA8,  // BreakdownKey,
+                BA3,  // TriggerValue,
+                BA20, // Timestamp,
+                BA7,  // Saturating Sum
+                Replicated<F>,
+                F,
+            >(
+                ctx,
+                sharded_input,
+                config.attribution_window_seconds,
+                ref_to_histogram,
+            )
+            .await,
+            _ => panic!(
+                "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                config.per_user_credit_cap
+            ),
+        }
     }
 }
