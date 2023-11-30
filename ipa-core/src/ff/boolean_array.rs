@@ -40,7 +40,7 @@ impl<'a> Iterator for BAIterator<'a> {
 
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
-    ($modname:ident, $name:ident, $bits:expr, $bytes:expr, $one:expr) => {
+    ($modname:ident, $name:ident, $bits:expr, $bytes:expr, [$($one:expr),+]) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -128,7 +128,7 @@ macro_rules! boolean_array_impl {
             }
 
             impl Field for $name {
-                const ONE: Self = Self($one);
+                const ONE: Self = Self(bitarr![const u8, Lsb0; $($one),+]);
 
                 fn as_u128(&self) -> u128 {
                     (*self).into()
@@ -308,70 +308,22 @@ store_impl!(U8, 64);
 store_impl!(U32, 256);
 
 //impl BA3
-boolean_array_impl!(
-    boolean_array_3,
-    BA3,
-    3,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_3, BA3, 3, 1, [1, 0, 0]);
 
 //impl BA4
-boolean_array_impl!(
-    boolean_array_4,
-    BA4,
-    4,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_4, BA4, 4, 1, [1, 0, 0, 0]);
 
 //impl BA5
-boolean_array_impl!(
-    boolean_array_5,
-    BA5,
-    5,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_5, BA5, 5, 1, [1, 0, 0, 0, 0]);
 
 //impl BA6
-boolean_array_impl!(
-    boolean_array_6,
-    BA6,
-    6,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_6, BA6, 6, 1, [1, 0, 0, 0, 0, 0]);
 
 //impl BA7
-boolean_array_impl!(
-    boolean_array_7,
-    BA7,
-    7,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_7, BA7, 7, 1, [1, 0, 0, 0, 0, 0, 0]);
 
 //impl BA8
-boolean_array_impl!(
-    boolean_array_8,
-    BA8,
-    8,
-    1,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0, 0
-    )
-);
+boolean_array_impl!(boolean_array_8, BA8, 8, 1, [1, 0, 0, 0, 0, 0, 0, 0]);
 
 //impl BA20
 boolean_array_impl!(
@@ -379,11 +331,7 @@ boolean_array_impl!(
     BA20,
     20,
     3,
-    bitarr ! ( const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0
-    )
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 );
 
 //impl BA32
@@ -392,11 +340,9 @@ boolean_array_impl!(
     BA32,
     32,
     4,
-    bitarr![const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0
+    [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0
     ]
 );
 
@@ -406,15 +352,10 @@ boolean_array_impl!(
     BA64,
     64,
     8,
-    bitarr![const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0
+    [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0
     ]
 );
 
@@ -425,38 +366,15 @@ boolean_array_impl!(
     BA256,
     256,
     32,
-    bitarr![const u8, Lsb0;
-        1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0
+    [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ]
 );
