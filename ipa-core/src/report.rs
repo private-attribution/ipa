@@ -9,7 +9,7 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U1, U11, U8};
+use typenum::{Unsigned, U1, U18, U8};
 
 use crate::{
     ff::{
@@ -448,23 +448,23 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U11>,
+    <Replicated<BK> as Serializable>::Size: Add<U18>,
     <Replicated<TS> as Serializable>::Size:
-        Add<<<Replicated<BK> as Serializable>::Size as Add<U11>>::Output>,
+        Add<<<Replicated<BK> as Serializable>::Size as Add<U18>>::Output>,
     <Replicated<TV> as Serializable>::Size: Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
         >>::Output,
     >,
     <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
         >>::Output,
     >>::Output: ArrayLength,
 {
     type Size = <<Replicated<TV> as Serializable>::Size as Add<
         <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U11>>::Output,
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
         >>::Output,
     >>::Output;
 
