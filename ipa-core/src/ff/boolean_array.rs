@@ -137,8 +137,8 @@ macro_rules! boolean_array_impl {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = v.into();
                     let mut val = Self::ZERO;
-                    for i in 0..$bits {
-                        val.set(i, Boolean::from(i < 128 && (v >> i & 1) == 1));
+                    for i in 0..std::cmp::min(128, $bits) {
+                        val.set(i, Boolean::from((v >> i & 1) == 1));
                     }
 
                     val
