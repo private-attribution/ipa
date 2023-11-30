@@ -257,25 +257,27 @@ pub async fn test_oprf_ipa<F>(
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
+    let aws = config.attribution_window_seconds;
+
     let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, config)
+                    8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<_, BA8, BA3, BA20, BA4, F>(ctx, input_rows, config)
+                    16 => oprf_ipa::<_, BA8, BA3, BA20, BA4, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, config)
+                    32 => oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<_, BA8, BA3, BA20, BA6, F>(ctx, input_rows, config)
+                    64 => oprf_ipa::<_, BA8, BA3, BA20, BA6, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<_, BA8, BA3, BA20, BA7, F>(ctx, input_rows, config)
+                    128 => oprf_ipa::<_, BA8, BA3, BA20, BA7, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
                     _ =>

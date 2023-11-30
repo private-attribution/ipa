@@ -72,24 +72,13 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
-        // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
-        let sharded_inputs = input
-            .into_iter()
-            .map(|single_row| OprfReport {
-                match_key: single_row.match_key,
-                is_trigger: single_row.is_trigger,
-                breakdown_key: single_row.breakdown_key,
-                trigger_value: single_row.trigger_value,
-                timestamp: single_row.timestamp,
-            })
-            .collect::<Vec<_>>();
-        // Until then, we convert the output to something next function is happy about.
+        let aws = config.attribution_window_seconds;
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<C, BA8, BA3, BA20, BA3, F>(ctx, sharded_inputs, config).await,
-            16 => oprf_ipa::<C, BA8, BA3, BA20, BA4, F>(ctx, sharded_inputs, config).await,
-            32 => oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, sharded_inputs, config).await,
-            64 => oprf_ipa::<C, BA8, BA3, BA20, BA6, F>(ctx, sharded_inputs, config).await,
-            128 => oprf_ipa::<C, BA8, BA3, BA20, BA7, F>(ctx, sharded_inputs, config).await,
+            8 => oprf_ipa::<C, BA8, BA3, BA20, BA3, F>(ctx, input, aws).await,
+            16 => oprf_ipa::<C, BA8, BA3, BA20, BA4, F>(ctx, input, aws).await,
+            32 => oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, input, aws).await,
+            64 => oprf_ipa::<C, BA8, BA3, BA20, BA6, F>(ctx, input, aws).await,
+            128 => oprf_ipa::<C, BA8, BA3, BA20, BA7, F>(ctx, input, aws).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap

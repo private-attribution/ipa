@@ -1,11 +1,10 @@
-use std::iter::{repeat, zip};
+use std::num::NonZeroU32;
 
 use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
-    helpers::query::IpaQueryConfig,
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
@@ -40,13 +39,21 @@ pub(crate) enum Step {
 
 /// IPA OPRF Protocol
 ///
-/// We return `Replicated<F>` as output.
-/// This protocol does following steps
-/// 1. Shuffles the input (TBD)
-/// 2. Converts boolean arrays of match keys to elliptical values
-/// 3. Computes OPRF on the match keys and reveals the OPRF
-/// 4. Sorts inputs based on reveal oprf and timestamp (TBD)
-/// 5. Computes the attribution, caps results and aggregates
+/// The output of this function is a vector of secret-shared totals, one per breakdown key
+/// This protocol performs the following steps
+/// 1. Converts secret-sharings of boolean arrays to secret-sharings of elliptic curve points
+/// 2. Generates a random number of "dummy records" (needed to mask the information that will
+///    be revealed in a later step, and thereby provide a differential privacy guarantee on that
+///    information leakage) (TBD)
+/// 3. Shuffles the input (TBD)
+/// 4. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
+/// 5. Groups together rows with the same OPRF, and then obliviously sorts each group by the
+///    secret-shared timestamp (TBD)
+/// 6. Attributes trigger events to source events
+/// 7. Caps each user's total contribution to the final result
+/// 8. Aggregates the contributions of all users
+/// 9. Adds random noise to the total for each breakdown key (to provide a differential
+///    privacy guarantee) (TBD)
 /// # Errors
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
@@ -54,7 +61,7 @@ pub(crate) enum Step {
 pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
-    config: IpaQueryConfig,
+    attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     C: UpgradableContext,
@@ -86,7 +93,7 @@ where
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
-        config.attribution_window_seconds,
+        attribution_window_seconds,
         &histogram,
     )
     .await
@@ -117,33 +124,26 @@ where
 
     let prf_key = gen_prf_key(&convert_ctx);
 
-    ctx.parallel_join(
-        input_rows
-            .into_iter()
-            .zip(zip(
-                repeat(prf_key),
-                zip(repeat(convert_ctx), repeat(eval_ctx)),
-            ))
-            .enumerate()
-            .map(
-                |(idx, (record, (prf_key, (convert_ctx, eval_ctx))))| async move {
-                    let record_id = RecordId::from(idx);
-                    let prf_of_match_key =
-                        convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key)
-                            .await?;
-                    let prf_of_match_key =
-                        eval_dy_prf(eval_ctx, record_id, &prf_key, &prf_of_match_key).await?;
+    ctx.parallel_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
+        let convert_ctx = convert_ctx.clone();
+        let eval_ctx = eval_ctx.clone();
+        let prf_key = prf_key.clone();
+        async move {
+            let record_id = RecordId::from(idx);
+            let elliptic_curve_pt =
+                convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key).await?;
+            let elliptic_curve_pt =
+                eval_dy_prf(eval_ctx, record_id, &prf_key, &elliptic_curve_pt).await?;
 
-                    Ok::<_, Error>(PrfShardedIpaInputRow {
-                        prf_of_match_key,
-                        is_trigger_bit: record.is_trigger,
-                        breakdown_key: record.breakdown_key,
-                        trigger_value: record.trigger_value,
-                        timestamp: record.timestamp,
-                    })
-                },
-            ),
-    )
+            Ok::<_, Error>(PrfShardedIpaInputRow {
+                prf_of_match_key: elliptic_curve_pt,
+                is_trigger_bit: record.is_trigger,
+                breakdown_key: record.breakdown_key,
+                trigger_value: record.trigger_value,
+                timestamp: record.timestamp,
+            })
+        }
+    }))
     .await
 }
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
@@ -153,7 +153,6 @@ pub mod tests {
             boolean_array::{BA20, BA3, BA5, BA8},
             Fp31,
         },
-        helpers::query::IpaQueryConfig,
         protocol::ipa_prf::oprf_ipa,
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
@@ -161,10 +160,7 @@ pub mod tests {
 
     #[test]
     fn semi_honest() {
-        const PER_USER_CAP: u32 = 32;
         const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
-        const MAX_BREAKDOWN_KEY: u32 = 8;
-        const NUM_MULTI_BITS: u32 = 3;
 
         run(|| async {
             let world = TestWorld::default();
@@ -209,13 +205,9 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(
-                        ctx,
-                        input_rows,
-                        IpaQueryConfig::no_window(PER_USER_CAP, MAX_BREAKDOWN_KEY, NUM_MULTI_BITS),
-                    )
-                    .await
-                    .unwrap()
+                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
                 })
                 .await
                 .reconstruct();
