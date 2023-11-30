@@ -235,6 +235,7 @@ pub async fn test_ipa<F>(
 
 /// # Panics
 /// If any of the IPA protocol modules panic
+#[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
@@ -249,13 +250,13 @@ pub async fn test_oprf_ipa<F>(
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5, BA8},
+            boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
             Field,
         },
         protocol::{
             basics::ShareKnownValue,
             ipa_prf::prf_sharding::{
-                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
                 PrfShardedIpaInputRow,
             },
         },
@@ -297,23 +298,67 @@ pub async fn test_oprf_ipa<F>(
                         }
                     })
                     .collect::<Vec<_>>();
+                let aw = config.attribution_window_seconds;
 
-                attribution_and_capping_and_aggregation::<
-                    _,
-                    BA8,  // BreakdownKey,
-                    BA3,  // TriggerValue,
-                    BA20, // Timestamp,
-                    BA5,  // Saturating Sum
-                    Replicated<F>,
-                    F,
-                >(
-                    ctx,
-                    sharded_input,
-                    config.attribution_window_seconds,
-                    ref_to_histogram,
-                )
-                .await
-                .unwrap()
+                match config.per_user_credit_cap {
+                    8 => attribute_cap_aggregate::<_, BA8, BA3, BA20, BA3, Replicated<F>, F>(
+                        ctx,
+                        sharded_input,
+                        aw,
+                        ref_to_histogram,
+                    )
+                    .await
+                    .unwrap(),
+                    16 => attribute_cap_aggregate::<
+                        _,
+                        BA8,  // BreakdownKey,
+                        BA3,  // TriggerValue,
+                        BA20, // Timestamp,
+                        BA4,  // Saturating Sum
+                        Replicated<F>,
+                        F,
+                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    .await
+                    .unwrap(),
+                    32 => attribute_cap_aggregate::<
+                        _,
+                        BA8,  // BreakdownKey,
+                        BA3,  // TriggerValue,
+                        BA20, // Timestamp,
+                        BA5,  // Saturating Sum
+                        Replicated<F>,
+                        F,
+                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    .await
+                    .unwrap(),
+                    64 => attribute_cap_aggregate::<
+                        _,
+                        BA8,  // BreakdownKey,
+                        BA3,  // TriggerValue,
+                        BA20, // Timestamp,
+                        BA6,  // Saturating Sum
+                        Replicated<F>,
+                        F,
+                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    .await
+                    .unwrap(),
+                    128 => attribute_cap_aggregate::<
+                        _,
+                        BA8,  // BreakdownKey,
+                        BA3,  // TriggerValue,
+                        BA20, // Timestamp,
+                        BA7,  // Saturating Sum
+                        Replicated<F>,
+                        F,
+                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    .await
+                    .unwrap(),
+                    _ =>
+                    panic!(
+                        "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                        config.per_user_credit_cap
+                    ),
+                }
             },
         )
         .await
