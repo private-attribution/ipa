@@ -13,7 +13,7 @@ Here are the instructions for setting up node for running IPA.
    Command: `cargo build`
 5. Running a sample test :
 
-   Command: `cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features`
+   Command: `cargo bench --bench oneshot_ipa --features="enable-benches"`
 
 ## Step 2: Setup helper configuration
 1. Provide details of how the machine can be accessed from public internet. For this, we would need to know

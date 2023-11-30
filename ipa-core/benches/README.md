@@ -34,7 +34,7 @@ Execute the following command to enable step-level metrics. It is possible to us
 `TestWorld` to set up the environment.
 
 ```bash
-RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_sort --no-default-features --features="enable-benches debug-trace descriptive-gate"
+RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_sort --features="enable-benches debug-trace descriptive-gate"
 ```
 
 The output would look similar to this:
@@ -67,7 +67,7 @@ It is possible to profile the heap usage of IPA. We reuse `oneshot/ipa` benchmar
 The following command will run a benchmark and produce a profiling result.
 
 ```bash
-cargo bench --bench oneshot_ipa --profile=bench-dhat --features="dhat-heap enable-benches" --no-default-features -- -n 100
+cargo bench --bench oneshot_ipa --profile=bench-dhat --features="dhat-heap enable-benches" -- -n 100
 ```
 
 The output will look similar to this:

@@ -1,0 +1,95 @@
+[package]
+name = "ipa-test"
+version = "0.1.0"
+rust-version = "1.64.0"
+edition = "2021"
+
+[features]
+helper = [
+    "clap",
+    "hyper",
+    "tracing",
+    "ipa-core/web-app",
+    "ipa-core/real-world-infra",
+    "ipa-core/release-trace",
+    "ipa-core/stall-detection",
+]
+rc = [
+    "clap",
+    "hyper",
+    "comfy-table",
+    "serde_json",
+    "tracing",
+    "rand",
+    "rand_core",
+    "ipa-core/web-app",
+    "ipa-core/in-memory-infra",
+    "ipa-core/descriptive-gate",
+    "ipa-core/test-fixture",
+]
+mpc = [
+    "clap",
+    "generic-array",
+    "hyper",
+    "ipa-core/web-app",
+    "ipa-core/in-memory-infra",
+    "ipa-core/descriptive-gate",
+    "ipa-core/test-fixture",
+]
+integration-test = [
+    "clap",
+    "rand",
+    "rand_core",
+    "serde_json",
+    "tempfile",
+    "ipa-core/test-fixture",
+]
+
+[dependencies]
+ipa-core = { version = "*", path = "../ipa-core" }
+tokio = { version = "1.28" }
+
+# all other dependencies are optional
+clap = { version = "4.3.2", optional = true, features = ["derive"] }
+comfy-table = { version = "7.0", optional = true }
+generic-array = { version = "1.0.0", optional = true }
+hyper = { version = "0.14.26", optional = true, features = [
+    "client",
+    "h2",
+    "stream",
+    "runtime",
+] }
+rand = { version = "0.8", optional = true }
+rand_core = { version = "0.6", optional = true }
+serde_json = { version = "1.0", optional = true }
+tempfile = { version = "3", optional = true }
+tracing = { version = "0.1", optional = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5.0"
+
+[dev-dependencies]
+command-fds = "0.2.2"
+
+[[bin]]
+name = "helper"
+required-features = ["helper", "ipa-core/descriptive-gate"]
+bench = false
+
+[[bin]]
+name = "report_collector"
+required-features = ["rc"]
+bench = false
+
+[[bin]]
+name = "test_mpc"
+required-features = ["mpc"]
+bench = false
+
+[[test]]
+name = "helper_networks"
+required-features = ["helper", "ipa-core/descriptive-gate", "integration-test"]
+
+[[test]]
+name = "compact_gate"
+required-features = ["helper", "ipa-core/compact-gate", "integration-test"]

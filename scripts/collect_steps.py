@@ -13,7 +13,6 @@ ARGS = [
     "bench",
     "--bench",
     "oneshot_ipa",
-    "--no-default-features",
     "--features=enable-benches debug-trace step-trace",
     "--",
     "--num-multi-bits",

@@ -50,28 +50,7 @@ where
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
     let query_size = records.len();
 
-    if !query_config.plaintext_match_keys {
-        if let Some((key_id, key_registries)) = encryption {
-            const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
-            for buffer in &mut buffers {
-                buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
-            }
-
-            let mut rng = StdRng::from_entropy();
-            let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
-            zip(&mut buffers, shares).zip(key_registries).for_each(
-                |((buf, shares), key_registry)| {
-                    for share in shares {
-                        share
-                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                            .unwrap();
-                    }
-                },
-            );
-        } else {
-            panic!("match key encryption was requested, but one or more helpers is missing a public key")
-        }
-    } else {
+    if query_config.plaintext_match_keys {
         let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
             buffer.resize(query_size * sz, 0u8);
@@ -95,6 +74,27 @@ where
                 share.serialize(GenericArray::from_mut_slice(chunk));
             }
         });
+    } else if let Some((key_id, key_registries)) = encryption {
+        const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
+        for buffer in &mut buffers {
+            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
+        }
+
+        let mut rng = StdRng::from_entropy();
+        let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
+        zip(&mut buffers, shares)
+            .zip(key_registries)
+            .for_each(|((buf, shares), key_registry)| {
+                for share in shares {
+                    share
+                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                        .unwrap();
+                }
+            });
+    } else {
+        panic!(
+            "match key encryption was requested, but one or more helpers is missing a public key"
+        )
     }
 
     let inputs = buffers.map(BodyStream::from);

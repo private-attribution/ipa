@@ -17,6 +17,7 @@ use crate::{
     net::{ClientIdentity, MpcHelperClient},
 };
 
+#[allow(clippy::missing_panics_doc)]
 pub fn validate<'a, I, S>(expected: I, actual: I)
 where
     I: IntoIterator<Item = &'a S>,
@@ -42,14 +43,14 @@ where
         let same = next_expected == next_actual;
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
-            Cell::new(format!("{}", i)).fg(color),
-            Cell::new(format!("{:?}", next_expected)).fg(color),
-            Cell::new(format!("{:?}", next_actual)).fg(color),
+            Cell::new(format!("{i}")).fg(color),
+            Cell::new(format!("{next_expected:?}")).fg(color),
+            Cell::new(format!("{next_actual:?}")).fg(color),
             Cell::new(if same { "" } else { "X" }),
         ]);
 
         if !same {
-            mismatch.push((i, next_expected, next_actual))
+            mismatch.push((i, next_expected, next_actual));
         }
 
         i += 1;
@@ -59,11 +60,12 @@ where
 
     assert!(
         mismatch.is_empty(),
-        "Expected and actual results don't match: {:?}",
-        mismatch
+        "{}",
+        format!("Expected and actual results don't match: {mismatch:?}")
     );
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,
