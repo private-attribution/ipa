@@ -132,33 +132,6 @@ pub trait ToBitConversionTriples {
         I: IntoIterator<Item = u32>;
 }
 
-// impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
-//     type Residual = ();
-
-//     fn bits(&self) -> u32 {
-//         B::BITS
-//     }
-
-//     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
-//         BitConversionTriple::new(role, self.left()[i], self.right()[i])
-//     }
-
-//     fn into_triples<F, I>(
-//         self,
-//         role: Role,
-//         indices: I,
-//     ) -> (
-//         BitDecomposed<BitConversionTriple<Replicated<F>>>,
-//         Self::Residual,
-//     )
-//     where
-//         F: PrimeField,
-//         I: IntoIterator<Item = u32>,
-//     {
-//         (self.triple_range(role, indices), ())
-//     }
-// }
-
 impl<B: WeakSharedValue + ArrayAccess<Output = T>, T: Into<bool>> ToBitConversionTriples
     for Replicated<B>
 {
