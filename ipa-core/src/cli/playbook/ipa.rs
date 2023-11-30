@@ -116,7 +116,7 @@ where
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
     let query_size = records.len();
 
-    let sz = <OprfReport<Timestamp, BreakdownKey, TriggerValue> as Serializable>::Size::USIZE;
+    let sz = <OprfReport<BreakdownKey, TriggerValue, Timestamp> as Serializable>::Size::USIZE;
     for buffer in &mut buffers {
         buffer.resize(query_size * sz, 0u8);
     }
@@ -125,7 +125,7 @@ where
     //This does a stable sort. It also expects the inputs to be sorted by timestamp
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
-    let shares: [Vec<OprfReport<Timestamp, BreakdownKey, TriggerValue>>; 3] =
+    let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
         records.iter().cloned().share();
     zip(&mut buffers, shares).for_each(|(buf, shares)| {
         for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {

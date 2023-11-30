@@ -279,7 +279,7 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<F> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<BA20, BA8, BA3>>| async move {
+            |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
                 let sharded_input = input_rows
                     .into_iter()
                     .map(|single_row| {

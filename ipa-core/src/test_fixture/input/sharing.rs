@@ -357,13 +357,13 @@ where
     }
 }
 
-impl<TS, BK, TV> IntoShares<OprfReport<TS, BK, TV>> for TestRawDataRecord
+impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
     BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
     TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
+    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<TS, BK, TV>; 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let event_type = if self.is_trigger_report {
             EventType::Trigger
         } else {

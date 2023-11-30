@@ -66,7 +66,7 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = RecordsStream::<OprfReport<BA20, BA8, BA3>, _>::new(input_stream)
+            let mut v = RecordsStream::<OprfReport<BA8, BA3, BA20>, _>::new(input_stream)
                 .try_concat()
                 .await?;
             v.truncate(sz);

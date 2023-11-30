@@ -412,11 +412,11 @@ where
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OprfReport<TS, BK, TV>
+pub struct OprfReport<BK, TV, TS>
 where
-    TS: WeakSharedValue,
     BK: WeakSharedValue,
     TV: WeakSharedValue,
+    TS: WeakSharedValue,
 {
     pub timestamp: Replicated<TS>,
     pub mk_oprf: u64,
@@ -426,7 +426,7 @@ where
 }
 
 impl<TS: WeakSharedValue, BK: WeakSharedValue, TV: WeakSharedValue> GroupingKey
-    for OprfReport<TS, BK, TV>
+    for OprfReport<BK, TV, TS>
 {
     fn get_grouping_key(&self) -> u64 {
         self.mk_oprf
@@ -449,7 +449,7 @@ impl Serializable for u64 {
 }
 
 impl<TS: WeakSharedValue, BK: WeakSharedValue, TV: WeakSharedValue> Serializable
-    for OprfReport<TS, BK, TV>
+    for OprfReport<BK, TV, TS>
 where
     Replicated<TS>: Serializable,
     Replicated<BK>: Serializable,
