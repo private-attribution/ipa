@@ -255,8 +255,7 @@ pub async fn test_oprf_ipa<F>(
         protocol::{
             basics::ShareKnownValue,
             ipa_prf::prf_sharding::{
-                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
-                PrfShardedIpaInputRow,
+                attr_cap_aggr, compute_histogram_of_users_with_row_count, PrfShardedIpaInputRow,
             },
         },
         report::EventType,
@@ -297,26 +296,18 @@ pub async fn test_oprf_ipa<F>(
                         }
                     })
                     .collect::<Vec<_>>();
+                let aw = config.attribution_window_seconds;
 
-                if config.per_user_credit_cap == 8 {
-                    attribution_and_capping_and_aggregation::<
-                        _,
-                        BA8,  // BreakdownKey,
-                        BA3,  // TriggerValue,
-                        BA20, // Timestamp,
-                        BA3,  // Saturating Sum
-                        Replicated<F>,
-                        F,
-                    >(
+                match config.per_user_credit_cap {
+                    8 => attr_cap_aggr::<_, BA8, BA3, BA20, BA3, Replicated<F>, F>(
                         ctx,
                         sharded_input,
-                        config.attribution_window_seconds,
+                        aw,
                         ref_to_histogram,
                     )
                     .await
-                    .unwrap()
-                } else if config.per_user_credit_cap == 16 {
-                    attribution_and_capping_and_aggregation::<
+                    .unwrap(),
+                    16 => attr_cap_aggr::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -324,16 +315,10 @@ pub async fn test_oprf_ipa<F>(
                         BA4,  // Saturating Sum
                         Replicated<F>,
                         F,
-                    >(
-                        ctx,
-                        sharded_input,
-                        config.attribution_window_seconds,
-                        ref_to_histogram,
-                    )
+                    >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
-                    .unwrap()
-                } else if config.per_user_credit_cap == 32 {
-                    attribution_and_capping_and_aggregation::<
+                    .unwrap(),
+                    32 => attr_cap_aggr::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -341,16 +326,10 @@ pub async fn test_oprf_ipa<F>(
                         BA5,  // Saturating Sum
                         Replicated<F>,
                         F,
-                    >(
-                        ctx,
-                        sharded_input,
-                        config.attribution_window_seconds,
-                        ref_to_histogram,
-                    )
+                    >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
-                    .unwrap()
-                } else if config.per_user_credit_cap == 64 {
-                    attribution_and_capping_and_aggregation::<
+                    .unwrap(),
+                    64 => attr_cap_aggr::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -358,16 +337,10 @@ pub async fn test_oprf_ipa<F>(
                         BA6,  // Saturating Sum
                         Replicated<F>,
                         F,
-                    >(
-                        ctx,
-                        sharded_input,
-                        config.attribution_window_seconds,
-                        ref_to_histogram,
-                    )
+                    >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
-                    .unwrap()
-                } else if config.per_user_credit_cap == 128 {
-                    attribution_and_capping_and_aggregation::<
+                    .unwrap(),
+                    128 => attr_cap_aggr::<
                         _,
                         BA8,  // BreakdownKey,
                         BA3,  // TriggerValue,
@@ -375,19 +348,14 @@ pub async fn test_oprf_ipa<F>(
                         BA7,  // Saturating Sum
                         Replicated<F>,
                         F,
-                    >(
-                        ctx,
-                        sharded_input,
-                        config.attribution_window_seconds,
-                        ref_to_histogram,
-                    )
+                    >(ctx, sharded_input, aw, ref_to_histogram)
                     .await
-                    .unwrap()
-                } else {
+                    .unwrap(),
+                    _ =>
                     panic!(
-                        "Invalid value specified for per-user cap: {:?}. Must be a power of 2.",
+                        "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                         config.per_user_credit_cap
-                    );
+                    ),
                 }
             },
         )

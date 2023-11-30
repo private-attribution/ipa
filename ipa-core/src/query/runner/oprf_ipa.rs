@@ -17,8 +17,7 @@ use crate::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::prf_sharding::{
-            attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
-            PrfShardedIpaInputRow,
+            attr_cap_aggr, compute_histogram_of_users_with_row_count, PrfShardedIpaInputRow,
         },
     },
     report::{EventType, OprfReport},
@@ -98,7 +97,7 @@ where
             .collect::<Vec<_>>();
         // Until then, we convert the output to something next function is happy about.
 
-        attribution_and_capping_and_aggregation::<
+        attr_cap_aggr::<
             C,
             BA8,  // BreakdownKey,
             BA3,  // TriggerValue,
