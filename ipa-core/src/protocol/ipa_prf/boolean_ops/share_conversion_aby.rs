@@ -260,7 +260,6 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    #[ignore]
     #[test]
     fn semi_honest_convert_into_fp25519() {
         run(|| async move {
