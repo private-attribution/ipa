@@ -421,7 +421,7 @@ where
     TS: WeakSharedValue,
 {
     pub match_key: Replicated<BA64>,
-    pub event_type: Replicated<Boolean>,
+    pub is_trigger: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
@@ -490,7 +490,7 @@ where
             &mut buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
 
-        self.event_type.serialize(GenericArray::from_mut_slice(
+        self.is_trigger.serialize(GenericArray::from_mut_slice(
             &mut buf[sizeof_u64 + ts_sz + bk_sz + tv_sz
                 ..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
         ));
@@ -515,13 +515,13 @@ where
         let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64 + ts_sz + bk_sz..sizeof_u64 + ts_sz + bk_sz + tv_sz],
         ));
-        let event_type = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
+        let is_trigger = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
             &buf[sizeof_u64 + ts_sz + bk_sz + tv_sz
                 ..sizeof_u64 + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
         ));
         Self {
             match_key,
-            event_type,
+            is_trigger,
             breakdown_key,
             trigger_value,
             timestamp,

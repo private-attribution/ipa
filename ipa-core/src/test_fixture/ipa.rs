@@ -189,47 +189,47 @@ pub async fn test_ipa<F>(
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     rand::distributions::Standard: rand::distributions::Distribution<F>,
 {
-    // use super::Runner;
+    use super::Runner;
 
-    // let records = records
-    //     .iter()
-    //     .map(|x| {
-    //         ipa_test_input!(
-    //             {
-    //                 timestamp: x.timestamp,
-    //                 match_key: x.user_id,
-    //                 is_trigger_report: x.is_trigger_report,
-    //                 breakdown_key: x.breakdown_key,
-    //                 trigger_value: x.trigger_value,
-    //             };
-    //             (F, MatchKey, BreakdownKey)
-    //         )
-    //     })
-    //     .collect::<Vec<_>>();
+    let records = records
+        .iter()
+        .map(|x| {
+            ipa_test_input!(
+                {
+                    timestamp: x.timestamp,
+                    match_key: x.user_id,
+                    is_trigger_report: x.is_trigger_report,
+                    breakdown_key: x.breakdown_key,
+                    trigger_value: x.trigger_value,
+                };
+                (F, MatchKey, BreakdownKey)
+            )
+        })
+        .collect::<Vec<_>>();
 
-    // let result: Vec<F> = match security_model {
-    //     IpaSecurityModel::Malicious => world
-    //         .malicious(records.into_iter(), |ctx, input_rows| async move {
-    //             ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-    //                 .await
-    //                 .unwrap()
-    //         })
-    //         .await
-    //         .reconstruct(),
-    //     IpaSecurityModel::SemiHonest => world
-    //         .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-    //             ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-    //                 .await
-    //                 .unwrap()
-    //         })
-    //         .await
-    //         .reconstruct(),
-    // };
-    // let result = result
-    //     .into_iter()
-    //     .map(|v| u32::try_from(v.as_u128()).unwrap())
-    //     .collect::<Vec<_>>();
-    // assert_eq!(result, expected_results);
+    let result: Vec<F> = match security_model {
+        IpaSecurityModel::Malicious => world
+            .malicious(records.into_iter(), |ctx, input_rows| async move {
+                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct(),
+        IpaSecurityModel::SemiHonest => world
+            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct(),
+    };
+    let result = result
+        .into_iter()
+        .map(|v| u32::try_from(v.as_u128()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(result, expected_results);
 }
 
 /// # Panics

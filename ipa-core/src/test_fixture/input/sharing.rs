@@ -2,7 +2,7 @@ use std::iter::{repeat, zip};
 
 use rand::{distributions::Standard, prelude::Distribution};
 
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 use crate::{ff::boolean::Boolean, ff::boolean_array::BA64};
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
@@ -367,8 +367,10 @@ where
     TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
-        let event_type =
-            Replicated::new(Boolean::from(true), Boolean::from(self.is_trigger_report));
+        let is_trigger = Replicated::new(
+            Boolean::from(self.is_trigger_report),
+            Boolean::from(self.is_trigger_report),
+        );
         let match_key = BA64::try_from(u128::from(self.user_id))
             .unwrap()
             .share_with(rng);
@@ -384,13 +386,13 @@ where
 
         zip(
             zip(zip(match_key, zip(timestamp, breakdown_key)), trigger_value),
-            repeat(event_type),
+            repeat(is_trigger),
         )
         .map(
-            |(((match_key_share, (ts_share, bk_share)), tv_share), event_type_share)| OprfReport {
+            |(((match_key_share, (ts_share, bk_share)), tv_share), is_trigger_share)| OprfReport {
                 timestamp: ts_share,
                 match_key: match_key_share,
-                event_type: event_type_share,
+                is_trigger: is_trigger_share,
                 breakdown_key: bk_share,
                 trigger_value: tv_share,
             },

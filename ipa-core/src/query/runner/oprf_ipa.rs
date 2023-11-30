@@ -76,7 +76,7 @@ where
             .into_iter()
             .map(|single_row| OprfReport {
                 match_key: single_row.match_key,
-                event_type: single_row.event_type,
+                is_trigger: single_row.is_trigger,
                 breakdown_key: single_row.breakdown_key,
                 trigger_value: single_row.trigger_value,
                 timestamp: single_row.timestamp,

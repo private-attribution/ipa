@@ -1,12 +1,12 @@
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 use std::iter::{repeat, zip};
 
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 use crate::report::OprfReport;
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -30,13 +30,13 @@ use crate::{
 };
 
 mod boolean_ops;
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 pub mod prf_eval;
 pub mod prf_sharding;
 #[cfg(feature = "descriptive-gate")]
 pub mod shuffle;
 
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
@@ -57,7 +57,7 @@ pub(crate) enum Step {
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
@@ -99,7 +99,7 @@ where
     .await
 }
 
-#[cfg(feature = "descriptive-gate")]
+// #[cfg(feature = "descriptive-gate")]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
@@ -144,7 +144,7 @@ where
 
                     Ok::<_, Error>(PrfShardedIpaInputRow {
                         prf_of_match_key,
-                        is_trigger_bit: record.event_type,
+                        is_trigger_bit: record.is_trigger,
                         breakdown_key: record.breakdown_key,
                         trigger_value: record.trigger_value,
                         timestamp: record.timestamp,
