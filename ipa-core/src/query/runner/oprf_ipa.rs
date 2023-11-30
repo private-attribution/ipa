@@ -7,7 +7,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
-        Field, PrimeField, Serializable,
+        PrimeField, Serializable,
     },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
@@ -16,15 +16,11 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        ipa_prf::prf_sharding::{
-            attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
-            PrfShardedIpaInputRow,
-        },
+        ipa_prf::oprf_ipa,
     },
-    report::{EventType, OprfReport},
-    secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        SharedValue,
+    report::OprfReport,
+    secret_sharing::replicated::{
+        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
 };
 
@@ -76,104 +72,13 @@ where
             panic!("Encrypted match key handling is not handled for OPRF flow as yet");
         };
 
-        let histogram = compute_histogram_of_users_with_row_count(&input);
-        let ref_to_histogram = &histogram;
-
-        // TODO: Compute OPRFs and shuffle and add dummies and stuff (Daniel's code will be called here)
-        let sharded_input = input
-            .into_iter()
-            .map(|single_row| {
-                let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                    Replicated::share_known_value(&ctx, Boolean::ONE)
-                } else {
-                    Replicated::share_known_value(&ctx, Boolean::ZERO)
-                };
-                PrfShardedIpaInputRow {
-                    prf_of_match_key: single_row.mk_oprf,
-                    is_trigger_bit: is_trigger_bit_share,
-                    breakdown_key: single_row.breakdown_key,
-                    trigger_value: single_row.trigger_value,
-                    timestamp: single_row.timestamp,
-                }
-            })
-            .collect::<Vec<_>>();
-        // Until then, we convert the output to something next function is happy about.
+        let aws = config.attribution_window_seconds;
         match config.per_user_credit_cap {
-            8 => attribute_cap_aggregate::<
-                C,
-                BA8,  // BreakdownKey,
-                BA3,  // TriggerValue,
-                BA20, // Timestamp,
-                BA3,  // Saturating Sum
-                Replicated<F>,
-                F,
-            >(
-                ctx,
-                sharded_input,
-                config.attribution_window_seconds,
-                ref_to_histogram,
-            )
-            .await,
-            16 => attribute_cap_aggregate::<
-                C,
-                BA8,  // BreakdownKey,
-                BA3,  // TriggerValue,
-                BA20, // Timestamp,
-                BA4,  // Saturating Sum
-                Replicated<F>,
-                F,
-            >(
-                ctx,
-                sharded_input,
-                config.attribution_window_seconds,
-                ref_to_histogram,
-            )
-            .await,
-            32 => attribute_cap_aggregate::<
-                C,
-                BA8,  // BreakdownKey,
-                BA3,  // TriggerValue,
-                BA20, // Timestamp,
-                BA5,  // Saturating Sum
-                Replicated<F>,
-                F,
-            >(
-                ctx,
-                sharded_input,
-                config.attribution_window_seconds,
-                ref_to_histogram,
-            )
-            .await,
-            64 => attribute_cap_aggregate::<
-                C,
-                BA8,  // BreakdownKey,
-                BA3,  // TriggerValue,
-                BA20, // Timestamp,
-                BA6,  // Saturating Sum
-                Replicated<F>,
-                F,
-            >(
-                ctx,
-                sharded_input,
-                config.attribution_window_seconds,
-                ref_to_histogram,
-            )
-            .await,
-            128 => attribute_cap_aggregate::<
-                C,
-                BA8,  // BreakdownKey,
-                BA3,  // TriggerValue,
-                BA20, // Timestamp,
-                BA7,  // Saturating Sum
-                Replicated<F>,
-                F,
-            >(
-                ctx,
-                sharded_input,
-                config.attribution_window_seconds,
-                ref_to_histogram,
-            )
-            .await,
+            8 => oprf_ipa::<C, BA8, BA3, BA20, BA3, F>(ctx, input, aws).await,
+            16 => oprf_ipa::<C, BA8, BA3, BA20, BA4, F>(ctx, input, aws).await,
+            32 => oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, input, aws).await,
+            64 => oprf_ipa::<C, BA8, BA3, BA20, BA6, F>(ctx, input, aws).await,
+            128 => oprf_ipa::<C, BA8, BA3, BA20, BA7, F>(ctx, input, aws).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap

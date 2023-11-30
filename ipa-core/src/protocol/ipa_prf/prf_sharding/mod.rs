@@ -37,12 +37,21 @@ pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
+#[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> {
     pub prf_of_match_key: u64,
     pub is_trigger_bit: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+}
+
+impl<BK: WeakSharedValue, TS: WeakSharedValue, TV: WeakSharedValue> GroupingKey
+    for PrfShardedIpaInputRow<BK, TV, TS>
+{
+    fn get_grouping_key(&self) -> u64 {
+        self.prf_of_match_key
+    }
 }
 
 struct InputsRequiredFromPrevRow<
@@ -557,7 +566,6 @@ where
 
         output.push(capped_attribution_outputs);
     }
-
     Ok(output)
 }
 

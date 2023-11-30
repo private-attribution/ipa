@@ -7,7 +7,6 @@ use crate::{
     helpers::query::IpaQueryConfig,
     ipa_test_input,
     protocol::{ipa::ipa, BreakdownKey, MatchKey},
-    report::OprfReport,
     secret_sharing::{
         replicated::{
             malicious, malicious::ExtendableField, semi_honest,
@@ -246,111 +245,39 @@ pub async fn test_oprf_ipa<F>(
     F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
     rand::distributions::Standard: rand::distributions::Distribution<F>,
     semi_honest::AdditiveShare<F>: Serializable,
+    Replicated<F>: Serializable,
 {
     use crate::{
-        ff::{
-            boolean::Boolean,
-            boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
-            Field,
-        },
-        protocol::{
-            basics::ShareKnownValue,
-            ipa_prf::prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
-                PrfShardedIpaInputRow,
-            },
-        },
-        report::EventType,
-        secret_sharing::SharedValue,
+        ff::boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+        protocol::ipa_prf::oprf_ipa,
+        report::OprfReport,
         test_fixture::Runner,
     };
-
-    let user_cap: i32 = config.per_user_credit_cap.try_into().unwrap();
-    assert!(
-        user_cap & (user_cap - 1) == 0,
-        "This code only works for a user cap which is a power of 2"
-    );
 
     //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
     records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
-    let histogram = compute_histogram_of_users_with_row_count(&records);
-    let ref_to_histogram = &histogram;
+    let aws = config.attribution_window_seconds;
 
-    let result: Vec<F> = world
+    let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
-                let sharded_input = input_rows
-                    .into_iter()
-                    .map(|single_row| {
-                        let is_trigger_bit_share = if single_row.event_type == EventType::Trigger {
-                            Replicated::share_known_value(&ctx, Boolean::ONE)
-                        } else {
-                            Replicated::share_known_value(&ctx, Boolean::ZERO)
-                        };
-                        PrfShardedIpaInputRow {
-                            prf_of_match_key: single_row.mk_oprf,
-                            is_trigger_bit: is_trigger_bit_share,
-                            breakdown_key: single_row.breakdown_key,
-                            trigger_value: single_row.trigger_value,
-                            timestamp: single_row.timestamp,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let aw = config.attribution_window_seconds;
 
                 match config.per_user_credit_cap {
-                    8 => attribute_cap_aggregate::<_, BA8, BA3, BA20, BA3, Replicated<F>, F>(
-                        ctx,
-                        sharded_input,
-                        aw,
-                        ref_to_histogram,
-                    )
+                    8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    16 => attribute_cap_aggregate::<
-                        _,
-                        BA8,  // BreakdownKey,
-                        BA3,  // TriggerValue,
-                        BA20, // Timestamp,
-                        BA4,  // Saturating Sum
-                        Replicated<F>,
-                        F,
-                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    16 => oprf_ipa::<_, BA8, BA3, BA20, BA4, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    32 => attribute_cap_aggregate::<
-                        _,
-                        BA8,  // BreakdownKey,
-                        BA3,  // TriggerValue,
-                        BA20, // Timestamp,
-                        BA5,  // Saturating Sum
-                        Replicated<F>,
-                        F,
-                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    32 => oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    64 => attribute_cap_aggregate::<
-                        _,
-                        BA8,  // BreakdownKey,
-                        BA3,  // TriggerValue,
-                        BA20, // Timestamp,
-                        BA6,  // Saturating Sum
-                        Replicated<F>,
-                        F,
-                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    64 => oprf_ipa::<_, BA8, BA3, BA20, BA6, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    128 => attribute_cap_aggregate::<
-                        _,
-                        BA8,  // BreakdownKey,
-                        BA3,  // TriggerValue,
-                        BA20, // Timestamp,
-                        BA7,  // Saturating Sum
-                        Replicated<F>,
-                        F,
-                    >(ctx, sharded_input, aw, ref_to_histogram)
+                    128 => oprf_ipa::<_, BA8, BA3, BA20, BA7, F>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
                     _ =>

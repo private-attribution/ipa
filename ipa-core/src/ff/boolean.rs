@@ -12,7 +12,7 @@ impl Block for bool {
 }
 
 ///implements shared value framework for bool
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub struct Boolean(bool);
 
 impl ExtendableField for Boolean {

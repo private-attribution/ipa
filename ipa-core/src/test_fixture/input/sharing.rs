@@ -1,7 +1,9 @@
-use std::iter::zip;
+use std::iter::{repeat, zip};
 
 use rand::{distributions::Standard, prelude::Distribution};
 
+// #[cfg(feature = "descriptive-gate")]
+use crate::{ff::boolean::Boolean, ff::boolean_array::BA64};
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
@@ -14,7 +16,8 @@ use crate::{
     rand::Rng,
     report::{EventType, OprfReport, Report},
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        IntoShares, WeakSharedValue,
     },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -364,11 +367,13 @@ where
     TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
-        let event_type = if self.is_trigger_report {
-            EventType::Trigger
-        } else {
-            EventType::Source
-        };
+        let is_trigger = Replicated::new(
+            Boolean::from(self.is_trigger_report),
+            Boolean::from(self.is_trigger_report),
+        );
+        let match_key = BA64::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
         let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
             .unwrap()
             .share_with(rng);
@@ -379,16 +384,21 @@ where
             .unwrap()
             .share_with(rng);
 
-        zip(zip(timestamp, breakdown_key), trigger_value)
-            .map(|((ts_share, bk_share), tv_share)| OprfReport {
+        zip(
+            zip(zip(match_key, zip(timestamp, breakdown_key)), trigger_value),
+            repeat(is_trigger),
+        )
+        .map(
+            |(((match_key_share, (ts_share, bk_share)), tv_share), is_trigger_share)| OprfReport {
                 timestamp: ts_share,
-                mk_oprf: self.user_id,
-                event_type,
+                match_key: match_key_share,
+                is_trigger: is_trigger_share,
                 breakdown_key: bk_share,
                 trigger_value: tv_share,
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
+            },
+        )
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
     }
 }
