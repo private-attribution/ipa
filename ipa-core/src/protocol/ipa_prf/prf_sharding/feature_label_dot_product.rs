@@ -6,34 +6,30 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
     protocol::{
-        basics::{SecureMul, ShareKnownValue},
+        basics::{if_else, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
-        step::BitOpStep,
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed, Linear as LinearSecretSharing,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        Linear as LinearSecretSharing, WeakSharedValue,
     },
     seq_join::seq_join,
 };
 
-pub struct PrfShardedIpaInputRow<FV: GaloisField> {
+pub struct PrfShardedIpaInputRow<FV: WeakSharedValue + CustomArray<Element = Boolean>> {
     prf_of_match_key: u64,
-    is_trigger_bit: Replicated<Gf2>,
+    is_trigger_bit: Replicated<Boolean>,
     feature_vector: Replicated<FV>,
 }
 
 struct InputsRequiredFromPrevRow {
-    ever_encountered_a_trigger_event: Replicated<Gf2>,
-    is_saturated: Replicated<Gf2>,
+    ever_encountered_a_trigger_event: Replicated<Boolean>,
+    is_saturated: Replicated<Boolean>,
 }
 
 impl InputsRequiredFromPrevRow {
@@ -58,12 +54,12 @@ impl InputsRequiredFromPrevRow {
         ctx: C,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<FV>,
-    ) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
+    ) -> Result<Replicated<FV>, Error>
     where
-        C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
-        FV: GaloisField,
+        C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+        FV: CustomArray<Element = Boolean> + Field,
     {
-        let share_of_one = Replicated::share_known_value(&ctx, Gf2::ONE);
+        let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
 
         let (ever_encountered_a_trigger_event, did_source_get_attributed) = try_join(
@@ -96,15 +92,13 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let unbitpacked_feature_vector = BitDecomposed::decompose(FV::BITS, |i| {
-            input_row.feature_vector.map(|v| Gf2::truncate_from(v[i]))
-        });
-
-        let capped_attributed_feature_vector = compute_capped_feature_vector(
+        let capped_label_vector = Replicated::<FV>::expand(&capped_label);
+        let capped_attributed_feature_vector = if_else(
             ctx.narrow(&Step::ComputedCappedFeatureVector),
             record_id,
-            &capped_label,
-            &unbitpacked_feature_vector,
+            &capped_label_vector,
+            &input_row.feature_vector,
+            &Replicated::<FV>::ZERO,
         )
         .await?;
 
@@ -141,7 +135,7 @@ pub(crate) enum Step {
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
 {
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
@@ -166,7 +160,7 @@ fn chunk_rows_by_user<FV, IS>(
     first_row: PrfShardedIpaInputRow<FV>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV>>>
 where
-    FV: GaloisField,
+    FV: WeakSharedValue + CustomArray<Element = Boolean>,
     IS: Stream<Item = PrfShardedIpaInputRow<FV>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -226,16 +220,16 @@ pub async fn compute_feature_label_dot_product<C, FV, F, S>(
 ) -> Result<Vec<S>, Error>
 where
     C: UpgradableContext,
-    C::UpgradedContext<Gf2>: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
-    FV: GaloisField,
+    FV: CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
 {
-    assert!(FV::BITS > 0);
+    assert!(<FV as WeakSharedValue>::BITS > 0);
 
-    // Get the validator and context to use for Gf2 multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Gf2>();
+    // Get the validator and context to use for Boolean multiplication operations
+    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
     let binary_m_ctx = binary_validator.context();
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
@@ -282,13 +276,13 @@ where
             .narrow(&Step::ModulusConvertFeatureVectorBits)
             .set_total_records(num_outputs),
         flattened_stream,
-        0..FV::BITS,
+        0..<FV as WeakSharedValue>::BITS,
     );
 
     // Sum up all the vectors
     converted_feature_vector_bits
         .try_fold(
-            vec![S::ZERO; usize::try_from(FV::BITS).unwrap()],
+            vec![S::ZERO; usize::try_from(<FV as WeakSharedValue>::BITS).unwrap()],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -303,10 +297,10 @@ async fn evaluate_per_user_attribution_circuit<C, FV>(
     ctx_for_row_number: Vec<C>,
     record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Result<Vec<BitDecomposed<Replicated<Gf2>>>, Error>
+) -> Result<Vec<Replicated<FV>>, Error>
 where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
-    FV: GaloisField,
+    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    FV: CustomArray<Element = Boolean> + Field,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -341,7 +335,7 @@ fn initialize_new_device_attribution_variables<FV>(
     input_row: &PrfShardedIpaInputRow<FV>,
 ) -> InputsRequiredFromPrevRow
 where
-    FV: GaloisField,
+    FV: WeakSharedValue + CustomArray<Element = Boolean>,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -349,42 +343,24 @@ where
     }
 }
 
-async fn compute_capped_feature_vector<C>(
-    ctx: C,
-    record_id: RecordId,
-    capped_label: &Replicated<Gf2>,
-    feature_vector: &BitDecomposed<Replicated<Gf2>>,
-) -> Result<BitDecomposed<Replicated<Gf2>>, Error>
-where
-    C: UpgradedContext<Gf2, Share = Replicated<Gf2>>,
-{
-    Ok(BitDecomposed::new(
-        ctx.parallel_join(feature_vector.iter().enumerate().map(|(i, bit)| {
-            let c1 = ctx.narrow(&BitOpStep::from(i));
-            async move { capped_label.multiply(bit, c1, record_id).await }
-        }))
-        .await?,
-    ))
-}
-
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use crate::{
-        ff::{Field, Fp32BitPrime, GaloisField, Gf2, Gf32Bit},
+        ff::{boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime},
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<FV: GaloisField> {
+    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>> {
         prf_of_match_key: u64,
-        is_trigger_bit: Gf2,
+        is_trigger_bit: Boolean,
         feature_vector: FV,
     }
 
@@ -392,19 +368,23 @@ pub mod tests {
         prf_of_match_key: u64,
         is_trigger: bool,
         feature_vector: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<Gf32Bit> {
-        let is_trigger_bit = if is_trigger { Gf2::ONE } else { Gf2::ZERO };
+    ) -> PreShardedAndSortedOPRFTestInput<BA32> {
+        let is_trigger_bit = if is_trigger {
+            Boolean::ONE
+        } else {
+            <Boolean as WeakSharedValue>::ZERO
+        };
 
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            feature_vector: Gf32Bit::truncate_from(feature_vector),
+            feature_vector: BA32::truncate_from(feature_vector),
         }
     }
 
     impl<FV> IntoShares<PrfShardedIpaInputRow<FV>> for PreShardedAndSortedOPRFTestInput<FV>
     where
-        FV: GaloisField + IntoShares<Replicated<FV>>,
+        FV: WeakSharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV>; 3] {
             let PreShardedAndSortedOPRFTestInput {
@@ -443,7 +423,7 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<Gf32Bit>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA32>> = vec![
                 /* First User */
                 test_input(123, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
                 test_input(123, false, 0b1101_0100_1111_0001_0111_0010_1010_1011), // this source DOES receive attribution
@@ -482,7 +462,7 @@ pub mod tests {
                     async move {
                         compute_feature_label_dot_product::<
                             _,
-                            Gf32Bit,
+                            BA32,
                             Fp32BitPrime,
                             Replicated<Fp32BitPrime>,
                         >(ctx, input_rows, h)

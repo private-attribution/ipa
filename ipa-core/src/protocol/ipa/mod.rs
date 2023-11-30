@@ -11,7 +11,7 @@ use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{ArrayAccess, Field, GaloisField, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::secure_attribution,
@@ -323,7 +323,7 @@ where
         + 'static,
     for<'r> &'r SB: LinearRefOps<'r, SB, Gf2>,
     F: PrimeField + ExtendableField,
-    MK: GaloisField,
+    MK: GaloisField + ArrayAccess<Output = bool>,
     BK: GaloisField,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
