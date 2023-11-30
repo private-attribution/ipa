@@ -234,6 +234,7 @@ pub async fn test_ipa<F>(
 
 /// # Panics
 /// If any of the IPA protocol modules panic
+#[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
@@ -247,7 +248,7 @@ pub async fn test_oprf_ipa<F>(
     Replicated<F>: Serializable,
 {
     use crate::{
-        ff::boolean_array::{BA20, BA3, BA5, BA8},
+        ff::boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
         protocol::ipa_prf::oprf_ipa,
         report::OprfReport,
         test_fixture::Runner,
@@ -259,10 +260,30 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<_, _, _>>| async move {
-                oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, config)
+            |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
+
+                match config.per_user_credit_cap {
+                    8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, config)
                     .await
-                    .unwrap()
+                    .unwrap(),
+                    16 => oprf_ipa::<_, BA8, BA3, BA20, BA4, F>(ctx, input_rows, config)
+                    .await
+                    .unwrap(),
+                    32 => oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, config)
+                    .await
+                    .unwrap(),
+                    64 => oprf_ipa::<_, BA8, BA3, BA20, BA6, F>(ctx, input_rows, config)
+                    .await
+                    .unwrap(),
+                    128 => oprf_ipa::<_, BA8, BA3, BA20, BA7, F>(ctx, input_rows, config)
+                    .await
+                    .unwrap(),
+                    _ =>
+                    panic!(
+                        "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                        config.per_user_credit_cap
+                    ),
+                }
             },
         )
         .await

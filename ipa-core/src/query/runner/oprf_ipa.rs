@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA5, BA8},
+        boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
         PrimeField, Serializable,
     },
     helpers::{
@@ -38,6 +38,7 @@ impl<C, F> OprfIpaQuery<C, F> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 impl<C, F> OprfIpaQuery<C, F>
 where
     C: UpgradableContext,
@@ -82,6 +83,17 @@ where
                 timestamp: single_row.timestamp,
             })
             .collect::<Vec<_>>();
-        oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, sharded_inputs, config).await
+        // Until then, we convert the output to something next function is happy about.
+        match config.per_user_credit_cap {
+            8 => oprf_ipa::<C, BA8, BA3, BA20, BA3, F>(ctx, sharded_inputs, config).await,
+            16 => oprf_ipa::<C, BA8, BA3, BA20, BA4, F>(ctx, sharded_inputs, config).await,
+            32 => oprf_ipa::<C, BA8, BA3, BA20, BA5, F>(ctx, sharded_inputs, config).await,
+            64 => oprf_ipa::<C, BA8, BA3, BA20, BA6, F>(ctx, sharded_inputs, config).await,
+            128 => oprf_ipa::<C, BA8, BA3, BA20, BA7, F>(ctx, sharded_inputs, config).await,
+            _ => panic!(
+                "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
+                config.per_user_credit_cap
+            ),
+        }
     }
 }

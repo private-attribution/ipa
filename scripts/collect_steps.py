@@ -172,7 +172,7 @@ def ipa_steps():
     return output
 
 OPRF_BREAKDOWN_KEY = 256
-OPRF_USER_CAP = [32]
+OPRF_USER_CAP = [8, 16, 32, 64, 128]
 OPRF_SECURITY_MODEL = "semi-honest"
 OPRF_TRIGGER_VALUE = [6, 7]
 

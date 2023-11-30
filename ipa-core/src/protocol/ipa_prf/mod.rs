@@ -17,7 +17,7 @@ use crate::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribution_and_capping_and_aggregation, compute_histogram_of_users_with_row_count,
+                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
                 PrfShardedIpaInputRow,
             },
         },
@@ -90,7 +90,7 @@ where
     let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
 
     // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
-    attribution_and_capping_and_aggregation::<C, BK, TV, TS, SS, Replicated<F>, F>(
+    attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
         config.attribution_window_seconds,
