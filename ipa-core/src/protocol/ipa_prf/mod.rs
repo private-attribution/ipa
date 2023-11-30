@@ -1,12 +1,7 @@
-// #[cfg(feature = "descriptive-gate")]
 use std::iter::{repeat, zip};
 
-// #[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
-// #[cfg(feature = "descriptive-gate")]
-use crate::report::OprfReport;
-// #[cfg(feature = "descriptive-gate")]
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -23,6 +18,7 @@ use crate::{
         },
         RecordId,
     },
+    report::OprfReport,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         WeakSharedValue,
@@ -30,13 +26,11 @@ use crate::{
 };
 
 mod boolean_ops;
-// #[cfg(feature = "descriptive-gate")]
 pub mod prf_eval;
 pub mod prf_sharding;
 #[cfg(feature = "descriptive-gate")]
 pub mod shuffle;
 
-// #[cfg(feature = "descriptive-gate")]
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
@@ -57,7 +51,6 @@ pub(crate) enum Step {
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-// #[cfg(feature = "descriptive-gate")]
 pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
@@ -99,7 +92,6 @@ where
     .await
 }
 
-// #[cfg(feature = "descriptive-gate")]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
@@ -169,7 +161,7 @@ pub mod tests {
 
     #[test]
     fn semi_honest() {
-        const PER_USER_CAP: u32 = 16;
+        const PER_USER_CAP: u32 = 32;
         const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
