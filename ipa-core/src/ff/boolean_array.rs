@@ -318,6 +318,17 @@ boolean_array_impl!(
     )
 );
 
+//impl BA4
+boolean_array_impl!(
+    boolean_array_4,
+    BA4,
+    4,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0
+    )
+);
+
 //impl BA5
 boolean_array_impl!(
     boolean_array_5,
@@ -326,6 +337,28 @@ boolean_array_impl!(
     1,
     bitarr ! ( const u8, Lsb0;
         1, 0, 0, 0, 0
+    )
+);
+
+//impl BA6
+boolean_array_impl!(
+    boolean_array_6,
+    BA6,
+    6,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0
+    )
+);
+
+//impl BA7
+boolean_array_impl!(
+    boolean_array_7,
+    BA7,
+    7,
+    1,
+    bitarr ! ( const u8, Lsb0;
+        1, 0, 0, 0, 0, 0, 0
     )
 );
 
