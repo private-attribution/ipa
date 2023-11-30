@@ -67,7 +67,7 @@ where
             // first element is pivot, apply key extraction function f
             let pivot = f(iterator.next().unwrap());
             // create pointer to context for moving into closure
-            let pctx = &ctx;
+            let pctx = &(ctx.set_total_records(b_r - (b_l + 1)));
             let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
             let comp = seq_join(
@@ -76,8 +76,7 @@ where
                     async move {
                         // compare current element against pivot
                         let sh_comp = compare_gt(
-                            pctx.narrow(&Step::Compare)
-                                .set_total_records(b_r - (b_l + 1)),
+                            pctx.narrow(&Step::Compare),
                             RecordId::from(n),
                             // apply key extraction function f to element x
                             pf(x),
@@ -87,11 +86,7 @@ where
 
                         // reveal outcome of comparison
                         sh_comp
-                            .reveal(
-                                pctx.narrow(&Step::Reveal)
-                                    .set_total_records(b_r - (b_l + 1)),
-                                RecordId::from(n),
-                            )
+                            .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
                             .await
                     }
                 })),
