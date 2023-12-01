@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
 };
 
 #[cfg(all(test, unit_test))]
@@ -32,8 +32,8 @@ pub async fn integer_add<C, XS, YS>(
 where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray + Field,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray + Field,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
@@ -102,8 +102,8 @@ async fn addition_circuit<C, XS, YS>(
 where
     C: Context,
     for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    XS: WeakSharedValue + CustomArray,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
