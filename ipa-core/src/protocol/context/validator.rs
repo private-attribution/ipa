@@ -178,7 +178,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
         // `([[ᾶ_1]], . . . , [[ᾶ_N ]], [[β_1]], . . . , [[β_M]])` and `([[z_1]], . . . , [[z_N]], [[v_1]], . . . , [[v_M]])` to receive `[[ŵ]]`
         let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
-        let random_constant = prss.generate_replicated(record_id);
+        let random_constant = prss.generate(record_id);
         let u_contribution: F::ExtendedField =
             Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution: F::ExtendedField =
@@ -250,7 +250,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: MaliciousContext<'a>) -> Self {
         // Use the current step in the context for initialization.
-        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate_replicated(RecordId::FIRST);
+        let r_share: Replicated<F::ExtendedField> = ctx.prss().generate(RecordId::FIRST);
         let prss = ctx.prss();
         let u: F::ExtendedField = prss.zero(RecordId::FIRST + 1);
         let w: F::ExtendedField = prss.zero(RecordId::FIRST + 2);

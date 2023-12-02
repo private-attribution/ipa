@@ -6,6 +6,7 @@ use typenum::U32;
 
 use crate::{
     ff::{boolean_array::BA256, Field, Serializable},
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -52,6 +53,7 @@ impl Serializable for Fp25519 {
         *buf.as_mut() = self.0.to_bytes();
     }
 
+    /// Deserialized values are reduced modulo the field order.
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
         Fp25519(Scalar::from_bytes_mod_order((*buf).into()))
     }
@@ -125,15 +127,19 @@ impl From<Scalar> for Fp25519 {
     }
 }
 
-/// conversion from BA256 into Fp25519
+/// Conversion from BA256 into Fp25519
+///
+/// Values are reduced modulo the field order.
 impl From<BA256> for Fp25519 {
     fn from(s: BA256) -> Self {
         let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
         s.serialize(&mut buf);
+        // Reduces mod order
         Fp25519::deserialize(&buf)
     }
 }
 
+/*
 /// BA256 mod field prime
 impl BA256 {
     #[must_use]
@@ -143,6 +149,7 @@ impl BA256 {
         BA256::deserialize(&buf)
     }
 }
+*/
 
 ///conversion from and to unsigned integers, preserving entropy, for testing purposes only
 #[cfg(test)]
@@ -184,16 +191,19 @@ impl Field for Fp25519 {
     ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
     /// from or into u128. However it is sufficient to generate random elements in Fp25519
     fn as_u128(&self) -> u128 {
-        let hk = Hkdf::<Sha256>::new(None, self.0.as_bytes());
-        let mut okm = [0u8; 16];
-        //error invalid length from expand only happens when okm is very large
-        hk.expand(&[], &mut okm).unwrap();
-        u128::from_le_bytes(okm)
+        unimplemented!()
     }
 
     ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
-    fn truncate_from<T: Into<u128>>(v: T) -> Self {
-        let hk = Hkdf::<Sha256>::new(None, &v.into().to_le_bytes());
+    fn truncate_from<T: Into<u128>>(_v: T) -> Self {
+        unimplemented!()
+    }
+}
+
+// TODO: remove this impl
+impl FromRandomU128 for Fp25519 {
+    fn from_random_u128(v: u128) -> Self {
+        let hk = Hkdf::<Sha256>::new(None, &v.to_le_bytes());
         let mut okm = [0u8; 32];
         //error invalid length from expand only happens when okm is very large
         hk.expand(&[], &mut okm).unwrap();

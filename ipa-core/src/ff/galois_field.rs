@@ -10,6 +10,7 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 use super::ArrayAccess;
 use crate::{
     ff::{Field, Serializable},
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -180,6 +181,12 @@ macro_rules! bit_array_impl {
                 fn set(&mut self, index: usize, e: Self::Output) {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
+                }
+            }
+
+            impl FromRandomU128 for $name {
+                fn from_random_u128(src: u128) -> Self {
+                    Field::truncate_from(src)
                 }
             }
 

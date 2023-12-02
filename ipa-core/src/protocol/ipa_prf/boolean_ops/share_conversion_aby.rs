@@ -112,7 +112,7 @@ where
         let mut r: AdditiveShare<BA256> = ctx
             .narrow(&Step::GenerateSecretSharing)
             .prss()
-            .generate_replicated(record_id);
+            .generate(record_id);
 
         // set 2 highest order bits of r1, r2, r3 to 0
         r.set(255, AdditiveShare::<Boolean>::ZERO);
