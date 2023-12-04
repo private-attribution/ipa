@@ -124,16 +124,16 @@ where
 
     let prf_key = gen_prf_key(&convert_ctx);
 
-    ctx.parallel_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
+    ctx.try_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
         let convert_ctx = convert_ctx.clone();
         let eval_ctx = eval_ctx.clone();
-        let prf_key = prf_key.clone();
+        let prf_key = &prf_key;
         async move {
             let record_id = RecordId::from(idx);
             let elliptic_curve_pt =
                 convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key).await?;
             let elliptic_curve_pt =
-                eval_dy_prf(eval_ctx, record_id, &prf_key, &elliptic_curve_pt).await?;
+                eval_dy_prf(eval_ctx, record_id, prf_key, &elliptic_curve_pt).await?;
 
             Ok::<_, Error>(PrfShardedIpaInputRow {
                 prf_of_match_key: elliptic_curve_pt,
