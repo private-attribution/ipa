@@ -71,6 +71,7 @@ impl PartialEq for EpsilonBits {
 
 impl Eq for EpsilonBits {}
 
+#[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for EpsilonBits {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other).unwrap()
@@ -83,14 +84,15 @@ impl Display for EpsilonBits {
     }
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn apply<I: AsRef<[u32]>>(input: I, args: &ApplyDpArgs) -> BTreeMap<EpsilonBits, NoisyOutput> {
     let mut rng = args
         .seed
-        .map(StdRng::seed_from_u64)
-        .unwrap_or_else(StdRng::from_entropy);
+        .map_or_else(StdRng::from_entropy, StdRng::seed_from_u64);
     let mut result = BTreeMap::new();
     for &epsilon in &args.epsilon {
-        let discrete_dp = InsecureDiscreteDp::new(epsilon, args.delta, args.cap as f64).unwrap();
+        let discrete_dp =
+            InsecureDiscreteDp::new(epsilon, args.delta, f64::from(args.cap)).unwrap();
         let mut v = input
             .as_ref()
             .iter()

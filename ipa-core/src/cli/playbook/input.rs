@@ -113,6 +113,7 @@ impl InputSource {
             .filter_map(|line| line.map(|l| T::from_str(&l)).ok())
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn to_vec(mut self) -> Result<Vec<u8>, io::Error> {
         let mut buf = vec![];
         self.read_to_end(&mut buf)?;

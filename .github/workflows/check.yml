@@ -47,25 +47,25 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Check formatting
-        run: cargo fmt --all -- --check --config "imports_granularity=Crate,group_imports=StdExternalCrate"
+        run: cargo fmt --all --features basic -- --check --config "imports_granularity=Crate,group_imports=StdExternalCrate"
 
       - name: Clippy
         if: ${{ success() || failure() }}
-        run: cargo clippy --tests
+        run: cargo clippy --tests --features basic
 
       - name: Clippy concurrency tests
         if: ${{ success() || failure() }}
-        run: cargo clippy --tests --features shuttle
+        run: cargo clippy --tests --features "basic shuttle"
 
       - name: Build
         if: ${{ success() || failure() }}
-        run: cargo build --tests
+        run: cargo build --tests --features basic
 
       - name: Run Tests
-        run: cargo test
+        run: cargo test --features basic
 
       - name: Run Web Tests
-        run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+        run: cargo test --features "helper ipa-core/descriptive-gate integration-test"
 
   release:
     name: Release builds and tests
@@ -91,13 +91,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Release Build
-        run: cargo build --release
+        run: cargo build --release --features basic
 
       - name: Build concurrency tests
-        run: cargo build --release --features shuttle
+        run: cargo build --release --features "basic shuttle"
 
       - name: Run concurrency tests
-        run: cargo test --release --features shuttle
+        run: cargo test --release --features "basic shuttle"
 
   extra:
     name: Additional Builds and Concurrency Tests
@@ -125,19 +125,19 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: Build benchmarks
-        run: cargo build --benches --no-default-features --features "enable-benches descriptive-gate"
+        run: cargo build --benches --features "enable-benches descriptive-gate"
 
       - name: Build concurrency tests (debug mode)
-        run: cargo build --features shuttle
+        run: cargo build --features "basic shuttle"
 
       - name: Run IPA bench
-        run: cargo bench --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate"
+        run: cargo bench --bench oneshot_ipa --features "enable-benches descriptive-gate"
 
       - name: Run arithmetic bench
-        run: cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches descriptive-gate"
+        run: cargo bench --bench oneshot_arithmetic --features "enable-benches descriptive-gate"
 
       - name: Run compact gate tests
-        run: cargo test --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
+        run: cargo test --features "helper ipa-core/compact-gate integration-test"
 
   # sanitizers currently require nightly https://github.com/rust-lang/rust/issues/39699
   sanitize:
@@ -154,4 +154,4 @@ jobs:
       - name: Add Rust sources
         run: rustup component add rust-src
       - name: Run tests with sanitizer
-        run: RUSTFLAGS="-Z sanitizer=${{ matrix.sanitizer }} -Z sanitizer-memory-track-origins" cargo test -Z build-std --target $TARGET --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+        run: RUSTFLAGS="-Z sanitizer=${{ matrix.sanitizer }} -Z sanitizer-memory-track-origins" cargo test -Z build-std --target $TARGET --features "helper ipa-core/descriptive-gate integration-test"

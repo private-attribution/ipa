@@ -39,7 +39,7 @@ while IFS=, read -d ' ' actual_step_name a b c d; do
     esac
     records[$step]=$((${records[$step]} + $a))
     bytes[$step]=$((${bytes[$step]} + $b))
-done <<< $(RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" --no-default-features -- -n $num_rows 2> /dev/null)
+done <<< $(RUST_LOG=ipa=DEBUG cargo bench --bench oneshot_ipa --features="enable-benches" -- -n $num_rows 2> /dev/null)
 
 for step in "${!DISPLAY_STAGE[@]}"; do 
     echo "${DISPLAY_STAGE[$step]},${records[$step]},${bytes[$step]}"

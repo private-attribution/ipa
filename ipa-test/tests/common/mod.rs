@@ -18,7 +18,6 @@ use rand::thread_rng;
 use rand_core::RngCore;
 use tempdir::TempDir;
 
-#[cfg(all(test, feature = "cli"))]
 pub mod tempdir;
 
 pub const HELPER_BIN: &str = env!("CARGO_BIN_EXE_helper");

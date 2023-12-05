@@ -75,28 +75,28 @@ cargo test
 There are a handful of benchmarks which can be run, but `oneshot_ipa` will run the whole protocol locally. On a M1 Macbook Pro, this takes a couple minutes.
 
 ```
-cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate"
+cargo bench --bench oneshot_ipa --features="enable-benches descriptive-gate"
 ```
 
 Other benchmarks you can run:
 
 **Sorting**:
 ```
-cargo bench --bench oneshot_sort --no-default-features --features="enable-benches descriptive-gate"
+cargo bench --bench oneshot_sort --features="enable-benches descriptive-gate"
 ```
 
 **Arithmetic gates**:
 ```
-cargo bench --bench oneshot_arithmetic --no-default-features --features="enable-benches descriptive-gate" -- --width 1 --depth 1
+cargo bench --bench oneshot_arithmetic --features="enable-benches descriptive-gate" -- --width 1 --depth 1
 ```
 You can adjust the width and depth of the gates at the expense of a longer benchmarking run.
 
 **Other**:
 ```
-cargo bench --bench criterion_arithmetic --no-default-features --features="enable-benches descriptive-gate"
+cargo bench --bench criterion_arithmetic --features="enable-benches descriptive-gate"
 ```
 
 ```
-cargo bench --bench iai_arithmetic --no-default-features --features="enable-benches descriptive-gate"
+cargo bench --bench iai_arithmetic --features="enable-benches descriptive-gate"
 ```
 (NOTE: This benchmark only works on Linux. If you are on macOS, an error is expected.)
