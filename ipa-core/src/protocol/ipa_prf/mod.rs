@@ -99,6 +99,7 @@ where
     .await
 }
 
+#[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,

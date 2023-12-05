@@ -307,6 +307,7 @@ pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
+#[tracing::instrument(name = "compute_histogram_of_users_with_row_count", skip_all)]
 pub fn compute_histogram_of_users_with_row_count<S>(input: &[S]) -> Vec<usize>
 where
     S: GroupingKey,
@@ -398,6 +399,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
+#[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
 pub async fn attribute_cap_aggregate<C, BK, TV, TS, SS, S, F>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
