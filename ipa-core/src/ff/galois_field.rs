@@ -7,12 +7,11 @@ use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
+use super::ArrayAccess;
 use crate::{
     ff::{Field, Serializable},
     secret_sharing::{Block, SharedValue},
 };
-
-use super::ArrayAccess;
 
 /// Trait for data types storing arbitrary number of bits.
 pub trait GaloisField:
