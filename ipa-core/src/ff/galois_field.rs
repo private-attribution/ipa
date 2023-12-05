@@ -7,6 +7,7 @@ use bitvec::prelude::{bitarr, BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
+use super::ArrayAccess;
 use crate::{
     ff::{Field, Serializable},
     secret_sharing::{Block, SharedValue},
@@ -162,6 +163,23 @@ macro_rules! bit_array_impl {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+            impl ArrayAccess for $name {
+                type Output = bool;
+
+                fn get(&self, index: usize) -> Option<Self::Output> {
+                    if index < usize::try_from(<$name>::BITS).unwrap() {
+                        Some(self.0[index].into())
+                    } else {
+                        None
+                    }
+                }
+
+                fn set(&mut self, index: usize, e: Self::Output) {
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
+                    self.0.set(index, bool::from(e));
                 }
             }
 
@@ -611,16 +629,6 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^9 + x^4 + x^3 + x + 1
     0b10_0001_1011_u128,
-);
-
-bit_array_impl!(
-    bit_array_5,
-    Gf5Bit,
-    U8_1,
-    5,
-    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0),
-    // x^5 + x^4 + x^3 + x^2 + x + 1
-    0b111_111_u128,
 );
 
 bit_array_impl!(
