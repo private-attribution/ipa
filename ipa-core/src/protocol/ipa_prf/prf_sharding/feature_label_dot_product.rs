@@ -16,12 +16,12 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing, WeakSharedValue,
+        Linear as LinearSecretSharing, SharedValue,
     },
     seq_join::seq_join,
 };
 
-pub struct PrfShardedIpaInputRow<FV: WeakSharedValue + CustomArray<Element = Boolean>> {
+pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
     feature_vector: Replicated<FV>,
@@ -160,7 +160,7 @@ fn chunk_rows_by_user<FV, IS>(
     first_row: PrfShardedIpaInputRow<FV>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV>>>
 where
-    FV: WeakSharedValue + CustomArray<Element = Boolean>,
+    FV: SharedValue + CustomArray<Element = Boolean>,
     IS: Stream<Item = PrfShardedIpaInputRow<FV>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -226,7 +226,7 @@ where
     FV: CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
 {
-    assert!(<FV as WeakSharedValue>::BITS > 0);
+    assert!(<FV as SharedValue>::BITS > 0);
 
     // Get the validator and context to use for Boolean multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
@@ -276,13 +276,13 @@ where
             .narrow(&Step::ModulusConvertFeatureVectorBits)
             .set_total_records(num_outputs),
         flattened_stream,
-        0..<FV as WeakSharedValue>::BITS,
+        0..<FV as SharedValue>::BITS,
     );
 
     // Sum up all the vectors
     converted_feature_vector_bits
         .try_fold(
-            vec![S::ZERO; usize::try_from(<FV as WeakSharedValue>::BITS).unwrap()],
+            vec![S::ZERO; usize::try_from(<FV as SharedValue>::BITS).unwrap()],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -335,7 +335,7 @@ fn initialize_new_device_attribution_variables<FV>(
     input_row: &PrfShardedIpaInputRow<FV>,
 ) -> InputsRequiredFromPrevRow
 where
-    FV: WeakSharedValue + CustomArray<Element = Boolean>,
+    FV: SharedValue + CustomArray<Element = Boolean>,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -352,7 +352,7 @@ pub mod tests {
         },
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -372,7 +372,7 @@ pub mod tests {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
-            <Boolean as WeakSharedValue>::ZERO
+            <Boolean as SharedValue>::ZERO
         };
 
         PreShardedAndSortedOPRFTestInput {
@@ -384,7 +384,7 @@ pub mod tests {
 
     impl<FV> IntoShares<PrfShardedIpaInputRow<FV>> for PreShardedAndSortedOPRFTestInput<FV>
     where
-        FV: WeakSharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
+        FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV>; 3] {
             let PreShardedAndSortedOPRFTestInput {
