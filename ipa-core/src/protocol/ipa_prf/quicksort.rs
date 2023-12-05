@@ -1,5 +1,8 @@
 use bitvec::prelude::{BitVec, Lsb0};
-use futures::stream::{iter as stream_iter, TryStreamExt};
+use futures::{
+    future,
+    stream::{iter as stream_iter, TryStreamExt},
+};
 use ipa_macros::Step;
 
 use crate::{
@@ -57,7 +60,6 @@ where
     // create stack
     let mut stack: Vec<(C, usize, usize)> = Vec::with_capacity(expected_depth);
     // vector for comparison (against pivot) outcomes
-    #[allow(unused_assignments)]
     let mut comp: BitVec<usize, Lsb0> = BitVec::with_capacity(list.len());
 
     // initialize stack
@@ -76,7 +78,8 @@ where
             let pctx = &(ctx.set_total_records(b_r - (b_l + 1)));
             let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
-            comp = seq_join(
+            comp.clear();
+            seq_join(
                 ctx.active_work(),
                 stream_iter(iterator.enumerate().map(|(n, x)| {
                     async move {
@@ -101,7 +104,10 @@ where
                     }
                 })),
             )
-            .try_collect()
+            .try_for_each(|x| {
+                comp.push(x);
+                future::ready(Ok(()))
+            })
             .await?;
 
             // swap elements based on comparisons
