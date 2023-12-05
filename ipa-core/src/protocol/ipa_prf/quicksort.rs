@@ -107,7 +107,6 @@ where
             // swap elements based on comparisons
             // i is index of first element larger than pivot
             let mut i = b_l + 1;
-            //let mut j = b_l + 1;
             for (j, b) in comp.iter().enumerate() {
                 if *b {
                     list.swap(i, j + b_l + 1);
