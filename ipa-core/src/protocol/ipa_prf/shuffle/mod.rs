@@ -57,8 +57,7 @@ where
 
     let mut offset = BA64::BITS as usize;
 
-    y.0.set(offset, input.is_trigger.left());
-    y.1.set(offset, input.is_trigger.right());
+    y.set(offset, input.is_trigger.clone());
 
     offset += 1;
 
