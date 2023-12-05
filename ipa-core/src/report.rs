@@ -69,7 +69,7 @@ impl Serializable for EventType {
         match buf[0] {
             0 => EventType::Trigger,
             1 => EventType::Source,
-            2_u8..=u8::MAX => panic!("Unreachable code"),
+            v @ 2_u8..=u8::MAX => panic!("Unrecognized event type: {v}"),
         }
     }
 }
