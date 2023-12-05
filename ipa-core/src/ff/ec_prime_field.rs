@@ -139,18 +139,6 @@ impl From<BA256> for Fp25519 {
     }
 }
 
-/*
-/// BA256 mod field prime
-impl BA256 {
-    #[must_use]
-    pub fn mod_fp25519(&self) -> Self {
-        let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
-        Fp25519::from(*self).serialize(&mut buf);
-        BA256::deserialize(&buf)
-    }
-}
-*/
-
 ///conversion from and to unsigned integers, preserving entropy, for testing purposes only
 #[cfg(test)]
 macro_rules! sc_hash_impl {
