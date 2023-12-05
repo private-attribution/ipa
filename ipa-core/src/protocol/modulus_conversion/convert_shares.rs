@@ -44,7 +44,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, Linear as LinearSecretSharing, WeakSharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
     },
     seq_join::seq_join,
 };
@@ -132,7 +132,7 @@ pub trait ToBitConversionTriples {
         I: IntoIterator<Item = u32>;
 }
 
-impl<B: WeakSharedValue + ArrayAccess<Output = T>, T: Into<bool>> ToBitConversionTriples
+impl<B: SharedValue + ArrayAccess<Output = T>, T: Into<bool>> ToBitConversionTriples
     for Replicated<B>
 {
     type Residual = ();

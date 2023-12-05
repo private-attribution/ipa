@@ -11,7 +11,7 @@ use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{ArrayAccess, Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{ArrayAccess, Field, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::secure_attribution,
@@ -35,7 +35,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SharedValue,
     },
 };
 
@@ -60,7 +60,7 @@ pub(crate) enum IPAInputRowResharableStep {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
+pub struct IPAInputRow<F: Field, MK: SharedValue, BK: SharedValue> {
     pub timestamp: Replicated<F>,
     pub mk_shares: Replicated<MK>,
     pub is_trigger_bit: Replicated<F>,
@@ -68,7 +68,7 @@ pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field, MK: GaloisField, BK: GaloisField> Serializable for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: SharedValue, BK: SharedValue> Serializable for IPAInputRow<F, MK, BK>
 where
     Replicated<BK>: Serializable,
     Replicated<MK>: Serializable,
@@ -163,7 +163,7 @@ where
     }
 }
 
-impl<F: Field, MK: GaloisField, BK: GaloisField> IPAInputRow<F, MK, BK>
+impl<F: Field, MK: SharedValue, BK: SharedValue> IPAInputRow<F, MK, BK>
 where
     IPAInputRow<F, MK, BK>: Serializable,
 {
@@ -323,8 +323,8 @@ where
         + 'static,
     for<'r> &'r SB: LinearRefOps<'r, SB, Gf2>,
     F: PrimeField + ExtendableField,
-    MK: GaloisField + ArrayAccess<Output = bool>,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
         + UpgradeToMalicious<
@@ -413,16 +413,16 @@ fn get_gf2_match_key_bits<F, MK, BK>(
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
-    MK: GaloisField,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
 {
     input_rows
         .iter()
         .map(|row| {
             BitDecomposed::decompose(MK::BITS, |i| {
                 Replicated::new(
-                    Gf2::truncate_from(row.mk_shares.left()[i]),
-                    Gf2::truncate_from(row.mk_shares.right()[i]),
+                    Gf2::truncate_from(row.mk_shares.left().get(i.try_into().unwrap()).unwrap()),
+                    Gf2::truncate_from(row.mk_shares.right().get(i.try_into().unwrap()).unwrap()),
                 )
             })
         })
@@ -434,16 +434,23 @@ fn get_gf2_breakdown_key_bits<F, MK, BK>(
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
-    MK: GaloisField,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
 {
     input_rows
         .iter()
         .map(|row| {
             BitDecomposed::decompose(BK::BITS, |i| {
                 Replicated::new(
-                    Gf2::truncate_from(row.breakdown_key.left()[i]),
-                    Gf2::truncate_from(row.breakdown_key.right()[i]),
+                    Gf2::truncate_from(
+                        row.breakdown_key.left().get(i.try_into().unwrap()).unwrap(),
+                    ),
+                    Gf2::truncate_from(
+                        row.breakdown_key
+                            .right()
+                            .get(i.try_into().unwrap())
+                            .unwrap(),
+                    ),
                 )
             })
         })
