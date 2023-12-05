@@ -8,7 +8,7 @@ use crate::{
         basics::Reveal, context::Context,
         ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
     seq_join::seq_join,
 };
 
@@ -49,7 +49,7 @@ where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Send + Sync,
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
-    K: WeakSharedValue + Field + CustomArray<Element = Boolean>,
+    K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
     // create stack
     let mut stack: Vec<(C, usize, usize)> = vec![];
