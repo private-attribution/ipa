@@ -36,15 +36,14 @@ pub mod prf_sharding;
 mod quicksort;
 pub mod shuffle;
 
-use self::shuffle::share::shuffled_to_oprfreport;
-use crate::protocol::ipa_prf::shuffle::{share::oprfreport_to_shuffle_input, shuffle};
+use self::shuffle::convert::shuffled_to_oprfreport;
+use crate::protocol::ipa_prf::shuffle::{convert::oprfreport_to_shuffle_input, shuffle};
 
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
-    // Shuffle,
 }
 
 /// IPA OPRF Protocol
@@ -92,7 +91,6 @@ where
     Replicated<F>: Serializable,
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
-    // let shuffed_outputs = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
 
     // We might want to do it earlier as that's a cleaner code
 
@@ -266,28 +264,59 @@ pub mod tests {
     }
 
     #[test]
-    fn test_shuffle_single() {
+    fn test_shuffle_inputs() {
         run(|| async {
             let world = TestWorld::default();
 
-            let records: Vec<TestRawDataRecord> = vec![TestRawDataRecord {
-                timestamp: 20,
-                user_id: 12345,
-                is_trigger_report: true,
-                breakdown_key: 3,
-                trigger_value: 5,
-            }];
+            let records: Vec<TestRawDataRecord> = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 10,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
 
-            let result: TestRawDataRecord = world
+            let mut result: Vec<TestRawDataRecord> = world
                 .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                     shuffle_inputs::<_, BA8, BA3, BA20>(ctx, input_rows)
                         .await
-                        .unwrap()[0]
-                        .clone()
+                        .unwrap()
                 })
                 .await
                 .reconstruct();
-            assert_eq!(result, records[0]);
+            assert_ne!(result, records);
+            result.sort();
+            assert_eq!(result, records);
         });
     }
 }

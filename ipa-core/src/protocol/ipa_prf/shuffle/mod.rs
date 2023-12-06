@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-pub mod share;
+pub mod convert;
 
 #[derive(Step)]
 pub(crate) enum OPRFShuffleStep {

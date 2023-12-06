@@ -112,7 +112,6 @@ where
 // This function converts AdditiveShare obtained from shuffle protocol to OprfReport
 pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(input: &AdditiveShare<YS>) -> OprfReport<BK, TV, TS>
 where
-    // YS: CustomArray<Element = <YS as CustomArray>::Element> + SharedValue,
     YS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
