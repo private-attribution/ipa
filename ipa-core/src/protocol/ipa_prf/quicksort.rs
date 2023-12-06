@@ -1,4 +1,8 @@
-use futures::stream::{iter as stream_iter, TryStreamExt};
+use bitvec::prelude::{BitVec, Lsb0};
+use futures::{
+    future,
+    stream::{iter as stream_iter, TryStreamExt},
+};
 use ipa_macros::Step;
 
 use crate::{
@@ -47,12 +51,16 @@ pub async fn quicksort_by_key_insecure<C, K, F, S>(
 where
     C: Context,
     S: Send + Sync,
-    F: Fn(&S) -> &AdditiveShare<K> + Send + Sync,
+    F: Fn(&S) -> &AdditiveShare<K> + Sync,
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
+    // expected amount of recursion: compute ceil(log_2(list.len()))
+    let expected_depth = std::mem::size_of::<usize>() * 8 - list.len().leading_zeros() as usize;
     // create stack
-    let mut stack: Vec<(C, usize, usize)> = vec![];
+    let mut stack: Vec<(C, usize, usize)> = Vec::with_capacity(expected_depth);
+    // vector for comparison (against pivot) outcomes
+    let mut comp: BitVec<usize, Lsb0> = BitVec::with_capacity(list.len());
 
     // initialize stack
     stack.push((ctx, 0usize, list.len()));
@@ -70,7 +78,8 @@ where
             let pctx = &(ctx.set_total_records(b_r - (b_l + 1)));
             let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
-            let comp = seq_join(
+            comp.clear();
+            seq_join(
                 ctx.active_work(),
                 stream_iter(iterator.enumerate().map(|(n, x)| {
                     async move {
@@ -85,22 +94,28 @@ where
                         .await?;
 
                         // reveal outcome of comparison
-                        sh_comp
-                            .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
-                            .await
+                        Ok::<bool, Error>(
+                            // desc = true will flip the order of the sort
+                            Boolean::from(false ^ desc)
+                                == sh_comp
+                                    .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
+                                    .await?,
+                        )
                     }
                 })),
             )
-            .try_collect::<Vec<_>>()
+            .try_for_each(|x| {
+                comp.push(x);
+                future::ready(Ok(()))
+            })
             .await?;
 
             // swap elements based on comparisons
             // i is index of first element larger than pivot
             let mut i = b_l + 1;
-            for j in b_l + 1..b_r {
-                // desc = true will flip the order
-                if comp[j - (b_l + 1)] == Boolean::from(false ^ desc) {
-                    list.swap(i, j);
+            for (j, b) in comp.iter().enumerate() {
+                if *b {
+                    list.swap(i, j + b_l + 1);
                     i += 1;
                 }
             }
