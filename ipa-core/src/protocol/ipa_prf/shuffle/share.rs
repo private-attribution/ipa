@@ -1,27 +1,30 @@
-use crate::ff::boolean::Boolean;
-use crate::ff::Expand;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 use crate::{
     ff::{
+        boolean::Boolean,
         boolean_array::{BA112, BA64},
-        ArrayAccess, CustomArray,
+        ArrayAccess, CustomArray, Expand,
     },
     report::OprfReport,
-    secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        SharedValue,
+    },
 };
 
-/// inserts a smaller array into a larger
-/// we don't use it right except for testing purposes
-pub fn convert_to_share<YS, BK, TV, TS>(input: OprfReport<BK, TV, TS>) -> AdditiveShare<YS>
+// This function converts OprfReport to an AdditiveShare needed for shuffle protocol
+pub fn oprfreport_to_shuffle_input<YS, BK, TV, TS>(
+    input: &OprfReport<BK, TV, TS>,
+) -> AdditiveShare<YS>
 where
     YS: CustomArray<Element = <BA112 as CustomArray>::Element> + SharedValue,
     BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    let y = AdditiveShare::<YS>(YS::ZERO, YS::ZERO);
+    let (mut y_left, mut y_right) = (YS::ZERO, YS::ZERO);
+    
     for i in 0..BA64::BITS as usize {
-        y.left().set(
+        y_left.set(
             i,
             input
                 .match_key
@@ -29,7 +32,7 @@ where
                 .get(i)
                 .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
         );
-        y.right().set(
+        y_right.set(
             i,
             input
                 .match_key
@@ -38,15 +41,16 @@ where
                 .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
         );
     }
+
     let mut offset = BA64::BITS as usize;
 
-    y.left().set(offset, input.is_trigger.left());
-    y.right().set(offset, input.is_trigger.right());
+    y_left.set(offset, input.is_trigger.left());
+    y_right.set(offset, input.is_trigger.right());
 
     offset += 1;
 
     for i in 0..BK::BITS as usize {
-        y.left().set(
+        y_left.set(
             i + offset,
             input
                 .breakdown_key
@@ -54,7 +58,7 @@ where
                 .get(i)
                 .unwrap_or(<BK as CustomArray>::Element::ZERO),
         );
-        y.right().set(
+        y_right.set(
             i + offset,
             input
                 .breakdown_key
@@ -65,7 +69,7 @@ where
     }
     offset += BK::BITS as usize;
     for i in 0..TV::BITS as usize {
-        y.left().set(
+        y_left.set(
             i + offset,
             input
                 .trigger_value
@@ -73,7 +77,7 @@ where
                 .get(i)
                 .unwrap_or(<TV as CustomArray>::Element::ZERO),
         );
-        y.right().set(
+        y_right.set(
             i + offset,
             input
                 .trigger_value
@@ -85,7 +89,7 @@ where
 
     offset += TV::BITS as usize;
     for i in 0..TS::BITS as usize {
-        y.left().set(
+        y_left.set(
             i + offset,
             input
                 .timestamp
@@ -93,7 +97,7 @@ where
                 .get(i)
                 .unwrap_or(<TS as CustomArray>::Element::ZERO),
         );
-        y.right().set(
+        y_right.set(
             i + offset,
             input
                 .timestamp
@@ -102,11 +106,11 @@ where
                 .unwrap_or(<TS as CustomArray>::Element::ZERO),
         );
     }
-    y
+    AdditiveShare::<YS>::new(y_left, y_right)
 }
 
-/// we don't use it right except for testing purposes
-pub fn convert_back_oprf_report<YS, BK, TV, TS>(input: AdditiveShare<YS>) -> OprfReport<BK, TV, TS>
+// This function converts AdditiveShare obtained from shuffle protocol to OprfReport
+pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(input: &AdditiveShare<YS>) -> OprfReport<BK, TV, TS>
 where
     // YS: CustomArray<Element = <YS as CustomArray>::Element> + SharedValue,
     YS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
@@ -114,16 +118,16 @@ where
     TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    let match_key = AdditiveShare::<BA64>::new(BA64::ZERO, BA64::ZERO);
+    let (mut match_key_left, mut match_key_right) = (BA64::ZERO, BA64::ZERO);
     for i in 0..BA64::BITS as usize {
-        match_key.left().set(
+        match_key_left.set(
             i,
             input
                 .left()
                 .get(i)
                 .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
         );
-        match_key.right().set(
+        match_key_right.set(
             i,
             input
                 .right()
@@ -140,16 +144,16 @@ where
 
     offset += 1;
 
-    let breakdown_key = AdditiveShare::<BK>::new(BK::ZERO, BK::ZERO);
+    let (mut breakdown_key_left, mut breakdown_key_right)= (BK::ZERO, BK::ZERO);
     for i in 0..BK::BITS as usize {
-        breakdown_key.left().set(
+        breakdown_key_left.set(
             i,
             input
                 .left()
                 .get(i + offset)
                 .unwrap_or(<BK as CustomArray>::Element::ZERO),
         );
-        breakdown_key.right().set(
+        breakdown_key_right.set(
             i,
             input
                 .right()
@@ -158,16 +162,16 @@ where
         );
     }
     offset += BK::BITS as usize;
-    let trigger_value: AdditiveShare<TV> = AdditiveShare::<TV>::new(TV::ZERO, TV::ZERO);
+    let (mut trigger_value_left, mut trigger_value_right)= (TV::ZERO, TV::ZERO);
     for i in 0..TV::BITS as usize {
-        trigger_value.left().set(
+        trigger_value_left.set(
             i,
             input
                 .left()
                 .get(i + offset)
                 .unwrap_or(<TV as CustomArray>::Element::ZERO),
         );
-        trigger_value.right().set(
+        trigger_value_right.set(
             i,
             input
                 .right()
@@ -177,16 +181,16 @@ where
     }
 
     offset += TV::BITS as usize;
-    let timestamp: AdditiveShare<TS> = AdditiveShare::<TS>::new(TS::ZERO, TS::ZERO);
+    let (mut timestamp_left, mut timestamp_right)= (TS::ZERO, TS::ZERO);
     for i in 0..TS::BITS as usize {
-        timestamp.left().set(
+        timestamp_left.set(
             i,
             input
                 .left()
                 .get(i + offset)
                 .unwrap_or(<TS as CustomArray>::Element::ZERO),
         );
-        timestamp.right().set(
+        timestamp_right.set(
             i,
             input
                 .right()
@@ -195,10 +199,10 @@ where
         );
     }
     OprfReport {
-        match_key,
+        match_key: AdditiveShare::<BA64>::new(match_key_left, match_key_right),
         is_trigger,
-        breakdown_key,
-        trigger_value,
-        timestamp,
+        breakdown_key: AdditiveShare::<BK>::new(breakdown_key_left, breakdown_key_right),
+        trigger_value: AdditiveShare::<TV>::new(trigger_value_left, trigger_value_right),
+        timestamp: AdditiveShare::<TS>::new(timestamp_left, timestamp_right),
     }
 }

@@ -29,7 +29,7 @@ pub enum IpaQueryStyle {
     Oprf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestRawDataRecord {
     pub timestamp: u64,
     pub user_id: u64,

@@ -36,16 +36,15 @@ pub mod prf_sharding;
 mod quicksort;
 pub mod shuffle;
 
-use crate::protocol::ipa_prf::shuffle::{share::convert_to_share, shuffle};
-
-use self::shuffle::share::convert_back_oprf_report;
+use self::shuffle::share::shuffled_to_oprfreport;
+use crate::protocol::ipa_prf::shuffle::{share::oprfreport_to_shuffle_input, shuffle};
 
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
-    Shuffle,
+    // Shuffle,
 }
 
 /// IPA OPRF Protocol
@@ -93,12 +92,12 @@ where
     Replicated<F>: Serializable,
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
-    let shuffed_outputs = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
+    // let shuffed_outputs = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
 
     // We might want to do it earlier as that's a cleaner code
 
     let prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffed_outputs).await?;
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
 
     let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
 
@@ -112,6 +111,7 @@ where
     .await
 }
 
+#[tracing::instrument(name = "shuffle_inputs", skip_all)]
 async fn shuffle_inputs<C, BK, TV, TS>(
     ctx: C,
     input: Vec<OprfReport<BK, TV, TS>>,
@@ -130,12 +130,14 @@ where
 {
     let shuffle_input: Vec<Replicated<BA112>> = input
         .into_iter()
-        .map(|item| convert_to_share::<BA112, BK, TV, TS>(item))
+        .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
         .collect::<Vec<_>>();
+
     let shuffled = shuffle(ctx, shuffle_input).await?;
+
     Ok(shuffled
         .into_iter()
-        .map(|item| convert_back_oprf_report(item))
+        .map(|item| shuffled_to_oprfreport(&item))
         .collect::<Vec<_>>())
 }
 
@@ -194,7 +196,7 @@ pub mod tests {
             boolean_array::{BA20, BA3, BA5, BA8},
             Fp31,
         },
-        protocol::ipa_prf::oprf_ipa,
+        protocol::ipa_prf::{oprf_ipa, shuffle_inputs},
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -260,6 +262,61 @@ pub mod tests {
                     .map(|i| Fp31::try_from(*i).unwrap())
                     .collect::<Vec<_>>()
             );
+        });
+    }
+
+    #[test]
+    fn test_shuffle_inputs() {
+        run(|| async {
+            let world = TestWorld::default();
+
+            let records: Vec<TestRawDataRecord> = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 10,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 20,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
+
+            let result: TestRawDataRecord = world
+                .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
+                    shuffle_inputs::<_, BA8, BA3, BA20>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_eq!(result, records[0]);
         });
     }
 }
