@@ -4,7 +4,11 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA112, BA64},
+        CustomArray, Field, PrimeField, Serializable,
+    },
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
@@ -30,14 +34,18 @@ pub mod prf_sharding;
 #[cfg(feature = "descriptive-gate")]
 #[cfg(all(test, unit_test))]
 mod quicksort;
-#[cfg(feature = "descriptive-gate")]
 pub mod shuffle;
+
+use crate::protocol::ipa_prf::shuffle::{share::convert_to_share, shuffle};
+
+use self::shuffle::share::convert_back_oprf_report;
 
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
+    Shuffle,
 }
 
 /// IPA OPRF Protocol
@@ -85,10 +93,12 @@ where
     Replicated<F>: Serializable,
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
+    let shuffed_outputs = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
+
     // We might want to do it earlier as that's a cleaner code
 
     let prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffed_outputs).await?;
 
     let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
 
@@ -100,6 +110,33 @@ where
         &histogram,
     )
     .await
+}
+
+async fn shuffle_inputs<C, BK, TV, TS>(
+    ctx: C,
+    input: Vec<OprfReport<BK, TV, TS>>,
+) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
+where
+    C: UpgradableContext,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
+{
+    let shuffle_input: Vec<Replicated<BA112>> = input
+        .into_iter()
+        .map(|item| convert_to_share::<BA112, BK, TV, TS>(item))
+        .collect::<Vec<_>>();
+    let shuffled = shuffle(ctx, shuffle_input).await?;
+    Ok(shuffled
+        .into_iter()
+        .map(|item| convert_back_oprf_report(item))
+        .collect::<Vec<_>>())
 }
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]

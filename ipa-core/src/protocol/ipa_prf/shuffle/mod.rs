@@ -14,6 +14,8 @@ use crate::{
     },
 };
 
+pub mod share;
+
 #[derive(Step)]
 pub(crate) enum OPRFShuffleStep {
     ApplyPermutations,

@@ -3,7 +3,7 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U32, U8};
+use typenum::{U14, U32, U8};
 
 use crate::{ff::boolean::Boolean, secret_sharing::Block};
 
@@ -98,6 +98,27 @@ macro_rules! boolean_array_impl {
                 type Output = Self;
                 fn add(self, rhs: Self) -> Self::Output {
                     Self(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<&$name> for $name {
+                type Output = $name;
+                fn add(self, rhs: &$name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<$name> for &$name {
+                type Output = $name;
+                fn add(self, rhs: $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl <'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+                type Output = $name;
+                fn add(self, rhs: &'b $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
                 }
             }
 
@@ -303,6 +324,9 @@ macro_rules! boolean_array_impl {
 //impl store for U8
 store_impl!(U8, 64);
 
+//impl store for U14
+store_impl!(U14, 112);
+
 //impl store for U32
 store_impl!(U32, 256);
 
@@ -355,6 +379,20 @@ boolean_array_impl!(
         1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0
+    ]
+);
+
+// impl BA112
+boolean_array_impl!(
+    boolean_array_112,
+    BA112,
+    112,
+    14,
+    [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ]
 );
 
