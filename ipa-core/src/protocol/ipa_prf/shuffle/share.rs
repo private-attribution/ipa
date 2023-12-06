@@ -22,7 +22,7 @@ where
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let (mut y_left, mut y_right) = (YS::ZERO, YS::ZERO);
-    
+
     for i in 0..BA64::BITS as usize {
         y_left.set(
             i,
@@ -144,7 +144,7 @@ where
 
     offset += 1;
 
-    let (mut breakdown_key_left, mut breakdown_key_right)= (BK::ZERO, BK::ZERO);
+    let (mut breakdown_key_left, mut breakdown_key_right) = (BK::ZERO, BK::ZERO);
     for i in 0..BK::BITS as usize {
         breakdown_key_left.set(
             i,
@@ -162,7 +162,7 @@ where
         );
     }
     offset += BK::BITS as usize;
-    let (mut trigger_value_left, mut trigger_value_right)= (TV::ZERO, TV::ZERO);
+    let (mut trigger_value_left, mut trigger_value_right) = (TV::ZERO, TV::ZERO);
     for i in 0..TV::BITS as usize {
         trigger_value_left.set(
             i,
@@ -181,7 +181,7 @@ where
     }
 
     offset += TV::BITS as usize;
-    let (mut timestamp_left, mut timestamp_right)= (TS::ZERO, TS::ZERO);
+    let (mut timestamp_left, mut timestamp_right) = (TS::ZERO, TS::ZERO);
     for i in 0..TS::BITS as usize {
         timestamp_left.set(
             i,

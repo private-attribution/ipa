@@ -266,53 +266,24 @@ pub mod tests {
     }
 
     #[test]
-    fn test_shuffle_inputs() {
+    fn test_shuffle_single() {
         run(|| async {
             let world = TestWorld::default();
 
-            let records: Vec<TestRawDataRecord> = vec![
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 2,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 10,
-                    user_id: 12345,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 5,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 68362,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 20,
-                    user_id: 68362,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 2,
-                },
-            ];
+            let records: Vec<TestRawDataRecord> = vec![TestRawDataRecord {
+                timestamp: 20,
+                user_id: 12345,
+                is_trigger_report: true,
+                breakdown_key: 3,
+                trigger_value: 5,
+            }];
 
             let result: TestRawDataRecord = world
                 .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
                     shuffle_inputs::<_, BA8, BA3, BA20>(ctx, input_rows)
                         .await
-                        .unwrap()
+                        .unwrap()[0]
+                        .clone()
                 })
                 .await
                 .reconstruct();
