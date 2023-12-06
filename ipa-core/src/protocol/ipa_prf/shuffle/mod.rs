@@ -1,392 +1,290 @@
-use std::ops::{Add, AddAssign};
-
-use futures::future;
-use ipa_macros::Step;
-use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
-
-use super::super::{context::Context, RecordId};
+use self::base::shuffle;
 use crate::{
     error::Error,
-    helpers::{Direction, ReceivingEnd, Role},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA112, BA64},
+        ArrayAccess, CustomArray, Expand, Field,
+    },
+    protocol::context::{UpgradableContext, UpgradedContext},
+    report::OprfReport,
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
 };
 
-pub mod convert;
+pub mod base;
 
-#[derive(Step)]
-pub(crate) enum OPRFShuffleStep {
-    ApplyPermutations,
-    GenerateAHat,
-    GenerateBHat,
-    GenerateZ,
-    TransferCHat,
-    TransferX2,
-    TransferY1,
-}
-
-/// # Errors
-/// Will propagate errors from transport and a few typecasts
-pub async fn shuffle<C, I, S>(ctx: C, shares: I) -> Result<Vec<AdditiveShare<S>>, Error>
+#[tracing::instrument(name = "shuffle_inputs", skip_all)]
+async fn shuffle_inputs<C, BK, TV, TS>(
+    ctx: C,
+    input: Vec<OprfReport<BK, TV, TS>>,
+) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
 where
-    C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    I::IntoIter: ExactSizeIterator,
-    S: SharedValue + Add<Output = S>,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
+    C: UpgradableContext,
+    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = AdditiveShare<Boolean>>,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    for<'a> &'a AdditiveShare<TS>: IntoIterator<Item = AdditiveShare<Boolean>>,
+    for<'a> &'a AdditiveShare<TV>: IntoIterator<Item = AdditiveShare<Boolean>>,
+    for<'a> &'a AdditiveShare<BK>: IntoIterator<Item = AdditiveShare<Boolean>>,
+    for<'a> <&'a AdditiveShare<TV> as IntoIterator>::IntoIter: Send,
+    for<'a> <&'a AdditiveShare<TS> as IntoIterator>::IntoIter: Send,
 {
-    // TODO: this code works with iterators and that costs it an extra allocation at the end.
-    // This protocol can take a mutable iterator and replace items in the input.
-    let shares = shares.into_iter();
-    let ctx_z = ctx.narrow(&OPRFShuffleStep::GenerateZ);
-    let zs = generate_random_tables_with_peers(shares.len(), &ctx_z);
-
-    match ctx.role() {
-        Role::H1 => run_h1(&ctx, shares.len(), shares, zs).await,
-        Role::H2 => run_h2(&ctx, shares.len(), shares, zs).await,
-        Role::H3 => run_h3(&ctx, shares.len(), zs).await,
-    }
-}
-
-async fn run_h1<C, I, S, Zl, Zr>(
-    ctx: &C,
-    batch_size: usize,
-    shares: I,
-    (z_31, z_12): (Zl, Zr),
-) -> Result<Vec<AdditiveShare<S>>, Error>
-where
-    C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<Output = S>,
-    Standard: Distribution<S>,
-{
-    // 1. Generate helper-specific random tables
-    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
-    let a_hat = generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Left);
-
-    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
-    let b_hat = generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Right);
-
-    // 2. Run computations
-    let a_add_b_iter = shares
+    let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()
-        .map(|s: AdditiveShare<S>| s.left().add(s.right()));
-    let mut x_1: Vec<S> = add_single_shares(a_add_b_iter, z_12).collect();
+        .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
+        .collect::<Vec<_>>();
 
-    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
-    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    x_1.shuffle(&mut rng_perm_r);
+    let shuffled = shuffle(ctx, shuffle_input).await?;
 
-    let mut x_2 = x_1;
-    add_single_shares_in_place(&mut x_2, z_31);
-    x_2.shuffle(&mut rng_perm_l);
-    send_to_peer(&x_2, ctx, &OPRFShuffleStep::TransferX2, Direction::Right).await?;
-
-    let res = combine_single_shares(a_hat, b_hat).collect::<Vec<_>>();
-    Ok(res)
+    Ok(shuffled
+        .into_iter()
+        .map(|item| shuffled_to_oprfreport(&item))
+        .collect::<Vec<_>>())
 }
 
-async fn run_h2<C, I, S, Zl, Zr>(
-    ctx: &C,
-    batch_size: usize,
-    shares: I,
-    (z_12, z_23): (Zl, Zr),
-) -> Result<Vec<AdditiveShare<S>>, Error>
+// This function converts OprfReport to an AdditiveShare needed for shuffle protocol
+pub fn oprfreport_to_shuffle_input<YS, BK, TV, TS>(
+    input: &OprfReport<BK, TV, TS>,
+) -> AdditiveShare<YS>
 where
-    C: Context,
-    I: IntoIterator<Item = AdditiveShare<S>>,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<S, Output = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
+    YS: CustomArray<Element = <BA112 as CustomArray>::Element> + SharedValue,
+    BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    // 1. Generate helper-specific random tables
-    let ctx_b_hat = ctx.narrow(&OPRFShuffleStep::GenerateBHat);
-    let b_hat: Vec<S> =
-        generate_random_table_solo(batch_size, &ctx_b_hat, Direction::Left).collect();
+    let (mut y_left, mut y_right) = (YS::ZERO, YS::ZERO);
 
-    // 2. Run computations
-    let c = shares.into_iter().map(|s| s.right());
-    let mut y_1: Vec<S> = add_single_shares(c, z_12).collect();
-
-    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
-    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    y_1.shuffle(&mut rng_perm_l);
-
-    let mut x_2: Vec<S> = Vec::with_capacity(batch_size);
-    future::try_join(
-        send_to_peer(&y_1, ctx, &OPRFShuffleStep::TransferY1, Direction::Right),
-        receive_from_peer_into(
-            &mut x_2,
-            batch_size,
-            ctx,
-            &OPRFShuffleStep::TransferX2,
-            Direction::Left,
-        ),
-    )
-    .await?;
-
-    let mut x_3 = x_2;
-    add_single_shares_in_place(&mut x_3, z_23);
-    x_3.shuffle(&mut rng_perm_r);
-
-    let mut c_hat_1 = repurpose_allocation(y_1);
-    c_hat_1.extend(add_single_shares(x_3.iter(), b_hat.iter()));
-
-    let mut c_hat_2 = repurpose_allocation(x_3);
-    future::try_join(
-        send_to_peer(
-            &c_hat_1,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Right,
-        ),
-        receive_from_peer_into(
-            &mut c_hat_2,
-            batch_size,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Right,
-        ),
-    )
-    .await?;
-
-    let c_hat = add_single_shares(c_hat_1.iter(), c_hat_2.iter());
-    let res = combine_single_shares(b_hat, c_hat).collect::<Vec<_>>();
-    Ok(res)
-}
-
-async fn run_h3<C, S, Zl, Zr>(
-    ctx: &C,
-    batch_size: usize,
-    (z_23, z_31): (Zl, Zr),
-) -> Result<Vec<AdditiveShare<S>>, Error>
-where
-    C: Context,
-    S: SharedValue + Add<Output = S>,
-    Zl: IntoIterator<Item = S>,
-    Zr: IntoIterator<Item = S>,
-    for<'a> &'a S: Add<&'a S, Output = S>,
-    Standard: Distribution<S>,
-{
-    // 1. Generate helper-specific random tables
-    let ctx_a_hat = ctx.narrow(&OPRFShuffleStep::GenerateAHat);
-    let a_hat: Vec<S> =
-        generate_random_table_solo(batch_size, &ctx_a_hat, Direction::Right).collect();
-
-    // 2. Run computations
-    let mut y_1 = Vec::<S>::with_capacity(batch_size);
-    receive_from_peer_into(
-        &mut y_1,
-        batch_size,
-        ctx,
-        &OPRFShuffleStep::TransferY1,
-        Direction::Left,
-    )
-    .await?;
-
-    let mut y_2 = y_1;
-    add_single_shares_in_place(&mut y_2, z_31);
-
-    let ctx_perm = ctx.narrow(&OPRFShuffleStep::ApplyPermutations);
-    let (mut rng_perm_l, mut rng_perm_r) = ctx_perm.prss_rng();
-    y_2.shuffle(&mut rng_perm_r);
-
-    let mut y_3 = y_2;
-    add_single_shares_in_place(&mut y_3, z_23);
-    y_3.shuffle(&mut rng_perm_l);
-
-    let c_hat_2: Vec<S> = add_single_shares(y_3.iter(), a_hat.iter()).collect();
-    let mut c_hat_1 = repurpose_allocation(y_3);
-    future::try_join(
-        send_to_peer(
-            &c_hat_2,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Left,
-        ),
-        receive_from_peer_into(
-            &mut c_hat_1,
-            batch_size,
-            ctx,
-            &OPRFShuffleStep::TransferCHat,
-            Direction::Left,
-        ),
-    )
-    .await?;
-
-    let c_hat = add_single_shares(c_hat_1, c_hat_2);
-    let res = combine_single_shares(c_hat, a_hat).collect::<Vec<_>>();
-    Ok(res)
-}
-
-fn add_single_shares<A, B, S, L, R>(l: L, r: R) -> impl Iterator<Item = S>
-where
-    A: Add<B, Output = S>,
-    L: IntoIterator<Item = A>,
-    R: IntoIterator<Item = B>,
-{
-    l.into_iter().zip(r).map(|(a, b)| a + b)
-}
-
-fn add_single_shares_in_place<S, R>(items: &mut [S], r: R)
-where
-    S: AddAssign,
-    R: IntoIterator<Item = S>,
-{
-    items
-        .iter_mut()
-        .zip(r)
-        .for_each(|(item, rhs)| item.add_assign(rhs));
-}
-
-fn repurpose_allocation<S>(mut buf: Vec<S>) -> Vec<S> {
-    buf.clear();
-    buf
-}
-
-// --------------------------------------------------------------------------- //
-
-fn combine_single_shares<S, Il, Ir>(l: Il, r: Ir) -> impl Iterator<Item = AdditiveShare<S>>
-where
-    S: SharedValue,
-    Il: IntoIterator<Item = S>,
-    Ir: IntoIterator<Item = S>,
-{
-    l.into_iter()
-        .zip(r)
-        .map(|(li, ri)| AdditiveShare::new(li, ri))
-}
-
-fn generate_random_tables_with_peers<'a, C, S>(
-    batch_size: usize,
-    narrow_ctx: &'a C,
-) -> (impl Iterator<Item = S> + 'a, impl Iterator<Item = S> + 'a)
-where
-    C: Context,
-    Standard: Distribution<S>,
-    S: 'a,
-{
-    let (rng_l, rng_r) = narrow_ctx.prss_rng();
-    let with_left = rng_l.sample_iter(Standard).take(batch_size);
-    let with_right = rng_r.sample_iter(Standard).take(batch_size);
-    (with_left, with_right)
-}
-
-fn generate_random_table_solo<'a, C, S>(
-    batch_size: usize,
-    narrow_ctx: &'a C,
-    peer: Direction,
-) -> impl Iterator<Item = S> + 'a
-where
-    C: Context,
-    Standard: Distribution<S>,
-    S: 'a,
-{
-    let rngs = narrow_ctx.prss_rng();
-    let rng = match peer {
-        Direction::Left => rngs.0,
-        Direction::Right => rngs.1,
-    };
-
-    rng.sample_iter(Standard).take(batch_size)
-}
-
-// ---------------------------- helper communication ------------------------------------ //
-
-async fn send_to_peer<C, S>(
-    items: &[S],
-    ctx: &C,
-    step: &OPRFShuffleStep,
-    direction: Direction,
-) -> Result<(), Error>
-where
-    C: Context,
-    S: Copy + SharedValue,
-{
-    let role = ctx.role().peer(direction);
-    let send_channel = ctx
-        .narrow(step)
-        .set_total_records(items.len())
-        .send_channel(role);
-
-    for (record_id, row) in items.iter().enumerate() {
-        send_channel.send(RecordId::from(record_id), *row).await?;
+    for i in 0..BA64::BITS as usize {
+        y_left.set(
+            i,
+            input
+                .match_key
+                .left()
+                .get(i)
+                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
+        );
+        y_right.set(
+            i,
+            input
+                .match_key
+                .right()
+                .get(i)
+                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
+        );
     }
-    Ok(())
+
+    let mut offset = BA64::BITS as usize;
+
+    y_left.set(offset, input.is_trigger.left());
+    y_right.set(offset, input.is_trigger.right());
+
+    offset += 1;
+
+    for i in 0..BK::BITS as usize {
+        y_left.set(
+            i + offset,
+            input
+                .breakdown_key
+                .left()
+                .get(i)
+                .unwrap_or(<BK as CustomArray>::Element::ZERO),
+        );
+        y_right.set(
+            i + offset,
+            input
+                .breakdown_key
+                .right()
+                .get(i)
+                .unwrap_or(<BK as CustomArray>::Element::ZERO),
+        );
+    }
+    offset += BK::BITS as usize;
+    for i in 0..TV::BITS as usize {
+        y_left.set(
+            i + offset,
+            input
+                .trigger_value
+                .left()
+                .get(i)
+                .unwrap_or(<TV as CustomArray>::Element::ZERO),
+        );
+        y_right.set(
+            i + offset,
+            input
+                .trigger_value
+                .right()
+                .get(i)
+                .unwrap_or(<TV as CustomArray>::Element::ZERO),
+        );
+    }
+
+    offset += TV::BITS as usize;
+    for i in 0..TS::BITS as usize {
+        y_left.set(
+            i + offset,
+            input
+                .timestamp
+                .left()
+                .get(i)
+                .unwrap_or(<TS as CustomArray>::Element::ZERO),
+        );
+        y_right.set(
+            i + offset,
+            input
+                .timestamp
+                .right()
+                .get(i)
+                .unwrap_or(<TS as CustomArray>::Element::ZERO),
+        );
+    }
+    AdditiveShare::<YS>::new(y_left, y_right)
 }
 
-async fn receive_from_peer_into<C, S>(
-    buf: &mut Vec<S>,
-    batch_size: usize,
-    ctx: &C,
-    step: &OPRFShuffleStep,
-    direction: Direction,
-) -> Result<(), Error>
+// This function converts AdditiveShare obtained from shuffle protocol to OprfReport
+pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(input: &AdditiveShare<YS>) -> OprfReport<BK, TV, TS>
 where
-    C: Context,
-    S: SharedValue,
+    YS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    let role = ctx.role().peer(direction);
-    let receive_channel: ReceivingEnd<S> = ctx
-        .narrow(step)
-        .set_total_records(batch_size)
-        .recv_channel(role);
-
-    for record_id in 0..batch_size {
-        let msg = receive_channel.receive(RecordId::from(record_id)).await?;
-        buf.push(msg);
+    let (mut match_key_left, mut match_key_right) = (BA64::ZERO, BA64::ZERO);
+    for i in 0..BA64::BITS as usize {
+        match_key_left.set(
+            i,
+            input
+                .left()
+                .get(i)
+                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
+        );
+        match_key_right.set(
+            i,
+            input
+                .right()
+                .get(i)
+                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
+        );
     }
-    Ok(())
+    let mut offset = BA64::BITS as usize;
+
+    let is_trigger = AdditiveShare::<Boolean>::new(
+        input.left().get(offset).unwrap_or(Boolean::ZERO),
+        input.right().get(offset).unwrap_or(Boolean::ZERO),
+    );
+
+    offset += 1;
+
+    let (mut breakdown_key_left, mut breakdown_key_right) = (BK::ZERO, BK::ZERO);
+    for i in 0..BK::BITS as usize {
+        breakdown_key_left.set(
+            i,
+            input
+                .left()
+                .get(i + offset)
+                .unwrap_or(<BK as CustomArray>::Element::ZERO),
+        );
+        breakdown_key_right.set(
+            i,
+            input
+                .right()
+                .get(i + offset)
+                .unwrap_or(<BK as CustomArray>::Element::ZERO),
+        );
+    }
+    offset += BK::BITS as usize;
+    let (mut trigger_value_left, mut trigger_value_right) = (TV::ZERO, TV::ZERO);
+    for i in 0..TV::BITS as usize {
+        trigger_value_left.set(
+            i,
+            input
+                .left()
+                .get(i + offset)
+                .unwrap_or(<TV as CustomArray>::Element::ZERO),
+        );
+        trigger_value_right.set(
+            i,
+            input
+                .right()
+                .get(i + offset)
+                .unwrap_or(<TV as CustomArray>::Element::ZERO),
+        );
+    }
+
+    offset += TV::BITS as usize;
+    let (mut timestamp_left, mut timestamp_right) = (TS::ZERO, TS::ZERO);
+    for i in 0..TS::BITS as usize {
+        timestamp_left.set(
+            i,
+            input
+                .left()
+                .get(i + offset)
+                .unwrap_or(<TS as CustomArray>::Element::ZERO),
+        );
+        timestamp_right.set(
+            i,
+            input
+                .right()
+                .get(i + offset)
+                .unwrap_or(<TS as CustomArray>::Element::ZERO),
+        );
+    }
+    OprfReport {
+        match_key: AdditiveShare::<BA64>::new(match_key_left, match_key_right),
+        is_trigger,
+        breakdown_key: AdditiveShare::<BK>::new(breakdown_key_left, breakdown_key_right),
+        trigger_value: AdditiveShare::<TV>::new(trigger_value_left, trigger_value_right),
+        timestamp: AdditiveShare::<TS>::new(timestamp_left, timestamp_right),
+    }
 }
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use super::shuffle;
+    use rand::Rng;
+
     use crate::{
-        ff::{Field, Gf40Bit},
-        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+        ff::boolean_array::{BA20, BA3, BA8},
+        protocol::ipa_prf::shuffle::shuffle_inputs,
+        test_executor::run,
+        test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
 
-    pub type MatchKey = Gf40Bit;
+    #[test]
+    fn test_shuffle_inputs() {
+        const BATCHSIZE: usize = 50;
+        run(|| async {
+            let world = TestWorld::default();
 
-    #[tokio::test]
-    async fn shuffles_the_order() {
-        let mut i: u128 = 0;
-        let records = std::iter::from_fn(move || {
-            i += 1;
-            Some(MatchKey::truncate_from(i))
-        })
-        .take(100)
-        .collect::<Vec<_>>();
+            let mut rng = rand::thread_rng();
+            let mut records = Vec::new();
 
-        // Stable seed is used to get predictable shuffle results.
-        let mut actual = TestWorld::new_with(TestWorldConfig::default().with_seed(123))
-            .semi_honest(records.clone().into_iter(), |ctx, shares| async move {
-                shuffle(ctx, shares).await.unwrap()
-            })
-            .await
-            .reconstruct();
+            for _ in 0..BATCHSIZE {
+                records.push({
+                    TestRawDataRecord {
+                        timestamp: rng.gen_range(0u64..1 << 20),
+                        user_id: rng.gen::<u64>(),
+                        is_trigger_report: rng.gen::<bool>(),
+                        breakdown_key: rng.gen_range(0u32..1 << 8),
+                        trigger_value: rng.gen_range(0u32..1 << 3),
+                    }
+                });
+            }
 
-        assert_ne!(
-            actual, records,
-            "Shuffle should produce a different order of items"
-        );
-
-        actual.sort();
-
-        assert_eq!(
-            actual, records,
-            "Shuffle should not change the items in the set"
-        );
+            let mut result: Vec<TestRawDataRecord> = world
+                .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
+                    shuffle_inputs::<_, BA8, BA3, BA20>(ctx, input_rows)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            assert_ne!(result, records);
+            records.sort();
+            result.sort();
+            assert_eq!(result, records);
+        });
     }
 }

@@ -4,11 +4,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BA112, BA64},
-        CustomArray, Field, PrimeField, Serializable,
-    },
+    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
@@ -35,9 +31,6 @@ pub mod prf_sharding;
 #[cfg(all(test, unit_test))]
 mod quicksort;
 pub mod shuffle;
-
-use self::shuffle::convert::shuffled_to_oprfreport;
-use crate::protocol::ipa_prf::shuffle::{convert::oprfreport_to_shuffle_input, shuffle};
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -109,36 +102,6 @@ where
     .await
 }
 
-#[tracing::instrument(name = "shuffle_inputs", skip_all)]
-async fn shuffle_inputs<C, BK, TV, TS>(
-    ctx: C,
-    input: Vec<OprfReport<BK, TV, TS>>,
-) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
-where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
-{
-    let shuffle_input: Vec<Replicated<BA112>> = input
-        .into_iter()
-        .map(|item| oprfreport_to_shuffle_input::<BA112, BK, TV, TS>(&item))
-        .collect::<Vec<_>>();
-
-    let shuffled = shuffle(ctx, shuffle_input).await?;
-
-    Ok(shuffled
-        .into_iter()
-        .map(|item| shuffled_to_oprfreport(&item))
-        .collect::<Vec<_>>())
-}
-
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
@@ -189,12 +152,13 @@ where
 }
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+
     use crate::{
         ff::{
             boolean_array::{BA20, BA3, BA5, BA8},
             Fp31,
         },
-        protocol::ipa_prf::{oprf_ipa, shuffle_inputs},
+        protocol::ipa_prf::oprf_ipa,
         test_executor::run,
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
@@ -260,63 +224,6 @@ pub mod tests {
                     .map(|i| Fp31::try_from(*i).unwrap())
                     .collect::<Vec<_>>()
             );
-        });
-    }
-
-    #[test]
-    fn test_shuffle_inputs() {
-        run(|| async {
-            let world = TestWorld::default();
-
-            let records: Vec<TestRawDataRecord> = vec![
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 2,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 10,
-                    user_id: 12345,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 5,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 68362,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 20,
-                    user_id: 68362,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 2,
-                },
-            ];
-
-            let mut result: Vec<TestRawDataRecord> = world
-                .semi_honest(records.clone().into_iter(), |ctx, input_rows| async move {
-                    shuffle_inputs::<_, BA8, BA3, BA20>(ctx, input_rows)
-                        .await
-                        .unwrap()
-                })
-                .await
-                .reconstruct();
-            assert_ne!(result, records);
-            result.sort();
-            assert_eq!(result, records);
         });
     }
 }

@@ -403,11 +403,11 @@ where
     }
 }
 
-impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [OprfReport<BK, TV, TS>; 3]
+impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OprfReport<BK, TV, TS>; 3]
 where
-    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: SharedValue + Field,
+    TV: SharedValue + Field,
+    TS: SharedValue + Field,
 {
     fn reconstruct(&self) -> TestRawDataRecord {
         let [s0, s1, s2] = self;
