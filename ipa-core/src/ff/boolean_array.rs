@@ -82,7 +82,7 @@ macro_rules! boolean_array_impl {
 
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
-            /// A Bootean array with $bits bits.
+            /// A Boolean array with $bits bits.
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
             pub struct $name(pub Store);
 
