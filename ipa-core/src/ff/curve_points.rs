@@ -25,7 +25,7 @@ impl Block for CompressedRistretto {
 /// since we always generate curve points from scalars (elements in Fp25519) and
 /// only deserialize previously serialized valid points, panics will not occur
 /// However, we still added a debug assert to deserialize since values are sent by other servers
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RP25519(CompressedRistretto);
 
 /// Implementing trait for secret sharing
