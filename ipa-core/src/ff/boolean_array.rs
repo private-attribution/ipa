@@ -40,29 +40,45 @@ impl<'a> Iterator for BAIterator<'a> {
 
 /// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
 /// This macro uses a bit of recursive repetition to produce those zeros.
-/// The binary value of `$bits-1` is expanded in LSB order,
-/// One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
+///
+/// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
 macro_rules! bitarr_one {
-    (2) => { bitarr_one!([0]) };
-    (3) => { bitarr_one!([][0,]) };
-    (4) => { bitarr_one!([0,][0,]) };
-    (5) => { bitarr_one!([][][0,]) };
-    (6) => { bitarr_one!([0,][][0,]) };
-    (7) => { bitarr_one!([][0,][0,]) };
-    (8) => { bitarr_one!([0,][0,][0,]) };
-    (20) => { bitarr_one!([0,][0,][][][0,]) };
-    (32) => { bitarr_one!([0,][0,][0,][0,][0,]) };
-    (64) => { bitarr_one!([0,][0,][0,][0,][0,][0,]) };
-    (256) => { bitarr_one!([0,][0,][0,][0,][0,][0,][0,][0,]) };
-    // This is where recursion ends.
-    ([$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
+
+    // The binary value of `$bits-1` is expanded in LSB order for each of the values we care about.
+
+    (2) => { bitarr_one!(1) };
+    (3) => { bitarr_one!(0 1) };
+    (4) => { bitarr_one!(1 1) };
+    (5) => { bitarr_one!(0 0 1) };
+    (6) => { bitarr_one!(1 0 1) };
+    (7) => { bitarr_one!(0 1 1) };
+    (8) => { bitarr_one!(1 1 1) };
+    (20) => { bitarr_one!(1 1 0 0 1) };
+    (32) => { bitarr_one!(1 1 1 1 1) };
+    (64) => { bitarr_one!(1 1 1 1 1 1) };
+    (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
+
+    // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
+
+    // This passes a value back once the conversion is done.
+    ($([$($x:tt)*])*) => { bitarr_one!(@r $([$($x)*])*) };
+    // This converts one 1 into `[0,]`.
+    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!($([$($x)*])* [0,] $($y)*) };
+    // This converts one 0 into `[]`.
+    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!($([$($x)*])* [] $($y)*) };
+
+    // Recursion step.
+
+    // This is where recursion ends with a `BitArray`.
+    (@r [$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
     // This is the recursion workhorse.  It takes a list of lists.  The outer lists are bracketed.
     // The inner lists contain any form that can be repeated and concatenated, which probably
     // means comma-separated values with a trailing comma.
     // The first value is repeated once.
     // The second value is repeated twice and merged into the first value.
     // The third and subsequent values are repeated twice and shifted along one place.
-    ([$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!([$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
+    // One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
+    (@r [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!(@r [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
 }
 
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
