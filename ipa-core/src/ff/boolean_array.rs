@@ -45,6 +45,7 @@ impl<'a> Iterator for BAIterator<'a> {
 macro_rules! bitarr_one {
 
     // The binary value of `$bits-1` is expanded in LSB order for each of the values we care about.
+    // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(reverse)=> 1 1 0 0 1
 
     (2) => { bitarr_one!(1) };
     (3) => { bitarr_one!(0 1) };
