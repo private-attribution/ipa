@@ -14,6 +14,8 @@ use crate::{
     },
 };
 
+use super::boolean_ops::expand_shared_array;
+
 pub mod base;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
@@ -99,23 +101,8 @@ where
     TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    let (mut match_key_left, mut match_key_right) = (BA64::ZERO, BA64::ZERO);
-    for i in 0..BA64::BITS as usize {
-        match_key_left.set(
-            i,
-            input
-                .left()
-                .get(i)
-                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
-        );
-        match_key_right.set(
-            i,
-            input
-                .right()
-                .get(i)
-                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
-        );
-    }
+    let match_key = expand_shared_array::<YS, BA64>(input, Some(0));
+  
     let mut offset = BA64::BITS as usize;
 
     let is_trigger = AdditiveShare::<Boolean>::new(
@@ -124,6 +111,8 @@ where
     );
 
     offset += 1;
+
+    let breakdown_key = expand_shared_array::<YS, BK>(input, Some(offset));
 
     let (mut breakdown_key_left, mut breakdown_key_right) = (BK::ZERO, BK::ZERO);
     for i in 0..BK::BITS as usize {
@@ -180,7 +169,7 @@ where
         );
     }
     OprfReport {
-        match_key: AdditiveShare::<BA64>::new(match_key_left, match_key_right),
+        match_key,
         is_trigger,
         breakdown_key: AdditiveShare::<BK>::new(breakdown_key_left, breakdown_key_right),
         trigger_value: AdditiveShare::<TV>::new(trigger_value_left, trigger_value_right),
