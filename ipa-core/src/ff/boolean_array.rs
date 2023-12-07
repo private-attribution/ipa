@@ -44,29 +44,30 @@ impl<'a> Iterator for BAIterator<'a> {
 /// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
 macro_rules! bitarr_one {
 
-    // The binary value of `$bits-1` is expanded in LSB order for each of the values we care about.
-    // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(reverse)=> 1 1 0 0 1
+    // The binary value of `$bits-1` is expanded in MSB order for each of the values we care about.
+    // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(expand)=> 1 0 0 1 1
 
     (2) => { bitarr_one!(1) };
-    (3) => { bitarr_one!(0 1) };
+    (3) => { bitarr_one!(1 0) };
     (4) => { bitarr_one!(1 1) };
-    (5) => { bitarr_one!(0 0 1) };
+    (5) => { bitarr_one!(1 0 0) };
     (6) => { bitarr_one!(1 0 1) };
-    (7) => { bitarr_one!(0 1 1) };
+    (7) => { bitarr_one!(1 1 0) };
     (8) => { bitarr_one!(1 1 1) };
-    (20) => { bitarr_one!(1 1 0 0 1) };
+    (20) => { bitarr_one!(1 0 0 1 1) };
     (32) => { bitarr_one!(1 1 1 1 1) };
     (64) => { bitarr_one!(1 1 1 1 1 1) };
     (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
 
     // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
+    // This also reverses the bit order so that the MSB comes last, as needed for recursion.
 
     // This passes a value back once the conversion is done.
     ($([$($x:tt)*])*) => { bitarr_one!(@r $([$($x)*])*) };
     // This converts one 1 into `[0,]`.
-    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!($([$($x)*])* [0,] $($y)*) };
+    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!([0,] $([$($x)*])* $($y)*) };
     // This converts one 0 into `[]`.
-    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!($([$($x)*])* [] $($y)*) };
+    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!([] $([$($x)*])* $($y)*) };
 
     // Recursion step.
 
