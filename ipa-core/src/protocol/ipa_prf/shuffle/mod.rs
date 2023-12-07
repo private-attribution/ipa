@@ -46,6 +46,16 @@ where
         .collect::<Vec<_>>())
 }
 
+fn expand_array_in_place<YS, XS>(y: &mut YS, x: XS, offset: usize, size: u32)
+where
+    YS: CustomArray<Element = <BA112 as CustomArray>::Element> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    for i in 0..size as usize {
+        y.set(i + offset, x.get(i).unwrap_or(Boolean::ZERO));
+    }
+}
+
 // This function converts OprfReport to an AdditiveShare needed for shuffle protocol
 pub fn oprfreport_to_shuffle_input<YS, BK, TV, TS>(
     input: &OprfReport<BK, TV, TS>,
@@ -57,25 +67,8 @@ where
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let (mut y_left, mut y_right) = (YS::ZERO, YS::ZERO);
-
-    for i in 0..BA64::BITS as usize {
-        y_left.set(
-            i,
-            input
-                .match_key
-                .left()
-                .get(i)
-                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
-        );
-        y_right.set(
-            i,
-            input
-                .match_key
-                .right()
-                .get(i)
-                .unwrap_or(<BA64 as CustomArray>::Element::ZERO),
-        );
-    }
+    expand_array_in_place(&mut y_left, input.match_key.left(), 0, BA64::BITS);
+    expand_array_in_place(&mut y_right, input.match_key.right(), 0, BA64::BITS);
 
     let mut offset = BA64::BITS as usize;
 
@@ -84,63 +77,17 @@ where
 
     offset += 1;
 
-    for i in 0..BK::BITS as usize {
-        y_left.set(
-            i + offset,
-            input
-                .breakdown_key
-                .left()
-                .get(i)
-                .unwrap_or(<BK as CustomArray>::Element::ZERO),
-        );
-        y_right.set(
-            i + offset,
-            input
-                .breakdown_key
-                .right()
-                .get(i)
-                .unwrap_or(<BK as CustomArray>::Element::ZERO),
-        );
-    }
+    expand_array_in_place(&mut y_left, input.breakdown_key.left(), offset, BK::BITS);
+    expand_array_in_place(&mut y_right, input.breakdown_key.right(), offset, BK::BITS);
+
     offset += BK::BITS as usize;
-    for i in 0..TV::BITS as usize {
-        y_left.set(
-            i + offset,
-            input
-                .trigger_value
-                .left()
-                .get(i)
-                .unwrap_or(<TV as CustomArray>::Element::ZERO),
-        );
-        y_right.set(
-            i + offset,
-            input
-                .trigger_value
-                .right()
-                .get(i)
-                .unwrap_or(<TV as CustomArray>::Element::ZERO),
-        );
-    }
+    expand_array_in_place(&mut y_left, input.trigger_value.left(), offset, TV::BITS);
+    expand_array_in_place(&mut y_right, input.trigger_value.right(), offset, TV::BITS);
 
     offset += TV::BITS as usize;
-    for i in 0..TS::BITS as usize {
-        y_left.set(
-            i + offset,
-            input
-                .timestamp
-                .left()
-                .get(i)
-                .unwrap_or(<TS as CustomArray>::Element::ZERO),
-        );
-        y_right.set(
-            i + offset,
-            input
-                .timestamp
-                .right()
-                .get(i)
-                .unwrap_or(<TS as CustomArray>::Element::ZERO),
-        );
-    }
+    expand_array_in_place(&mut y_left, input.timestamp.left(), offset, TS::BITS);
+    expand_array_in_place(&mut y_right, input.timestamp.right(), offset, TS::BITS);
+
     AdditiveShare::<YS>::new(y_left, y_right)
 }
 
