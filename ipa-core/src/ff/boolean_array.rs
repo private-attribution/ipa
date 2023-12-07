@@ -143,7 +143,7 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl <'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+            impl<'a, 'b> std::ops::Add<&'b $name> for &'a $name {
                 type Output = $name;
                 fn add(self, rhs: &'b $name) -> Self::Output {
                     $name(self.0 ^ rhs.0)

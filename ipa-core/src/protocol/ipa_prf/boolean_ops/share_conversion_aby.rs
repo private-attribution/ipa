@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess, CustomArray,
-        Field,
+        Expand, Field,
     },
     helpers::Role,
     protocol::{
@@ -183,9 +183,49 @@ where
     }
 }
 
+/// inserts smaller array in the larger array starting from location offset
+#[allow(dead_code)]
+pub fn expand_array_in_place<YS, XS>(y: &mut YS, x: XS, offset: usize)
+where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    for i in 0..XS::BITS as usize {
+        y.set(i + offset, x.get(i).unwrap_or(Boolean::ZERO));
+    }
+}
+
+// This function extracts a small array from a larger array
+#[allow(dead_code)]
+fn extract_from_array<YS, XS>(y: &YS, offset: usize) -> XS
+where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    let mut x = XS::ZERO;
+    for i in 0..XS::BITS as usize {
+        x.set(i, y.get(i + offset).unwrap_or(Boolean::ZERO));
+    }
+    x
+}
+
+// This function extracts shares of a small array from the larger array
+#[allow(dead_code)]
+pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
+where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    AdditiveShare::<XS>(
+        extract_from_array(&y.left(), offset),
+        extract_from_array(&y.right(), offset),
+    )
+}
+
 /// inserts a smaller array into a larger
 /// allows conversion between Boolean Array types like 'BA64' and 'BA256'
 /// we don't use it right except for testing purposes
+#[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
     for<'a> &'a YS: IntoIterator<Item = XS::Element>,
@@ -207,6 +247,7 @@ where
 /// inserts a smaller array into a larger
 /// allows share conversion between secret shared Boolean Array types like 'BA64' and 'BA256'
 /// only used for testing purposes
+#[cfg(all(test, unit_test))]
 pub fn expand_shared_array<XS, YS>(
     x: &AdditiveShare<XS>,
     offset: Option<usize>,
