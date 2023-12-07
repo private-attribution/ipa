@@ -87,7 +87,6 @@ where
     Replicated<F>: Serializable,
 {
     // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
-
     // We might want to do it earlier as that's a cleaner code
 
     let mut prfd_inputs =
@@ -158,7 +157,6 @@ where
 }
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
-
     use crate::{
         ff::{
             boolean_array::{BA20, BA3, BA5, BA8},

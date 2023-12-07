@@ -38,9 +38,37 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
+/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
+/// This macro uses a bit of recursive repetition to produce those zeros.
+/// The binary value of `$bits-1` is expanded in LSB order,
+/// One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
+macro_rules! bitarr_one {
+    (2) => { bitarr_one!([0]) };
+    (3) => { bitarr_one!([][0,]) };
+    (4) => { bitarr_one!([0,][0,]) };
+    (5) => { bitarr_one!([][][0,]) };
+    (6) => { bitarr_one!([0,][][0,]) };
+    (7) => { bitarr_one!([][0,][0,]) };
+    (8) => { bitarr_one!([0,][0,][0,]) };
+    (20) => { bitarr_one!([0,][0,][][][0,]) };
+    (32) => { bitarr_one!([0,][0,][0,][0,][0,]) };
+    (64) => { bitarr_one!([0,][0,][0,][0,][0,][0,]) };
+    (112) => { bitarr_one!([0,][0,][0,][0,][][0,][0,]) };
+    (256) => { bitarr_one!([0,][0,][0,][0,][0,][0,][0,][0,]) };
+    // This is where recursion ends.
+    ([$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
+    // This is the recursion workhorse.  It takes a list of lists.  The outer lists are bracketed.
+    // The inner lists contain any form that can be repeated and concatenated, which probably
+    // means comma-separated values with a trailing comma.
+    // The first value is repeated once.
+    // The second value is repeated twice and merged into the first value.
+    // The third and subsequent values are repeated twice and shifted along one place.
+    ([$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!([$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
+}
+
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
-    ($modname:ident, $name:ident, $bits:expr, $bytes:expr, [$($one:expr),+]) => {
+    ($modname:ident, $name:ident, $bits:tt) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -55,7 +83,7 @@ macro_rules! boolean_array_impl {
 
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
-            ///
+            /// A Boolean array with $bits bits.
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
             pub struct $name(pub Store);
 
@@ -115,7 +143,7 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl <'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+            impl<'a, 'b> std::ops::Add<&'b $name> for &'a $name {
                 type Output = $name;
                 fn add(self, rhs: &'b $name) -> Self::Output {
                     $name(self.0 ^ rhs.0)
@@ -149,7 +177,7 @@ macro_rules! boolean_array_impl {
             }
 
             impl Field for $name {
-                const ONE: Self = Self(bitarr![const u8, Lsb0; $($one),+]);
+                const ONE: Self = Self(bitarr_one!($bits));
 
                 fn as_u128(&self) -> u128 {
                     (*self).into()
@@ -331,87 +359,15 @@ store_impl!(U14, 112);
 store_impl!(U32, 256);
 
 //impl BA3
-boolean_array_impl!(boolean_array_3, BA3, 3, 1, [1, 0, 0]);
-
-//impl BA4
-boolean_array_impl!(boolean_array_4, BA4, 4, 1, [1, 0, 0, 0]);
-
-//impl BA5
-boolean_array_impl!(boolean_array_5, BA5, 5, 1, [1, 0, 0, 0, 0]);
-
-//impl BA6
-boolean_array_impl!(boolean_array_6, BA6, 6, 1, [1, 0, 0, 0, 0, 0]);
-
-//impl BA7
-boolean_array_impl!(boolean_array_7, BA7, 7, 1, [1, 0, 0, 0, 0, 0, 0]);
-
-//impl BA8
-boolean_array_impl!(boolean_array_8, BA8, 8, 1, [1, 0, 0, 0, 0, 0, 0, 0]);
-
-//impl BA20
-boolean_array_impl!(
-    boolean_array_20,
-    BA20,
-    20,
-    3,
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-);
-
-//impl BA32
-boolean_array_impl!(
-    boolean_array_32,
-    BA32,
-    32,
-    4,
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0
-    ]
-);
-
-//impl BA64
-boolean_array_impl!(
-    boolean_array_64,
-    BA64,
-    64,
-    8,
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0
-    ]
-);
-
-// impl BA112
-boolean_array_impl!(
-    boolean_array_112,
-    BA112,
-    112,
-    14,
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]
-);
-
-// impl BA256
+boolean_array_impl!(boolean_array_3, BA3, 3);
+boolean_array_impl!(boolean_array_4, BA4, 4);
+boolean_array_impl!(boolean_array_5, BA5, 5);
+boolean_array_impl!(boolean_array_6, BA6, 6);
+boolean_array_impl!(boolean_array_7, BA7, 7);
+boolean_array_impl!(boolean_array_8, BA8, 8);
+boolean_array_impl!(boolean_array_20, BA20, 20);
+boolean_array_impl!(boolean_array_32, BA32, 32);
+boolean_array_impl!(boolean_array_64, BA64, 64);
+boolean_array_impl!(boolean_array_112, BA112, 112);
 // used to convert into Fp25519
-boolean_array_impl!(
-    boolean_array_256,
-    BA256,
-    256,
-    32,
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]
-);
+boolean_array_impl!(boolean_array_256, BA256, 256);
