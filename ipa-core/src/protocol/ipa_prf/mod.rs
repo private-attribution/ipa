@@ -24,11 +24,12 @@ use crate::{
     },
 };
 
+use self::quicksort::quicksort_by_key_insecure;
+
 mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
-#[cfg(feature = "descriptive-gate")]
-#[cfg(all(test, unit_test))]
+
 mod quicksort;
 #[cfg(feature = "descriptive-gate")]
 pub mod shuffle;
@@ -38,6 +39,7 @@ pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
+    SortByTimestamp
 }
 
 /// IPA OPRF Protocol
@@ -88,10 +90,13 @@ where
 
     // We might want to do it earlier as that's a cleaner code
 
-    let prfd_inputs =
+    let mut prfd_inputs =
         compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
 
     let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
+
+    prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
+    quicksort_by_key_insecure(ctx.narrow(&Step::SortByTimestamp), &mut prfd_inputs, false, |x| &x.timestamp).await?;
 
     // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
