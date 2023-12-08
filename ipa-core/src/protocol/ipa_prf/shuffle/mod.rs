@@ -1,5 +1,5 @@
 use self::base::shuffle;
-use super::boolean_ops::{expand_array_in_place, extract_from_shared_array};
+use super::boolean_ops::{expand_shared_array_in_place, extract_from_shared_array};
 use crate::{
     error::Error,
     ff::{
@@ -57,29 +57,25 @@ where
     TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
-    let (mut y_left, mut y_right) = (YS::ZERO, YS::ZERO);
-    expand_array_in_place(&mut y_left, input.match_key.left(), 0);
-    expand_array_in_place(&mut y_right, input.match_key.right(), 0);
+    let mut y = AdditiveShare::new(YS::ZERO, YS::ZERO);
+    expand_shared_array_in_place(&mut y, &input.match_key, 0);
 
     let mut offset = BA64::BITS as usize;
 
-    y_left.set(offset, input.is_trigger.left());
-    y_right.set(offset, input.is_trigger.right());
+    y.0.set(offset, input.is_trigger.left());
+    y.1.set(offset, input.is_trigger.right());
 
     offset += 1;
 
-    expand_array_in_place(&mut y_left, input.breakdown_key.left(), offset);
-    expand_array_in_place(&mut y_right, input.breakdown_key.right(), offset);
+    expand_shared_array_in_place(&mut y, &input.breakdown_key, offset);
 
     offset += BK::BITS as usize;
-    expand_array_in_place(&mut y_left, input.trigger_value.left(), offset);
-    expand_array_in_place(&mut y_right, input.trigger_value.right(), offset);
+    expand_shared_array_in_place(&mut y, &input.trigger_value, offset);
 
     offset += TV::BITS as usize;
-    expand_array_in_place(&mut y_left, input.timestamp.left(), offset);
-    expand_array_in_place(&mut y_right, input.timestamp.right(), offset);
+    expand_shared_array_in_place(&mut y, &input.timestamp, offset);
 
-    AdditiveShare::<YS>::new(y_left, y_right)
+    y
 }
 
 // This function converts AdditiveShare obtained from shuffle protocol to OprfReport
