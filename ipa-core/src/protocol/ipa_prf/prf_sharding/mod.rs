@@ -447,6 +447,7 @@ where
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
+    println!("collected {:?} {:?}", collected.len(), sh_ctx.role());
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
     // Convert to a stream of async futures that represent the result of executing the per-user circuit

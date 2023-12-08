@@ -1,9 +1,15 @@
 use std::num::NonZeroU32;
 
+use futures::stream::iter as stream_iter;
+use futures_util::StreamExt;
+use ipa_macros::Step;
+
+use self::{
+    prf_sharding::chunk_rows_by_user, quicksort::quicksort_by_key_insecure, shuffle::shuffle_inputs,
+};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
-    helpers::Role,
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
@@ -21,13 +27,6 @@ use crate::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SharedValue,
     },
-};
-use futures::stream::iter as stream_iter;
-use futures_util::StreamExt;
-use ipa_macros::Step;
-
-use self::{
-    prf_sharding::chunk_rows_by_user, quicksort::quicksort_by_key_insecure, shuffle::shuffle_inputs,
 };
 
 mod boolean_ops;
@@ -95,8 +94,6 @@ where
     let mut prfd_inputs =
         compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
 
-    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
-
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream_iter(prfd_inputs);
@@ -108,29 +105,18 @@ where
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
     let batches = rows_chunked_by_user.collect::<Vec<_>>().await;
-    if ctx.role() == Role::H1 {
-         println!("num_batches = {:?}", batches.len());
-    }
+
     let mut sorted = Vec::new();
     let mut ctx_ts = ctx.clone();
     for mut batch in batches.into_iter() {
         ctx_ts = ctx_ts.narrow(&Step::SortByTimestamp);
         quicksort_by_key_insecure(ctx_ts.clone(), &mut batch, false, |x| &x.timestamp).await?;
-        // if ctx.role() == Role::H1 {
-            // println!("batch: {:?}", batch.iter().map(|i| i.timestamp.clone()).collect::<Vec<_>>());
-        // }
         sorted.push(batch);
     }
-    // if ctx.role() == Role::H1 {
-        println!("Before flatten num records {:?} {:?}", sorted.len(), ctx.role());
-    // }
 
-    let sorted : Vec<PrfShardedIpaInputRow<BK, TV, TS>> = sorted.into_iter().flatten().collect();
-    println!("sorted num records {:?}", sorted.len());
-    if ctx.role() == Role::H1 {
-        println!("sorted {:?}", sorted);
-    }
-    // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
+    let sorted: Vec<PrfShardedIpaInputRow<BK, TV, TS>> = sorted.into_iter().flatten().collect();
+
+    let histogram = compute_histogram_of_users_with_row_count(&sorted);
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         sorted,
@@ -216,7 +202,7 @@ pub mod tests {
                     trigger_value: 0,
                 },
                 TestRawDataRecord {
-                    timestamp: 0,
+                    timestamp: 5,
                     user_id: 12345,
                     is_trigger_report: false,
                     breakdown_key: 2,
