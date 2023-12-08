@@ -1,12 +1,8 @@
 use std::num::NonZeroU32;
 
-use futures::stream::iter as stream_iter;
-use futures_util::StreamExt;
 use ipa_macros::Step;
 
-use self::{
-    prf_sharding::chunk_rows_by_user, quicksort::quicksort_by_key_insecure, shuffle::shuffle_inputs,
-};
+use self::shuffle::shuffle_inputs;
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -42,7 +38,6 @@ pub(crate) enum Step {
     EvalPrf,
     ConvertInputRowsToPrf,
     Shuffle,
-    SortByTimestamp,
 }
 
 /// IPA OPRF Protocol
@@ -94,31 +89,11 @@ where
         compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
-    // Chunk the incoming stream of records into stream of vectors of records with the same PRF
-    let mut input_stream = stream_iter(prfd_inputs);
-    let first_row = input_stream.next().await;
-    if first_row.is_none() {
-        return Ok(vec![]);
-    }
-    let first_row = first_row.unwrap();
-    let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
-    let batches = rows_chunked_by_user.collect::<Vec<_>>().await;
-
-    let mut sorted = Vec::new();
-    let mut ctx_ts = ctx.clone();
-    for mut batch in batches {
-        ctx_ts = ctx_ts.narrow(&Step::SortByTimestamp);
-        quicksort_by_key_insecure(ctx_ts.clone(), &mut batch, false, |x| &x.timestamp).await?;
-        sorted.push(batch);
-    }
-
-    let sorted: Vec<PrfShardedIpaInputRow<BK, TV, TS>> = sorted.into_iter().flatten().collect();
-
-    let histogram = compute_histogram_of_users_with_row_count(&sorted);
+    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
-        sorted,
+        prfd_inputs,
         attribution_window_seconds,
         &histogram,
     )
