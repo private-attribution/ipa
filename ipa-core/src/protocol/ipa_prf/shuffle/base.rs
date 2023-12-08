@@ -4,10 +4,10 @@ use futures::future;
 use ipa_macros::Step;
 use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng};
 
-use super::super::{context::Context, RecordId};
 use crate::{
     error::Error,
     helpers::{Direction, ReceivingEnd, Role},
+    protocol::{context::Context, RecordId},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,

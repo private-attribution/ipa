@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess, CustomArray,
-        Field,
+        Expand, Field,
     },
     helpers::Role,
     protocol::{
@@ -181,6 +181,41 @@ where
             Fp25519::from(sh_s.1).neg(),
         )),
     }
+}
+
+/// inserts smaller array in the larger array starting from location offset
+#[allow(dead_code)]
+pub fn expand_shared_array_in_place<YS, XS>(
+    y: &mut AdditiveShare<YS>,
+    x: &AdditiveShare<XS>,
+    offset: usize,
+) where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    for i in 0..XS::BITS as usize {
+        y.set(
+            i + offset,
+            x.get(i).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+        );
+    }
+}
+
+// This function extracts shares of a small array from the larger array
+#[allow(dead_code)]
+pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
+where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    let mut x = AdditiveShare::<XS>::ZERO;
+    for i in 0..XS::BITS as usize {
+        x.set(
+            i,
+            y.get(i + offset).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+        );
+    }
+    x
 }
 
 /// inserts a smaller array into a larger

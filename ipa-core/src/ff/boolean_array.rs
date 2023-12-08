@@ -3,7 +3,7 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U32, U8};
+use typenum::{U14, U32, U8};
 
 use crate::{ff::boolean::Boolean, secret_sharing::Block};
 
@@ -57,6 +57,7 @@ macro_rules! bitarr_one {
     (20) => { bitarr_one!(1 0 0 1 1) };
     (32) => { bitarr_one!(1 1 1 1 1) };
     (64) => { bitarr_one!(1 1 1 1 1 1) };
+    (112) => { bitarr_one!(1 1 0 1 1 1 1) };
     (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
 
     // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
@@ -143,6 +144,27 @@ macro_rules! boolean_array_impl {
                 type Output = Self;
                 fn add(self, rhs: Self) -> Self::Output {
                     Self(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<&$name> for $name {
+                type Output = $name;
+                fn add(self, rhs: &$name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::Add<$name> for &$name {
+                type Output = $name;
+                fn add(self, rhs: $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
+                }
+            }
+
+            impl<'a, 'b> std::ops::Add<&'b $name> for &'a $name {
+                type Output = $name;
+                fn add(self, rhs: &'b $name) -> Self::Output {
+                    $name(self.0 ^ rhs.0)
                 }
             }
 
@@ -348,6 +370,9 @@ macro_rules! boolean_array_impl {
 //impl store for U8
 store_impl!(U8, 64);
 
+//impl store for U14
+store_impl!(U14, 112);
+
 //impl store for U32
 store_impl!(U32, 256);
 
@@ -361,5 +386,6 @@ boolean_array_impl!(boolean_array_8, BA8, 8);
 boolean_array_impl!(boolean_array_20, BA20, 20);
 boolean_array_impl!(boolean_array_32, BA32, 32);
 boolean_array_impl!(boolean_array_64, BA64, 64);
+boolean_array_impl!(boolean_array_112, BA112, 112);
 // used to convert into Fp25519
 boolean_array_impl!(boolean_array_256, BA256, 256);
