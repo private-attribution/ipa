@@ -354,7 +354,7 @@ where
 ///
 /// Filters out any users that only have a single row, since they will produce no attributed conversions.
 ///
-fn chunk_rows_by_user<IS, BK, TV, TS>(
+pub fn chunk_rows_by_user<IS, BK, TV, TS>(
     input_stream: IS,
     first_row: PrfShardedIpaInputRow<BK, TV, TS>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<BK, TV, TS>>>

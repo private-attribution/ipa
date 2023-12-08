@@ -18,7 +18,7 @@ use crate::{
 pub mod base;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
-async fn shuffle_inputs<C, BK, TV, TS>(
+pub async fn shuffle_inputs<C, BK, TV, TS>(
     ctx: C,
     input: Vec<OprfReport<BK, TV, TS>>,
 ) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
