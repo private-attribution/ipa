@@ -53,10 +53,10 @@ pub(crate) enum Step {
 /// 2. Generates a random number of "dummy records" (needed to mask the information that will
 ///    be revealed in a later step, and thereby provide a differential privacy guarantee on that
 ///    information leakage) (TBD)
-/// 3. Shuffles the input (TBD)
+/// 3. Shuffles the input
 /// 4. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
 /// 5. Groups together rows with the same OPRF, and then obliviously sorts each group by the
-///    secret-shared timestamp (TBD)
+///    secret-shared timestamp
 /// 6. Attributes trigger events to source events
 /// 7. Caps each user's total contribution to the final result
 /// 8. Aggregates the contributions of all users
