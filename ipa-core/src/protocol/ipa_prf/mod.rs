@@ -34,8 +34,7 @@ pub mod prf_eval;
 pub mod prf_sharding;
 
 mod quicksort;
-#[cfg(feature = "descriptive-gate")]
-pub mod shuffle;
+mod shuffle;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -108,7 +107,7 @@ where
 
     let mut sorted = Vec::new();
     let mut ctx_ts = ctx.clone();
-    for mut batch in batches.into_iter() {
+    for mut batch in batches {
         ctx_ts = ctx_ts.narrow(&Step::SortByTimestamp);
         quicksort_by_key_insecure(ctx_ts.clone(), &mut batch, false, |x| &x.timestamp).await?;
         sorted.push(batch);
