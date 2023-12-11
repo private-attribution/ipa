@@ -21,22 +21,24 @@ pub(crate) enum Step {
     Reveal,
 }
 
-/// insecure quicksort using MPC comparisons and a key extraction function f
+/// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
 ///
-/// f takes as input an element in the slice and outputs the key by which we sort by
-/// follows partially the function signature of `sort_by_key`, see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`
+/// `get_key` takes as input an element in the slice and outputs the key by which we sort by
+/// follows partially the function signature of `sort_by_key`,
+/// see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`.
 ///
-/// set desc = true for descending ordering
+/// Set `desc` to `true`` for descending ordering.
 ///
-/// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements
-/// To see why this leaks information: assume that all elements are equal,
-/// then quicksort runs in time O(n^2) while for unique elements, it is only expected to run in time O(n log n)
+/// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements.
+/// To see why this leaks information: take a list with all elements having equal values.
+/// Quicksort for that list runs in time `O(n^2)` while for unique elements, where
+/// it is only expected to run in time `O(n log n)`.
 ///
-/// The leakage can be fixed by appending a counter on each element that is unique to the element
-/// This adds another >= log N bits, where N is the amount of elements
+/// The leakage can be fixed by appending a counter on each element that is unique to the element.
+/// This adds another `log_2(N)` bits, where `N` is the amount of elements
 ///
-/// This implementation of quicksort is in place and uses a stack instead of recursion
-/// It terminates once the stack is empty
+/// This implementation of quicksort is in place and uses a stack instead of recursion.
+/// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
 pub async fn quicksort_by_key_insecure<C, K, F, S>(
