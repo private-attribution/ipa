@@ -3,10 +3,8 @@ use std::{num::NonZeroU32, ops::Not};
 use futures::{
     future::{try_join, try_join3},
     stream::{iter as stream_iter, unfold},
-    Stream, StreamExt,
+    Stream, StreamExt, TryStreamExt,
 };
-
-use futures::TryStreamExt;
 use ipa_macros::Step;
 
 use crate::{
@@ -305,13 +303,12 @@ pub(crate) enum Step {
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
     ModulusConvertBreakdownKeyBitsAndTriggerValues,
     MoveValueToCorrectBreakdown,
-    SortByTimestamp,
 }
 
 #[derive(Step)]
-pub(crate) enum InnerSortElementStep {
+pub(crate) enum SortByTimestamp {
     #[dynamic(1024)]
-    Elem(usize),
+    User(usize),
 }
 
 pub trait GroupingKey {
@@ -365,7 +362,7 @@ where
 ///
 /// Filters out any users that only have a single row, since they will produce no attributed conversions.
 ///
-pub fn chunk_rows_by_user<IS, BK, TV, TS>(
+fn chunk_rows_by_user<IS, BK, TV, TS>(
     input_stream: IS,
     first_row: PrfShardedIpaInputRow<BK, TV, TS>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
@@ -400,9 +397,10 @@ where
 /// device can be processed together.
 ///
 /// This circuit expects to receive records from multiple users,
-/// but with all of the records from a given user adjacent to one another, and in time order.
+/// but with all of the records from a given user adjacent to one another.
 ///
-/// This circuit will compute attribution, and per-user capping.
+/// It first sorts the records in time order (ascending) and then
+/// this circuit will compute attribution, and per-user capping.
 ///
 /// The output of this circuit is the input to the next stage: Aggregation.
 ///
@@ -473,6 +471,7 @@ where
             }
             evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
                 idx,
+                &binary_m_ctx,
                 contexts,
                 record_ids,
                 rows_for_user,
@@ -535,6 +534,7 @@ where
 
 async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
     idx: usize,
+    root_ctx: &C,
     ctx_for_row_number: Vec<C>,
     record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
@@ -558,7 +558,7 @@ where
 
     let mut rows_for_user = rows_for_user;
     quicksort_by_key_insecure(
-        ctx_for_row_number[0].narrow(&InnerSortElementStep::Elem(idx)),
+        root_ctx.narrow(&SortByTimestamp::User(idx)),
         &mut rows_for_user,
         false,
         |x| &x.timestamp,
@@ -569,8 +569,7 @@ where
     let mut prev_row_inputs =
         initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
 
-    let mut output =
-        Vec::with_capacity(rows_for_user.len() - 1);
+    let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
         let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
@@ -868,24 +867,6 @@ pub mod tests {
         timestamp: TS,
     }
 
-    fn oprf_test_input<BK>(
-        prf_of_match_key: u64,
-        is_trigger: bool,
-        breakdown_key: u8,
-        trigger_value: u8,
-    ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
-    where
-        BK: SharedValue + Field,
-    {
-        oprf_test_input_with_timestamp(
-            prf_of_match_key,
-            is_trigger,
-            breakdown_key,
-            trigger_value,
-            0,
-        )
-    }
-
     fn oprf_test_input_with_timestamp<BK>(
         prf_of_match_key: u64,
         is_trigger: bool,
@@ -1000,22 +981,22 @@ pub mod tests {
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
-                oprf_test_input(123, false, 17, 0),
-                oprf_test_input(123, true, 0, 7),
-                oprf_test_input(123, false, 20, 0),
-                oprf_test_input(123, true, 0, 3),
+                oprf_test_input_with_timestamp(123, false, 17, 0, 0),
+                oprf_test_input_with_timestamp(123, true, 0, 7, 1),
+                oprf_test_input_with_timestamp(123, false, 20, 0, 2),
+                oprf_test_input_with_timestamp(123, true, 0, 3, 3),
                 /* Second User */
-                oprf_test_input(234, false, 12, 0),
-                oprf_test_input(234, true, 0, 5),
+                oprf_test_input_with_timestamp(234, false, 12, 0, 0),
+                oprf_test_input_with_timestamp(234, true, 0, 5, 1),
                 /* Third User */
-                oprf_test_input(345, false, 20, 0),
-                oprf_test_input(345, true, 0, 7),
-                oprf_test_input(345, false, 18, 0),
-                oprf_test_input(345, false, 12, 0),
-                oprf_test_input(345, true, 0, 7),
-                oprf_test_input(345, true, 0, 7),
-                oprf_test_input(345, true, 0, 7),
-                oprf_test_input(345, true, 0, 7),
+                oprf_test_input_with_timestamp(345, false, 20, 0, 0),
+                oprf_test_input_with_timestamp(345, true, 0, 7, 1),
+                oprf_test_input_with_timestamp(345, false, 18, 0, 2),
+                oprf_test_input_with_timestamp(345, false, 12, 0, 3),
+                oprf_test_input_with_timestamp(345, true, 0, 7, 4),
+                oprf_test_input_with_timestamp(345, true, 0, 7, 5),
+                oprf_test_input_with_timestamp(345, true, 0, 7, 6),
+                oprf_test_input_with_timestamp(345, true, 0, 7, 7),
             ];
 
             let mut expected = [0_u128; 32];
@@ -1055,7 +1036,7 @@ pub mod tests {
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA5, BA3, BA20>> = vec![
                 /* First User */
                 oprf_test_input_with_timestamp(123, false, 17, 0, 1),
-                oprf_test_input_with_timestamp(123, true, 0, 7, 200), // tsΔ = 199, attributed to 17
+                oprf_test_input_with_timestamp(123, true, 0, 7, 199), // tsΔ = 199, attributed to 17
                 oprf_test_input_with_timestamp(123, false, 20, 0, 200),
                 oprf_test_input_with_timestamp(123, true, 0, 3, 300), // tsΔ = 100, attributed to 20
                 /* Second User */
@@ -1116,53 +1097,53 @@ pub mod tests {
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, BA3, BA20>> = vec![
                 /* First User (perfectly saturates, then one extra) */
-                oprf_test_input(10_251_308_645, false, 218, 0),
-                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 3
-                oprf_test_input(10_251_308_645, true, 0, 3), // running-sum = 6
-                oprf_test_input(10_251_308_645, true, 0, 5), // running-sum = 11
-                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 17
-                oprf_test_input(10_251_308_645, true, 0, 1), // running-sum = 18
-                oprf_test_input(10_251_308_645, true, 0, 2), // running-sum = 20
-                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 26
-                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 32
+                oprf_test_input_with_timestamp(10_251_308_645, false, 218, 0, 0),
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 3, 1), // running-sum = 3
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 3, 2), // running-sum = 6
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 5, 3), // running-sum = 11
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 6, 4), // running-sum = 17
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 1, 5), // running-sum = 18
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 2, 6), // running-sum = 20
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 6, 7), // running-sum = 26
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 6, 8), // running-sum = 32
                 // This next record should get zeroed out due to the per-user cap of 32
-                oprf_test_input(10_251_308_645, true, 0, 6), // running-sum = 38
+                oprf_test_input_with_timestamp(10_251_308_645, true, 0, 6, 9), // running-sum = 38
                 /* Second User (imperfectly saturates, then a few extra) */
-                oprf_test_input(1, false, 53, 0),
-                oprf_test_input(1, true, 0, 7), // running-sum = 7
-                oprf_test_input(1, true, 0, 7), // running-sum = 14
-                oprf_test_input(1, true, 0, 7), // running-sum = 21
-                oprf_test_input(1, true, 0, 7), // running-sum = 28
+                oprf_test_input_with_timestamp(1, false, 53, 0, 0),
+                oprf_test_input_with_timestamp(1, true, 0, 7, 1), // running-sum = 7
+                oprf_test_input_with_timestamp(1, true, 0, 7, 2), // running-sum = 14
+                oprf_test_input_with_timestamp(1, true, 0, 7, 3), // running-sum = 21
+                oprf_test_input_with_timestamp(1, true, 0, 7, 4), // running-sum = 28
                 // This record should be partially capped
-                oprf_test_input(1, true, 0, 7), // running-sum = 35
+                oprf_test_input_with_timestamp(1, true, 0, 7, 5), // running-sum = 35
                 // The next two records should be fully capped
-                oprf_test_input(1, true, 0, 7), // running-sum = 42
-                oprf_test_input(1, true, 0, 7), // running-sum = 49
+                oprf_test_input_with_timestamp(1, true, 0, 7, 6), // running-sum = 42
+                oprf_test_input_with_timestamp(1, true, 0, 7, 7), // running-sum = 49
                 /* Third User (perfectly saturates, no extras) */
-                oprf_test_input(2, false, 12, 0),
-                oprf_test_input(2, true, 0, 6), // running-sum = 6
-                oprf_test_input(2, true, 0, 4), // running-sum = 10
-                oprf_test_input(2, true, 0, 6), // running-sum = 16
-                oprf_test_input(2, true, 0, 4), // running-sum = 20
-                oprf_test_input(2, true, 0, 6), // running-sum = 26
-                oprf_test_input(2, true, 0, 6), // running-sum = 32
+                oprf_test_input_with_timestamp(2, false, 12, 0, 0),
+                oprf_test_input_with_timestamp(2, true, 0, 6, 1), // running-sum = 6
+                oprf_test_input_with_timestamp(2, true, 0, 4, 2), // running-sum = 10
+                oprf_test_input_with_timestamp(2, true, 0, 6, 3), // running-sum = 16
+                oprf_test_input_with_timestamp(2, true, 0, 4, 4), // running-sum = 20
+                oprf_test_input_with_timestamp(2, true, 0, 6, 5), // running-sum = 26
+                oprf_test_input_with_timestamp(2, true, 0, 6, 6), // running-sum = 32
                 /* Fourth User (imperfectly saturates, no extras) */
-                oprf_test_input(3, false, 78, 0),
-                oprf_test_input(3, true, 0, 7), // running-sum = 7
-                oprf_test_input(3, true, 0, 6), // running-sum = 13
-                oprf_test_input(3, true, 0, 5), // running-sum = 18
-                oprf_test_input(3, true, 0, 7), // running-sum = 25
-                oprf_test_input(3, true, 0, 6), // running-sum = 31
+                oprf_test_input_with_timestamp(3, false, 78, 0, 0),
+                oprf_test_input_with_timestamp(3, true, 0, 7, 1), // running-sum = 7
+                oprf_test_input_with_timestamp(3, true, 0, 6, 2), // running-sum = 13
+                oprf_test_input_with_timestamp(3, true, 0, 5, 3), // running-sum = 18
+                oprf_test_input_with_timestamp(3, true, 0, 7, 4), // running-sum = 25
+                oprf_test_input_with_timestamp(3, true, 0, 6, 5), // running-sum = 31
                 // The next row should be partially capped
-                oprf_test_input(3, true, 0, 5), // running-sum = 36
+                oprf_test_input_with_timestamp(3, true, 0, 5, 6), // running-sum = 36
                 /* Fifth User (does not saturate) */
-                oprf_test_input(4, false, 44, 0),
-                oprf_test_input(4, true, 0, 4), // running-sum = 4
-                oprf_test_input(4, true, 0, 5), // running-sum = 9
-                oprf_test_input(4, true, 0, 6), // running-sum = 15
-                oprf_test_input(4, true, 0, 5), // running-sum = 20
-                oprf_test_input(4, true, 0, 4), // running-sum = 24
-                oprf_test_input(4, true, 0, 7), // running-sum = 31
+                oprf_test_input_with_timestamp(4, false, 44, 0, 0),
+                oprf_test_input_with_timestamp(4, true, 0, 4, 1), // running-sum = 4
+                oprf_test_input_with_timestamp(4, true, 0, 5, 2), // running-sum = 9
+                oprf_test_input_with_timestamp(4, true, 0, 6, 3), // running-sum = 15
+                oprf_test_input_with_timestamp(4, true, 0, 5, 4), // running-sum = 20
+                oprf_test_input_with_timestamp(4, true, 0, 4, 5), // running-sum = 24
+                oprf_test_input_with_timestamp(4, true, 0, 7, 6), // running-sum = 31
             ];
 
             let mut expected = [0_u128; 256];
