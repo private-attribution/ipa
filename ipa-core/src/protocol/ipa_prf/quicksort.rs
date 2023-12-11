@@ -27,7 +27,7 @@ pub(crate) enum Step {
 /// follows partially the function signature of `sort_by_key`,
 /// see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`.
 ///
-/// Set `desc` to `true`` for descending ordering.
+/// Set `desc` to `true` for descending ordering.
 ///
 /// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements.
 /// To see why this leaks information: take a list with all elements having equal values.
