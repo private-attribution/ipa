@@ -43,12 +43,12 @@ pub async fn quicksort_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
     desc: bool,
-    f: F,
+    get_key: F,
 ) -> Result<(), Error>
 where
     C: Context,
     S: Send + Sync,
-    F: Fn(&S) -> &AdditiveShare<K> + Sync,
+    F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
@@ -66,34 +66,25 @@ where
         // check whether sort is needed
         if b_l + 1 < b_r {
             // set up iterator
-            let mut iterator = list[b_l..b_r].iter();
+            let mut iterator = list[b_l..b_r].iter().map(get_key);
             // first element is pivot, apply key extraction function f
-            let pivot = f(iterator.next().unwrap());
+            let pivot = iterator.next().unwrap();
             // create pointer to context for moving into closure
             let pctx = &(ctx.set_total_records(b_r - (b_l + 1)));
-            let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
             let comp: BitVec<usize, Lsb0> = seq_join(
                 ctx.active_work(),
-                stream_iter(iterator.enumerate().map(|(n, x)| async move {
-                    // compare current element against pivot
-                    let sh_comp = compare_gt(
-                        pctx.narrow(&Step::Compare),
-                        RecordId::from(n),
-                        // apply key extraction function f to element x
-                        pf(x),
-                        pivot,
-                    )
-                    .await?;
+                stream_iter(iterator.enumerate().map(|(n, k)| async move {
+                    // Compare the current element against pivot and reveal the result.
+                    let comparison =
+                        compare_gt(pctx.narrow(&Step::Compare), RecordId::from(n), k, pivot)
+                            .await?
+                            .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
+                            .await?;
 
                     // reveal outcome of comparison
-                    Ok::<bool, Error>(
-                        // desc = true will flip the order of the sort
-                        Boolean::from(false ^ desc)
-                            == sh_comp
-                                .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
-                                .await?,
-                    )
+                    // desc = true will flip the order of the sort
+                    Ok::<_, Error>(Boolean::from(false ^ desc) == comparison)
                 })),
             )
             .try_collect()
