@@ -42,6 +42,7 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
+#[tracing::instrument(name = "quicksort_by_key_insecure", skip_all)]
 pub async fn quicksort_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
