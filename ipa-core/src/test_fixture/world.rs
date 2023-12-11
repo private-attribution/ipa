@@ -193,10 +193,12 @@ impl TestWorld {
     {
         let input_shares = input.share_with(&mut thread_rng());
         #[allow(clippy::disallowed_methods)] // It's just 3 items.
-        let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares)))
-                .instrument(span)
-                .await;
+        let output = join_all(zip(contexts, input_shares).map(|(ctx, shares)| {
+            let role = ctx.role();
+            helper_fn(ctx, shares).instrument(tracing::trace_span!("", role = ?role))
+        }))
+        .instrument(span)
+        .await;
         <[_; 3]>::try_from(output).unwrap()
     }
 }
