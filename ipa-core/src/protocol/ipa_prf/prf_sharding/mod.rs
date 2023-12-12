@@ -443,7 +443,6 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
@@ -461,19 +460,15 @@ where
     let per_user_results = collected
         .into_iter()
         .enumerate()
-        .map(|(idx, rows_for_user)| {
+        .map(|(record_id, rows_for_user)| {
             let num_user_rows = rows_for_user.len();
             let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
-            let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
 
-            for count in &mut record_id_for_row_depth[..num_user_rows] {
-                *count += 1;
-            }
             evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
-                idx,
+                record_id,
                 &binary_m_ctx,
                 contexts,
-                record_ids,
+                RecordId::from(record_id),
                 rows_for_user,
                 attribution_window_seconds,
             )
@@ -536,7 +531,7 @@ async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
     idx: usize,
     root_ctx: &C,
     ctx_for_row_number: Vec<C>,
-    record_id_for_each_depth: Vec<u32>,
+    record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
@@ -572,12 +567,11 @@ where
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
-        let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
 
         let capped_attribution_outputs = prev_row_inputs
             .compute_row_with_previous(
                 ctx_for_this_row_depth,
-                record_id_for_this_row_depth,
+                record_id,
                 row,
                 attribution_window_seconds,
             )

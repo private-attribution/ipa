@@ -1,8 +1,5 @@
 use bitvec::prelude::{BitVec, Lsb0};
-use futures::{
-    future,
-    stream::{iter as stream_iter, TryStreamExt},
-};
+use futures::stream::{iter as stream_iter, TryStreamExt};
 use ipa_macros::Step;
 
 use crate::{
@@ -24,22 +21,24 @@ pub(crate) enum Step {
     Reveal,
 }
 
-/// insecure quicksort using MPC comparisons and a key extraction function f
+/// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
 ///
-/// f takes as input an element in the slice and outputs the key by which we sort by
-/// follows partially the function signature of `sort_by_key`, see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`
+/// `get_key` takes as input an element in the slice and outputs the key by which we sort by
+/// follows partially the function signature of `sort_by_key`,
+/// see `https://doc.rust-lang.org/src/alloc/slice.rs.html#305-308`.
 ///
-/// set desc = true for descending ordering
+/// Set `desc` to `true` for descending ordering.
 ///
-/// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements
-/// To see why this leaks information: assume that all elements are equal,
-/// then quicksort runs in time O(n^2) while for unique elements, it is only expected to run in time O(n log n)
+/// This version of quicksort is insecure because it does not enforce the uniqueness of the sorted elements.
+/// To see why this leaks information: take a list with all elements having equal values.
+/// Quicksort for that list runs in time `O(n^2)` while for unique elements, where
+/// it is only expected to run in time `O(n log n)`.
 ///
-/// The leakage can be fixed by appending a counter on each element that is unique to the element
-/// This adds another >= log N bits, where N is the amount of elements
+/// The leakage can be fixed by appending a counter on each element that is unique to the element.
+/// This adds another `log_2(N)` bits, where `N` is the amount of elements
 ///
-/// This implementation of quicksort is in place and uses a stack instead of recursion
-/// It terminates once the stack is empty
+/// This implementation of quicksort is in place and uses a stack instead of recursion.
+/// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
 #[tracing::instrument(name = "quicksort_by_key_insecure", skip_all)]
@@ -47,12 +46,12 @@ pub async fn quicksort_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
     desc: bool,
-    f: F,
+    get_key: F,
 ) -> Result<(), Error>
 where
     C: Context,
     S: Send + Sync,
-    F: Fn(&S) -> &AdditiveShare<K> + Sync,
+    F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
@@ -60,8 +59,6 @@ where
     let expected_depth = std::mem::size_of::<usize>() * 8 - list.len().leading_zeros() as usize;
     // create stack
     let mut stack: Vec<(C, usize, usize)> = Vec::with_capacity(expected_depth);
-    // vector for comparison (against pivot) outcomes
-    let mut comp: BitVec<usize, Lsb0> = BitVec::with_capacity(list.len());
 
     // initialize stack
     stack.push((ctx, 0usize, list.len()));
@@ -72,43 +69,28 @@ where
         // check whether sort is needed
         if b_l + 1 < b_r {
             // set up iterator
-            let mut iterator = list[b_l..b_r].iter();
+            let mut iterator = list[b_l..b_r].iter().map(get_key);
             // first element is pivot, apply key extraction function f
-            let pivot = f(iterator.next().unwrap());
+            let pivot = iterator.next().unwrap();
             // create pointer to context for moving into closure
             let pctx = &(ctx.set_total_records(b_r - (b_l + 1)));
-            let pf = &f;
             // precompute comparison against pivot and reveal result in parallel
-            comp.clear();
-            seq_join(
+            let comp: BitVec<usize, Lsb0> = seq_join(
                 ctx.active_work(),
-                stream_iter(iterator.enumerate().map(|(n, x)| {
-                    async move {
-                        // compare current element against pivot
-                        let sh_comp = compare_gt(
-                            pctx.narrow(&Step::Compare),
-                            RecordId::from(n),
-                            // apply key extraction function f to element x
-                            pf(x),
-                            pivot,
-                        )
-                        .await?;
+                stream_iter(iterator.enumerate().map(|(n, k)| async move {
+                    // Compare the current element against pivot and reveal the result.
+                    let comparison =
+                        compare_gt(pctx.narrow(&Step::Compare), RecordId::from(n), k, pivot)
+                            .await?
+                            .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
+                            .await?;
 
-                        // reveal outcome of comparison
-                        Ok::<bool, Error>(
-                            // desc = true will flip the order of the sort
-                            Boolean::from(false ^ desc)
-                                == sh_comp
-                                    .reveal(pctx.narrow(&Step::Reveal), RecordId::from(n))
-                                    .await?,
-                        )
-                    }
+                    // reveal outcome of comparison
+                    // desc = true will flip the order of the sort
+                    Ok::<_, Error>(Boolean::from(false ^ desc) == comparison)
                 })),
             )
-            .try_for_each(|x| {
-                comp.push(x);
-                future::ready(Ok(()))
-            })
+            .try_collect()
             .await?;
 
             // swap elements based on comparisons
