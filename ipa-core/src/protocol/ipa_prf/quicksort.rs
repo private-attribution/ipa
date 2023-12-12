@@ -52,14 +52,6 @@ where
     K: SharedValue + Field + CustomArray<Element = Boolean> + Send,
     K::Element: Send,
 {
-    // expected amount of recursion: compute ceil(log_2(list.len()))
-    // let expected_depth = std::mem::size_of::<usize>() * 8 - list.len().leading_zeros() as usize;
-    // create stack
-    // let mut stack: Vec<(C, usize, usize)> = Vec::with_capacity(expected_depth);
-
-    // initialize stack
-    // stack.push((ctx, 0usize, list.len()));
-
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
 
@@ -88,8 +80,6 @@ where
             if b_l + 1 >= b_r {
                 continue;
             }
-            // set up iterator
-            //let mut iterator = list[b_l..b_r].iter().map(get_key);
             // first element is pivot, apply key extraction function f
             let pivot = get_key(&list[b_l]);
 
@@ -465,7 +455,7 @@ pub mod tests {
             let mut rng = thread_rng();
 
             // test cases for both, ascending and descending
-            let bools = vec![false]; //, true];
+            let bools = vec![false, true];
 
             for desc in bools {
                 // generate vector of structs corresponding to 8 users.
@@ -492,12 +482,14 @@ pub mod tests {
                 expected.sort_unstable_by(|a, b| match a.0.cmp(&b.0) {
                     Ordering::Less => Ordering::Less,
                     Ordering::Greater => Ordering::Greater,
-                    Ordering::Equal => a.1.cmp(&b.1),
+                    Ordering::Equal => {
+                        if desc {
+                            b.1.cmp(&a.1)
+                        } else {
+                            a.1.cmp(&b.1)
+                        }
+                    }
                 });
-
-                // if desc {
-                //     expected.reverse();
-                // }
 
                 // compute mpc sort
                 let result: Vec<_> = world
@@ -508,7 +500,16 @@ pub mod tests {
                             &mut list_mut[..],
                             desc,
                             |x| &x.timestamp,
-                            vec![(0, 1), (1, 3), (3, 6), (6, 11), (11, 19), (19, 32), (32, 53), (53, 87)],
+                            vec![
+                                (0, 1),
+                                (1, 3),
+                                (3, 6),
+                                (6, 11),
+                                (11, 19),
+                                (19, 32),
+                                (32, 53),
+                                (53, 87),
+                            ],
                         )
                         .await
                         .unwrap();

@@ -55,10 +55,10 @@ pub async fn compare_gt<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>> + Send,
-    YS: SharedValue + CustomArray<Element = XS::Element> + Send,
-    XS: SharedValue + CustomArray + Field + Send,
-    XS::Element: Field + std::ops::Not<Output = XS::Element> + Send,
+    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray + Field,
+    XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
