@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use ipa_macros::Step;
 
 use crate::{
@@ -42,7 +44,7 @@ pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     list: &mut [S],
     desc: bool,
     get_key: F,
-    mut ranges_to_sort: Vec<(usize, usize)>,
+    mut ranges_to_sort: Vec<Range<usize>>,
 ) -> Result<(), Error>
 where
     C: Context,
@@ -61,8 +63,8 @@ where
         // compute the total number of comparisons that will be needed
         let mut num_comparisons_needed = 0;
         for range in &ranges_to_sort {
-            if range.0 + 1 < range.1 {
-                num_comparisons_needed += range.1 - (range.0 + 1);
+            if range.len() > 1 {
+                num_comparisons_needed += range.len() - 1;
             }
         }
 
@@ -77,13 +79,11 @@ where
 
         // check whether sort is needed
         for range in &ranges_to_sort {
-            let b_l = range.0;
-            let b_r = range.1;
-            if b_l + 1 >= b_r {
+            if range.len() <= 1 {
                 continue;
             }
             // set up iterator
-            let mut iterator = list[b_l..b_r].iter().map(get_key);
+            let mut iterator = list[range.clone()].iter().map(get_key);
             // first element is pivot, apply key extraction function f
             let pivot = iterator.next().unwrap();
             // precompute comparison against pivot and reveal result in parallel
@@ -113,33 +113,30 @@ where
 
         let mut n = 0;
         for range in &ranges_to_sort {
-            let b_l = range.0;
-            let b_r = range.1;
-            if b_l + 1 >= b_r {
+            if range.len() <= 1 {
                 continue;
             }
 
             // swap elements based on comparisons
             // i is index of first element larger than pivot
-            let range_len = b_r - (b_l + 1);
-            let mut i = b_l + 1;
-            for (j, b) in comp[n..(n + range_len)].iter().enumerate() {
+            let mut i = range.start + 1;
+            for (j, b) in comp[n..(n + range.len() - 1)].iter().enumerate() {
                 if *b {
-                    list.swap(i, j + b_l + 1);
+                    list.swap(i, j + range.start + 1);
                     i += 1;
                 }
             }
-            n += range_len;
+            n += range.len() - 1;
 
             // put pivot to index i-1
-            list.swap(i - 1, b_l);
+            list.swap(i - 1, range.start);
 
             // push recursively calls to quicksort function on stack
-            if i > b_l + 1 {
-                ranges_for_next_pass.push((b_l, i - 1));
+            if i > range.start + 1 {
+                ranges_for_next_pass.push(range.start..(i - 1));
             }
-            if i + 1 < b_r {
-                ranges_for_next_pass.push((i, b_r));
+            if i + 1 < range.end {
+                ranges_for_next_pass.push(i..range.end);
             }
         }
 
@@ -186,14 +183,9 @@ pub mod tests {
         C: Context,
     {
         let mut list_mut = list.to_vec();
-        quicksort_ranges_by_key_insecure(
-            ctx,
-            &mut list_mut[..],
-            desc,
-            |x| x,
-            vec![(0, list.len())],
-        )
-        .await?;
+        #[allow(clippy::single_range_in_vec_init)]
+        quicksort_ranges_by_key_insecure(ctx, &mut list_mut[..], desc, |x| x, vec![0..list.len()])
+            .await?;
         let mut result: Vec<AdditiveShare<BA64>> = vec![];
         list_mut.iter().for_each(|x| result.push(x.clone()));
         Ok(result)
@@ -498,7 +490,7 @@ pub mod tests {
                     |acc, x| {
                         let (start, mut ranges) = acc;
                         let end = start + x;
-                        ranges.push((start, end));
+                        ranges.push(start..end);
                         (end, ranges)
                     },
                 );
