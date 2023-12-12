@@ -1,5 +1,10 @@
-use std::ops::Range;
+use std::{
+    iter::{repeat, zip},
+    ops::Range,
+};
 
+use bitvec::prelude::{BitVec, Lsb0};
+use futures::stream::{iter as stream_iter, TryStreamExt};
 use ipa_macros::Step;
 
 use crate::{
@@ -11,6 +16,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+    seq_join::seq_join,
 };
 
 #[derive(Step)]
@@ -74,42 +80,39 @@ where
         let cmp_ctx = c.narrow(&Step::Compare);
         let rvl_ctx = c.narrow(&Step::Reveal);
 
-        let mut futures = Vec::with_capacity(num_comparisons_needed);
-        let mut counter = 0;
+        let comp: BitVec<usize, Lsb0> = seq_join(
+            ctx.active_work(),
+            stream_iter(
+                ranges_to_sort
+                    .iter()
+                    .filter(|r| r.len() > 1)
+                    .flat_map(|range| {
+                        // set up iterator
+                        let mut iterator = list[range.clone()].iter().map(get_key);
+                        // first element is pivot, apply key extraction function f
+                        let pivot = iterator.next().unwrap();
+                        zip(repeat(pivot), iterator)
+                    })
+                    .enumerate()
+                    .map(|(i, (pivot, k))| {
+                        let cmp_ctx = cmp_ctx.clone();
+                        let rvl_ctx = rvl_ctx.clone();
+                        let record_id = RecordId::from(i);
+                        async move {
+                            // Compare the current element against pivot and reveal the result.
+                            let comparison = compare_gt(cmp_ctx, record_id, k, pivot)
+                                .await?
+                                .reveal(rvl_ctx, record_id) // reveal outcome of comparison
+                                .await?;
 
-        // check whether sort is needed
-        for range in &ranges_to_sort {
-            if range.len() <= 1 {
-                continue;
-            }
-            // set up iterator
-            let mut iterator = list[range.clone()].iter().map(get_key);
-            // first element is pivot, apply key extraction function f
-            let pivot = iterator.next().unwrap();
-            // precompute comparison against pivot and reveal result in parallel
-            for k in iterator {
-                futures.push({
-                    let record_id = RecordId::from(counter);
-                    let c1 = cmp_ctx.clone();
-                    let c2 = rvl_ctx.clone();
-
-                    async move {
-                        // Compare the current element against pivot and reveal the result.
-                        let comparison = compare_gt(c1, record_id, k, pivot)
-                            .await?
-                            .reveal(c2, record_id)
-                            .await?;
-
-                        // reveal outcome of comparison
-                        // desc = true will flip the order of the sort
-                        Ok::<_, Error>(Boolean::from(desc) == comparison)
-                    }
-                });
-                counter += 1;
-            }
-        }
-
-        let comp = c.parallel_join(futures).await?;
+                            // desc = true will flip the order of the sort
+                            Ok::<_, Error>(Boolean::from(desc) == comparison)
+                        }
+                    }),
+            ),
+        )
+        .try_collect()
+        .await?;
 
         let mut n = 0;
         for range in &ranges_to_sort {
@@ -131,7 +134,7 @@ where
             // put pivot to index i-1
             list.swap(i - 1, range.start);
 
-            // push recursively calls to quicksort function on stack
+            // mark which ranges need to be sorted in the next pass
             if i > range.start + 1 {
                 ranges_for_next_pass.push(range.start..(i - 1));
             }
