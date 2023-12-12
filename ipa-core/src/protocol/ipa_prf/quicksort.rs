@@ -48,9 +48,8 @@ where
     C: Context,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
-    for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>> + Send,
-    K: SharedValue + Field + CustomArray<Element = Boolean> + Send,
-    K::Element: Send,
+    for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
+    K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
@@ -73,7 +72,7 @@ where
         let cmp_ctx = c.narrow(&Step::Compare);
         let rvl_ctx = c.narrow(&Step::Reveal);
 
-        let mut futures = Vec::with_capacity(ranges_to_sort.len());
+        let mut futures = Vec::with_capacity(num_comparisons_needed);
         let mut counter = 0;
 
         // check whether sort is needed
@@ -112,7 +111,7 @@ where
 
         let comp = c.parallel_join(futures).await?;
 
-        let mut offset = 0;
+        let mut n = 0;
         for range in &ranges_to_sort {
             let b_l = range.0;
             let b_r = range.1;
@@ -122,16 +121,15 @@ where
 
             // swap elements based on comparisons
             // i is index of first element larger than pivot
-            let num_comparisons_in_range = b_r - (b_l + 1);
+            let range_len = b_r - (b_l + 1);
             let mut i = b_l + 1;
-            for (j, idx) in (offset..(offset + num_comparisons_in_range)).enumerate() {
-                let b = comp[idx];
-                if b {
+            for (j, b) in comp[n..(n + range_len)].iter().enumerate() {
+                if *b {
                     list.swap(i, j + b_l + 1);
                     i += 1;
                 }
             }
-            offset += num_comparisons_in_range;
+            n += range_len;
 
             // put pivot to index i-1
             list.swap(i - 1, b_l);
@@ -450,7 +448,9 @@ pub mod tests {
         }
     }
 
-    // test for reversely sorted list
+    const TEST_USER_IDS: [usize; 8] = [1, 2, 3, 5, 8, 13, 21, 34];
+
+    // test for sorting multiple ranges in a longer list
     #[test]
     fn test_multiple_ranges() {
         run(|| async move {
@@ -464,9 +464,8 @@ pub mod tests {
                 // generate vector of structs corresponding to 8 users.
                 // Each user will have a different number of records
                 // Each struct will have a random timestamps
-                let mut records: Vec<SillyStruct> =
-                    Vec::with_capacity(1 + 2 + 3 + 5 + 8 + 13 + 21 + 34);
-                for user_id in [1, 2, 3, 5, 8, 13, 21, 34] {
+                let mut records: Vec<SillyStruct> = Vec::with_capacity(TEST_USER_IDS.iter().sum());
+                for user_id in TEST_USER_IDS {
                     for _ in 0..user_id {
                         records.push(SillyStruct {
                             timestamp: rng.gen::<BA20>(),
@@ -494,28 +493,32 @@ pub mod tests {
                     }
                 });
 
+                let (_, ranges_to_sort) = TEST_USER_IDS.iter().fold(
+                    (0, Vec::with_capacity(TEST_USER_IDS.len())),
+                    |acc, x| {
+                        let (start, mut ranges) = acc;
+                        let end = start + x;
+                        ranges.push((start, end));
+                        (end, ranges)
+                    },
+                );
+
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
-                        quicksort_ranges_by_key_insecure(
-                            ctx,
-                            &mut records[..],
-                            desc,
-                            |x| &x.timestamp,
-                            vec![
-                                (0, 1),   // the first row is from the first user
-                                (1, 3),   // the next two rows are from the second user
-                                (3, 6),   // the next three rows are from the third user
-                                (6, 11),  // the next 5 rows are from the next user
-                                (11, 19), // the next 8 rows are from the next user
-                                (19, 32), // the next 13 rows are from the next user
-                                (32, 53), // the next 21 rows are from the next user
-                                (53, 87), // the final 34 rows are from the last user
-                            ],
-                        )
-                        .await
-                        .unwrap();
-                        records
+                    .semi_honest(records.into_iter(), |ctx, mut records| {
+                        let ranges_clone = ranges_to_sort.clone();
+                        async move {
+                            quicksort_ranges_by_key_insecure(
+                                ctx,
+                                &mut records[..],
+                                desc,
+                                |x| &x.timestamp,
+                                ranges_clone,
+                            )
+                            .await
+                            .unwrap();
+                            records
+                        }
                     })
                     .await
                     .reconstruct();
