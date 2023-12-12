@@ -58,10 +58,10 @@ where
     // iterate through all of the potentially incorrectly ordered ranges
     // make one pass, comparing each element to the pivot and splitting into two more
     // potentially incorrectly ordered ranges
-    while ranges_to_sort.len() > 0 {
+    while !ranges_to_sort.is_empty() {
         // compute the total number of comparisons that will be needed
         let mut num_comparisons_needed = 0;
-        for range in ranges_to_sort.iter() {
+        for range in &ranges_to_sort {
             if range.0 + 1 < range.1 {
                 num_comparisons_needed += range.1 - (range.0 + 1);
             }
@@ -70,37 +70,40 @@ where
         let c = ctx
             .narrow(&BitOpStep::from(quicksort_pass))
             .set_total_records(num_comparisons_needed);
+        let cmp_ctx = c.narrow(&Step::Compare);
+        let rvl_ctx = c.narrow(&Step::Reveal);
+
         let mut futures = Vec::with_capacity(ranges_to_sort.len());
         let mut counter = 0;
 
         // check whether sort is needed
-        for range in ranges_to_sort.iter() {
+        for range in &ranges_to_sort {
             let b_l = range.0;
             let b_r = range.1;
             if b_l + 1 >= b_r {
                 continue;
             }
+            // set up iterator
+            let mut iterator = list[b_l..b_r].iter().map(get_key);
             // first element is pivot, apply key extraction function f
-            let pivot = get_key(&list[b_l]);
-
+            let pivot = iterator.next().unwrap();
             // precompute comparison against pivot and reveal result in parallel
-            for idx in (b_l + 1)..b_r {
+            for k in iterator {
                 futures.push({
-                    let k = get_key(&list[idx]);
                     let record_id = RecordId::from(counter);
-                    let cmp_ctx = c.narrow(&Step::Compare);
-                    let rvl_ctx = c.narrow(&Step::Reveal);
+                    let c1 = cmp_ctx.clone();
+                    let c2 = rvl_ctx.clone();
 
                     async move {
                         // Compare the current element against pivot and reveal the result.
-                        let comparison = compare_gt(cmp_ctx, record_id, k, pivot)
+                        let comparison = compare_gt(c1, record_id, k, pivot)
                             .await?
-                            .reveal(rvl_ctx, record_id)
+                            .reveal(c2, record_id)
                             .await?;
 
                         // reveal outcome of comparison
                         // desc = true will flip the order of the sort
-                        Ok::<_, Error>(Boolean::from(false ^ desc) == comparison)
+                        Ok::<_, Error>(Boolean::from(desc) == comparison)
                     }
                 });
                 counter += 1;
@@ -110,7 +113,7 @@ where
         let comp = c.parallel_join(futures).await?;
 
         let mut offset = 0;
-        for range in ranges_to_sort.iter() {
+        for range in &ranges_to_sort {
             let b_l = range.0;
             let b_r = range.1;
             if b_l + 1 >= b_r {
@@ -425,7 +428,7 @@ pub mod tests {
     impl Reconstruct<SillyStruct> for [SillyStructShare; 3] {
         fn reconstruct(&self) -> SillyStruct {
             SillyStruct {
-                user_id: self[0].user_id.clone(),
+                user_id: self[0].user_id,
                 timestamp: [
                     self[0].timestamp.clone(),
                     self[1].timestamp.clone(),
@@ -493,30 +496,26 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        let mut list_mut = records.to_vec();
+                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
                         quicksort_ranges_by_key_insecure(
                             ctx,
-                            &mut list_mut[..],
+                            &mut records[..],
                             desc,
                             |x| &x.timestamp,
                             vec![
-                                (0, 1),
-                                (1, 3),
-                                (3, 6),
-                                (6, 11),
-                                (11, 19),
-                                (19, 32),
-                                (32, 53),
-                                (53, 87),
+                                (0, 1),   // the first row is from the first user
+                                (1, 3),   // the next two rows are from the second user
+                                (3, 6),   // the next three rows are from the third user
+                                (6, 11),  // the next 5 rows are from the next user
+                                (11, 19), // the next 8 rows are from the next user
+                                (19, 32), // the next 13 rows are from the next user
+                                (32, 53), // the next 21 rows are from the next user
+                                (53, 87), // the final 34 rows are from the last user
                             ],
                         )
                         .await
                         .unwrap();
-
-                        let mut result = vec![];
-                        list_mut.iter().for_each(|x| result.push(x.clone()));
-                        result
+                        records
                     })
                     .await
                     .reconstruct();
