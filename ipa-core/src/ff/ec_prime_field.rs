@@ -15,7 +15,7 @@ impl Block for Scalar {
 
 ///implements the Scalar field for elliptic curve 25519
 /// we use elements in Fp25519 to generate curve points and operate on the curve
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Fp25519(<Self as SharedValue>::Storage);
 
 impl Fp25519 {
