@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, ops::Not};
+use std::{num::NonZeroU32, ops::{Not, Range}};
 
 use futures::{
     future::{try_join, try_join3},
@@ -20,7 +20,6 @@ use crate::{
                 addition_sequential::integer_add,
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
             },
-            quicksort::quicksort_by_key_insecure,
         },
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         RecordId,
@@ -305,28 +304,28 @@ pub(crate) enum Step {
     MoveValueToCorrectBreakdown,
 }
 
-#[derive(Step)]
-pub(crate) enum SortByTimestamp {
-    #[dynamic(1024)]
-    User(usize),
-}
-
 pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
-#[tracing::instrument(name = "compute_histogram_of_users_with_row_count", skip_all)]
-pub fn compute_histogram_of_users_with_row_count<S>(input: &[S]) -> Vec<usize>
+#[tracing::instrument(name = "compute_histogram_with_row_count_and_ranges_of_users", skip_all)]
+pub fn compute_histogram_with_row_count_and_ranges_of_users<S>(input: &[S]) -> (Vec<usize>, Vec<Range<usize>>)
 where
     S: GroupingKey,
 {
     let mut histogram = vec![];
     let mut last_prf = input[0].get_grouping_key() + 1;
     let mut cur_count = 0;
-    for row in input {
+    let mut start = 0;
+    let mut end = 0;
+    let mut ranges = vec![];
+    for (idx, row) in input.iter().enumerate() {
         if row.get_grouping_key() == last_prf {
             cur_count += 1;
+            end += 1;
         } else {
+            ranges.push(start..end);
+            start = idx;
             cur_count = 0;
             last_prf = row.get_grouping_key();
         }
@@ -335,7 +334,8 @@ where
         }
         histogram[cur_count] += 1;
     }
-    histogram
+    ranges.push(start..end);
+    (histogram, ranges)
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -443,6 +443,7 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
+    let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
@@ -457,23 +458,21 @@ where
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-    let per_user_results = collected
-        .into_iter()
-        .enumerate()
-        .map(|(record_id, rows_for_user)| {
-            let num_user_rows = rows_for_user.len();
-            let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+    let per_user_results = collected.into_iter().map(|rows_for_user| {
+        let num_user_rows = rows_for_user.len();
+        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+        let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
 
-            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
-                record_id,
-                &binary_m_ctx,
-                contexts,
-                RecordId::from(record_id),
-                rows_for_user,
-                attribution_window_seconds,
-            )
-        });
-
+        for count in &mut record_id_for_row_depth[..num_user_rows] {
+            *count += 1;
+        }
+        evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
+            contexts,
+            record_ids,
+            rows_for_user,
+            attribution_window_seconds,
+        )
+    });
     // Execute all of the async futures (sequentially), and flatten the result
     let flattened_stream = seq_join(sh_ctx.active_work(), stream_iter(per_user_results))
         .flat_map(|x| stream_iter(x.unwrap()));
@@ -528,10 +527,8 @@ where
 }
 
 async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
-    idx: usize,
-    root_ctx: &C,
     ctx_for_row_number: Vec<C>,
-    record_id: RecordId,
+    record_id_for_each_depth: Vec<u32>,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
@@ -551,15 +548,6 @@ where
         return Ok(Vec::new());
     }
 
-    let mut rows_for_user = rows_for_user;
-    quicksort_by_key_insecure(
-        root_ctx.narrow(&SortByTimestamp::User(idx)),
-        &mut rows_for_user,
-        false,
-        |x| &x.timestamp,
-    )
-    .await?;
-
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs =
         initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
@@ -567,11 +555,12 @@ where
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
+        let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
 
         let capped_attribution_outputs = prev_row_inputs
             .compute_row_with_previous(
                 ctx_for_this_row_depth,
-                record_id,
+                record_id_for_this_row_depth,
                 row,
                 attribution_window_seconds,
             )

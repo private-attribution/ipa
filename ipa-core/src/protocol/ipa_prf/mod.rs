@@ -12,7 +12,7 @@ use crate::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
+                attribute_cap_aggregate, compute_histogram_with_row_count_and_ranges_of_users,
                 PrfShardedIpaInputRow,
             },
         },
@@ -90,7 +90,7 @@ where
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
+    let (histogram, ranges) = compute_histogram_with_row_count_and_ranges_of_users(&prfd_inputs);
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
