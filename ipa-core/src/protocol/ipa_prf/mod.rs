@@ -12,8 +12,7 @@ use crate::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_range_sort_key_per_user,
-                PrfShardedIpaInputRow,
+                attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
         RecordId,
@@ -91,7 +90,7 @@ where
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let (histogram, ranges) = compute_histogram_range_sort_key_per_user(&mut prfd_inputs);
+    let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
     quicksort_ranges_by_key_insecure(
         ctx.narrow(&Step::SortByTimestamp),
         &mut prfd_inputs,

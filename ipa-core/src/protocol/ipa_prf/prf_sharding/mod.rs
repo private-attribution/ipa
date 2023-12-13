@@ -58,21 +58,30 @@ impl<BK: SharedValue, TS, TV: SharedValue> PrfShardedIpaInputRow<BK, TV, TS>
 where
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
+    /// This function defines the sort key.
+    /// The order of sorting is `timestamp`, `is_trigger_bit`, `counter`.
+    /// We sort by `is_trigger_bit` to ensure source events come before trigger in case there
+    /// is a tie in timestamp
+    /// Counter is added to ensure each sorting key is unique to avoid privacy leakage
+    /// NOTE: the order of members to be sorted by
+    /// should be opposite to what you want as the bits are stored in Little Endian format.
+    /// We still need to add epoch which will be added later
     pub fn compute_sort_key(&mut self, counter: u64) {
-        // TODO: add epoch to sort key computation
         let mut y: Replicated<BA32> = Replicated::ZERO;
-        // y.0.set(0, self.is_trigger_bit.left());
-        // y.1.set(0, self.is_trigger_bit.right());
-        let mut offset = 1;
 
-        expand_shared_array_in_place(&mut y, &self.timestamp, offset);
-
-        offset += TS::BITS as usize;
         expand_shared_array_in_place(
             &mut y,
             &Replicated::new(BA7::truncate_from(counter), BA7::truncate_from(counter)),
-            offset,
+            0,
         );
+        let mut offset = BA7::BITS as usize;
+
+        y.0.set(offset, self.is_trigger_bit.left());
+        y.1.set(offset, self.is_trigger_bit.right());
+
+        offset += 1;
+        expand_shared_array_in_place(&mut y, &self.timestamp, offset);
+        // TODO(richaj): add epoch to sort key computation
 
         self.sort_key = y;
     }
@@ -339,8 +348,12 @@ pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
-#[tracing::instrument(name = "compute_histogram_range_sort_key_per_user", skip_all)]
-pub fn compute_histogram_range_sort_key_per_user<BK, TV, TS>(
+#[tracing::instrument(name = "histograms_ranges_sortkeys", skip_all)]
+/// This function does following computations per user
+/// 1. Compute histogram of users with row counts
+/// 2. Compute range of rows for each user in the input vector
+/// 3. Compute the sort key for the input rows which is used later for sorting
+pub fn histograms_ranges_sortkeys<BK, TV, TS>(
     input: &mut [PrfShardedIpaInputRow<BK, TV, TS>],
 ) -> (Vec<usize>, Vec<Range<usize>>)
 where
@@ -431,10 +444,9 @@ where
 /// device can be processed together.
 ///
 /// This circuit expects to receive records from multiple users,
-/// but with all of the records from a given user adjacent to one another.
+/// but with all of the records from a given user adjacent to one another, and in time order.
 ///
-/// It first sorts the records in time order (ascending) and then
-/// this circuit will compute attribution, and per-user capping.
+/// This circuit will compute attribution, and per-user capping.
 ///
 /// The output of this circuit is the input to the next stage: Aggregation.
 ///
