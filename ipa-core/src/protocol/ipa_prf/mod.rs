@@ -5,28 +5,22 @@ use ipa_macros::Step;
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::Error,
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BA32, BA64},
-        CustomArray, Field, PrimeField, Serializable,
-    },
+    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_range_sort_key_per_user, PrfShardedIpaInputRow,
+                attribute_cap_aggregate, compute_histogram_range_sort_key_per_user,
+                PrfShardedIpaInputRow,
             },
         },
         RecordId,
     },
     report::OprfReport,
     secret_sharing::{
-        replicated::{
-            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SharedValue,
     },
 };
@@ -106,6 +100,7 @@ where
         ranges,
     )
     .await?;
+
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
@@ -158,7 +153,7 @@ where
                 breakdown_key: record.breakdown_key,
                 trigger_value: record.trigger_value,
                 timestamp: record.timestamp,
-                sort_key: Replicated::new(BA32::ZERO, BA32::ZERO),
+                sort_key: Replicated::ZERO,
             })
         }
     }))
