@@ -12,8 +12,7 @@ use crate::{
     ff::{boolean::Boolean, CustomArray, Field},
     protocol::{
         basics::Reveal, context::Context,
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, step::BitOpStep,
-        RecordId,
+        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
     seq_join::seq_join,
@@ -21,6 +20,8 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum Step {
+    #[dynamic(1024)]
+    QuicksortPass(usize),
     Compare,
     Reveal,
 }
@@ -75,7 +76,7 @@ where
         }
 
         let c = ctx
-            .narrow(&BitOpStep::from(quicksort_pass))
+            .narrow(&Step::QuicksortPass(quicksort_pass))
             .set_total_records(num_comparisons_needed);
         let cmp_ctx = c.narrow(&Step::Compare);
         let rvl_ctx = c.narrow(&Step::Reveal);
