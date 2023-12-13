@@ -10,9 +10,14 @@ use futures::{
 };
 use ipa_macros::Step;
 
+use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA32, BA7},
+        ArrayAccess, CustomArray, Expand, Field, PrimeField, Serializable,
+    },
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
@@ -46,6 +51,33 @@ pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedVal
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+    pub sort_key: Replicated<BA32>,
+}
+
+impl<BK: SharedValue, TS, TV: SharedValue> PrfShardedIpaInputRow<BK, TV, TS>
+where
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    pub fn compute_sort_key(&mut self, counter: u64) {
+        // TODO: add epoch to sort key computation
+        let mut y = Replicated::new(BA32::ZERO, BA32::ZERO);
+        expand_shared_array_in_place(&mut y, &self.timestamp, 0);
+
+        let mut offset = TS::BITS as usize;
+
+        y.0.set(offset, self.is_trigger_bit.left());
+        y.1.set(offset, self.is_trigger_bit.right());
+
+        offset += 1;
+        BA7::truncate_from(counter);
+        expand_shared_array_in_place(
+            &mut y,
+            &Replicated::new(BA7::truncate_from(counter), BA7::truncate_from(counter)),
+            offset,
+        );
+
+        self.sort_key = y;
+    }
 }
 
 impl<BK: SharedValue, TS: SharedValue, TV: SharedValue> GroupingKey
@@ -309,39 +341,39 @@ pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
-#[tracing::instrument(
-    name = "compute_histogram_with_row_count_and_ranges_of_users",
-    skip_all
-)]
-pub fn compute_histogram_with_row_count_and_ranges_of_users<S>(
-    input: &[S],
+#[tracing::instrument(name = "computations_post_shuffle", skip_all)]
+pub fn computations_post_shuffle<BK, TV, TS>(
+    input: &mut [PrfShardedIpaInputRow<BK, TV, TS>],
 ) -> (Vec<usize>, Vec<Range<usize>>)
 where
-    S: GroupingKey,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let mut histogram = vec![];
     let mut last_prf = input[0].get_grouping_key() + 1;
     let mut cur_count = 0;
     let mut start = 0;
     let mut ranges = vec![];
-    for (idx, row) in input.iter().enumerate() {
+    for (idx, row) in input.iter_mut().enumerate() {
         if row.get_grouping_key() == last_prf {
             cur_count += 1;
         } else {
-            // Dont push empty ranges or first number
-            if start + 1 != idx {
+            // Don't push upto single rows of users
+            if idx - start > 1 {
                 ranges.push(start..idx);
             }
             start = idx;
             cur_count = 0;
             last_prf = row.get_grouping_key();
         }
+        row.compute_sort_key(cur_count.try_into().unwrap());
         if histogram.len() <= cur_count {
             histogram.push(0);
         }
         histogram[cur_count] += 1;
     }
-    if start + 1 != input.len() {
+    if input.len() - start > 1 {
         ranges.push(start..input.len());
     }
     (histogram, ranges)
@@ -836,13 +868,14 @@ pub mod tests {
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5, BA8},
+            boolean_array::{BA20, BA3, BA32, BA5, BA8},
             CustomArray, Field, Fp32BitPrime,
         },
         protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+            IntoShares, SharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -916,6 +949,7 @@ pub mod tests {
                     breakdown_key: breakdown_key0,
                     trigger_value: trigger_value0,
                     timestamp: timestamp0,
+                    sort_key: Replicated::new(BA32::ZERO, BA32::ZERO),
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -923,6 +957,7 @@ pub mod tests {
                     breakdown_key: breakdown_key1,
                     trigger_value: trigger_value1,
                     timestamp: timestamp1,
+                    sort_key: Replicated::new(BA32::ZERO, BA32::ZERO),
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -930,6 +965,7 @@ pub mod tests {
                     breakdown_key: breakdown_key2,
                     trigger_value: trigger_value2,
                     timestamp: timestamp2,
+                    sort_key: Replicated::new(BA32::ZERO, BA32::ZERO),
                 },
             ]
         }

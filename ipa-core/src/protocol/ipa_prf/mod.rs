@@ -5,22 +5,28 @@ use ipa_macros::Step;
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA32, BA64},
+        CustomArray, Field, PrimeField, Serializable,
+    },
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_with_row_count_and_ranges_of_users,
-                PrfShardedIpaInputRow,
+                attribute_cap_aggregate, computations_post_shuffle, PrfShardedIpaInputRow,
             },
         },
         RecordId,
     },
     report::OprfReport,
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        replicated::{
+            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
         SharedValue,
     },
 };
@@ -91,12 +97,12 @@ where
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let (histogram, ranges) = compute_histogram_with_row_count_and_ranges_of_users(&prfd_inputs);
+    let (histogram, ranges) = computations_post_shuffle(&mut prfd_inputs);
     quicksort_ranges_by_key_insecure(
         ctx.narrow(&Step::SortByTimestamp),
         &mut prfd_inputs,
         false,
-        |x| &x.timestamp,
+        |x| &x.sort_key,
         ranges,
     )
     .await?;
@@ -152,6 +158,7 @@ where
                 breakdown_key: record.breakdown_key,
                 trigger_value: record.trigger_value,
                 timestamp: record.timestamp,
+                sort_key: Replicated::new(BA32::ZERO, BA32::ZERO),
             })
         }
     }))

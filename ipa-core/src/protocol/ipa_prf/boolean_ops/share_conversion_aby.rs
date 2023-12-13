@@ -184,7 +184,6 @@ where
 }
 
 /// inserts smaller array in the larger array starting from location offset
-#[allow(dead_code)]
 pub fn expand_shared_array_in_place<YS, XS>(
     y: &mut AdditiveShare<YS>,
     x: &AdditiveShare<XS>,
@@ -202,7 +201,6 @@ pub fn expand_shared_array_in_place<YS, XS>(
 }
 
 // This function extracts shares of a small array from the larger array
-#[allow(dead_code)]
 pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
 where
     YS: CustomArray<Element = Boolean> + SharedValue,
