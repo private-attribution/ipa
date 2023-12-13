@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use ipa_macros::Step;
 
-use self::shuffle::shuffle_inputs;
+use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -38,6 +38,7 @@ pub(crate) enum Step {
     EvalPrf,
     ConvertInputRowsToPrf,
     Shuffle,
+    SortByTimestamp,
 }
 
 /// IPA OPRF Protocol
@@ -91,6 +92,14 @@ where
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
     let (histogram, ranges) = compute_histogram_with_row_count_and_ranges_of_users(&prfd_inputs);
+    quicksort_ranges_by_key_insecure(
+        ctx.narrow(&Step::SortByTimestamp),
+        &mut prfd_inputs,
+        false,
+        |x| &x.timestamp,
+        ranges,
+    )
+    .await?;
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
