@@ -63,27 +63,23 @@ where
     /// We sort by `is_trigger_bit` to ensure source events come before trigger in case there
     /// is a tie in timestamp
     /// Counter is added to ensure each sorting key is unique to avoid privacy leakage
-    /// NOTE: the order of members to be sorted by
-    /// should be opposite to what you want as the bits are stored in Little Endian format.
+    /// NOTE: the sort key will be interpreted in Little endian format, so the order in
+    /// which things are appended is important.
     /// We still need to add epoch which will be added later
     pub fn compute_sort_key(&mut self, counter: u64) {
-        let mut y: Replicated<BA32> = Replicated::ZERO;
-
         expand_shared_array_in_place(
-            &mut y,
+            &mut self.sort_key,
             &Replicated::new(BA7::truncate_from(counter), BA7::truncate_from(counter)),
             0,
         );
         let mut offset = BA7::BITS as usize;
 
-        y.0.set(offset, self.is_trigger_bit.left());
-        y.1.set(offset, self.is_trigger_bit.right());
+        self.sort_key.0.set(offset, self.is_trigger_bit.left());
+        self.sort_key.1.set(offset, self.is_trigger_bit.right());
 
         offset += 1;
-        expand_shared_array_in_place(&mut y, &self.timestamp, offset);
+        expand_shared_array_in_place(&mut self.sort_key, &self.timestamp, offset);
         // TODO(richaj): add epoch to sort key computation
-
-        self.sort_key = y;
     }
 }
 

@@ -104,7 +104,7 @@ where
 }
 
 pub async fn playbook_oprf_ipa<F>(
-    mut records: Vec<TestRawDataRecord>,
+    records: Vec<TestRawDataRecord>,
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
     query_config: IpaQueryConfig,
@@ -120,10 +120,6 @@ where
     for buffer in &mut buffers {
         buffer.resize(query_size * sz, 0u8);
     }
-
-    //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place.
-    //This does a stable sort. It also expects the inputs to be sorted by timestamp
-    records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
 
     let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
         records.iter().cloned().share();
