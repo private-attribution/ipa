@@ -69,12 +69,8 @@ where
     // potentially incorrectly ordered ranges
     while !ranges_to_sort.is_empty() {
         // compute the total number of comparisons that will be needed
-        let mut num_comparisons_needed = 0;
-        for range in &ranges_to_sort {
-            if range.len() > 1 {
-                num_comparisons_needed += range.len() - 1;
-            }
-        }
+        let num_comparisons_needed =
+            ranges_to_sort.iter().map(|x| x.len()).sum::<usize>() - ranges_to_sort.len();
 
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
@@ -116,32 +112,34 @@ where
         .try_collect()
         .await?;
 
-        let mut n = 0;
-        for range in &ranges_to_sort {
-            if range.len() <= 1 {
-                continue;
-            }
-
-            // swap elements based on comparisons
-            // i is index of first element larger than pivot
-            let mut i = range.start + 1;
-            for (j, b) in comp[n..(n + range.len() - 1)].iter().enumerate() {
-                if *b {
-                    list.swap(i, j + range.start + 1);
-                    i += 1;
+        let mut ranges_it = ranges_to_sort.into_iter();
+        let mut range = 0..0; // an empty range, so that calling `.next()` returns `None`
+        let mut pivot_index = 0;
+        let mut i = 1;
+        for comparison in comp {
+            let index = if let Some(n) = range.next() {
+                n
+            } else {
+                // Cleanup work once a range has ended
+                list.swap(i - 1, pivot_index);
+                // mark which ranges need to be sorted in the next pass
+                if i > pivot_index + 1 {
+                    ranges_for_next_pass.push(pivot_index..(i - 1));
                 }
-            }
-            n += range.len() - 1;
+                if i + 1 < range.end {
+                    ranges_for_next_pass.push(i..range.end);
+                }
 
-            // put pivot to index i-1
-            list.swap(i - 1, range.start);
-
-            // mark which ranges need to be sorted in the next pass
-            if i > range.start + 1 {
-                ranges_for_next_pass.push(range.start..(i - 1));
-            }
-            if i + 1 < range.end {
-                ranges_for_next_pass.push(i..range.end);
+                while range.len() < 2 {
+                    range = ranges_it.next().unwrap();
+                }
+                pivot_index = range.next().unwrap();
+                i = pivot_index + 1;
+                range.next().unwrap()
+            };
+            if comparison {
+                list.swap(i, index);
+                i += 1;
             }
         }
 
@@ -394,6 +392,12 @@ pub mod tests {
         user_id: usize,
     }
 
+    impl SillyStruct {
+        fn timestamp<'a>(x: &'a SillyStructShare) -> &'a AdditiveShare<BA20> {
+            &x.timestamp
+        }
+    }
+
     #[derive(Clone, Debug)]
     struct SillyStructShare {
         timestamp: AdditiveShare<BA20>,
@@ -509,7 +513,7 @@ pub mod tests {
                                 ctx,
                                 &mut records[..],
                                 desc,
-                                |x| &x.timestamp,
+                                SillyStruct::timestamp,
                                 ranges_clone,
                             )
                             .await
