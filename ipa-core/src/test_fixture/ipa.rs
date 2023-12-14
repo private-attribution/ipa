@@ -238,7 +238,7 @@ pub async fn test_ipa<F>(
 #[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
-    mut records: Vec<TestRawDataRecord>,
+    records: Vec<TestRawDataRecord>,
     expected_results: &[u32],
     config: IpaQueryConfig,
 ) where
@@ -254,11 +254,7 @@ pub async fn test_oprf_ipa<F>(
         test_fixture::Runner,
     };
 
-    //TODO(richaj) This manual sorting will be removed once we have the PRF sharding in place
-    records.sort_by(|a, b| b.user_id.cmp(&a.user_id));
-
     let aws = config.attribution_window_seconds;
-
     let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
