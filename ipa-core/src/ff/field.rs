@@ -7,6 +7,7 @@ use typenum::{U1, U4};
 
 use crate::{
     error,
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -25,6 +26,7 @@ pub trait Field:
     SharedValue
     + Mul<Self, Output = Self>
     + MulAssign<Self>
+    + FromRandomU128
     + TryFrom<u128, Error = error::Error>
     + Into<Self::Storage>
 {

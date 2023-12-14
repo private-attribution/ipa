@@ -5,7 +5,11 @@ use bitvec::{
 use generic_array::GenericArray;
 use typenum::{U14, U32, U8};
 
-use crate::{ff::boolean::Boolean, secret_sharing::Block};
+use crate::{
+    ff::{boolean::Boolean, Serializable},
+    protocol::prss::FromRandomU128,
+    secret_sharing::Block,
+};
 
 /// The implementation below cannot be constrained without breaking Rust's
 /// macro processor.  This noop ensures that the instance of `GenericArray` used
@@ -212,9 +216,17 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            // TODO(812): this should only be implemented like this when bits <= 128
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
                 fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                     <$name>::truncate_from(rng.gen::<u128>())
+                }
+            }
+
+            // TODO(812): this should only be implemented when bits <= 128
+            impl FromRandomU128 for $name {
+                fn from_random_u128(src: u128) -> Self {
+                    Field::truncate_from(src)
                 }
             }
 
@@ -387,5 +399,35 @@ boolean_array_impl!(boolean_array_20, BA20, 20);
 boolean_array_impl!(boolean_array_32, BA32, 32);
 boolean_array_impl!(boolean_array_64, BA64, 64);
 boolean_array_impl!(boolean_array_112, BA112, 112);
-// used to convert into Fp25519
 boolean_array_impl!(boolean_array_256, BA256, 256);
+
+// used to convert into Fp25519
+impl From<(u128, u128)> for BA256 {
+    fn from(value: (u128, u128)) -> Self {
+        let iter = value
+            .0
+            .to_le_bytes()
+            .into_iter()
+            .chain(value.1.to_le_bytes());
+        let arr = GenericArray::<u8, U32>::try_from_iter(iter).unwrap();
+        BA256::deserialize(&arr)
+    }
+}
+
+// TODO(812): don't generate the default impls; enable these instead.
+/*
+impl FromPrss for (BA256, BA256) {
+    fn from_prss<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> (BA256, BA256) {
+        let index = index.into();
+        let (l0, r0) = prss.generate_values(2 * index);
+        let (l1, r1) = prss.generate_values(2 * index + 1);
+        (BA256::from((l0, l1)), BA256::from((r0, r1)))
+    }
+}
+
+impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
+    fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
+        BA256::from((rng.gen(), rng.gen()))
+    }
+}
+*/

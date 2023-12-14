@@ -4,6 +4,7 @@ use typenum::U1;
 use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
+    protocol::prss::FromRandomU128,
     secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
 };
 
@@ -155,6 +156,12 @@ impl TryFrom<u128> for Boolean {
                 v
             )))
         }
+    }
+}
+
+impl FromRandomU128 for Boolean {
+    fn from_random_u128(src: u128) -> Self {
+        Field::truncate_from(src)
     }
 }
 

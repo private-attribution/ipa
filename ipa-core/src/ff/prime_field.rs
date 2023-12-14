@@ -3,6 +3,7 @@ use generic_array::GenericArray;
 use super::Field;
 use crate::{
     ff::Serializable,
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -59,6 +60,12 @@ macro_rules! field_impl {
             fn truncate_from<T: Into<u128>>(v: T) -> Self {
                 #[allow(clippy::cast_possible_truncation)]
                 Self((v.into() % u128::from(Self::PRIME)) as <Self as SharedValue>::Storage)
+            }
+        }
+
+        impl FromRandomU128 for $field {
+            fn from_random_u128(src: u128) -> Self {
+                Field::truncate_from(src)
             }
         }
 
