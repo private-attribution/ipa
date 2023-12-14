@@ -216,14 +216,14 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            // TODO: this should only be implemented like this when bits <= 128
+            // TODO(812): this should only be implemented like this when bits <= 128
             impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
                 fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                     <$name>::truncate_from(rng.gen::<u128>())
                 }
             }
 
-            // TODO: this should only be implemented when bits <= 128
+            // TODO(812): this should only be implemented when bits <= 128
             impl FromRandomU128 for $name {
                 fn from_random_u128(src: u128) -> Self {
                     Field::truncate_from(src)
@@ -414,7 +414,7 @@ impl From<(u128, u128)> for BA256 {
     }
 }
 
-// TODO: don't generate the default impls; enable these instead.
+// TODO(812): don't generate the default impls; enable these instead.
 /*
 impl FromPrss for (BA256, BA256) {
     fn from_prss<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> (BA256, BA256) {
