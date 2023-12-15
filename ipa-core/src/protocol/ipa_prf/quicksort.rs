@@ -46,6 +46,9 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
+///
+/// # Panics
+/// If you provide any invalid ranges, such as 0..0
 pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
@@ -60,6 +63,8 @@ where
     for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
+    assert!(!ranges_to_sort.iter().any(|x| x.is_empty()));
+
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
 
@@ -297,7 +302,7 @@ pub mod tests {
                 let result: Vec<_> = world
                     .semi_honest(records.into_iter(), |ctx, mut r| async move {
                         #[allow(clippy::single_range_in_vec_init)]
-                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..1])
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..0])
                             .await
                             .unwrap();
                         r
