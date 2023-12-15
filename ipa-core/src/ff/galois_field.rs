@@ -3,7 +3,10 @@ use std::{
     ops::Index,
 };
 
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use bitvec::{
+    prelude::{bitarr, BitArr, Lsb0},
+    slice::Iter,
+};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
@@ -132,12 +135,24 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
     product
 }
 
+/// Iterates over bit arrays and yields `bool` values. The reason why we can't use [`BitValIter`] from the bitvec crate
+/// is that this type is not `Send`.
+///
+/// [`BitValIter`]: bitvec::slice::BitValIter
+pub struct BoolIterator<'a>(Iter<'a, u8, Lsb0>);
+impl<'a> Iterator for BoolIterator<'a> {
+    type Item = bool;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|v| *v)
+    }
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
-            use super::*;
+        use super::*;
 
             /// N-bit array of bits. It supports boolean algebra, and provides access
             /// to individual bits via index.
@@ -167,8 +182,10 @@ macro_rules! bit_array_impl {
                 }
             }
 
+
             impl ArrayAccess for $name {
                 type Output = bool;
+                type Iter<'a> = BoolIterator<'a>;
 
                 fn get(&self, index: usize) -> Option<Self::Output> {
                     if index < usize::try_from(<$name>::BITS).unwrap() {
@@ -181,6 +198,10 @@ macro_rules! bit_array_impl {
                 fn set(&mut self, index: usize, e: Self::Output) {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
+                }
+
+                fn iter(&self) -> Self::Iter<'_> {
+                    BoolIterator(self.0.iter())
                 }
             }
 
