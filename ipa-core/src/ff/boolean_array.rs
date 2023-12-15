@@ -322,11 +322,7 @@ macro_rules! boolean_array_impl {
                 type Output = Self;
 
                 fn not(self) -> Self::Output {
-                    let mut result = <$name>::ZERO;
-                    for i in 0..usize::try_from(<$name>::BITS).unwrap() {
-                        result.set(i, !self.get(i).unwrap());
-                    }
-                    result
+                    Self(self.0.not())
                 }
             }
 
