@@ -46,8 +46,6 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-/// # Panics
-/// If you provide any invalid ranges, such as 0..0
 pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
