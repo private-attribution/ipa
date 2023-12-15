@@ -407,13 +407,6 @@ boolean_array_impl!(boolean_array_64, BA64, 64);
 boolean_array_impl!(boolean_array_112, BA112, 112);
 boolean_array_impl!(boolean_array_256, BA256, 256);
 
-// impl AdditiveShare<$name> {
-// #[must_use]
-// pub fn iter(&self) -> ASIterator<BAIterator<'_>> {
-// ASIterator::<BAIterator>(self.0.into_iter(), self.1.into_iter())
-// }
-// }
-
 // used to convert into Fp25519
 impl From<(u128, u128)> for BA256 {
     fn from(value: (u128, u128)) -> Self {

@@ -137,7 +137,6 @@ async fn subtraction_circuit<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    // for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     XS: SharedValue + CustomArray,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
