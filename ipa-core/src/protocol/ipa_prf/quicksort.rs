@@ -71,8 +71,11 @@ where
     while !ranges_to_sort.is_empty() {
         // The total number of comparisons in each range is one fewer than the
         // number of items in that range.  And we don't accept empty range.
-        let num_comparisons_needed =
-            ranges_to_sort.iter().map(|x| x.len()).sum::<usize>() - ranges_to_sort.len();
+        let num_comparisons_needed = ranges_to_sort
+            .iter()
+            .map(ExactSizeIterator::len)
+            .sum::<usize>()
+            - ranges_to_sort.len();
 
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
@@ -118,7 +121,7 @@ where
         for mut range in ranges_to_sort.into_iter().filter(|r| r.len() >= 2) {
             let pivot_index = range.next().unwrap();
             let mut i = pivot_index + 1;
-            while let Some(n) = range.next() {
+            for n in range.by_ref() {
                 let comparison = comp_it.next().unwrap();
                 if comparison {
                     list.swap(i, n);
@@ -197,17 +200,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
-                        quicksort_ranges_by_key_insecure(
-                            ctx,
-                            &mut records,
-                            desc,
-                            |x| x,
-                            vec![0..20],
-                        )
-                        .await
-                        .unwrap();
-                        records
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -252,17 +250,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
-                        quicksort_ranges_by_key_insecure(
-                            ctx,
-                            &mut records,
-                            desc,
-                            |x| x,
-                            vec![0..20],
-                        )
-                        .await
-                        .unwrap();
-                        records
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -304,17 +297,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
-                        quicksort_ranges_by_key_insecure(
-                            ctx,
-                            &mut records,
-                            desc,
-                            |x| x,
-                            vec![0..1],
-                        )
-                        .await
-                        .unwrap();
-                        records
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..1])
+                            .await
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -358,30 +346,22 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        let c = ctx.clone();
                         // Sort one direction
-                        quicksort_ranges_by_key_insecure(
-                            ctx.clone(),
-                            &mut records,
-                            !desc,
-                            |x| x,
-                            vec![0..20],
-                        )
-                        .await
-                        .unwrap();
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(c, &mut r, !desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
 
+                        let c = ctx.narrow(&Step::TestReverse);
                         // Then sort the other direction
-                        quicksort_ranges_by_key_insecure(
-                            ctx.narrow(&Step::TestReverse),
-                            &mut records,
-                            desc,
-                            |x| x,
-                            vec![0..20],
-                        )
-                        .await
-                        .unwrap();
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(c, &mut r, desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
 
-                        records
+                        r
                     })
                     .await
                     .reconstruct();
@@ -405,7 +385,7 @@ pub mod tests {
     }
 
     impl SillyStruct {
-        fn timestamp<'a>(x: &'a SillyStructShare) -> &'a AdditiveShare<BA20> {
+        fn timestamp(x: &SillyStructShare) -> &AdditiveShare<BA20> {
             &x.timestamp
         }
     }
@@ -518,19 +498,19 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| {
+                    .semi_honest(records.into_iter(), |ctx, mut r| {
                         let ranges_clone = ranges_to_sort.clone();
                         async move {
                             quicksort_ranges_by_key_insecure(
                                 ctx,
-                                &mut records[..],
+                                &mut r[..],
                                 desc,
                                 SillyStruct::timestamp,
                                 ranges_clone,
                             )
                             .await
                             .unwrap();
-                            records
+                            r
                         }
                     })
                     .await
