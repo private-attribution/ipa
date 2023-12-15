@@ -46,7 +46,8 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
-#[tracing::instrument(name = "quicksort_ranges_by_key_insecure", skip_all)]
+/// # Panics
+/// If you provide any invalid ranges, such as 0..0
 pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
@@ -68,7 +69,8 @@ where
     // make one pass, comparing each element to the pivot and splitting into two more
     // potentially incorrectly ordered ranges
     while !ranges_to_sort.is_empty() {
-        // compute the total number of comparisons that will be needed
+        // The total number of comparisons in each range is one fewer than the
+        // number of items in that range.  And we don't accept empty range.
         let num_comparisons_needed =
             ranges_to_sort.iter().map(|x| x.len()).sum::<usize>() - ranges_to_sort.len();
 
@@ -112,34 +114,27 @@ where
         .try_collect()
         .await?;
 
-        let mut ranges_it = ranges_to_sort.into_iter();
-        let mut range = 0..0; // an empty range, so that calling `.next()` returns `None`
-        let mut pivot_index = 0;
-        let mut i = 1;
-        for comparison in comp {
-            let index = if let Some(n) = range.next() {
-                n
-            } else {
-                // Cleanup work once a range has ended
-                list.swap(i - 1, pivot_index);
-                // mark which ranges need to be sorted in the next pass
-                if i > pivot_index + 1 {
-                    ranges_for_next_pass.push(pivot_index..(i - 1));
+        let mut comp_it = comp.into_iter();
+        for mut range in ranges_to_sort.into_iter().filter(|r| r.len() >= 2) {
+            let pivot_index = range.next().unwrap();
+            let mut i = pivot_index + 1;
+            while let Some(n) = range.next() {
+                let comparison = comp_it.next().unwrap();
+                if comparison {
+                    list.swap(i, n);
+                    i += 1;
                 }
-                if i + 1 < range.end {
-                    ranges_for_next_pass.push(i..range.end);
-                }
+            }
 
-                while range.len() < 2 {
-                    range = ranges_it.next().unwrap();
-                }
-                pivot_index = range.next().unwrap();
-                i = pivot_index + 1;
-                range.next().unwrap()
-            };
-            if comparison {
-                list.swap(i, index);
-                i += 1;
+            // swap the pivot element with the last of the elements meant to be left of it
+            list.swap(i - 1, pivot_index);
+
+            // mark which ranges need to be sorted in the next pass
+            if i > pivot_index + 1 {
+                ranges_for_next_pass.push(pivot_index..(i - 1));
+            }
+            if i + 1 < range.end {
+                ranges_for_next_pass.push(i..range.end);
             }
         }
 
@@ -160,7 +155,6 @@ pub mod tests {
     use rand::Rng;
 
     use crate::{
-        error::Error,
         ff::{
             boolean_array::{BA20, BA64},
             Field,
@@ -175,23 +169,6 @@ pub mod tests {
     #[derive(Step)]
     pub(crate) enum Step {
         TestReverse,
-    }
-
-    pub async fn quicksort_insecure_test<C>(
-        ctx: C,
-        list: &[AdditiveShare<BA64>],
-        desc: bool,
-    ) -> Result<Vec<AdditiveShare<BA64>>, Error>
-    where
-        C: Context,
-    {
-        let mut list_mut = list.to_vec();
-        #[allow(clippy::single_range_in_vec_init)]
-        quicksort_ranges_by_key_insecure(ctx, &mut list_mut[..], desc, |x| x, vec![0..list.len()])
-            .await?;
-        let mut result: Vec<AdditiveShare<BA64>> = vec![];
-        list_mut.iter().for_each(|x| result.push(x.clone()));
-        Ok(result)
     }
 
     #[test]
@@ -220,10 +197,17 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
-                            .await
-                            .unwrap()
+                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
+                        quicksort_ranges_by_key_insecure(
+                            ctx,
+                            &mut records,
+                            desc,
+                            |x| x,
+                            vec![0..20],
+                        )
+                        .await
+                        .unwrap();
+                        records
                     })
                     .await
                     .reconstruct();
@@ -268,10 +252,17 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
-                            .await
-                            .unwrap()
+                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
+                        quicksort_ranges_by_key_insecure(
+                            ctx,
+                            &mut records,
+                            desc,
+                            |x| x,
+                            vec![0..20],
+                        )
+                        .await
+                        .unwrap();
+                        records
                     })
                     .await
                     .reconstruct();
@@ -313,10 +304,17 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
-                            .await
-                            .unwrap()
+                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
+                        quicksort_ranges_by_key_insecure(
+                            ctx,
+                            &mut records,
+                            desc,
+                            |x| x,
+                            vec![0..1],
+                        )
+                        .await
+                        .unwrap();
+                        records
                     })
                     .await
                     .reconstruct();
@@ -360,16 +358,30 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(
-                            ctx.narrow(&Step::TestReverse),
-                            &quicksort_insecure_test::<_>(ctx, &records, !desc)
-                                .await
-                                .unwrap(),
-                            desc,
+                    .semi_honest(records.into_iter(), |ctx, mut records| async move {
+                        // Sort one direction
+                        quicksort_ranges_by_key_insecure(
+                            ctx.clone(),
+                            &mut records,
+                            !desc,
+                            |x| x,
+                            vec![0..20],
                         )
                         .await
-                        .unwrap()
+                        .unwrap();
+
+                        // Then sort the other direction
+                        quicksort_ranges_by_key_insecure(
+                            ctx.narrow(&Step::TestReverse),
+                            &mut records,
+                            desc,
+                            |x| x,
+                            vec![0..20],
+                        )
+                        .await
+                        .unwrap();
+
+                        records
                     })
                     .await
                     .reconstruct();
