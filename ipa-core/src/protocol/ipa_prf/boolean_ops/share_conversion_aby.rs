@@ -99,7 +99,6 @@ pub async fn convert_to_fp25519<C, B>(
 ) -> Result<AdditiveShare<Fp25519>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
     B: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
@@ -222,7 +221,6 @@ where
 #[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray,
     YS: CustomArray<Element = XS::Element> + SharedValue,
     XS::Element: SharedValue,
@@ -247,8 +245,6 @@ pub fn expand_shared_array<XS, YS>(
     offset: Option<usize>,
 ) -> AdditiveShare<YS>
 where
-    for<'a> &'a AdditiveShare<YS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray + SharedValue,
     YS: CustomArray<Element = XS::Element> + SharedValue,
     XS::Element: SharedValue,

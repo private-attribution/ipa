@@ -60,10 +60,9 @@ where
     C: Context,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
-    for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
-    assert!(!ranges_to_sort.iter().any(|x| x.is_empty()));
+    assert!(!ranges_to_sort.iter().any(Range::is_empty));
 
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
