@@ -301,15 +301,6 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl $name {
-                #[must_use]
-                pub fn iter(&self) -> BAIterator<'_> {
-                    BAIterator {
-                        iterator: self.0.iter().take(usize::try_from(<$name>::BITS).unwrap()),
-                    }
-                }
-            }
-
             impl<'a> IntoIterator for &'a $name {
                 type Item = Boolean;
                 type IntoIter = BAIterator<'a>;
