@@ -9,6 +9,7 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
+use serde::__private::de::Content::U16;
 use typenum::{Unsigned, U1, U18, U8};
 
 use crate::{
@@ -18,10 +19,11 @@ use crate::{
     },
     hpke::{
         open_in_place, seal_in_place, CryptError, FieldShareCrypt, Info, KeyPair, KeyRegistry,
-        PublicKeyRegistry,
+        PublicKeyRegistry, EncapsulationSize,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
+use crate::hpke::Ciphertext;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -410,6 +412,160 @@ where
         out.put_slice(self.site_domain.as_bytes());
 
         Ok(())
+    }
+}
+
+/// A binary report as submitted by a report collector, containing encrypted `OprfReport`
+///
+/// An `OprfReport` consists of:
+///     `pub match_key: Replicated<BA64>`,
+///     `pub is_trigger: Replicated<Boolean>`,
+///     `pub breakdown_key: Replicated<BK>`,
+///     `pub trigger_value: Replicated<TV>`,
+///     `pub timestamp: Replicated<TS>`,
+///
+/// An `EncryptedOprfReport` consists of:
+///     ct_mk: Enc(`match_key`)
+///     ct_btt: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
+///     associated data of ct_mk: `key_id`, `epoch`, `event_type`, `site_domain`,
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct EncryptedOprfReport<F, MK, BK, B>
+    where
+        B: Deref<Target = [u8]>,
+        F: PrimeField,
+        Replicated<F>: Serializable,
+        MK: FieldShareCrypt,
+        BK: GaloisField,
+{
+    data: B,
+    phantom_data: PhantomData<(F, MK, BK)>,
+}
+
+impl<F, B> EncryptedOprfReport<F, Gf40Bit, Gf8Bit, B>
+    where
+        F: PrimeField,
+        Replicated<F>: Serializable,
+        B: Deref<Target = [u8]>,
+{
+    // Constants are defined for:
+    //  1. Offsets that are calculated from typenum values
+    //  2. Offsets that appear in the code in more places than two successive accessors. (Some
+    //     offsets are used by validations in the `from_bytes` constructor.)
+
+    const ENCAP_KEY_MK_OFFSET: usize = 0;
+    const CIPHERTEXT_MK_OFFSET: usize =
+        Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize;
+    const ENCAP_KEY_BTT_OFFSET: usize =
+        Self::CIPHERTEXT_MK_OFFSET + U16;
+    const CIPHERTEXT_BTT_OFFSET: usize =
+        Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize;
+    const EVENT_TYPE_OFFSET: usize =
+        Self::CIPHERTEXT_BTT_OFFSET + U16;
+    const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
+
+    pub fn encap_key_mk(&self) -> &[u8] {
+        &self.data[Self::ENCAP_KEY_MK_OFFSET..Self::CIPHERTEXT_MK_OFFSET]
+    }
+
+    pub fn mk_ciphertext(&self) -> &[u8] {
+        &self.data[Self::CIPHERTEXT_MK_OFFSET..Self::ENCAP_KEY_BTT_OFFSET]
+    }
+
+    pub fn encap_key_btt(&self) -> &[u8] {
+        &self.data[Self::ENCAP_KEY_BTT_OFFSET..Self::CIPHERTEXT_BTT_OFFSET]
+    }
+
+    pub fn btt_ciphertext(&self) -> &[u8] {
+        &self.data[Self::CIPHERTEXT_BTT_OFFSET..Self::EVENT_TYPE_OFFSET]
+    }
+
+    /// ## Panics
+    /// Only if a `Report` constructor failed to validate the contents properly, which would be a bug.
+    pub fn event_type(&self) -> EventType {
+        EventType::try_from(self.data[Self::EVENT_TYPE_OFFSET]).unwrap() // validated on construction
+    }
+
+    pub fn key_id(&self) -> KeyIdentifier {
+        self.data[Self::EVENT_TYPE_OFFSET + 1]
+    }
+
+    /// ## Panics
+    /// Never.
+    pub fn epoch(&self) -> Epoch {
+        u16::from_le_bytes(
+            self.data[Self::EVENT_TYPE_OFFSET + 2..Self::SITE_DOMAIN_OFFSET]
+                .try_into()
+                .unwrap(), // infallible slice-to-array conversion
+        )
+    }
+
+    /// ## Panics
+    /// Only if a `Report` constructor failed to validate the contents properly, which would be a bug.
+    pub fn site_domain(&self) -> &str {
+        std::str::from_utf8(&self.data[Self::SITE_DOMAIN_OFFSET..]).unwrap() // validated on construction
+    }
+
+    /// ## Errors
+    /// If the report contents are invalid.
+    pub fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
+        EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
+        let site_domain = &bytes[Self::SITE_DOMAIN_OFFSET..];
+        if !site_domain.is_ascii() {
+            return Err(NonAsciiStringError::from(site_domain).into());
+        }
+        Ok(Self {
+            data: bytes,
+            phantom_data: PhantomData,
+        })
+    }
+
+    /// ## Errors
+    /// If the match key shares in the report cannot be decrypted (e.g. due to a
+    /// failure of the authenticated encryption).
+    /// ## Panics
+    /// Should not panic. Only panics if a `Report` constructor failed to validate the
+    /// contents properly, which would be a bug.
+    pub fn decrypt(
+        &self,
+        key_registry: &KeyRegistry<KeyPair>,
+    ) -> Result<Report<F, Gf40Bit, Gf8Bit>, InvalidReportError> {
+        let info = Info::new(
+            self.key_id(),
+            self.epoch(),
+            self.event_type(),
+            HELPER_ORIGIN,
+            self.site_domain(),
+        )
+            .unwrap(); // validated on construction
+
+        let mut ciphertext: GenericArray<u8, <Gf40Bit as FieldShareCrypt>::CiphertextSize> =
+            *GenericArray::from_slice(self.match_key_ciphertext());
+        let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, &info)?;
+
+        Ok(Report {
+            timestamp: self.timestamp(),
+            mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize(
+                GenericArray::from_slice(plaintext),
+            ),
+            event_type: self.event_type(),
+            breakdown_key: self.breakdown_key(),
+            trigger_value: self.trigger_value(),
+            epoch: self.epoch(),
+            site_domain: self.site_domain().to_owned(),
+        })
+    }
+}
+
+impl<F> TryFrom<Bytes> for EncryptedOprfReport<F, Gf40Bit, Gf8Bit, Bytes>
+    where
+        F: PrimeField,
+        Replicated<F>: Serializable,
+{
+    type Error = InvalidReportError;
+
+    fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
+        EncryptedReport::from_bytes(bytes)
     }
 }
 

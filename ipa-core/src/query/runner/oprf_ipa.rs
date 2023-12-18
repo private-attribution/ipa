@@ -69,7 +69,48 @@ where
             v.truncate(sz);
             v
         } else {
-            panic!("Encrypted match key handling is not handled for OPRF flow as yet");
+            LengthDelimitedStream::<EncryptedReport<F, MatchKey, BreakdownKey, _>, _>::new(
+                input_stream,
+            )
+                .map_err(Into::<Error>::into)
+                .map_ok(|enc_reports| {
+                    iter(enc_reports.into_iter().map(|enc_report| {
+                        enc_report
+                            .decrypt(key_registry.as_ref())
+                            .map_err(Into::<Error>::into)
+                    }))
+                })
+                .try_flatten()
+                .take(sz)
+                .zip(repeat(ctx.clone()))
+                .map(|(res, ctx)| {
+                    res.and_then(|report| {
+                        let timestamp = Replicated::<F>::share_known_value(
+                            &ctx,
+                            F::try_from(report.timestamp.into())
+                                .map_err(|_| InvalidReportError::Timestamp(report.timestamp))?,
+                        );
+                        let breakdown_key =
+                            Replicated::<BreakdownKey>::share_known_value(&ctx, report.breakdown_key);
+                        let is_trigger_bit = Replicated::<F>::share_known_value(
+                            &ctx,
+                            match report.event_type {
+                                EventType::Source => F::ZERO,
+                                EventType::Trigger => F::ONE,
+                            },
+                        );
+
+                        Ok(IPAInputRow {
+                            timestamp,
+                            mk_shares: report.mk_shares,
+                            is_trigger_bit,
+                            breakdown_key,
+                            trigger_value: report.trigger_value,
+                        })
+                    })
+                })
+                .try_collect::<Vec<_>>()
+                .await?
         };
 
         let aws = config.attribution_window_seconds;
