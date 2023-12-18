@@ -1,10 +1,5 @@
 use std::{
-    f64::{
-        consts,
-        consts::{E, PI},
-    },
-    fmt::Debug,
-};
+    f64::{consts::{E, PI},}, fmt::Debug,};
 use rand::{
     distributions::{Bernoulli, Distribution, Uniform},
     Rng,
@@ -81,7 +76,7 @@ fn generate_geometric(probability: f64) -> isize {
 }
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
 fn generate_double_geometric(s: f64, shift: isize) -> isize {
-    let success_probability = 1.0 - consts::E.powf(-1.0 / s);
+    let success_probability = 1.0 - E.powf(-1.0 / s);
     let attempts1 = generate_geometric(success_probability);
     let attempts2 = generate_geometric(success_probability);
     (shift + attempts1 - attempts2).try_into().unwrap()
@@ -117,11 +112,11 @@ impl TruncatedDoubleGeometric {
         generate_truncated_double_geometric(self.success_probability, self.shift)
     }
 }
-// impl Distribution<usize> for TruncatedDoubleGeometric {
-//     fn sample<R: Rng +Sized>(&self, rng: &mut R) -> usize {
-//         self.sample(rng)
-//     }
-// }
+impl Distribution<usize> for TruncatedDoubleGeometric {
+    fn sample<R: Rng +Sized>(&self, rng: &mut R) -> usize {
+        self.sample(rng)
+    }
+}
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
@@ -168,12 +163,15 @@ mod tests {
         };
         check(&nd, &mut rng, 1_u8);
     }
+
+
     /// Tests for Double Geometric
+    ///
     #[test]
     fn test_generate_geometric_sample_dist() {
         let p = 0.5; // success probability
         let mut histogram = HashMap::new();
-        let mut num_samples = 100000;
+        let num_samples = 100000;
         for _ in 0..num_samples {
             let sample = generate_geometric(p);
             *histogram.entry(sample).or_insert(0) += 1;
@@ -257,8 +255,8 @@ mod tests {
         let mut sorted_keys: Vec<isize> = histogram.keys().cloned().collect();
         sorted_keys.sort();
         // Compute the expected probability for each value in the range [0, 2*n]
-        let normalizing_factor = (1.0 - consts::E.powf(-epsilon))
-            / (1.0 + consts::E.powf(-epsilon) - 2.0 * consts::E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
+        let normalizing_factor = (1.0 - E.powf(-epsilon))
+            / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
                                                                                                     // println!("A = {}", normalizing_factor);
                                                                                                     // Compare the observed and expected probabilities for each value in the range [0, 2*n]
         for x in 0..2 * n + 1 {
@@ -266,7 +264,7 @@ mod tests {
                 .get(&x)
                 .map_or(0.0, |count| *count as f64 / num_samples as f64);
             let expected_probability =
-                normalizing_factor * consts::E.powf(-epsilon * ((n - x).abs() as f64));
+                normalizing_factor * E.powf(-epsilon * ((n - x).abs() as f64));
             // println!("x, prob: {}, {}",x,expected_probability);
             // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
             assert!(
