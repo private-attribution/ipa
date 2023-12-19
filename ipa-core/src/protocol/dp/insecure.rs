@@ -114,7 +114,7 @@ fn right_hand_side(n: i32, big_delta: i32, epsilon: f64) -> f64 {
     let r = E.powf(-epsilon);
     let a = (1.0 - r) / (1.0 + r - 2.0 * (r.powi(n + 1)));
     let mut result = 0.0;
-    for k in n - big_delta+1..=n {
+    for k in n - big_delta + 1..=n {
         result += r.powi(k);
     }
     a * result
@@ -297,7 +297,7 @@ mod test {
         }
     }
 
-    //// Tests for OPRF Padding DP
+    /// Tests for OPRF Padding DP
     #[test]
     fn test_find_smallest_n() {
         assert_eq!(find_smallest_n(1, 0.5, 1e-6), 25);

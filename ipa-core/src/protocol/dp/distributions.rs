@@ -174,7 +174,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let p = 0.5; // success probability
         let mut histogram = HashMap::new();
-        let num_samples = 100000;
+        let num_samples = 100_000;
         for _ in 0..num_samples {
             let sample = generate_geometric(p, &mut rng);
             *histogram.entry(sample).or_insert(0) += 1;
@@ -201,9 +201,7 @@ mod tests {
             samples.push(sample);
         }
         // Print the samples to the console
-        println!(
-            "Samples from generate_truncated_geometric with s={s}, n={n}: {samples:?}",
-        );
+        println!("Samples from generate_truncated_geometric with s={s}, n={n}: {samples:?}");
     }
     #[test]
     fn test_generate_truncated_double_geometric_hoffding() {
@@ -227,12 +225,12 @@ mod tests {
             samples.push(sample);
         }
         // Compute the sample mean
-        let sample_mean = samples.iter().sum::<isize>() as f64/ samples.len() as f64;
+        let sample_mean = samples.iter().sum::<isize>() as f64 / samples.len() as f64;
         // println!("sample_mean: {:?}", sample_mean);
         // Check that the sample mean is within some distance of the expected value
         let expected_mean = n as f64;
         // println!("expected_mean: {:?}", expected_mean);
-        (sample_mean >= expected_mean - t)  && (sample_mean <= expected_mean + t)
+        (sample_mean >= expected_mean - t) && (sample_mean <= expected_mean + t)
     }
     #[test]
     fn test_generate_truncated_double_geometric_sample_dist() {
@@ -240,7 +238,7 @@ mod tests {
         let epsilon = 1.0;
         let s = 1.0 / epsilon;
         let n = 25;
-        let num_samples = 100000;
+        let num_samples = 100_000;
         let mut samples = Vec::new();
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
@@ -258,8 +256,9 @@ mod tests {
         // Compute the expected probability for each value in the range [0, 2*n]
         let normalizing_factor = (1.0 - E.powf(-epsilon))
             / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
-         // Compare the observed and expected probabilities for each value in the range [0, 2*n]
+
         for x in 0..=(2 * n) {
+            // Compare the observed and expected probabilities for each value in the range [0, 2*n]
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
