@@ -152,7 +152,7 @@ macro_rules! bit_array_impl {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
-        use super::*;
+            use super::*;
 
             /// N-bit array of bits. It supports boolean algebra, and provides access
             /// to individual bits via index.
