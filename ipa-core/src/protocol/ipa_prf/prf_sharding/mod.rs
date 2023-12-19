@@ -355,11 +355,11 @@ where
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let mut histogram = vec![];
-    let mut last_prf = input[0].get_grouping_key() + 1;
+    let mut last_prf = input[0].get_grouping_key();
     let mut cur_count = 0;
     let mut start = 0;
     let mut ranges = vec![];
-    for (idx, row) in input.iter_mut().enumerate() {
+    for (idx, row) in input.iter_mut().enumerate().skip(1) {
         if row.get_grouping_key() == last_prf {
             cur_count += 1;
         } else {
@@ -369,9 +369,7 @@ where
             last_prf = row.get_grouping_key();
         }
         row.compute_sort_key(cur_count.try_into().unwrap());
-        if histogram.len() <= cur_count {
-            histogram.push(0);
-        }
+        histogram.resize(cur_count + 1, 0);
         histogram[cur_count] += 1;
     }
     ranges.push(start..input.len());
