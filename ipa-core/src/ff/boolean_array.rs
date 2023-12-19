@@ -111,6 +111,7 @@ macro_rules! boolean_array_impl {
 
             impl ArrayAccess for $name {
                 type Output = Boolean;
+                type Iter<'a> = BAIterator<'a>;
 
                 fn get(&self, index: usize) -> Option<Self::Output> {
                     if index < usize::try_from(<$name>::BITS).unwrap() {
@@ -123,6 +124,12 @@ macro_rules! boolean_array_impl {
                 fn set(&mut self, index: usize, e: Self::Output) {
                     debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
                     self.0.set(index, bool::from(e));
+                }
+
+                fn iter(&self) -> Self::Iter<'_> {
+                    BAIterator {
+                        iterator: self.0.iter().take(<$name>::BITS as usize),
+                    }
                 }
             }
 
@@ -294,27 +301,21 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            // complains that no iter method exists, suppressed warnings
-            #[allow(clippy::into_iter_on_ref)]
             impl<'a> IntoIterator for &'a $name {
                 type Item = Boolean;
                 type IntoIter = BAIterator<'a>;
 
                 fn into_iter(self) -> Self::IntoIter {
-                    BAIterator {
-                        iterator: self.0.iter().take(usize::try_from(<$name>::BITS).unwrap()),
-                    }
+                    self.iter()
                 }
             }
 
-            // complains that no iter method exists, suppressed warnings
-            #[allow(clippy::into_iter_on_ref)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
                 type IntoIter = ASIterator<BAIterator<'a>>;
 
                 fn into_iter(self) -> Self::IntoIter {
-                    ASIterator::<BAIterator<'a>>(self.0.into_iter(), self.1.into_iter())
+                    self.iter()
                 }
             }
 
@@ -322,11 +323,7 @@ macro_rules! boolean_array_impl {
                 type Output = Self;
 
                 fn not(self) -> Self::Output {
-                    let mut result = <$name>::ZERO;
-                    for i in 0..usize::try_from(<$name>::BITS).unwrap() {
-                        result.set(i, !self.get(i).unwrap());
-                    }
-                    result
+                    Self(self.0.not())
                 }
             }
 

@@ -255,6 +255,7 @@ where
     <S as ArrayAccess>::Output: SharedValue,
 {
     type Output = AdditiveShare<<S as ArrayAccess>::Output>;
+    type Iter<'a> = ASIterator<S::Iter<'a>>;
 
     fn get(&self, index: usize) -> Option<Self::Output> {
         self.0
@@ -266,6 +267,10 @@ where
     fn set(&mut self, index: usize, e: Self::Output) {
         self.0.set(index, e.0);
         self.1.set(index, e.1);
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        ASIterator(self.0.iter(), self.1.iter())
     }
 }
 

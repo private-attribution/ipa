@@ -58,10 +58,15 @@ pub trait Serializable: Sized {
 
 pub trait ArrayAccess {
     type Output;
+    type Iter<'a>: Iterator<Item = Self::Output> + Send
+    where
+        Self: 'a;
 
     fn get(&self, index: usize) -> Option<Self::Output>;
 
     fn set(&mut self, index: usize, e: Self::Output);
+
+    fn iter(&self) -> Self::Iter<'_>;
 }
 
 pub trait Expand {
@@ -72,7 +77,6 @@ pub trait Expand {
 
 /// Custom Array trait
 /// supports access to elements via `ArrayAccess` and functions `get(Index: usize)` and `set(Index: usize, v: Element)`
-/// doesn't support `IntoIterator` and `into_iter()`, `&'a S: IntoIterator<Item= S::Element>` needs to be added manually in trait bound when used
 /// supports `Expand` for `Element`, converts Element into array, all array elements will be set to the value of `Element`
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
