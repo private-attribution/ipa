@@ -395,6 +395,8 @@ where
                 is_trigger: is_trigger_share,
                 breakdown_key: bk_share,
                 trigger_value: tv_share,
+                epoch: 0_u16,
+                site_domain: String::from("meta.com")
             },
         )
         .collect::<Vec<_>>()

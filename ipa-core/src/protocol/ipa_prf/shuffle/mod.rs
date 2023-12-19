@@ -111,6 +111,8 @@ where
         breakdown_key,
         trigger_value,
         timestamp,
+        epoch: 0_u16,
+        site_domain: String::from("meta.com"),
     }
 }
 

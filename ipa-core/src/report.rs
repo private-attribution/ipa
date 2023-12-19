@@ -21,8 +21,8 @@ use crate::{
         PublicKeyRegistry, EncapsulationSize,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+    report::InvalidReportError::PlaintextLengthError,
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -111,9 +111,22 @@ impl From<&EventType> for u8 {
     }
 }
 
-impl From<&EventType> for bool {
+impl From<&EventType> for Replicated::<Boolean> {
     fn from(value: &EventType) -> Self {
-        *value == EventType::Trigger
+        Replicated(
+            Boolean::from(*value == EventType::Trigger),
+            Boolean::from(*value == EventType::Trigger)
+        )
+    }
+}
+
+impl From<&Replicated::<Boolean>> for EventType {
+    fn from(value: &Replicated::<Boolean>) -> Self {
+        return if value.0 == Boolean::from(true) {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        }
     }
 }
 
@@ -161,6 +174,8 @@ pub enum InvalidReportError {
     Timestamp(Timestamp),
     #[error("en/decryption failure: {0}")]
     Crypt(#[from] CryptError),
+    #[error("timestamp, breakdown and triggervalue are too long")]
+    PlaintextLengthError(),
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
@@ -565,21 +580,18 @@ impl<B, BK, TV, TS> EncryptedOprfReport<BK, TV, TS, B>
 
 
         Ok(OprfReport::<BK,TV,TS> {
-            timestamp: AdditiveShare::<TS>::deserialize(
+            timestamp: Replicated::<TS>::deserialize(
                 GenericArray::from_slice(&plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET])),
-            match_key: AdditiveShare::<BA64>::deserialize(
+            match_key: Replicated::<BA64>::deserialize(
                 GenericArray::from_slice(plaintext_mk),
             ),
-            is_trigger: Replicated::<Boolean>(
-                Boolean::from(bool::from( &self.event_type())),
-                Boolean::from(bool::from( &self.event_type()))
-            ),
-            breakdown_key: AdditiveShare::<BK>::deserialize(
+            is_trigger: Replicated::<Boolean>::from( &self.event_type()),
+            breakdown_key: Replicated::<BK>::deserialize(
                 GenericArray::from_slice(&plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET])),
-            trigger_value: AdditiveShare::<TV>::deserialize(
+            trigger_value: Replicated::<TV>::deserialize(
                 GenericArray::from_slice(&plaintext_btt[Self::TV_OFFSET..])),
-            // epoch: self.epoch(),
-            // site_domain: self.site_domain().to_owned(),
+            epoch: self.epoch(),
+            site_domain: self.site_domain().to_owned(),
         })
     }
 }
@@ -612,6 +624,8 @@ where
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+    pub epoch: Epoch,
+    pub site_domain: String,
 }
 
 impl Serializable for u64 {
@@ -711,7 +725,105 @@ where
             breakdown_key,
             trigger_value,
             timestamp,
+            epoch: 0_u16,
+            site_domain: String::from("meta.com")
         }
+    }
+}
+
+impl<BK,TV,TS> OprfReport<BK, TV, TS>
+    where
+        BK: SharedValue,
+        TV: SharedValue,
+        TS: SharedValue,
+        Replicated<BK>: Serializable,
+        Replicated<TV>: Serializable,
+        Replicated<TS>: Serializable,
+{
+    const TS_OFFSET: usize = 0;
+    const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
+    const TV_OFFSET: usize = Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
+
+    /// # Panics
+    /// If report length does not fit in `u16`.
+    pub fn encrypted_len(&self) -> u16 {
+        let len = EncryptedOprfReport::<BK,TV,TS, &[u8]>::SITE_DOMAIN_OFFSET
+            + self.site_domain.as_bytes().len();
+        len.try_into().unwrap()
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn delimited_encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidReportError> {
+        out.put_u16_le(self.encrypted_len());
+        self.encrypt_to(key_id, key_registry, rng, out)
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt<R: CryptoRng + RngCore>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        rng: &mut R,
+    ) -> Result<Vec<u8>, InvalidReportError> {
+        let mut out = Vec::new();
+        self.encrypt_to(key_id, key_registry, rng, &mut out)?;
+        debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
+        Ok(out)
+    }
+
+    /// # Errors
+    /// If there is a problem encrypting the report.
+    pub fn encrypt_to<R: CryptoRng + RngCore, B: BufMut>(
+        &self,
+        key_id: KeyIdentifier,
+        key_registry: &impl PublicKeyRegistry,
+        rng: &mut R,
+        out: &mut B,
+    ) -> Result<(), InvalidReportError> {
+        let info = Info::new(
+            key_id,
+            self.epoch,
+            EventType::from(&self.is_trigger),
+            HELPER_ORIGIN,
+            self.site_domain.as_ref(),
+        )?;
+
+        if Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE > U16::USIZE {
+            return Err(PlaintextLengthError())
+        }
+
+        let mut plaintext_mk = GenericArray::default();
+        self.match_key.serialize(&mut plaintext_mk);
+
+        let mut plaintext_btt = GenericArray::<u8, U16>::from([0_u8;16]);
+        self.timestamp.serialize(GenericArray::from_mut_slice(&mut plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET]));
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(&mut plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET]));
+        self.trigger_value.serialize(GenericArray::from_mut_slice(&mut plaintext_btt[Self::TV_OFFSET..]));
+
+        let (encap_key_mk, ciphertext_mk, _) =
+            seal_in_place(key_registry, plaintext_mk.as_mut(), &info, rng)?;
+
+        let (encap_key_btt, ciphertext_btt, _) =
+            seal_in_place(key_registry, plaintext_btt.as_mut(), &info, rng)?;
+
+        out.put_slice(&encap_key_mk.to_bytes());
+        out.put_slice(ciphertext_mk);
+        out.put_slice(&encap_key_btt.to_bytes());
+        out.put_slice(ciphertext_btt);
+        out.put_slice(&[u8::from(&EventType::from(&self.is_trigger))]);
+        out.put_slice(&[key_id]);
+        out.put_slice(&self.epoch.to_le_bytes());
+        out.put_slice(self.site_domain.as_bytes());
+
+        Ok(())
     }
 }
 
