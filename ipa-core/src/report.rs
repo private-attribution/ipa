@@ -9,8 +9,7 @@ use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use serde::__private::de::Content::U16;
-use typenum::{Unsigned, U1, U18, U8};
+use typenum::{Unsigned, U1, U18, U8, U16};
 
 use crate::{
     ff::{
@@ -23,7 +22,7 @@ use crate::{
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
-use crate::hpke::Ciphertext;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -58,8 +57,8 @@ impl Serializable for EventType {
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw: &[u8] = match self {
-            EventType::Trigger => &[0],
-            EventType::Source => &[1],
+            EventType::Trigger => &[1],
+            EventType::Source => &[0],
         };
         buf.copy_from_slice(raw);
     }
@@ -69,8 +68,8 @@ impl Serializable for EventType {
         buf_to[..buf.len()].copy_from_slice(buf);
 
         match buf[0] {
-            0 => EventType::Trigger,
-            1 => EventType::Source,
+            1 => EventType::Trigger,
+            0 => EventType::Source,
             v @ 2_u8..=u8::MAX => panic!("Unrecognized event type: {v}"),
         }
     }
@@ -109,6 +108,12 @@ impl From<&EventType> for u8 {
             EventType::Source => 0,
             EventType::Trigger => 1,
         }
+    }
+}
+
+impl From<&EventType> for bool {
+    fn from(value: &EventType) -> Self {
+        *value == EventType::Trigger
     }
 }
 
@@ -337,7 +342,7 @@ where
     Replicated<F>: Serializable,
 {
     /// # Panics
-    /// If report length does not fit in u16.
+    /// If report length does not fit in `u16`.
     pub fn encrypted_len(&self) -> u16 {
         let len = EncryptedReport::<F, Gf40Bit, Gf8Bit, &[u8]>::SITE_DOMAIN_OFFSET
             + self.site_domain.as_bytes().len();
@@ -430,23 +435,27 @@ where
 ///     associated data of ct_mk: `key_id`, `epoch`, `event_type`, `site_domain`,
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct EncryptedOprfReport<F, MK, BK, B>
+pub struct EncryptedOprfReport< BK, TV, TS, B>
     where
         B: Deref<Target = [u8]>,
-        F: PrimeField,
-        Replicated<F>: Serializable,
-        MK: FieldShareCrypt,
-        BK: GaloisField,
+        BK: SharedValue,
+        TV: SharedValue,
+        TS: SharedValue,
 {
     data: B,
-    phantom_data: PhantomData<(F, MK, BK)>,
+    phantom_data: PhantomData<(BK, TV, TS)>,
 }
 
-impl<F, B> EncryptedOprfReport<F, Gf40Bit, Gf8Bit, B>
+impl<B, BK, TV, TS> EncryptedOprfReport<BK, TV, TS, B>
     where
-        F: PrimeField,
-        Replicated<F>: Serializable,
         B: Deref<Target = [u8]>,
+        BK: SharedValue,
+        TV: SharedValue,
+        TS: SharedValue,
+        Replicated<BK>: Serializable,
+        Replicated<TV>: Serializable,
+        Replicated<TS>: Serializable,
+
 {
     // Constants are defined for:
     //  1. Offsets that are calculated from typenum values
@@ -455,14 +464,21 @@ impl<F, B> EncryptedOprfReport<F, Gf40Bit, Gf8Bit, B>
 
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize =
-        Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize;
+        Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
     const ENCAP_KEY_BTT_OFFSET: usize =
-        Self::CIPHERTEXT_MK_OFFSET + U16;
+        Self::CIPHERTEXT_MK_OFFSET + U16::USIZE;
     const CIPHERTEXT_BTT_OFFSET: usize =
-        Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize;
+        Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
     const EVENT_TYPE_OFFSET: usize =
-        Self::CIPHERTEXT_BTT_OFFSET + U16;
+        Self::CIPHERTEXT_BTT_OFFSET + U16::USIZE;
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
+
+    const TS_OFFSET: usize = 0;
+
+    const BK_OFFSET: usize =
+        Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
+    const TV_OFFSET: usize =
+        Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
 
     pub fn encap_key_mk(&self) -> &[u8] {
         &self.data[Self::ENCAP_KEY_MK_OFFSET..Self::CIPHERTEXT_MK_OFFSET]
@@ -529,7 +545,7 @@ impl<F, B> EncryptedOprfReport<F, Gf40Bit, Gf8Bit, B>
     pub fn decrypt(
         &self,
         key_registry: &KeyRegistry<KeyPair>,
-    ) -> Result<Report<F, Gf40Bit, Gf8Bit>, InvalidReportError> {
+    ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
         let info = Info::new(
             self.key_id(),
             self.epoch(),
@@ -539,33 +555,48 @@ impl<F, B> EncryptedOprfReport<F, Gf40Bit, Gf8Bit, B>
         )
             .unwrap(); // validated on construction
 
-        let mut ciphertext: GenericArray<u8, <Gf40Bit as FieldShareCrypt>::CiphertextSize> =
-            *GenericArray::from_slice(self.match_key_ciphertext());
-        let plaintext = open_in_place(key_registry, self.encap_key(), &mut ciphertext, &info)?;
+        let mut ct_mk: GenericArray<u8, U16> =
+            *GenericArray::from_slice(self.mk_ciphertext());
+        let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
 
-        Ok(Report {
-            timestamp: self.timestamp(),
-            mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize(
-                GenericArray::from_slice(plaintext),
+        let mut ct_btt: GenericArray<u8, U16> =
+            *GenericArray::from_slice(self.btt_ciphertext());
+        let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
+
+
+        Ok(OprfReport::<BK,TV,TS> {
+            timestamp: AdditiveShare::<TS>::deserialize(
+                GenericArray::from_slice(&plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET])),
+            match_key: AdditiveShare::<BA64>::deserialize(
+                GenericArray::from_slice(plaintext_mk),
             ),
-            event_type: self.event_type(),
-            breakdown_key: self.breakdown_key(),
-            trigger_value: self.trigger_value(),
-            epoch: self.epoch(),
-            site_domain: self.site_domain().to_owned(),
+            is_trigger: Replicated::<Boolean>(
+                Boolean::from(bool::from( &self.event_type())),
+                Boolean::from(bool::from( &self.event_type()))
+            ),
+            breakdown_key: AdditiveShare::<BK>::deserialize(
+                GenericArray::from_slice(&plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET])),
+            trigger_value: AdditiveShare::<TV>::deserialize(
+                GenericArray::from_slice(&plaintext_btt[Self::TV_OFFSET..])),
+            // epoch: self.epoch(),
+            // site_domain: self.site_domain().to_owned(),
         })
     }
 }
 
-impl<F> TryFrom<Bytes> for EncryptedOprfReport<F, Gf40Bit, Gf8Bit, Bytes>
+impl<BK,TV,TS> TryFrom<Bytes> for EncryptedOprfReport<BK, TV, TS, Bytes>
     where
-        F: PrimeField,
-        Replicated<F>: Serializable,
+        BK: SharedValue,
+        TV: SharedValue,
+        TS: SharedValue,
+        Replicated<BK>: Serializable,
+        Replicated<TV>: Serializable,
+        Replicated<TS>: Serializable,
 {
     type Error = InvalidReportError;
 
     fn try_from(bytes: Bytes) -> Result<Self, InvalidReportError> {
-        EncryptedReport::from_bytes(bytes)
+        EncryptedOprfReport::from_bytes(bytes)
     }
 }
 

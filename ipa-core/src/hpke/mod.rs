@@ -29,7 +29,7 @@ type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
-pub const EncapsulationSize: usize= <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
+pub type EncapsulationSize = <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
 
 pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
