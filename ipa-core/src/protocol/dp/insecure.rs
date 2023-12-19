@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use std::{
-    f64::{consts::E}};
+use std::f64::consts::E;
+
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller,TruncatedDoubleGeometric};
+use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -110,24 +110,23 @@ pub struct OPRFPaddingDp {
     truncated_double_geometric: TruncatedDoubleGeometric,
 }
 
-fn right_hand_side(n: isize, big_delta: isize, epsilon: f64) -> f64 {
+fn right_hand_side(n: i32, big_delta: i32, epsilon: f64) -> f64 {
     let r = E.powf(-epsilon);
-    let a = (1.0 - r) / (1.0 + r - 2.0 * r.powf(n as f64 + 1.0));
+    let a = (1.0 - r) / (1.0 + r - 2.0 * (r.powi(n + 1)));
     let mut result = 0.0;
-    for k in n - big_delta..=n {
-        result += r.powf(k as f64);
+    for k in n - big_delta+1..=n {
+        result += r.powi(k);
     }
     a * result
 }
-fn find_smallest_n(big_delta: isize, epsilon: f64, small_delta: f64) -> isize {
-    for n in big_delta..{
+fn find_smallest_n(big_delta: i32, epsilon: f64, small_delta: f64) -> isize {
+    for n in big_delta.. {
         if small_delta >= right_hand_side(n, big_delta, epsilon) {
-            return n;
+            return n as isize;
         }
     }
     panic!("No smallest n found for OPRF padding DP");
 }
-
 
 impl OPRFPaddingDp {
     pub fn new(new_epsilon: f64, new_delta: f64) -> Result<Self, Error> {
@@ -141,26 +140,22 @@ impl OPRFPaddingDp {
         }
 
         // compute smallest shift needed to achieve this delta
-        let smallest_n = find_smallest_n(1,new_epsilon,new_delta);
+        let smallest_n = find_smallest_n(1, new_epsilon, new_delta);
 
         Ok(Self {
             epsilon: new_epsilon,
             delta: new_delta,
             truncated_double_geometric: TruncatedDoubleGeometric::new(
-                1.0/new_epsilon,
-                smallest_n
+                1.0 / new_epsilon,
+                smallest_n,
             ),
-
         })
-
     }
 
     /// Generates a sample from the `OPRFPaddingDp` struct.
     pub fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> isize {
         self.truncated_double_geometric.sample(rng)
     }
-
-
 }
 
 #[cfg(all(test, unit_test))]
@@ -302,22 +297,17 @@ mod test {
         }
     }
 
-
     //// Tests for OPRF Padding DP
     #[test]
     fn test_find_smallest_n() {
         assert_eq!(find_smallest_n(1, 0.5, 1e-6), 25);
     }
     #[test]
-    fn test_oprf_padding_dp(){
-        let oprf_padding = OPRFPaddingDp::new(
-            1.0,
-            1e-6
-        );
+    fn test_oprf_padding_dp() {
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6);
 
         let mut rng = rand::thread_rng();
 
         oprf_padding.expect("REASON").sample(&mut rng);
-
     }
 }

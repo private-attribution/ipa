@@ -1,5 +1,8 @@
 use std::{
-    f64::{consts::{E, PI},}, fmt::Debug,};
+    f64::consts::{E, PI},
+    fmt::Debug,
+};
+
 use rand::{
     distributions::{Bernoulli, Distribution, Uniform},
     Rng,
@@ -63,7 +66,7 @@ impl From<BoxMuller> for RoundedBoxMuller {
 /// Double Geometric Distribution
 ///
 /// Generates a sample from a geometric distribution with the given success probability.
-fn generate_geometric<R: Rng +?Sized>(probability: f64, rng: &mut R) -> isize {
+fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> isize {
     // Create a Bernoulli distribution with the specified success probability
     let bernoulli = Bernoulli::new(probability).expect("Invalid probability");
     // Generate Bernoulli random numbers until the first success
@@ -76,23 +79,23 @@ fn generate_geometric<R: Rng +?Sized>(probability: f64, rng: &mut R) -> isize {
     attempts
 }
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
-fn generate_double_geometric<R: Rng +?Sized>(s: f64, shift: isize,rng :&mut R) -> isize {
+fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: isize, rng: &mut R) -> isize {
     let success_probability = 1.0 - E.powf(-1.0 / s);
     let attempts1 = generate_geometric(success_probability, rng);
     let attempts2 = generate_geometric(success_probability, rng);
-    (shift + attempts1 - attempts2).try_into().unwrap()
+    shift + attempts1 - attempts2
 }
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
-fn generate_truncated_double_geometric<R: Rng +?Sized>(s: f64, n: isize,rng :&mut R) -> isize {
+fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: isize, rng: &mut R) -> isize {
     let mut reject = 1;
     let mut sample = 0; // Declare sample here
     while reject == 1 {
         sample = generate_double_geometric(s, n, rng); // Assign a value to sample inside the loop
-        if sample >= 0 && sample <= (2 * n).try_into().unwrap() {
-            reject = 0
+        if sample >= 0 && sample <= (2 * n) {
+            reject = 0;
         }
     }
-    sample.try_into().unwrap() // Return the final value of sample
+    sample // Return the final value of sample
 }
 /// Truncated Double Geometric distribution.
 #[derive(Debug)]
@@ -103,14 +106,11 @@ pub struct TruncatedDoubleGeometric {
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
     pub fn new(s: f64, shift: isize) -> Self {
-        Self {
-            s,
-            shift,
-        }
+        Self { s, shift }
     }
     /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
     pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> isize {
-        generate_truncated_double_geometric(self.s, self.shift,  rng)
+        generate_truncated_double_geometric(self.s, self.shift, rng)
     }
 }
 impl Distribution<isize> for TruncatedDoubleGeometric {
@@ -121,8 +121,10 @@ impl Distribution<isize> for TruncatedDoubleGeometric {
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
+
     use rand::{distributions::Distribution, thread_rng};
     use rand_core::RngCore;
+
     use super::*;
     #[test]
     fn dp_normal_distribution_sample_standard() {
@@ -165,7 +167,6 @@ mod tests {
         check(&nd, &mut rng, 1_u8);
     }
 
-
     /// Tests for Double Geometric
     ///
     #[test]
@@ -175,14 +176,14 @@ mod tests {
         let mut histogram = HashMap::new();
         let num_samples = 100000;
         for _ in 0..num_samples {
-            let sample = generate_geometric(p,&mut rng);
+            let sample = generate_geometric(p, &mut rng);
             *histogram.entry(sample).or_insert(0) += 1;
         }
         for x in 0..100 {
             let observed_probability = histogram
                 .get(&x)
-                .map_or(0.0, |count| *count as f64 / num_samples as f64);
-            let expected_probability = (1.0 - p).powf(x as f64) * p as f64;
+                .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
+            let expected_probability = (1.0 - p).powf(x as f64) * p;
             // println!("x = {}, Observed Probability = {}, Expected Probability = {}", x, observed_probability, expected_probability);
             assert!((observed_probability - expected_probability) <= 0.01);
         }
@@ -195,14 +196,13 @@ mod tests {
         let mut samples = Vec::new();
         // Sample 100 values from the generate_truncated_double_geometric function
         for _ in 0..100 {
-            let sample = generate_truncated_double_geometric(s, n,&mut rng);
+            let sample = generate_truncated_double_geometric(s, n, &mut rng);
             assert!(sample > 0 && sample < 2 * n);
             samples.push(sample);
         }
         // Print the samples to the console
         println!(
-            "Samples from generate_truncated_geometric with s={}, n={}: {:?}",
-            s, n, samples
+            "Samples from generate_truncated_geometric with s={s}, n={n}: {samples:?}",
         );
     }
     #[test]
@@ -216,10 +216,10 @@ mod tests {
         let s = 1.0; // Set s to some value (e.g., 1.0)
         let n = 25; // Set n to some value (e.g., 25)
         let t = f64::sqrt(
-            f64::powf(2.0 * (n as f64), 2.0) / (-2.0 * (number_samples as f64))
+            f64::powf(2.0 * (n as f64), 2.0) / (-2.0 * (f64::from(number_samples)))
                 * f64::ln(failure_prob / 2.0),
         );
-        println!("t: {:?}", t);
+        println!("t: {t:?}");
         let mut samples = Vec::new();
         // Sample number_samples values from the generate_truncated_double_geometric function
         for _ in 0..number_samples {
@@ -227,29 +227,25 @@ mod tests {
             samples.push(sample);
         }
         // Compute the sample mean
-        let sample_mean = samples.iter().sum::<isize>() as f64 / samples.len() as f64;
+        let sample_mean = samples.iter().sum::<isize>() as f64/ samples.len() as f64;
         // println!("sample_mean: {:?}", sample_mean);
         // Check that the sample mean is within some distance of the expected value
         let expected_mean = n as f64;
         // println!("expected_mean: {:?}", expected_mean);
-        if sample_mean >= expected_mean - (t as f64) && sample_mean <= expected_mean + (t as f64) {
-            true // Return true if the test passes
-        } else {
-            false // Return false if the test fails
-        }
+        (sample_mean >= expected_mean - t)  && (sample_mean <= expected_mean + t)
     }
     #[test]
     fn test_generate_truncated_double_geometric_sample_dist() {
         let mut rng = rand::thread_rng();
         let epsilon = 1.0;
         let s = 1.0 / epsilon;
-        let n = 25 as isize;
+        let n = 25;
         let num_samples = 100000;
         let mut samples = Vec::new();
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
-            let sample = generate_truncated_double_geometric(s, n,&mut rng) as isize;
-            assert!(sample >= 0 && sample <= (2 * n).try_into().unwrap());
+            let sample = generate_truncated_double_geometric(s, n, &mut rng);
+            assert!(sample >= 0 && sample <= (2 * n));
             samples.push(sample);
         }
         // Compute the observed probability for each value in the range [0, 2*n)
@@ -257,16 +253,16 @@ mod tests {
         for value in samples {
             *histogram.entry(value).or_insert(0) += 1;
         }
-        let mut sorted_keys: Vec<isize> = histogram.keys().cloned().collect();
-        sorted_keys.sort();
+        let mut sorted_keys: Vec<isize> = histogram.keys().copied().collect();
+        sorted_keys.sort_unstable();
         // Compute the expected probability for each value in the range [0, 2*n]
         let normalizing_factor = (1.0 - E.powf(-epsilon))
             / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
-        // Compare the observed and expected probabilities for each value in the range [0, 2*n]
-        for x in 0..2 * n + 1 {
+         // Compare the observed and expected probabilities for each value in the range [0, 2*n]
+        for x in 0..=(2 * n) {
             let observed_probability = histogram
                 .get(&x)
-                .map_or(0.0, |count| *count as f64 / num_samples as f64);
+                .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             let expected_probability =
                 normalizing_factor * E.powf(-epsilon * ((n - x).abs() as f64));
             // println!("x, prob: {}, {}",x,expected_probability);
@@ -280,12 +276,7 @@ mod tests {
     #[test]
     fn test_truncated_double_geometric() {
         let mut rng = rand::thread_rng();
-        let distribution = TruncatedDoubleGeometric {
-            s: 1.0,
-            shift: 25,
-        };
+        let distribution = TruncatedDoubleGeometric { s: 1.0, shift: 25 };
         distribution.sample(&mut rng);
-
     }
-
 }
