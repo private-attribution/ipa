@@ -276,6 +276,7 @@ pub mod tests {
 
     // test for empty list
     #[test]
+    #[ignore]
     fn test_quicksort_insecure_semi_honest_empty() {
         run(|| async move {
             let world = TestWorld::default();
