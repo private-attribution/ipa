@@ -97,20 +97,20 @@ fn generate_truncated_double_geometric<R: Rng +?Sized>(s: f64, n: isize,rng :&mu
 /// Truncated Double Geometric distribution.
 #[derive(Debug)]
 pub struct TruncatedDoubleGeometric {
-    success_probability: f64,
+    s: f64,
     shift: isize,
 }
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
-    pub fn new(success_probability: f64, shift: isize) -> Self {
+    pub fn new(s: f64, shift: isize) -> Self {
         Self {
-            success_probability,
+            s,
             shift,
         }
     }
     /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
     pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> isize {
-        generate_truncated_double_geometric(self.success_probability, self.shift,  rng)
+        generate_truncated_double_geometric(self.s, self.shift,  rng)
     }
 }
 impl Distribution<isize> for TruncatedDoubleGeometric {
@@ -281,7 +281,7 @@ mod tests {
     fn test_truncated_double_geometric() {
         let mut rng = rand::thread_rng();
         let distribution = TruncatedDoubleGeometric {
-            success_probability: 0.5,
+            s: 1.0,
             shift: 25,
         };
         distribution.sample(&mut rng);
