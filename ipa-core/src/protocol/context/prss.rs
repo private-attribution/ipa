@@ -5,7 +5,7 @@ use rand_core::{Error, RngCore};
 use crate::{
     helpers::Role,
     protocol::{
-        prss::{IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness},
+        prss::{IndexedSharedRandomness, PrssIndex, SequentialSharedRandomness, SharedRandomness},
         step::Gate,
     },
     sync::Arc,
@@ -34,7 +34,7 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
-    fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
+    fn generate_values<I: Into<PrssIndex>>(&self, index: I) -> (u128, u128) {
         let step = self.step.as_ref().to_string();
         // TODO: what we really want here is a gauge indicating the maximum index used to generate
         // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to

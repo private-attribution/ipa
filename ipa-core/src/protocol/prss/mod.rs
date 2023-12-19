@@ -10,6 +10,7 @@ use x25519_dalek::PublicKey;
 
 use super::step::Gate;
 use crate::{
+    protocol::RecordId,
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
@@ -37,7 +38,8 @@ impl UsedSet {
     ///
     /// ## Panics
     /// Panic if this index has been used before.
-    fn insert(&self, index: u128) {
+    fn insert(&self, index: PrssIndex128) {
+        let index = u128::from(index);
         if index > usize::MAX as u128 {
             tracing::warn!(
                 "PRSS verification can validate values not exceeding {}, index {index} is greater.",
@@ -60,6 +62,65 @@ impl Debug for UsedSet {
     }
 }
 
+/// Internal PRSS index.
+///
+/// `PrssIndex128` values are directly input to the block cipher used for pseudo-random generation.
+/// Each invocation must use a distinct `PrssIndex128` value. Most code should use the `PrssIndex`
+/// type instead, which often corresponds to record IDs. `PrssIndex128` values are produced by
+/// the `PrssIndex::offset` function and include the primary `PrssIndex` plus a possible offset
+/// when more than 128 bits of randomness are required to generate the requested value.
+///
+/// This is public so that it can be used by the instrumentation wrappers in
+/// `ipa_core::protocol::context`.  It should not generally be used outside the PRSS implementation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PrssIndex128(u128);
+
+impl From<u128> for PrssIndex128 {
+    fn from(value: u128) -> Self {
+        Self(value)
+    }
+}
+
+impl From<PrssIndex128> for u128 {
+    fn from(value: PrssIndex128) -> Self {
+        value.0
+    }
+}
+
+/// PRSS index.
+///
+/// PRSS indexes are used to ensure that distinct pseudo-randomness is generated for every value
+/// output by PRSS. It is often sufficient to use record IDs as PRSS indexes, and
+/// `impl From<RecordId> for PrssIndex` is provided for that purpose.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct PrssIndex(u32);
+
+impl From<u32> for PrssIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+// It would be nice for this to be TryFrom, but there's a lot of places where we use u128s as PRSS indexes.
+impl From<u128> for PrssIndex {
+    fn from(value: u128) -> Self {
+        Self(value.try_into().unwrap())
+    }
+}
+
+impl From<RecordId> for PrssIndex {
+    fn from(value: RecordId) -> Self {
+        Self(u32::from(value))
+    }
+}
+
+impl PrssIndex {
+    fn offset(self, offset: usize) -> PrssIndex128 {
+        assert!(offset <= u16::MAX.into());
+        PrssIndex128::from(u128::from((u64::from(self.0) << 16) + (offset as u64)))
+    }
+}
+
 /// A participant in a 2-of-N replicated secret sharing.
 /// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
 /// You can read about it in the seminal paper:
@@ -75,14 +136,17 @@ pub struct IndexedSharedRandomness {
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
-        let index = index.into();
+    fn generate_values<I: Into<PrssIndex>>(&self, index: I) -> (u128, u128) {
+        let index = index.into().offset(0);
         #[cfg(debug_assertions)]
         {
             self.used.insert(index);
         }
 
-        (self.left.generate(index), self.right.generate(index))
+        (
+            self.left.generate(index.into()),
+            self.right.generate(index.into()),
+        )
     }
 }
 
@@ -266,7 +330,7 @@ pub mod test {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            prss::{Endpoint, SharedRandomness},
+            prss::{Endpoint, PrssIndex, SharedRandomness},
             step::{Gate, StepNarrow},
         },
         rand::{thread_rng, Rng},
@@ -294,14 +358,14 @@ pub mod test {
     /// and subtract their right value, each share will be added once (as a left share)
     /// and subtracted once (as a right share), resulting in values that sum to zero.
     #[must_use]
-    fn zero_u128<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> u128 {
+    fn zero_u128<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
         let (l, r) = prss.generate_values(index);
         l.wrapping_sub(r)
     }
 
     /// Generate an XOR share of zero.
     #[must_use]
-    fn zero_xor<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> u128 {
+    fn zero_xor<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
         let (l, r) = prss.generate_values(index);
         l ^ r
     }
@@ -312,14 +376,14 @@ pub mod test {
     /// using a wrapping add, the result won't be even because the high bit will
     /// wrap around and populate the low bit.
     #[must_use]
-    fn random_u128<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> u128 {
+    fn random_u128<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
         let (l, r) = prss.generate_values(index);
         l.wrapping_add(r)
     }
 
     /// Generate additive shares of a random field value.
     #[must_use]
-    fn random<F: Field, P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> F {
+    fn random<F: Field, P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> F {
         let (l, r): (F, F) = prss.generate_fields(index);
         l + r
     }
@@ -569,7 +633,7 @@ pub mod test {
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(
-        expected = "Generated randomness for index '100' twice using the same key 'protocol/test'"
+        expected = "Generated randomness for index '6553600' twice using the same key 'protocol/test'"
     )]
     fn indexed_rejects_the_same_index() {
         let [p1, _p2, _p3] = participants();
