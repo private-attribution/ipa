@@ -276,7 +276,6 @@ pub mod tests {
 
     // test for empty list
     #[test]
-    #[ignore]
     fn test_quicksort_insecure_semi_honest_empty() {
         run(|| async move {
             let world = TestWorld::default();
@@ -302,7 +301,7 @@ pub mod tests {
                 let result: Vec<_> = world
                     .semi_honest(records.into_iter(), |ctx, mut r| async move {
                         #[allow(clippy::single_range_in_vec_init)]
-                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..0])
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..1])
                             .await
                             .unwrap();
                         r
