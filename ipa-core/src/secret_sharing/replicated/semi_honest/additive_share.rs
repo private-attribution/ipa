@@ -233,6 +233,7 @@ where
     <V::Size as Add<V::Size>>::Output: ArrayLength,
 {
     type Size = <V::Size as Add<V::Size>>::Output;
+    type DeserError = <V as Serializable>::DeserError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) = buf.split_at_mut(V::Size::USIZE);
@@ -240,11 +241,11 @@ where
         self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]));
-        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]))?;
+        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]))?;
 
-        Self::new(left, right)
+        Ok(Self::new(left, right))
     }
 }
 

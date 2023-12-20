@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     fmt::{Display, Formatter},
     marker::PhantomData,
     mem::size_of,
@@ -51,8 +52,13 @@ pub enum EventType {
     Source,
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{0} is not a valid event type, only 0 and 1 are allowed.")]
+struct UnknownEventType(u8);
+
 impl Serializable for EventType {
     type Size = U1;
+    type DeserError = UnknownEventType;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw: &[u8] = match self {
@@ -62,14 +68,11 @@ impl Serializable for EventType {
         buf.copy_from_slice(raw);
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mut buf_to = [0u8; 1];
-        buf_to[..buf.len()].copy_from_slice(buf);
-
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
         match buf[0] {
-            0 => EventType::Trigger,
-            1 => EventType::Source,
-            v @ 2_u8..=u8::MAX => panic!("Unrecognized event type: {v}"),
+            0 => Ok(EventType::Trigger),
+            1 => Ok(EventType::Source),
+            _ => Err(UnknownEventType(buf[0])),
         }
     }
 }
@@ -429,16 +432,17 @@ where
 
 impl Serializable for u64 {
     type Size = U8;
+    type DeserError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw = &self.to_le_bytes()[..buf.len()];
         buf.copy_from_slice(raw);
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
         let mut buf_to = [0u8; 8];
         buf_to[..buf.len()].copy_from_slice(buf);
-        u64::from_le_bytes(buf_to)
+        Ok(u64::from_le_bytes(buf_to))
     }
 }
 

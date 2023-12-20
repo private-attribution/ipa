@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, fmt::Debug};
+use std::{backtrace::Backtrace, convert::Infallible, fmt::Debug};
 
 use thiserror::Error;
 
@@ -107,4 +107,24 @@ pub fn set_global_panic_hook() {
         );
         (default_hook)(panic_info);
     }));
+}
+
+/// Same purpose as [`unwrap-infallible`] but fewer dependencies.
+/// As usual, there is a 8 year old [`RFC`] to make this to std that hasn't been merged yet.
+///
+/// [`unwrap-infallible`]: https://docs.rs/unwrap-infallible/latest/unwrap_infallible
+/// [`RFC`]: https://github.com/rust-lang/rfcs/issues/1723
+pub trait UnwrapInfallible {
+    /// R to avoid clashing with result's `Ok` type.
+    type R;
+
+    fn unwrap_infallible(self) -> Self::R;
+}
+
+impl<T> UnwrapInfallible for Result<T, Infallible> {
+    type R = T;
+
+    fn unwrap_infallible(self) -> Self::R {
+        self.unwrap()
+    }
 }

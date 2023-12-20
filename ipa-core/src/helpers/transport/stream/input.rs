@@ -1,6 +1,7 @@
 use std::{
     cmp::max,
     collections::VecDeque,
+    convert::Infallible,
     fmt::{Debug, Formatter},
     future::Ready,
     io,
@@ -259,13 +260,16 @@ struct Length(u16);
 
 impl Serializable for Length {
     type Size = U2;
+    type DeserError = Infallible;
 
     fn serialize(&self, buf: &mut generic_array::GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_le_bytes();
     }
 
-    fn deserialize(buf: &generic_array::GenericArray<u8, Self::Size>) -> Self {
-        Self(u16::from_le_bytes(<[u8; 2]>::from(*buf)))
+    fn deserialize(
+        buf: &generic_array::GenericArray<u8, Self::Size>,
+    ) -> Result<Self, Self::DeserError> {
+        Ok(Self(u16::from_le_bytes(<[u8; 2]>::from(*buf))))
     }
 }
 

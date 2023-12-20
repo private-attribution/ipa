@@ -43,6 +43,8 @@ impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength;
+    /// The error type that can be returned if an error occurs during deserialization.
+    type DeserError: std::error::Error;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
@@ -53,7 +55,7 @@ pub trait Serializable: Sized {
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError>;
 }
 
 pub trait ArrayAccess {

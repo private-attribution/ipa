@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
@@ -437,13 +438,16 @@ impl<V: SharedValue> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
+    type DeserError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(self.as_bytes());
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        Self::from(<[u8; 32]>::from(*buf))
+    fn deserialize(
+        buf: &GenericArray<u8, Self::Size>,
+    ) -> std::result::Result<Self, Self::DeserError> {
+        Ok(Self::from(<[u8; 32]>::from(*buf)))
     }
 }
 

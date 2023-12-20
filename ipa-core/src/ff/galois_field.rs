@@ -464,13 +464,14 @@ macro_rules! bit_array_impl {
 
             impl Serializable for $name {
                 type Size = <$store as Block>::Size;
+                type DeserError = std::convert::Infallible;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
-                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-                    Self(<$store>::new(assert_copy(*buf).into()))
+                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+                    Ok(Self(<$store>::new(assert_copy(*buf).into())))
                 }
             }
 

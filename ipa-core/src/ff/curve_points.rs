@@ -35,16 +35,22 @@ impl SharedValue for RP25519 {
     const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{0:?} is not the canonical encoding of a Ristretto point.")]
+pub struct NonCanonicalEncoding(CompressedRistretto);
+
 impl Serializable for RP25519 {
     type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
+    type DeserError = NonCanonicalEncoding;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        debug_assert!(CompressedRistretto((*buf).into()).decompress().is_some());
-        RP25519(CompressedRistretto((*buf).into()))
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+        let point = CompressedRistretto((*buf).into());
+        debug_assert!(point.decompress().is_some());
+        Ok(RP25519(point))
     }
 }
 

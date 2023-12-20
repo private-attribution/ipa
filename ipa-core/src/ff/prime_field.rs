@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use generic_array::GenericArray;
 
 use super::Field;
@@ -11,22 +13,6 @@ pub trait PrimeField: Field {
     type PrimeInteger: Into<u128>;
 
     const PRIME: Self::PrimeInteger;
-}
-
-impl<F: PrimeField> Serializable for F {
-    type Size = <F::Storage as Block>::Size;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.as_u128().to_le_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mut buf_to = [0u8; 16];
-        buf_to[..buf.len()].copy_from_slice(buf);
-
-        Self::try_from(u128::from_le_bytes(buf_to)).unwrap()
-    }
 }
 
 macro_rules! field_impl {
@@ -182,6 +168,20 @@ macro_rules! field_impl {
         impl std::fmt::Debug for $field {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}_mod{}", self.0, Self::PRIME)
+            }
+        }
+
+        impl Serializable for $field {
+            type Size = <<Self as SharedValue>::Storage as Block>::Size;
+            type DeserError = Infallible;
+
+            fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+                buf.copy_from_slice(&self.0.to_le_bytes());
+            }
+
+            fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+                let v = <$store>::from_le_bytes((*buf).into());
+                Ok(Self(v))
             }
         }
 
