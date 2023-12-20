@@ -1,5 +1,6 @@
 //! Metric-aware PRSS decorators
 
+use generic_array::{ArrayLength, GenericArray};
 use rand_core::{Error, RngCore};
 
 use crate::{
@@ -34,13 +35,16 @@ impl<'a> InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
-    fn generate_values<I: Into<PrssIndex>>(&self, index: I) -> (u128, u128) {
+    fn generate_arrays<I: Into<PrssIndex>, N: ArrayLength>(
+        &self,
+        index: I,
+    ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
         let step = self.step.as_ref().to_string();
         // TODO: what we really want here is a gauge indicating the maximum index used to generate
         // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
         // handle gauges
         metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => step, ROLE => self.role.as_static_str());
-        self.inner.generate_values(index)
+        self.inner.generate_arrays(index)
     }
 }
 

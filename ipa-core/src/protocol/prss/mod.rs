@@ -6,6 +6,7 @@ use std::{collections::HashSet, fmt::Formatter};
 pub use crypto::{
     FromPrss, FromRandomU128, Generator, GeneratorFactory, KeyExchange, SharedRandomness,
 };
+use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use x25519_dalek::PublicKey;
 
 use super::step::Gate;
@@ -136,17 +137,20 @@ pub struct IndexedSharedRandomness {
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    fn generate_values<I: Into<PrssIndex>>(&self, index: I) -> (u128, u128) {
-        let index = index.into().offset(0);
+    fn generate_arrays<I: Into<PrssIndex>, N: ArrayLength>(
+        &self,
+        index: I,
+    ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
+        let index = index.into();
         #[cfg(debug_assertions)]
         {
-            self.used.insert(index);
+            for i in 0..N::USIZE {
+                self.used.insert(index.offset(i));
+            }
         }
-
-        (
-            self.left.generate(index.into()),
-            self.right.generate(index.into()),
-        )
+        let l = GenericArray::generate(|i| self.left.generate(index.offset(i).into()));
+        let r = GenericArray::generate(|i| self.right.generate(index.offset(i).into()));
+        (l, r)
     }
 }
 
