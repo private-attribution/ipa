@@ -159,7 +159,6 @@ pub mod tests {
     };
 
     #[test]
-    #[ignore]
     fn semi_honest() {
         const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
 
