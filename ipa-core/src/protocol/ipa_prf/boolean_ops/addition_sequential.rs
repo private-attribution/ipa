@@ -32,7 +32,7 @@ pub async fn integer_add<C, XS, YS>(
 where
     C: Context,
     YS: SharedValue + CustomArray<Element = XS::Element>,
-    XS: SharedValue + CustomArray + Field,
+    XS: SharedValue + CustomArray + SharedValue,
     XS::Element: Field,
 {
     let mut carry = AdditiveShare::<XS::Element>::ZERO;

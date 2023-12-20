@@ -4,7 +4,8 @@ use std::{collections::HashMap, fmt::Debug};
 use std::{collections::HashSet, fmt::Formatter};
 
 pub use crypto::{
-    FromPrss, FromRandomU128, Generator, GeneratorFactory, KeyExchange, SharedRandomness,
+    FromPrss, FromRandom, FromRandomU128, Generator, GeneratorFactory, KeyExchange,
+    SharedRandomness,
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use x25519_dalek::PublicKey;
