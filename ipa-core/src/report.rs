@@ -614,7 +614,7 @@ where
         let mut ct_mk: GenericArray<
             u8,
             Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
-        > = GenericArray::from_slice(self.mk_ciphertext());
+        > = *GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
         let mut ct_btt: GenericArray<
             u8,
