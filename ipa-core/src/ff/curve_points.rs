@@ -200,7 +200,7 @@ mod test {
         let input = rng.gen::<RP25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
-        let output = RP25519::deserialize(&a);
+        let output = RP25519::deserialize(&a).unwrap();
         assert_eq!(input, output);
     }
 

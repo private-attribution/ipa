@@ -7,7 +7,6 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    error::UnwrapInfallible,
     ff::{boolean_array::BA256, Field, Serializable},
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
@@ -139,7 +138,7 @@ impl From<BA256> for Fp25519 {
         let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
         s.serialize(&mut buf);
         // Reduces mod order
-        Fp25519::deserialize(&buf).unwrap_infallible()
+        Fp25519::deserialize_infallible(&buf)
     }
 }
 
@@ -163,11 +162,12 @@ macro_rules! sc_hash_impl {
             fn from(s: $u_type) -> Self {
                 use hkdf::Hkdf;
                 use sha2::Sha256;
+
                 let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
                 let mut okm = [0u8; 32];
                 //error invalid length from expand only happens when okm is very large
                 hk.expand(&[], &mut okm).unwrap();
-                Fp25519::deserialize(&okm.into())
+                Fp25519::deserialize_infallible(&okm.into())
             }
         }
     };
@@ -199,7 +199,7 @@ impl FromRandomU128 for Fp25519 {
         let mut okm = [0u8; 32];
         //error invalid length from expand only happens when okm is very large
         hk.expand(&[], &mut okm).unwrap();
-        Fp25519::deserialize(&okm.into()).unwrap_infallible()
+        Fp25519::deserialize_infallible(&okm.into())
     }
 }
 
@@ -237,7 +237,7 @@ mod test {
         let input = rng.gen::<Fp25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
-        let output = Fp25519::deserialize(&a);
+        let output = Fp25519::deserialize_infallible(&a);
         assert_eq!(input, output);
     }
 

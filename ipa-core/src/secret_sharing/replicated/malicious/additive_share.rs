@@ -326,13 +326,13 @@ where
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
             ))
-            .map_err(|e| ExtendableFieldDeserializationError::FieldError(e))?;
+            .map_err(ExtendableFieldDeserializationError::FieldError)?;
         let rx = <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::deserialize(
             GenericArray::from_slice(
                 &buf[<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size::USIZE..],
             ),
         )
-        .map_err(|e| ExtendableFieldDeserializationError::ExtendedFieldError(e))?;
+        .map_err(ExtendableFieldDeserializationError::ExtendedFieldError)?;
         Ok(Self { x, rx })
     }
 }

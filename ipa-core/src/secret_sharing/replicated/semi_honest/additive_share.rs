@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     fmt::{Debug, Formatter},
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
@@ -7,6 +8,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
+    error::UnwrapInfallible,
     ff::{ArrayAccess, Expand, Field, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
@@ -72,6 +74,13 @@ where
 
         from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
             .map(|chunk| Serializable::deserialize(GenericArray::from_slice(chunk)))
+    }
+
+    pub fn from_byte_slice_infallible(from: &[u8]) -> impl Iterator<Item = Self> + '_
+    where
+        Infallible: From<<Self as Serializable>::DeserError>,
+    {
+        Self::from_byte_slice(from).map(|x| x.map_err(Into::into).unwrap_infallible())
     }
 }
 

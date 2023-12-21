@@ -11,7 +11,6 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    error::BoxError,
     helpers::{Error, Message},
     protocol::RecordId,
     sync::{Arc, Mutex},

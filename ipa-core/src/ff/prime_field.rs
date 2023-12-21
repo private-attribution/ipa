@@ -233,7 +233,7 @@ macro_rules! field_impl {
                     let mut buf = GenericArray::default();
                     field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize(&buf));
+                    assert_eq!(field_v, $field::deserialize_infallible(&buf));
                 }
             }
         }

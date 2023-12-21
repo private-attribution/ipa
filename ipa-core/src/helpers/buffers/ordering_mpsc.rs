@@ -388,7 +388,7 @@ mod unit {
         let ((), output) = join(send, rx.take_next(1)).await;
         assert_eq!(
             input,
-            Fp31::deserialize(GenericArray::from_slice(output.as_ref().unwrap()))
+            Fp31::deserialize_infallible(GenericArray::from_slice(output.as_ref().unwrap()))
         );
     }
 

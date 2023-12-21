@@ -6,7 +6,6 @@ use generic_array::GenericArray;
 use typenum::{U14, U32, U8};
 
 use crate::{
-    error::UnwrapInfallible,
     ff::{boolean::Boolean, Serializable},
     protocol::prss::FromRandomU128,
     secret_sharing::Block,
@@ -411,7 +410,7 @@ impl From<(u128, u128)> for BA256 {
             .into_iter()
             .chain(value.1.to_le_bytes());
         let arr = GenericArray::<u8, U32>::try_from_iter(iter).unwrap();
-        BA256::deserialize(&arr).unwrap_infallible()
+        BA256::deserialize_infallible(&arr)
     }
 }
 

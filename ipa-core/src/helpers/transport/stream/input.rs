@@ -19,11 +19,7 @@ use generic_array::GenericArray;
 use pin_project::pin_project;
 use typenum::{Unsigned, U2};
 
-use crate::{
-    error::{BoxError, UnwrapInfallible},
-    ff::Serializable,
-    helpers::BytesStream,
-};
+use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
 
 #[derive(Debug)]
 pub struct BufDeque {
@@ -117,7 +113,7 @@ impl BufDeque {
     /// Returns `None` if there is insufficient data available.
     fn read<T: Serializable<DeserError = Infallible>>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
-            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)).unwrap_infallible())
+            .map(|bytes| T::deserialize_infallible(GenericArray::from_slice(&bytes)))
     }
 
     /// Update the buffer with the result of polling a stream.
@@ -469,6 +465,7 @@ mod test {
 
         use super::*;
         use crate::{
+            error::Error,
             ff::{Fp31, Fp32BitPrime, Serializable},
             secret_sharing::replicated::semi_honest::AdditiveShare,
         };
@@ -514,7 +511,11 @@ mod test {
 
             // invalid remainder
             let err = stream.next().await.unwrap().unwrap_err();
-            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+            if let Error::Io(err) = err {
+                assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+            } else {
+                panic!("unexpected error: {err}")
+            }
         }
 
         // this test confirms that `RecordsStream` doesn't buffer more than it needs to as it produces
@@ -531,7 +532,8 @@ mod test {
             let mut stream = RecordsStream::<Fp32BitPrime, _>::from(chunks);
             assert_eq!(stream.buffer.len(), 0);
             for expected_chunk in vec.chunks(<Fp32BitPrime as Serializable>::Size::USIZE) {
-                let expected = Fp32BitPrime::deserialize(GenericArray::from_slice(expected_chunk));
+                let expected =
+                    Fp32BitPrime::deserialize_infallible(GenericArray::from_slice(expected_chunk));
                 let n = stream.next().await.unwrap().unwrap();
                 // `RecordsStream` outputs correct value
                 assert_eq!(vec![expected], n);
@@ -717,7 +719,7 @@ mod test {
                                             (data in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
             -> (Vec<Fp32BitPrime>, Vec<Vec<u8>>, u64) {
                 let expected = data.chunks(<Fp32BitPrime as Serializable>::Size::USIZE)
-                    .map(|chunk| Fp32BitPrime::deserialize(<GenericArray<u8, _>>::from_slice(chunk)))
+                    .map(|chunk| Fp32BitPrime::deserialize_infallible(<GenericArray<u8, _>>::from_slice(chunk)))
                     .collect();
                 (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
             }

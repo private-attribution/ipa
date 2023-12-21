@@ -13,7 +13,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Unsigned, U1, U18, U8};
 
 use crate::{
-    error::{BoxError, Error, UnwrapInfallible},
+    error::{BoxError, Error},
     ff::{
         boolean::Boolean, boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField,
         Serializable,
@@ -55,7 +55,7 @@ pub enum EventType {
 
 #[derive(thiserror::Error, Debug)]
 #[error("{0} is not a valid event type, only 0 and 1 are allowed.")]
-struct UnknownEventType(u8);
+pub struct UnknownEventType(u8);
 
 impl Serializable for EventType {
     type Size = U1;
@@ -212,7 +212,7 @@ where
     }
 
     pub fn breakdown_key(&self) -> Gf8Bit {
-        Gf8Bit::deserialize(GenericArray::from_slice(&[self.data[4]])).unwrap_infallible()
+        Gf8Bit::deserialize_infallible(GenericArray::from_slice(&[self.data[4]]))
     }
 
     pub fn trigger_value(&self) -> Result<Replicated<F>, InvalidReportError> {
@@ -295,10 +295,9 @@ where
 
         Ok(Report {
             timestamp: self.timestamp(),
-            mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize(
+            mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize_infallible(
                 GenericArray::from_slice(plaintext),
-            )
-            .unwrap_infallible(),
+            ),
             event_type: self.event_type(),
             breakdown_key: self.breakdown_key(),
             trigger_value: self.trigger_value()?,

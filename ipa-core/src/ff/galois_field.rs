@@ -599,7 +599,7 @@ macro_rules! bit_array_impl {
                     let mut buf = GenericArray::default();
                     a.clone().serialize(&mut buf);
 
-                    assert_eq!(a, $name::deserialize(&buf));
+                    assert_eq!(a, $name::deserialize_infallible(&buf));
                 }
             }
 

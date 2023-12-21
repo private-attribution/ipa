@@ -977,7 +977,9 @@ pub mod tests {
 
             assert_eq!(
                 vec![a, b],
-                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
+                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
             );
         }
 
