@@ -215,6 +215,10 @@ where
         Gf8Bit::deserialize_infallible(GenericArray::from_slice(&[self.data[4]]))
     }
 
+    /// Attempts to extract trigger value from the report.
+    ///
+    /// ## Errors
+    /// If trigger value provided in the report is invalid.
     pub fn trigger_value(&self) -> Result<Replicated<F>, InvalidReportError> {
         Replicated::<F>::deserialize(GenericArray::from_slice(
             &self.data[5..Self::ENCAP_KEY_OFFSET],

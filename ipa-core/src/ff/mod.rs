@@ -60,10 +60,16 @@ pub trait Serializable: Sized {
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
+    ///
+    /// ## Errors
+    /// In general, deserialization may fail even if buffer size is enough. The bytes may
+    /// not represent a valid value in the domain, in this case implementations will return an error.
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError>;
 
     /// Same as [`deserialize`] but returns an actual value if it is known at compile time that deserialization
-    /// cannot throw an error
+    /// is infallible.
+    ///
+    /// [`deserialize`]: Self::deserialize
     fn deserialize_infallible(buf: &GenericArray<u8, Self::Size>) -> Self
     where
         Infallible: From<Self::DeserError>,
