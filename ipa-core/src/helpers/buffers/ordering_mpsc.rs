@@ -369,7 +369,7 @@ mod unit {
     use generic_array::GenericArray;
 
     use crate::{
-        ff::{Field, Fp31, Serializable},
+        ff::{Field, Fp31},
         helpers::buffers::ordering_mpsc::{
             fixture::{TestSender, FP32BIT_SIZE},
             ordering_mpsc,
@@ -388,7 +388,7 @@ mod unit {
         let ((), output) = join(send, rx.take_next(1)).await;
         assert_eq!(
             input,
-            Fp31::deserialize_infallible(GenericArray::from_slice(output.as_ref().unwrap()))
+            Fp31::deserialize_unchecked(GenericArray::from_slice(output.as_ref().unwrap()))
         );
     }
 

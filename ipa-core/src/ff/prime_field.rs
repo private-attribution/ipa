@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::fmt::Display;
 
 use generic_array::GenericArray;
 
@@ -14,6 +14,10 @@ pub trait PrimeField: Field {
 
     const PRIME: Self::PrimeInteger;
 }
+
+#[derive(thiserror::Error, Debug)]
+#[error("Field value {0} provided is greater than prime: {1}")]
+pub struct GreaterThanPrimeError<V: Display>(V, u128);
 
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
@@ -173,7 +177,7 @@ macro_rules! field_impl {
 
         impl Serializable for $field {
             type Size = <<Self as SharedValue>::Storage as Block>::Size;
-            type DeserializationError = Infallible;
+            type DeserializationError = GreaterThanPrimeError<$store>;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                 buf.copy_from_slice(&self.0.to_le_bytes());
@@ -183,7 +187,24 @@ macro_rules! field_impl {
                 buf: &GenericArray<u8, Self::Size>,
             ) -> Result<Self, Self::DeserializationError> {
                 let v = <$store>::from_le_bytes((*buf).into());
-                Ok(Self(v))
+                if v < Self::PRIME {
+                    Ok(Self(v))
+                } else {
+                    Err(GreaterThanPrimeError(v, Self::PRIME.into()))
+                }
+            }
+        }
+
+        #[cfg(any(test, unit_test))]
+        impl $field {
+            /// Deserialize a field value, ignoring the fact that it can be greater than PRIME. Therefore, will panic
+            /// at runtime.
+            ///
+            /// This method is available for tests only as a shortcut to `unwrap()`.
+            pub(crate) fn deserialize_unchecked(
+                buf: &GenericArray<u8, <Self as Serializable>::Size>,
+            ) -> Self {
+                Self::deserialize(buf).unwrap()
             }
         }
 
@@ -235,7 +256,7 @@ macro_rules! field_impl {
                     let mut buf = GenericArray::default();
                     field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize_infallible(&buf));
+                    assert_eq!(field_v, $field::deserialize_unchecked(&buf));
                 }
             }
         }

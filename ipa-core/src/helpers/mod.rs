@@ -858,7 +858,7 @@ mod concurrency_tests {
                         .unwrap();
 
                     let results = results.map(|bytes| {
-                        semi_honest::AdditiveShare::<Fp31>::from_byte_slice_infallible(&bytes)
+                        semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
                             .collect::<Vec<_>>()
                     });
 

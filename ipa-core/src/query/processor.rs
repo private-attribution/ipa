@@ -578,7 +578,7 @@ mod tests {
             }
 
             let results = app.complete_query(query_id).await?.map(|bytes| {
-                semi_honest::AdditiveShare::<Fp31>::from_byte_slice_infallible(&bytes)
+                semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
                     .collect::<Vec<_>>()
             });
 

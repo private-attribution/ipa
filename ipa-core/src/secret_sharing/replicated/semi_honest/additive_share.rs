@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     fmt::{Debug, Formatter},
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
@@ -8,7 +7,6 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    error::UnwrapInfallible,
     ff::{ArrayAccess, Expand, Field, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
@@ -76,14 +74,15 @@ where
             .map(|chunk| Serializable::deserialize(GenericArray::from_slice(chunk)))
     }
 
-    /// Same as [`from_byte_slice`] but works for types that can always be deserialized.
+    /// Same as [`from_byte_slice`] but ignores runtime errors.
     ///
     /// [`from_byte_slice`]: Self::from_byte_slice
-    pub fn from_byte_slice_infallible(from: &[u8]) -> impl Iterator<Item = Self> + '_
-    where
-        Infallible: From<<Self as Serializable>::DeserializationError>,
-    {
-        Self::from_byte_slice(from).map(|x| x.map_err(Into::into).unwrap_infallible())
+    ///
+    /// ## Panics
+    /// If one or more elements fail to deserialize.
+    #[cfg(any(test, unit_test))]
+    pub fn from_byte_slice_unchecked(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        Self::from_byte_slice(from).map(Result::unwrap)
     }
 }
 

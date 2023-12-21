@@ -533,7 +533,7 @@ mod test {
             assert_eq!(stream.buffer.len(), 0);
             for expected_chunk in vec.chunks(<Fp32BitPrime as Serializable>::Size::USIZE) {
                 let expected =
-                    Fp32BitPrime::deserialize_infallible(GenericArray::from_slice(expected_chunk));
+                    Fp32BitPrime::deserialize_unchecked(GenericArray::from_slice(expected_chunk));
                 let n = stream.next().await.unwrap().unwrap();
                 // `RecordsStream` outputs correct value
                 assert_eq!(vec![expected], n);
@@ -719,7 +719,7 @@ mod test {
                                             (data in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
             -> (Vec<Fp32BitPrime>, Vec<Vec<u8>>, u64) {
                 let expected = data.chunks(<Fp32BitPrime as Serializable>::Size::USIZE)
-                    .map(|chunk| Fp32BitPrime::deserialize_infallible(<GenericArray<u8, _>>::from_slice(chunk)))
+                    .map(|chunk| Fp32BitPrime::deserialize_unchecked(<GenericArray<u8, _>>::from_slice(chunk)))
                     .collect();
                 (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
             }
