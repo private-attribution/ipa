@@ -173,13 +173,15 @@ macro_rules! field_impl {
 
         impl Serializable for $field {
             type Size = <<Self as SharedValue>::Storage as Block>::Size;
-            type DeserError = Infallible;
+            type DeserializationError = Infallible;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                 buf.copy_from_slice(&self.0.to_le_bytes());
             }
 
-            fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+            fn deserialize(
+                buf: &GenericArray<u8, Self::Size>,
+            ) -> Result<Self, Self::DeserializationError> {
                 let v = <$store>::from_le_bytes((*buf).into());
                 Ok(Self(v))
             }

@@ -438,7 +438,7 @@ impl<V: SharedValue> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
-    type DeserError = Infallible;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(self.as_bytes());
@@ -446,7 +446,7 @@ impl Serializable for PublicKey {
 
     fn deserialize(
         buf: &GenericArray<u8, Self::Size>,
-    ) -> std::result::Result<Self, Self::DeserError> {
+    ) -> std::result::Result<Self, Self::DeserializationError> {
         Ok(Self::from(<[u8; 32]>::from(*buf)))
     }
 }

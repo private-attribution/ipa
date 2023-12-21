@@ -59,7 +59,7 @@ pub struct UnknownEventType(u8);
 
 impl Serializable for EventType {
     type Size = U1;
-    type DeserError = UnknownEventType;
+    type DeserializationError = UnknownEventType;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw: &[u8] = match self {
@@ -69,7 +69,7 @@ impl Serializable for EventType {
         buf.copy_from_slice(raw);
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         match buf[0] {
             0 => Ok(EventType::Trigger),
             1 => Ok(EventType::Source),
@@ -440,14 +440,14 @@ where
 
 impl Serializable for u64 {
     type Size = U8;
-    type DeserError = Infallible;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw = &self.to_le_bytes()[..buf.len()];
         buf.copy_from_slice(raw);
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let mut buf_to = [0u8; 8];
         buf_to[..buf.len()].copy_from_slice(buf);
         Ok(u64::from_le_bytes(buf_to))
@@ -478,7 +478,7 @@ where
             <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
         >>::Output,
     >>::Output;
-    type DeserError = Error;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let sizeof_matchkey = size_of::<u64>() * 2;
@@ -508,7 +508,7 @@ where
         ));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let sizeof_matchkey = size_of::<u64>() * 2;
         let sizeof_eventtype = size_of::<Boolean>() * 2;
 

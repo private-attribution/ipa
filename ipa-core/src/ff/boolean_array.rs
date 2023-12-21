@@ -141,7 +141,7 @@ macro_rules! boolean_array_impl {
 
             impl Serializable for $name {
                 type Size = <Store as Block>::Size;
-                type DeserError = std::convert::Infallible;
+                type DeserializationError = std::convert::Infallible;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
@@ -149,7 +149,7 @@ macro_rules! boolean_array_impl {
 
                 fn deserialize(
                     buf: &GenericArray<u8, Self::Size>,
-                ) -> Result<Self, Self::DeserError> {
+                ) -> Result<Self, Self::DeserializationError> {
                     Ok(Self(<Store>::new(assert_copy(*buf).into())))
                 }
             }

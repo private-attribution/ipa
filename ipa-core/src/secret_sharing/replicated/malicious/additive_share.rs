@@ -290,9 +290,9 @@ pub enum ExtendableFieldDeserializationError<F: Serializable, EF: Serializable> 
     #[error(
         "error deserializing field value when creating a maliciously secure replicated share: {0}"
     )]
-    FieldError(F::DeserError),
+    FieldError(F::DeserializationError),
     #[error("error deserializing extended field value when creating a maliciously secure replicated share: {0}")]
-    ExtendedFieldError(EF::DeserError),
+    ExtendedFieldError(EF::DeserializationError),
 }
 
 /// todo serde macro for these collections so we can hide the crazy size calculations
@@ -309,7 +309,7 @@ where
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output;
-    type DeserError = ExtendableFieldDeserializationError<
+    type DeserializationError = ExtendableFieldDeserializationError<
         SemiHonestAdditiveShare<V>,
         SemiHonestAdditiveShare<V::ExtendedField>,
     >;
@@ -321,7 +321,7 @@ where
         self.rx.serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let x =
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],

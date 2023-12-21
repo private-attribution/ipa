@@ -98,7 +98,7 @@ impl BufDeque {
     fn read_multi<T: Serializable>(
         &mut self,
         count: usize,
-    ) -> Option<Result<Vec<T>, T::DeserError>> {
+    ) -> Option<Result<Vec<T>, T::DeserializationError>> {
         self.read_bytes(count * T::Size::USIZE).map(|bytes| {
             bytes
                 .chunks(T::Size::USIZE)
@@ -111,7 +111,7 @@ impl BufDeque {
     ///
     /// Deserializes a single instance of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there is insufficient data available.
-    fn read<T: Serializable<DeserError = Infallible>>(&mut self) -> Option<T> {
+    fn read<T: Serializable<DeserializationError = Infallible>>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
             .map(|bytes| T::deserialize_infallible(GenericArray::from_slice(&bytes)))
     }
@@ -199,9 +199,9 @@ where
         loop {
             let count = max(1, this.buffer.contiguous_len() / T::Size::USIZE);
             if let Some(items) = this.buffer.read_multi(count) {
-                return Poll::Ready(Some(
-                    items.map_err(|e: T::DeserError| crate::error::Error::ParseError(e.into())),
-                ));
+                return Poll::Ready(Some(items.map_err(|e: T::DeserializationError| {
+                    crate::error::Error::ParseError(e.into())
+                })));
             }
 
             // We need more data, poll the stream
@@ -265,7 +265,7 @@ struct Length(u16);
 
 impl Serializable for Length {
     type Size = U2;
-    type DeserError = Infallible;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut generic_array::GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_le_bytes();
@@ -273,7 +273,7 @@ impl Serializable for Length {
 
     fn deserialize(
         buf: &generic_array::GenericArray<u8, Self::Size>,
-    ) -> Result<Self, Self::DeserError> {
+    ) -> Result<Self, Self::DeserializationError> {
         Ok(Self(u16::from_le_bytes(<[u8; 2]>::from(*buf))))
     }
 }

@@ -69,7 +69,7 @@ where
     // Deserialize a slice of bytes into an iterator of replicated shares
     pub fn from_byte_slice(
         from: &[u8],
-    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserError>> + '_ {
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserializationError>> + '_ {
         debug_assert!(from.len() % <AdditiveShare<V> as Serializable>::Size::USIZE == 0);
 
         from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
@@ -81,7 +81,7 @@ where
     /// [`from_byte_slice`]: Self::from_byte_slice
     pub fn from_byte_slice_infallible(from: &[u8]) -> impl Iterator<Item = Self> + '_
     where
-        Infallible: From<<Self as Serializable>::DeserError>,
+        Infallible: From<<Self as Serializable>::DeserializationError>,
     {
         Self::from_byte_slice(from).map(|x| x.map_err(Into::into).unwrap_infallible())
     }
@@ -245,7 +245,7 @@ where
     <V::Size as Add<V::Size>>::Output: ArrayLength,
 {
     type Size = <V::Size as Add<V::Size>>::Output;
-    type DeserError = <V as Serializable>::DeserError;
+    type DeserializationError = <V as Serializable>::DeserializationError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) = buf.split_at_mut(V::Size::USIZE);
@@ -253,7 +253,7 @@ where
         self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]))?;
         let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]))?;
 

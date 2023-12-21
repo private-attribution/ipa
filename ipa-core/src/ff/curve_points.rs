@@ -41,13 +41,13 @@ pub struct NonCanonicalEncoding(CompressedRistretto);
 
 impl Serializable for RP25519 {
     type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
-    type DeserError = NonCanonicalEncoding;
+    type DeserializationError = NonCanonicalEncoding;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let point = CompressedRistretto((*buf).into());
         debug_assert!(point.decompress().is_some());
         Ok(RP25519(point))

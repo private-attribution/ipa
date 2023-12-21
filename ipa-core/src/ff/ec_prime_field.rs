@@ -50,14 +50,14 @@ impl From<Fp25519> for Scalar {
 
 impl Serializable for Fp25519 {
     type Size = <<Fp25519 as SharedValue>::Storage as Block>::Size;
-    type DeserError = Infallible;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
     }
 
     /// Deserialized values are reduced modulo the field order.
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         Ok(Fp25519(Scalar::from_bytes_mod_order((*buf).into())))
     }
 }

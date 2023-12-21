@@ -49,7 +49,7 @@ pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength;
     /// The error type that can be returned if an error occurs during deserialization.
-    type DeserError: std::error::Error + Send + Sync + 'static;
+    type DeserializationError: std::error::Error + Send + Sync + 'static;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
@@ -64,7 +64,7 @@ pub trait Serializable: Sized {
     /// ## Errors
     /// In general, deserialization may fail even if buffer size is enough. The bytes may
     /// not represent a valid value in the domain, in this case implementations will return an error.
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError>;
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError>;
 
     /// Same as [`deserialize`] but returns an actual value if it is known at compile time that deserialization
     /// is infallible.
@@ -72,7 +72,7 @@ pub trait Serializable: Sized {
     /// [`deserialize`]: Self::deserialize
     fn deserialize_infallible(buf: &GenericArray<u8, Self::Size>) -> Self
     where
-        Infallible: From<Self::DeserError>,
+        Infallible: From<Self::DeserializationError>,
     {
         Self::deserialize(buf)
             .map_err(Into::into)

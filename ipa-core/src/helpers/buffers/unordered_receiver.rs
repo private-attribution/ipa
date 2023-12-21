@@ -57,7 +57,7 @@ struct Spare {
 
 impl Spare {
     /// Read a message from the buffer.  Returns `None` if there isn't enough data.
-    fn read<M: Message>(&mut self) -> Option<Result<M, M::DeserError>> {
+    fn read<M: Message>(&mut self) -> Option<Result<M, M::DeserializationError>> {
         let end = self.offset + M::Size::USIZE;
         if end <= self.buf.len() {
             let m = M::deserialize(GenericArray::from_slice(&self.buf[self.offset..end]));
@@ -79,7 +79,7 @@ impl Spare {
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
-    fn extend<M: Message>(&mut self, v: &[u8]) -> Option<Result<M, M::DeserError>> {
+    fn extend<M: Message>(&mut self, v: &[u8]) -> Option<Result<M, M::DeserializationError>> {
         let sz = <M::Size as Unsigned>::USIZE;
         let remainder = self.buf.len() - self.offset;
         if remainder + v.len() < sz {
@@ -158,7 +158,7 @@ where
 #[derive(thiserror::Error, Debug)]
 pub enum ReceiveError<M: Message> {
     #[error("Error deserializing {0:?} record: {1}")]
-    DeserializationError(RecordId, #[source] M::DeserError),
+    DeserializationError(RecordId, #[source] M::DeserializationError),
     #[error(transparent)]
     InfraError(#[from] Error),
 }
@@ -381,7 +381,7 @@ trait ReceiveErrorExt<M: Message>: Sized {
     fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>>;
 }
 
-impl<M: Message> ReceiveErrorExt<M> for Result<M, M::DeserError> {
+impl<M: Message> ReceiveErrorExt<M> for Result<M, M::DeserializationError> {
     fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>> {
         self.map_err(|e| ReceiveError::DeserializationError(RecordId::from(next), e))
     }

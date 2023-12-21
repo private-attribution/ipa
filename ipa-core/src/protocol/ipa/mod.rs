@@ -115,7 +115,7 @@ where
             >>::Output,
         >>::Output,
     >>::Output;
-    type DeserError = Error;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
@@ -137,7 +137,7 @@ where
         ));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
@@ -181,7 +181,7 @@ where
     /// Panics if the slice buffer is not aligned with the size of this struct.
     pub fn from_byte_slice(
         input: &[u8],
-    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserError>> + '_ {
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserializationError>> + '_ {
         assert_eq!(
             0,
             input.len() % <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE,

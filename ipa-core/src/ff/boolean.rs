@@ -43,13 +43,13 @@ pub struct ParseBooleanError(u8);
 
 impl Serializable for Boolean {
     type Size = <<Boolean as SharedValue>::Storage as Block>::Size;
-    type DeserError = ParseBooleanError;
+    type DeserializationError = ParseBooleanError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf[0] = u8::from(self.0);
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         if buf[0] > 1 {
             return Err(ParseBooleanError(buf[0]));
         }

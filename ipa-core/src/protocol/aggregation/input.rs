@@ -27,7 +27,7 @@ where
     type Size = <<Replicated<CV> as Serializable>::Size as Add<
         <Replicated<BK> as Serializable>::Size,
     >>::Output;
-    type DeserError = Error;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
@@ -39,7 +39,7 @@ where
             .serialize(GenericArray::from_mut_slice(&mut buf[cv_sz..cv_sz + bk_sz]));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
 
