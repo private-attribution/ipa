@@ -76,6 +76,9 @@ where
             .map(|chunk| Serializable::deserialize(GenericArray::from_slice(chunk)))
     }
 
+    /// Same as [`from_byte_slice`] but works for types that can always be deserialized.
+    ///
+    /// [`from_byte_slice`]: Self::from_byte_slice
     pub fn from_byte_slice_infallible(from: &[u8]) -> impl Iterator<Item = Self> + '_
     where
         Infallible: From<<Self as Serializable>::DeserError>,
