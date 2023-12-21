@@ -396,7 +396,7 @@ where
                 breakdown_key: bk_share,
                 trigger_value: tv_share,
                 epoch: 0_u16,
-                site_domain: String::from("meta.com")
+                site_domain: String::from("meta.com"),
             },
         )
         .collect::<Vec<_>>()
