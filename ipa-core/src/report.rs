@@ -121,11 +121,11 @@ impl From<&EventType> for Replicated<Boolean> {
 
 impl From<&Replicated<Boolean>> for EventType {
     fn from(value: &Replicated<Boolean>) -> Self {
-        return if value.0 == Boolean::from(true) {
+        if value.0 == Boolean::from(true) {
             EventType::Trigger
         } else {
             EventType::Source
-        };
+        }
     }
 }
 
@@ -435,17 +435,9 @@ where
 }
 
 /// A binary report as submitted by a report collector, containing encrypted `OprfReport`
-///
-/// An `OprfReport` consists of:
-///     `pub match_key: Replicated<BA64>`,
-///     `pub is_trigger: Replicated<Boolean>`,
-///     `pub breakdown_key: Replicated<BK>`,
-///     `pub trigger_value: Replicated<TV>`,
-///     `pub timestamp: Replicated<TS>`,
-///
 /// An `EncryptedOprfReport` consists of:
-///     ct_mk: Enc(`match_key`)
-///     ct_btt: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
+///     `ct_mk`: Enc(`match_key`)
+///     `ct_btt`: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
 ///     associated data of ct_mk: `key_id`, `epoch`, `event_type`, `site_domain`,
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -521,19 +513,19 @@ where
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
     // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
-    const ENCAP_KEY_BTT_OFFSET: usize = Self::CIPHERTEXT_MK_OFFSET
+    const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
         + U16::USIZE
-        + ((<Replicated<BA64> as Serializable>::Size::USIZE) + 15)
+        + ((<Replicated<BA64> as Serializable>::Size::USIZE) + 15))
         & (!15);
     const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
     // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
 
-    const EVENT_TYPE_OFFSET: usize = Self::CIPHERTEXT_BTT_OFFSET
+    const EVENT_TYPE_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
         + U16::USIZE
         + ((<Replicated<BK> as Serializable>::Size::USIZE
             + <Replicated<TV> as Serializable>::Size::USIZE
             + <Replicated<TS> as Serializable>::Size::USIZE)
-            + 15)
+            + 15))
         & (!15);
     const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
 
@@ -622,7 +614,7 @@ where
         let mut ct_mk: GenericArray<
             u8,
             Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
-        > = GenericArray::from_slice(self.mk_ciphertext()).clone();
+        > = GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
         let mut ct_btt: GenericArray<
             u8,
