@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
@@ -54,6 +56,12 @@ pub enum Error {
         channel_id: ChannelId,
         total_records: TotalRecords,
     },
+}
+
+impl From<Infallible> for Error {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
+    }
 }
 
 impl Error {

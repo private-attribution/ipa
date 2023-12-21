@@ -11,6 +11,7 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
+    error::BoxError,
     helpers::{Error, Message},
     protocol::RecordId,
     sync::{Arc, Mutex},
@@ -34,7 +35,7 @@ where
     C: AsRef<[u8]>,
     M: Message,
 {
-    type Output = Result<M, Error>;
+    type Output = Result<M, ReceiveError<M>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_ref();
@@ -57,7 +58,7 @@ struct Spare {
 
 impl Spare {
     /// Read a message from the buffer.  Returns `None` if there isn't enough data.
-    fn read<M: Message>(&mut self) -> Option<M> {
+    fn read<M: Message>(&mut self) -> Option<Result<M, M::DeserError>> {
         let end = self.offset + M::Size::USIZE;
         if end <= self.buf.len() {
             let m = M::deserialize(GenericArray::from_slice(&self.buf[self.offset..end]));
@@ -79,7 +80,7 @@ impl Spare {
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
-    fn extend<M: Message>(&mut self, v: &[u8]) -> Option<M> {
+    fn extend<M: Message>(&mut self, v: &[u8]) -> Option<Result<M, M::DeserError>> {
         let sz = <M::Size as Unsigned>::USIZE;
         let remainder = self.buf.len() - self.offset;
         if remainder + v.len() < sz {
@@ -155,6 +156,14 @@ where
     _marker: PhantomData<C>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ReceiveError<M: Message> {
+    #[error("Error deserializing {0:?} record: {1}")]
+    DeserializationError(RecordId, #[source] M::DeserError),
+    #[error(transparent)]
+    InfraError(#[from] Error),
+}
+
 impl<S, C> OperatingState<S, C>
 where
     S: Stream<Item = C> + Send,
@@ -220,11 +229,11 @@ where
 
     /// Poll for the next record.  This should only be invoked when
     /// the future for the next message is polled.
-    fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
+    fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, ReceiveError<M>>> {
         self.max_polled_idx = std::cmp::max(self.max_polled_idx, self.next);
         if let Some(m) = self.spare.read() {
             self.wake_next();
-            return Poll::Ready(Ok(m));
+            return Poll::Ready(m.map_error_to_receive(self.next));
         }
 
         loop {
@@ -235,13 +244,14 @@ where
                 Poll::Ready(Some(b)) => {
                     if let Some(m) = self.spare.extend(b.as_ref()) {
                         self.wake_next();
-                        return Poll::Ready(Ok(m));
+                        return Poll::Ready(m.map_error_to_receive(self.next));
                     }
                 }
                 Poll::Ready(None) => {
                     return Poll::Ready(Err(Error::EndOfStream {
                         record_id: RecordId::from(self.next),
-                    }));
+                    }
+                    .into()));
                 }
             }
         }
@@ -364,6 +374,17 @@ where
         Self {
             inner: Arc::clone(&self.inner),
         }
+    }
+}
+
+/// Convert `Result<M, M::DeserError>` to `Result<M, ReceiveError<M>>`
+trait ReceiveErrorExt<M: Message>: Sized {
+    fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>>;
+}
+
+impl<M: Message> ReceiveErrorExt<M> for Result<M, M::DeserError> {
+    fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>> {
+        self.map_err(|e| ReceiveError::DeserializationError(RecordId::from(next), e))
     }
 }
 

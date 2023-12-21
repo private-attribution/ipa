@@ -285,6 +285,16 @@ impl<V: SharedValue + ExtendableField> Mul<V> for &AdditiveShare<V> {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ExtendableFieldDeserializationError<F: Serializable, EF: Serializable> {
+    #[error(
+        "error deserializing field value when creating a maliciously secure replicated share: {0}"
+    )]
+    FieldError(F::DeserError),
+    #[error("error deserializing extended field value when creating a maliciously secure replicated share: {0}")]
+    ExtendedFieldError(EF::DeserError),
+}
+
 /// todo serde macro for these collections so we can hide the crazy size calculations
 impl<V: SharedValue + ExtendableField> Serializable for AdditiveShare<V>
 where
@@ -299,6 +309,10 @@ where
     type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
         <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size,
     >>::Output;
+    type DeserError = ExtendableFieldDeserializationError<
+        SemiHonestAdditiveShare<V>,
+        SemiHonestAdditiveShare<V::ExtendedField>,
+    >;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) =
@@ -307,17 +321,19 @@ where
         self.rx.serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
         let x =
             <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
-            ));
+            ))
+            .map_err(|e| ExtendableFieldDeserializationError::FieldError(e))?;
         let rx = <SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::deserialize(
             GenericArray::from_slice(
                 &buf[<SemiHonestAdditiveShare<V::ExtendedField> as Serializable>::Size::USIZE..],
             ),
-        );
-        Self { x, rx }
+        )
+        .map_err(|e| ExtendableFieldDeserializationError::ExtendedFieldError(e))?;
+        Ok(Self { x, rx })
     }
 }
 
