@@ -19,7 +19,11 @@ use generic_array::GenericArray;
 use pin_project::pin_project;
 use typenum::{Unsigned, U2};
 
-use crate::{error::BoxError, ff::Serializable, helpers::BytesStream};
+use crate::{
+    error::{BoxError, UnwrapInfallible},
+    ff::Serializable,
+    helpers::BytesStream,
+};
 
 #[derive(Debug)]
 pub struct BufDeque {
@@ -95,12 +99,15 @@ impl BufDeque {
     ///
     /// Deserializes `count` items of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there are less than `count` items available, or if `count` is zero.
-    fn read_multi<T: Serializable>(&mut self, count: usize) -> Option<Vec<T>> {
+    fn read_multi<T: Serializable>(
+        &mut self,
+        count: usize,
+    ) -> Option<Result<Vec<T>, T::DeserError>> {
         self.read_bytes(count * T::Size::USIZE).map(|bytes| {
             bytes
                 .chunks(T::Size::USIZE)
                 .map(|bytes| T::deserialize(GenericArray::from_slice(bytes)))
-                .collect()
+                .collect::<Result<_, _>>()
         })
     }
 
@@ -108,9 +115,9 @@ impl BufDeque {
     ///
     /// Deserializes a single instance of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there is insufficient data available.
-    fn read<T: Serializable>(&mut self) -> Option<T> {
+    fn read<T: Serializable<DeserError = Infallible>>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
-            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)))
+            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)).unwrap_infallible())
     }
 
     /// Update the buffer with the result of polling a stream.
@@ -189,14 +196,16 @@ where
     S: BytesStream,
     T: Serializable,
 {
-    type Item = Result<Vec<T>, io::Error>;
+    type Item = Result<Vec<T>, crate::error::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         loop {
             let count = max(1, this.buffer.contiguous_len() / T::Size::USIZE);
             if let Some(items) = this.buffer.read_multi(count) {
-                return Poll::Ready(Some(Ok(items)));
+                return Poll::Ready(Some(
+                    items.map_err(|e: T::DeserError| crate::error::Error::ParseError(e.into())),
+                ));
             }
 
             // We need more data, poll the stream
@@ -206,7 +215,7 @@ where
 
             match this.buffer.extend(polled_item) {
                 ExtendResult::Finished => return Poll::Ready(None),
-                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err))),
+                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err.into()))),
                 ExtendResult::Ok => (),
             }
         }

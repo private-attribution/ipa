@@ -65,13 +65,13 @@ where
     Self: Serializable,
 {
     // Deserialize a slice of bytes into an iterator of replicated shares
-    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+    pub fn from_byte_slice(
+        from: &[u8],
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserError>> + '_ {
         debug_assert!(from.len() % <AdditiveShare<V> as Serializable>::Size::USIZE == 0);
 
         from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
-            .map(|chunk| {
-                <AdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(chunk))
-            })
+            .map(|chunk| Serializable::deserialize(GenericArray::from_slice(chunk)))
     }
 }
 
