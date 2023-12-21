@@ -438,7 +438,7 @@ where
 /// An `EncryptedOprfReport` consists of:
 ///     `ct_mk`: Enc(`match_key`)
 ///     `ct_btt`: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
-///     associated data of ct_mk: `key_id`, `epoch`, `event_type`, `site_domain`,
+///     associated data of `ct_mk`: `key_id`, `epoch`, `event_type`, `site_domain`,
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedOprfReport<BK, TV, TS, B>
@@ -611,11 +611,13 @@ where
 
         // AES block is 16 byte, we need to adjust GenericArray size to be a multiple of 16
         // ciphertext also includes 16 byte tag, therefore we we use U31 instead of U15
+        #[allow(clippy::type_complexity)]
         let mut ct_mk: GenericArray<
             u8,
             Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
         > = *GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
+        #[allow(clippy::type_complexity)]
         let mut ct_btt: GenericArray<
             u8,
             Shleft<
