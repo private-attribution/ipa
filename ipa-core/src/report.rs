@@ -13,6 +13,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Unsigned, U1, U18, U8};
 
 use crate::{
+    error::{BoxError, Error, UnwrapInfallible},
     ff::{
         boolean::Boolean, boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField,
         Serializable,
@@ -157,6 +158,8 @@ pub enum InvalidReportError {
     Timestamp(Timestamp),
     #[error("en/decryption failure: {0}")]
     Crypt(#[from] CryptError),
+    #[error("failed to deserialize field {0}: {1}")]
+    DeserializationError(&'static str, #[source] BoxError),
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
@@ -209,13 +212,14 @@ where
     }
 
     pub fn breakdown_key(&self) -> Gf8Bit {
-        Gf8Bit::deserialize(GenericArray::from_slice(&[self.data[4]]))
+        Gf8Bit::deserialize(GenericArray::from_slice(&[self.data[4]])).unwrap_infallible()
     }
 
-    pub fn trigger_value(&self) -> Replicated<F> {
+    pub fn trigger_value(&self) -> Result<Replicated<F>, InvalidReportError> {
         Replicated::<F>::deserialize(GenericArray::from_slice(
             &self.data[5..Self::ENCAP_KEY_OFFSET],
         ))
+        .map_err(|e| InvalidReportError::DeserializationError("trigger_value", e.into()))
     }
 
     pub fn encap_key(&self) -> &[u8] {
@@ -293,10 +297,11 @@ where
             timestamp: self.timestamp(),
             mk_shares: <Gf40Bit as FieldShareCrypt>::SemiHonestShares::deserialize(
                 GenericArray::from_slice(plaintext),
-            ),
+            )
+            .unwrap_infallible(),
             event_type: self.event_type(),
             breakdown_key: self.breakdown_key(),
-            trigger_value: self.trigger_value(),
+            trigger_value: self.trigger_value()?,
             epoch: self.epoch(),
             site_domain: self.site_domain().to_owned(),
         })
@@ -470,6 +475,7 @@ where
             <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
         >>::Output,
     >>::Output;
+    type DeserError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let sizeof_matchkey = size_of::<u64>() * 2;
@@ -499,7 +505,7 @@ where
         ));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserError> {
         let sizeof_matchkey = size_of::<u64>() * 2;
         let sizeof_eventtype = size_of::<Boolean>() * 2;
 
@@ -508,27 +514,33 @@ where
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
 
         let match_key =
-            Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..sizeof_matchkey]));
+            Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..sizeof_matchkey]))
+                .map_err(|e| Error::ParseError(e.into()))?;
         let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(
             &buf[sizeof_matchkey..sizeof_matchkey + ts_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[sizeof_matchkey + ts_sz..sizeof_matchkey + ts_sz + bk_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
             &buf[sizeof_matchkey + ts_sz + bk_sz..sizeof_matchkey + ts_sz + bk_sz + tv_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let is_trigger = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
             &buf[sizeof_matchkey + ts_sz + bk_sz + tv_sz
                 ..sizeof_matchkey + ts_sz + bk_sz + tv_sz + sizeof_eventtype],
-        ));
-        Self {
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+
+        Ok(Self {
             match_key,
             is_trigger,
             breakdown_key,
             trigger_value,
             timestamp,
-        }
+        })
     }
 }
 

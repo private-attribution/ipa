@@ -44,7 +44,7 @@ pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength;
     /// The error type that can be returned if an error occurs during deserialization.
-    type DeserError: std::error::Error;
+    type DeserError: std::error::Error + Send + Sync + 'static;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
