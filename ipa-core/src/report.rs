@@ -13,7 +13,7 @@ use rand_core::{CryptoRng, RngCore};
 use typenum::{Unsigned, U1, U18, U8};
 
 use crate::{
-    error::{BoxError, Error},
+    error::{BoxError, Error, UnwrapInfallible},
     ff::{
         boolean::Boolean, boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField,
         Serializable,
@@ -518,7 +518,7 @@ where
 
         let match_key =
             Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..sizeof_matchkey]))
-                .map_err(|e| Error::ParseError(e.into()))?;
+                .unwrap_infallible();
         let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(
             &buf[sizeof_matchkey..sizeof_matchkey + ts_sz],
         ))

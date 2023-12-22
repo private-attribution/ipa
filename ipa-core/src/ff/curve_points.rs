@@ -253,6 +253,6 @@ mod test {
         // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
         let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };
         let err = RP25519::deserialize(GenericArray::from_slice(&buf)).unwrap_err();
-        assert!(matches!(err, NonCanonicalEncoding(_)))
+        assert!(matches!(err, NonCanonicalEncoding(_)));
     }
 }
