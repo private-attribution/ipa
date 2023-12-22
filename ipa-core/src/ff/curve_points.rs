@@ -49,7 +49,10 @@ impl Serializable for RP25519 {
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let point = CompressedRistretto((*buf).into());
-        debug_assert!(point.decompress().is_some());
+        if cfg!(debug_assertions) && point.decompress().is_none() {
+            return Err(NonCanonicalEncoding(point));
+        }
+
         Ok(RP25519(point))
     }
 }
@@ -186,6 +189,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
+    use super::*;
     use crate::{
         ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
@@ -241,5 +245,14 @@ mod test {
         let fp_a = rng.gen::<RP25519>();
         assert_ne!(0u64, u64::from(fp_a));
         assert_ne!(0u32, u32::from(fp_a));
+    }
+
+    #[test]
+    fn non_canonical() {
+        const ZERO: u128 = 0;
+        // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
+        let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };
+        let err = RP25519::deserialize(GenericArray::from_slice(&buf)).unwrap_err();
+        assert!(matches!(err, NonCanonicalEncoding(_)))
     }
 }
