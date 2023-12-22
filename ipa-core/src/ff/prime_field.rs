@@ -201,6 +201,7 @@ macro_rules! field_impl {
             /// at runtime.
             ///
             /// This method is available for tests only as a shortcut to `unwrap()`.
+            #[allow(unused)]
             pub(crate) fn deserialize_unchecked(
                 buf: &GenericArray<u8, <Self as Serializable>::Size>,
             ) -> Self {
@@ -257,6 +258,15 @@ macro_rules! field_impl {
                     field_v.serialize(&mut buf);
 
                     assert_eq!(field_v, $field::deserialize_unchecked(&buf));
+                }
+
+                #[test]
+                #[allow(clippy::ignored_unit_patterns)]
+                fn deserialize_fail_if_greater_than_prime(v in $field::PRIME..) {
+                    let mut buf = GenericArray::default();
+                    buf.copy_from_slice(&v.to_le_bytes());
+                    let err = $field::deserialize(&buf).unwrap_err();
+                    assert!(matches!(err, GreaterThanPrimeError(..)))
                 }
             }
         }
