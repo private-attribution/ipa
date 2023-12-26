@@ -93,6 +93,7 @@ macro_rules! boolean_array_impl_small {
     ($modname:ident, $name:ident, $bits:tt) => {
         boolean_array_impl!($modname, $name, $bits);
 
+        // TODO(812): remove this impl; BAs are not field elements.
         impl Field for $name {
             const ONE: Self = Self(bitarr_one!($bits));
 
