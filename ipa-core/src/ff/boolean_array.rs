@@ -3,12 +3,12 @@ use bitvec::{
     slice::Iter,
 };
 use generic_array::GenericArray;
-use typenum::{U14, U32, U8};
+use typenum::{U14, U2, U32, U8};
 
 use crate::{
-    ff::{boolean::Boolean, Serializable},
-    protocol::prss::FromRandomU128,
-    secret_sharing::Block,
+    ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
+    protocol::prss::{FromRandom, FromRandomU128},
+    secret_sharing::{Block, SharedValue},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -88,6 +88,74 @@ macro_rules! bitarr_one {
     (@r [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!(@r [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
 }
 
+// Macro for boolean arrays <= 128 bits.
+macro_rules! boolean_array_impl_small {
+    ($modname:ident, $name:ident, $bits:tt) => {
+        boolean_array_impl!($modname, $name, $bits);
+
+        // TODO(812): remove this impl; BAs are not field elements.
+        impl Field for $name {
+            const ONE: Self = Self(bitarr_one!($bits));
+
+            fn as_u128(&self) -> u128 {
+                (*self).into()
+            }
+
+            fn truncate_from<T: Into<u128>>(v: T) -> Self {
+                let v = v.into();
+                let mut val = <Self as SharedValue>::ZERO;
+                for i in 0..std::cmp::min(128, $bits) {
+                    val.set(i, Boolean::from((v >> i & 1) == 1));
+                }
+
+                val
+            }
+        }
+
+        impl TryFrom<u128> for $name {
+            type Error = crate::error::Error;
+
+            /// Fallible conversion from `u128` to this data type. The input value must
+            /// be at most `Self::BITS` long. That is, the integer value must be less than
+            /// or equal to `2^Self::BITS`, or it will return an error.
+            fn try_from(v: u128) -> Result<Self, Self::Error> {
+                if u128::BITS - v.leading_zeros() <= Self::BITS {
+                    Ok(Self::truncate_from(v))
+                } else {
+                    Err(crate::error::Error::FieldValueTruncation(format!(
+                        "Bit array size {} is too small to hold the value {}.",
+                        Self::BITS,
+                        v
+                    )))
+                }
+            }
+        }
+
+        impl From<$name> for u128 {
+            /// Infallible conversion from this data type to `u128`.
+            fn from(v: $name) -> u128 {
+                debug_assert!(<$name>::BITS <= 128);
+                v.0.iter()
+                    .by_refs()
+                    .enumerate()
+                    .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
+            }
+        }
+
+        impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
+            fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                <$name>::from_random_u128(rng.gen::<u128>())
+            }
+        }
+
+        impl FromRandomU128 for $name {
+            fn from_random_u128(src: u128) -> Self {
+                Field::truncate_from(src)
+            }
+        }
+    };
+}
+
 //macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
     ($modname:ident, $name:ident, $bits:tt) => {
@@ -96,7 +164,7 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Expand, Field, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
                 secret_sharing::{
                     replicated::semi_honest::{ASIterator, AdditiveShare},
                     SharedValue,
@@ -205,38 +273,6 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl Field for $name {
-                const ONE: Self = Self(bitarr_one!($bits));
-
-                fn as_u128(&self) -> u128 {
-                    (*self).into()
-                }
-
-                fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    let v = v.into();
-                    let mut val = Self::ZERO;
-                    for i in 0..std::cmp::min(128, $bits) {
-                        val.set(i, Boolean::from((v >> i & 1) == 1));
-                    }
-
-                    val
-                }
-            }
-
-            // TODO(812): this should only be implemented like this when bits <= 128
-            impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
-                fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
-                    <$name>::truncate_from(rng.gen::<u128>())
-                }
-            }
-
-            // TODO(812): this should only be implemented when bits <= 128
-            impl FromRandomU128 for $name {
-                fn from_random_u128(src: u128) -> Self {
-                    Field::truncate_from(src)
-                }
-            }
-
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
@@ -250,42 +286,9 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl TryFrom<u128> for $name {
-                type Error = crate::error::Error;
-
-                /// Fallible conversion from `u128` to this data type. The input value must
-                /// be at most `Self::BITS` long. That is, the integer value must be less than
-                /// or equal to `2^Self::BITS`, or it will return an error.
-                fn try_from(v: u128) -> Result<Self, Self::Error> {
-                    if u128::BITS - v.leading_zeros() <= Self::BITS {
-                        Ok(Self::truncate_from(v))
-                    } else {
-                        Err(crate::error::Error::FieldValueTruncation(format!(
-                            "Bit array size {} is too small to hold the value {}.",
-                            Self::BITS,
-                            v
-                        )))
-                    }
-                }
-            }
-
             impl From<$name> for Store {
                 fn from(v: $name) -> Self {
                     v.0
-                }
-            }
-
-            impl From<$name> for u128 {
-                /// Infallible conversion from this data type to `u128`. We assume that the
-                /// inner value is at most 128-bit long. That is, the integer value must be
-                /// less than or equal to `2^Self::BITS`. Should be long enough for our use
-                /// case.
-                fn from(v: $name) -> u128 {
-                    debug_assert!(<$name>::BITS <= 128);
-                    v.0.iter()
-                        .by_refs()
-                        .enumerate()
-                        .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
                 }
             }
 
@@ -333,6 +336,9 @@ macro_rules! boolean_array_impl {
 
                 use super::*;
 
+                // Only small BAs expose this via `Field`.
+                const ONE: $name = $name(bitarr_one!($bits));
+
                 #[test]
                 fn set_boolean_array() {
                     let mut rng = thread_rng();
@@ -345,7 +351,7 @@ macro_rules! boolean_array_impl {
 
                 #[test]
                 fn iterate_boolean_array() {
-                    let bits = $name::ONE;
+                    let bits = ONE;
                     let iter = bits.into_iter();
                     for (i, j) in iter.enumerate() {
                         if i == 0 {
@@ -355,18 +361,18 @@ macro_rules! boolean_array_impl {
                         }
                     }
                 }
-            }
 
-            #[test]
-            fn iterate_secret_shared_boolean_array() {
-                use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-                let bits = AdditiveShare::new($name::ONE, $name::ONE);
-                let iter = bits.into_iter();
-                for (i, j) in iter.enumerate() {
-                    if i == 0 {
-                        assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
-                    } else {
-                        assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+                #[test]
+                fn iterate_secret_shared_boolean_array() {
+                    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                    let bits = AdditiveShare::new(ONE, ONE);
+                    let iter = bits.into_iter();
+                    for (i, j) in iter.enumerate() {
+                        if i == 0 {
+                            assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
+                        } else {
+                            assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+                        }
                     }
                 }
             }
@@ -386,16 +392,16 @@ store_impl!(U14, 112);
 store_impl!(U32, 256);
 
 //impl BA3
-boolean_array_impl!(boolean_array_3, BA3, 3);
-boolean_array_impl!(boolean_array_4, BA4, 4);
-boolean_array_impl!(boolean_array_5, BA5, 5);
-boolean_array_impl!(boolean_array_6, BA6, 6);
-boolean_array_impl!(boolean_array_7, BA7, 7);
-boolean_array_impl!(boolean_array_8, BA8, 8);
-boolean_array_impl!(boolean_array_20, BA20, 20);
-boolean_array_impl!(boolean_array_32, BA32, 32);
-boolean_array_impl!(boolean_array_64, BA64, 64);
-boolean_array_impl!(boolean_array_112, BA112, 112);
+boolean_array_impl_small!(boolean_array_3, BA3, 3);
+boolean_array_impl_small!(boolean_array_4, BA4, 4);
+boolean_array_impl_small!(boolean_array_5, BA5, 5);
+boolean_array_impl_small!(boolean_array_6, BA6, 6);
+boolean_array_impl_small!(boolean_array_7, BA7, 7);
+boolean_array_impl_small!(boolean_array_8, BA8, 8);
+boolean_array_impl_small!(boolean_array_20, BA20, 20);
+boolean_array_impl_small!(boolean_array_32, BA32, 32);
+boolean_array_impl_small!(boolean_array_64, BA64, 64);
+boolean_array_impl_small!(boolean_array_112, BA112, 112);
 boolean_array_impl!(boolean_array_256, BA256, 256);
 
 // used to convert into Fp25519
@@ -411,20 +417,15 @@ impl From<(u128, u128)> for BA256 {
     }
 }
 
-// TODO(812): don't generate the default impls; enable these instead.
-/*
-impl FromPrss for (BA256, BA256) {
-    fn from_prss<P: SharedRandomness + ?Sized, I: Into<u128>>(prss: &P, index: I) -> (BA256, BA256) {
-        let index = index.into();
-        let (l0, r0) = prss.generate_values(2 * index);
-        let (l1, r1) = prss.generate_values(2 * index + 1);
-        (BA256::from((l0, l1)), BA256::from((r0, r1)))
+impl FromRandom for BA256 {
+    type SourceLength = U2;
+    fn from_random(src: GenericArray<u128, U2>) -> Self {
+        (src[0], src[1]).into()
     }
 }
 
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
-        BA256::from((rng.gen(), rng.gen()))
+        (rng.gen(), rng.gen()).into()
     }
 }
-*/
