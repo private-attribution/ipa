@@ -1,14 +1,14 @@
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomData,
-    ops::{Add, Deref, Shl, Shr},
+    ops::{Add, Deref},
 };
 
 use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Shleft, Shright, Sum, Unsigned, U1, U16, U18, U31, U4, U8};
+use typenum::{Unsigned, U1, U16, U18, U8};
 
 use crate::{
     ff::{
@@ -462,53 +462,6 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
-        <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
-        Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
 {
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
@@ -609,31 +562,9 @@ where
         )
         .unwrap(); // validated on construction
 
-        // AES block is 16 byte, we need to adjust GenericArray size to be a multiple of 16
-        // ciphertext also includes 16 byte tag, therefore we we use U31 instead of U15
-        #[allow(clippy::type_complexity)]
-        let mut ct_mk: GenericArray<
-            u8,
-            Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
-        > = *GenericArray::from_slice(self.mk_ciphertext());
+        let mut ct_mk = self.mk_ciphertext().to_vec();
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
-        #[allow(clippy::type_complexity)]
-        let mut ct_btt: GenericArray<
-            u8,
-            Shleft<
-                Shright<
-                    Sum<
-                        Sum<
-                            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                            <Replicated<TV> as Serializable>::Size,
-                        >,
-                        <Replicated<TS> as Serializable>::Size,
-                    >,
-                    U4,
-                >,
-                U4,
-            >,
-        > = GenericArray::from_slice(self.btt_ciphertext()).clone();
+        let mut ct_btt = self.btt_ciphertext().to_vec();
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
@@ -675,53 +606,6 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
-        <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
-        Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
 {
     type Error = InvalidReportError;
 
@@ -867,57 +751,12 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
-        Add<<Replicated<TS> as Serializable>::Size>,
-    Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
-        <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
-        Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
-            <Replicated<TS> as Serializable>::Size,
-        >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
-    >: ArrayLength,
 {
     const TS_OFFSET: usize = 0;
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
     const TV_OFFSET: usize = Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
+    const BTT_END: usize =
+        (Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE + 15) & (!15);
 
     /// # Panics
     /// If report length does not fit in `u16`.
@@ -975,10 +814,11 @@ where
             return Err(PlaintextLengthError());
         }
 
-        let mut plaintext_mk = GenericArray::default();
-        self.match_key.serialize(&mut plaintext_mk);
+        let mut plaintext_mk = [0u8; <Replicated<BA64> as Serializable>::Size::USIZE];
+        self.match_key
+            .serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
 
-        let mut plaintext_btt = GenericArray::<u8, U16>::from([0_u8; 16]);
+        let mut plaintext_btt = vec![0u8; Self::BTT_END];
         self.timestamp.serialize(
             GenericArray::<u8, <Replicated<TS> as Serializable>::Size>::from_mut_slice(
                 &mut plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
