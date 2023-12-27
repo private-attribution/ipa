@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use futures::TryStreamExt;
+use futures::{stream::iter, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
@@ -11,28 +11,32 @@ use crate::{
     },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
-        BodyStream, RecordsStream,
+        BodyStream, LengthDelimitedStream, RecordsStream,
     },
+    hpke::{KeyPair, KeyRegistry},
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::oprf_ipa,
     },
-    report::OprfReport,
+    report::{EncryptedOprfReport, OprfReport},
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
+    sync::Arc,
 };
 
 pub struct OprfIpaQuery<C, F> {
     config: IpaQueryConfig,
+    key_registry: Arc<KeyRegistry<KeyPair>>,
     phantom_data: PhantomData<(C, F)>,
 }
 
 impl<C, F> OprfIpaQuery<C, F> {
-    pub fn new(config: IpaQueryConfig) -> Self {
+    pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
         Self {
             config,
+            key_registry,
             phantom_data: PhantomData,
         }
     }
@@ -57,6 +61,7 @@ where
     ) -> Result<Vec<Replicated<F>>, Error> {
         let Self {
             config,
+            key_registry,
             phantom_data: _,
         } = self;
         tracing::info!("New query: {config:?}");
@@ -69,7 +74,19 @@ where
             v.truncate(sz);
             v
         } else {
-            panic!("no encrypted OPRF report");
+            LengthDelimitedStream::<EncryptedOprfReport<BA8, BA3, BA20, _>, _>::new(input_stream)
+                .map_err(Into::<Error>::into)
+                .map_ok(|enc_reports| {
+                    iter(enc_reports.into_iter().map(|enc_report| {
+                        enc_report
+                            .decrypt(key_registry.as_ref())
+                            .map_err(Into::<Error>::into)
+                    }))
+                })
+                .try_flatten()
+                .take(sz)
+                .try_collect::<Vec<_>>()
+                .await?
         };
 
         let aws = config.attribution_window_seconds;
