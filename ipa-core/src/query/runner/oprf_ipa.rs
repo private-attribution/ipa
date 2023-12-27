@@ -107,20 +107,16 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::zip;
-
-    use generic_array::GenericArray;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
-    use typenum::Unsigned;
 
     use super::*;
     use crate::{
         ff::Fp31,
-        ipa_test_input,
-        report::{Report, DEFAULT_KEY_ID},
+        report::{DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
         test_fixture::{
-            input::GenericReportTestInput, ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld,
+            ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld,
         },
     };
 
