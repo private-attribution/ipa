@@ -90,7 +90,7 @@ pub(crate) fn construct_tree(steps: Vec<StepMetaData>) -> Node<StepMetaData> {
     // so that steps are grouped by their parents. Another way of doing this is to introduce
     // another loop to find the parent node from `steps`, but that would be O(n^2).
     for step in steps {
-        let delta = i32::try_from(last_node.depth).unwrap() - i32::try_from(step.depth).unwrap();
+        let delta = i32::from(last_node.depth) - i32::from(step.depth);
         let parent = {
             // The implication of the following statement is that, if `delta` is:
             //   = -1, the new state has transitioned one level down. `last_node` is my parent.
