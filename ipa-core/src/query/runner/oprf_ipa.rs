@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(
             results.reconstruct()[0..3]
                 .iter()
-                .map(|x| x.as_u128())
+                .map(Field::as_u128)
                 .collect::<Vec<u128>>(),
             EXPECTED
         );
