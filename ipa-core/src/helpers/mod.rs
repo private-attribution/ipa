@@ -174,13 +174,8 @@ impl HelperIdentity {
 
 impl HelperIdentity {
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
     pub fn make_three() -> [Self; 3] {
-        [
-            Self::try_from(1).unwrap(),
-            Self::try_from(2).unwrap(),
-            Self::try_from(3).unwrap(),
-        ]
+        [Self::ONE, Self::TWO, Self::THREE]
     }
 }
 
@@ -567,74 +562,38 @@ mod tests {
         #[test]
         fn basic() {
             let identities = (1..=3)
-                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
             let assignment = RoleAssignment::new(identities);
 
-            assert_eq!(
-                Role::H1,
-                assignment.role(HelperIdentity::try_from(1).unwrap())
-            );
-            assert_eq!(
-                Role::H2,
-                assignment.role(HelperIdentity::try_from(2).unwrap())
-            );
-            assert_eq!(
-                Role::H3,
-                assignment.role(HelperIdentity::try_from(3).unwrap())
-            );
+            assert_eq!(Role::H1, assignment.role(HelperIdentity::from(1)));
+            assert_eq!(Role::H2, assignment.role(HelperIdentity::from(2)));
+            assert_eq!(Role::H3, assignment.role(HelperIdentity::from(3)));
 
-            assert_eq!(
-                HelperIdentity::try_from(1).unwrap(),
-                assignment.identity(Role::H1)
-            );
-            assert_eq!(
-                HelperIdentity::try_from(2).unwrap(),
-                assignment.identity(Role::H2)
-            );
-            assert_eq!(
-                HelperIdentity::try_from(3).unwrap(),
-                assignment.identity(Role::H3)
-            );
+            assert_eq!(HelperIdentity::from(1), assignment.identity(Role::H1));
+            assert_eq!(HelperIdentity::from(2), assignment.identity(Role::H2));
+            assert_eq!(HelperIdentity::from(3), assignment.identity(Role::H3));
         }
 
         #[test]
         fn reverse() {
             let identities = (1..=3)
                 .rev()
-                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
             let assignment = RoleAssignment::new(identities);
 
-            assert_eq!(
-                Role::H3,
-                assignment.role(HelperIdentity::try_from(1).unwrap())
-            );
-            assert_eq!(
-                Role::H2,
-                assignment.role(HelperIdentity::try_from(2).unwrap())
-            );
-            assert_eq!(
-                Role::H1,
-                assignment.role(HelperIdentity::try_from(3).unwrap())
-            );
+            assert_eq!(Role::H3, assignment.role(HelperIdentity::from(1)));
+            assert_eq!(Role::H2, assignment.role(HelperIdentity::from(2)));
+            assert_eq!(Role::H1, assignment.role(HelperIdentity::from(3)));
 
-            assert_eq!(
-                HelperIdentity::try_from(3).unwrap(),
-                assignment.identity(Role::H1)
-            );
-            assert_eq!(
-                HelperIdentity::try_from(2).unwrap(),
-                assignment.identity(Role::H2)
-            );
-            assert_eq!(
-                HelperIdentity::try_from(1).unwrap(),
-                assignment.identity(Role::H3)
-            );
+            assert_eq!(HelperIdentity::from(3), assignment.identity(Role::H1));
+            assert_eq!(HelperIdentity::from(2), assignment.identity(Role::H2));
+            assert_eq!(HelperIdentity::from(1), assignment.identity(Role::H3));
         }
 
         #[test]

@@ -304,15 +304,9 @@ macro_rules! boolean_array_impl {
                 }
             }
 
-            impl<'a> IntoIterator for &'a $name {
-                type Item = Boolean;
-                type IntoIter = BAIterator<'a>;
-
-                fn into_iter(self) -> Self::IntoIter {
-                    self.iter()
-                }
-            }
-
+            /// `clippy` does not recognize `iter` method coming from another trait. It is a false alarm
+            /// therefore suppressed here.
+            #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
                 type IntoIter = ASIterator<BAIterator<'a>>;
@@ -352,7 +346,7 @@ macro_rules! boolean_array_impl {
                 #[test]
                 fn iterate_boolean_array() {
                     let bits = ONE;
-                    let iter = bits.into_iter();
+                    let iter = bits.iter();
                     for (i, j) in iter.enumerate() {
                         if i == 0 {
                             assert_eq!(j, Boolean::ONE);

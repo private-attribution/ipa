@@ -24,7 +24,7 @@ where
     M: Message,
 {
     i: usize,
-    receiver: Arc<Mutex<OperatingState<S, C>>>,
+    shared_state: Arc<Mutex<OperatingState<S, C>>>,
     _marker: PhantomData<M>,
 }
 
@@ -38,7 +38,7 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_ref();
-        let mut recv = this.receiver.lock().unwrap();
+        let mut recv = this.shared_state.lock().unwrap();
         if recv.is_next(this.i) {
             recv.poll_next(cx)
         } else {
@@ -339,7 +339,7 @@ where
     pub fn recv<M: Message, I: Into<usize>>(&self, i: I) -> Receiver<S, C, M> {
         Receiver {
             i: i.into(),
-            receiver: Arc::clone(&self.inner),
+            shared_state: Arc::clone(&self.inner),
             _marker: PhantomData,
         }
     }
