@@ -113,7 +113,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         report::DEFAULT_KEY_ID,
         secret_sharing::IntoShares,
         test_fixture::{ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld},
@@ -202,6 +202,12 @@ mod tests {
         }))
         .await;
 
-        assert_eq!(results.reconstruct(), EXPECTED);
+        assert_eq!(
+            results.reconstruct()[0..3]
+                .iter()
+                .map(|x| x.as_u128())
+                .collect::<Vec<u128>>(),
+            EXPECTED
+        );
     }
 }
