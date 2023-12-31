@@ -8,6 +8,7 @@ use futures::{
     stream::{iter as stream_iter, unfold},
     Stream, StreamExt, TryStreamExt,
 };
+use futures_util::{Future, future::ready};
 use ipa_macros::Step;
 
 use super::boolean_ops::expand_shared_array_in_place;
@@ -35,7 +36,7 @@ use crate::{
             malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, SharedValue, SecretSharing,
     },
     seq_join::{seq_join, SeqJoin},
 };
@@ -99,15 +100,17 @@ struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedVal
     is_saturated: Replicated<Boolean>,
     difference_to_cap: Replicated<TV>,
     source_event_timestamp: Replicated<TS>,
+    attributed_trigger_value: Replicated<TV>,
+    overflow_bit_and_prev_row_not_saturated: Replicated<Boolean>,
 }
 
-impl<
-        BK: SharedValue + CustomArray<Element = Boolean> + Field,
-        TV: SharedValue + CustomArray<Element = Boolean> + Field,
-        TS: SharedValue + CustomArray<Element = Boolean> + Field,
-        SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    > InputsRequiredFromPrevRow<BK, TV, TS, SS>
-{
+// impl<
+//         BK: SharedValue + CustomArray<Element = Boolean> + Field,
+//         TV: SharedValue + CustomArray<Element = Boolean> + Field,
+//         TS: SharedValue + CustomArray<Element = Boolean> + Field,
+//         SS: SharedValue + CustomArray<Element = Boolean> + Field,
+//     > InputsRequiredFromPrevRow<BK, TV, TS, SS>
+// {
     ///
     /// This function contains the main logic for the per-user attribution circuit.
     /// Multiple rows of data about a single user are processed in-order from oldest to newest.
@@ -132,16 +135,28 @@ impl<
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    pub async fn compute_row_with_previous<C>(
-        &mut self,
+    pub async fn compute_row_with_previous<C, F, BK, TV, TS, SS>(
+        previous_row: Option<F>,
+        first_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         ctx: C,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
+    ) -> Result<InputsRequiredFromPrevRow<BK, TV, TS, SS>, Error>
     where
         C: Context,
+        BK: SharedValue + CustomArray<Element = Boolean> + Field,
+        TV: SharedValue + CustomArray<Element = Boolean> + Field,
+        TS: SharedValue + CustomArray<Element = Boolean> + Field,
+        SS: SharedValue + CustomArray<Element = Boolean> + Field,
+        F: Future<Output = Result<InputsRequiredFromPrevRow<BK, TV, TS, SS>, Error>>,
     {
+        let mut foo = if let Some(fut) = previous_row {
+            fut.await?
+        } else {
+            initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row)
+        };
+
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
@@ -153,13 +168,13 @@ impl<
                 ctx.narrow(&Step::EverEncounteredSourceEvent),
                 record_id,
                 &is_source_event,
-                &self.ever_encountered_a_source_event,
+                &foo.ever_encountered_a_source_event,
             ),
             breakdown_key_of_most_recent_source_event(
                 ctx.narrow(&Step::AttributedBreakdownKey),
                 record_id,
                 &input_row.is_trigger_bit,
-                &self.attributed_breakdown_key_bits,
+                &foo.attributed_breakdown_key_bits,
                 &input_row.breakdown_key,
             ),
             timestamp_of_most_recent_source_event(
@@ -167,7 +182,7 @@ impl<
                 record_id,
                 attribution_window_seconds,
                 &input_row.is_trigger_bit,
-                &self.source_event_timestamp,
+                &foo.source_event_timestamp,
                 &input_row.timestamp,
             ),
         )
@@ -188,14 +203,14 @@ impl<
         let (updated_sum, overflow_bit) = integer_add(
             ctx.narrow(&Step::ComputeSaturatingSum),
             record_id,
-            &self.saturating_sum,
+            &foo.saturating_sum,
             &attributed_trigger_value,
         )
         .await?;
 
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
             overflow_bit.multiply(
-                &self.is_saturated.clone().not(),
+                &foo.is_saturated.clone().not(),
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
@@ -211,34 +226,61 @@ impl<
         // Tricky way of expressing an `OR` condition, but with no additional multiplications:
         //   Logically: "Did this row just become saturated OR was the previous row already saturated"
         //   This works because these conditions cannot both be true
-        let is_saturated = &self.is_saturated + &overflow_bit_and_prev_row_not_saturated;
+        let is_saturated = &foo.is_saturated + &overflow_bit_and_prev_row_not_saturated;
 
-        let capped_attributed_trigger_value = compute_capped_trigger_value(
-            ctx,
-            record_id,
-            &is_saturated,
-            &overflow_bit_and_prev_row_not_saturated,
-            &self.difference_to_cap,
-            &attributed_trigger_value,
-        )
-        .await?;
+        foo.ever_encountered_a_source_event = ever_encountered_a_source_event;
+        foo.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
+        foo.saturating_sum = updated_sum;
+        foo.is_saturated = is_saturated;
+        foo.difference_to_cap = difference_to_cap;
+        foo.source_event_timestamp = source_event_timestamp;
+        foo.attributed_trigger_value = attributed_trigger_value;
+        foo.overflow_bit_and_prev_row_not_saturated = overflow_bit_and_prev_row_not_saturated;
 
-        self.ever_encountered_a_source_event = ever_encountered_a_source_event;
-        self.attributed_breakdown_key_bits = attributed_breakdown_key_bits.clone();
-        self.saturating_sum = updated_sum;
-        self.is_saturated = is_saturated;
-        self.difference_to_cap = difference_to_cap;
-        self.source_event_timestamp = source_event_timestamp;
-
-        let outputs_for_aggregation = CappedAttributionOutputs {
-            attributed_breakdown_key_bits,
-            capped_attributed_trigger_value,
-        };
-        Ok(outputs_for_aggregation)
+        Ok(foo)
     }
+//}
+
+pub async fn compute_output<C, F, BK, TV, TS, SS>(
+    ctx: C,
+    record_id: RecordId,
+    cur_row_future: F,
+    previous_row_future: Option<F>,
+    first_row: &PrfShardedIpaInputRow<BK, TV, TS>,
+) -> Result<CappedAttributionOutputs<BK, TV>, Error>
+where
+    C: Context,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    SS: SharedValue + CustomArray<Element = Boolean> + Field,
+    F: Future<Output = Result<InputsRequiredFromPrevRow<BK, TV, TS, SS>, Error>>,
+{
+    let cur_row = cur_row_future.await?;
+
+    let previous_row = if let Some(fut) = previous_row_future {
+        fut.await?
+    } else {
+        initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row)
+    };
+
+    let capped_attributed_trigger_value = compute_capped_trigger_value(
+        ctx,
+        record_id,
+        &cur_row.is_saturated,
+        &cur_row.overflow_bit_and_prev_row_not_saturated,
+        &previous_row.difference_to_cap,
+        &cur_row.attributed_trigger_value,
+    )
+    .await?;
+
+    Ok(CappedAttributionOutputs {
+        attributed_breakdown_key_bits: cur_row.attributed_breakdown_key_bits,
+        capped_attributed_trigger_value,
+    })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CappedAttributionOutputs<BK: SharedValue, TV: SharedValue> {
     pub attributed_breakdown_key_bits: Replicated<BK>,
     pub capped_attributed_trigger_value: Replicated<TV>,
@@ -492,24 +534,45 @@ where
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-    let per_user_results = collected
-        .into_iter()
-        .enumerate()
-        .map(|(record_id, rows_for_user)| {
-            let num_user_rows = rows_for_user.len();
-            let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+    let vec_of_futures = Vec::with_capacity(num_outputs);
+    for (record_id, rows_for_user) in collected.iter().enumerate() {
+        let num_user_rows = rows_for_user.len();
+        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
-                contexts,
+        if rows_for_user.len() == 1 {
+            continue;
+        }
+        let first_row = &rows_for_user[0];
+        let mut prev_row_inputs = None;
+    
+        for (i, row) in rows_for_user.iter().skip(1).enumerate() {
+            let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
+    
+            let cur_row_future = compute_row_with_previous(
+                prev_row_inputs,
+                first_row,
+                ctx_for_this_row_depth,
                 RecordId::from(record_id),
-                rows_for_user,
+                row,
                 attribution_window_seconds,
-            )
-        });
+            );
+
+            let output_future = compute_output(
+                ctx_for_this_row_depth,
+                RecordId::from(record_id),
+                cur_row_future,
+                prev_row_inputs,
+                first_row,
+            );
+
+            prev_row_inputs = Some(cur_row_future);
+    
+            vec_of_futures.push(output_future);
+        }
+    }
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattened_stream = seq_join(sh_ctx.active_work(), stream_iter(per_user_results))
-        .flat_map(|x| stream_iter(x.unwrap()));
+    let flattened_stream = seq_join(sh_ctx.active_work(), stream_iter(vec_of_futures));
 
     // modulus convert breakdown keys and trigger values
     let converted_bks_and_tvs = convert_bits(
@@ -560,12 +623,13 @@ where
         .await
 }
 
+/*
 async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
     ctx_for_row_number: Vec<C>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
+) -> Result<std::vec::IntoIter<CappedAttributionOutputs<BK, TV>>, Error>
 where
     C: Context,
     BK: SharedValue + CustomArray<Element = Boolean> + Field,
@@ -575,7 +639,7 @@ where
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
-        return Ok(Vec::new());
+        return Ok(Vec::new().into_iter());
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs =
@@ -596,8 +660,9 @@ where
 
         output.push(capped_attribution_outputs);
     }
-    Ok(output)
+    Ok(output.into_iter())
 }
+*/
 
 ///
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
@@ -621,6 +686,8 @@ where
         // Not a problem if you assume that's an invalid input
         difference_to_cap: Replicated::<TV>::ZERO,
         source_event_timestamp: input_row.timestamp.clone(),
+        attributed_trigger_value: Replicated::<TV>::ZERO,
+        overflow_bit_and_prev_row_not_saturated: Replicated::<Boolean>::ZERO,
     }
 }
 
