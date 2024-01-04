@@ -1,7 +1,10 @@
 mod crypto;
-use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
-use std::{collections::HashSet, fmt::Formatter};
+use std::collections::HashSet;
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display, Formatter},
+};
 
 pub use crypto::{
     FromPrss, FromRandom, FromRandomU128, Generator, GeneratorFactory, KeyExchange,
@@ -41,17 +44,15 @@ impl UsedSet {
     /// ## Panics
     /// Panic if this index has been used before.
     fn insert(&self, index: PrssIndex128) {
-        let index = u128::from(index);
-        if index > usize::MAX as u128 {
-            tracing::warn!(
-                "PRSS verification can validate values not exceeding {}, index {index} is greater.",
-                usize::MAX
-            );
+        let raw_index = u128::from(index);
+        if raw_index > usize::MAX as u128 {
+            // This is unreachable with the current PRSS index encoding.
+            tracing::warn!("Index '{index}' is not supported by PRSS verification.");
         } else {
             assert!(
-                self.used.lock().unwrap().insert(index as usize),
+                self.used.lock().unwrap().insert(raw_index as usize),
                 "Generated randomness for index '{index}' twice using the same key '{}'",
-                self.key
+                self.key,
             );
         }
     }
@@ -75,17 +76,32 @@ impl Debug for UsedSet {
 /// This is public so that it can be used by the instrumentation wrappers in
 /// `ipa_core::protocol::context`.  It should not generally be used outside the PRSS implementation.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PrssIndex128(u128);
+pub(crate) struct PrssIndex128 {
+    index: PrssIndex,
+    offset: u32,
+}
 
-impl From<u128> for PrssIndex128 {
-    fn from(value: u128) -> Self {
-        Self(value)
+impl Display for PrssIndex128 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.index.0, self.offset)
+    }
+}
+
+#[cfg(debug_assertions)]
+impl From<u64> for PrssIndex128 {
+    fn from(value: u64) -> Self {
+        Self {
+            index: u32::try_from((value >> 32) & u64::from(u32::MAX))
+                .unwrap()
+                .into(),
+            offset: u32::try_from(value & u64::from(u32::MAX)).unwrap(),
+        }
     }
 }
 
 impl From<PrssIndex128> for u128 {
     fn from(value: PrssIndex128) -> Self {
-        value.0
+        u128::from((u64::from(value.index.0) << 32) + u64::from(value.offset))
     }
 }
 
@@ -106,7 +122,7 @@ impl From<u32> for PrssIndex {
 // It would be nice for this to be TryFrom, but there's a lot of places where we use u128s as PRSS indexes.
 impl From<u128> for PrssIndex {
     fn from(value: u128) -> Self {
-        Self(value.try_into().unwrap())
+        Self(value.try_into().expect("PRSS index out of range"))
     }
 }
 
@@ -118,8 +134,10 @@ impl From<RecordId> for PrssIndex {
 
 impl PrssIndex {
     fn offset(self, offset: usize) -> PrssIndex128 {
-        assert!(offset <= u16::MAX.into());
-        PrssIndex128::from(u128::from((u64::from(self.0) << 16) + (offset as u64)))
+        PrssIndex128 {
+            index: self,
+            offset: offset.try_into().expect("PRSS offset out of range"),
+        }
     }
 }
 
@@ -638,7 +656,7 @@ pub mod test {
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(
-        expected = "Generated randomness for index '6553600' twice using the same key 'protocol/test'"
+        expected = "Generated randomness for index '100:0' twice using the same key 'protocol/test'"
     )]
     fn indexed_rejects_the_same_index() {
         let [p1, _p2, _p3] = participants();
