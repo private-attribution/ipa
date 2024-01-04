@@ -15,7 +15,7 @@ use crate::{
     ff::{boolean_array::NonZeroPadding, Field, Serializable},
     impl_serializable_trait,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
 
 /// Trait for data types storing arbitrary number of bits.
@@ -148,6 +148,12 @@ impl<'a> Iterator for BoolIterator<'a> {
     }
 }
 
+impl<'a> ExactSizeIterator for BoolIterator<'a> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $deser_type: tt, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
@@ -169,7 +175,17 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
+            impl Vectorizable<1> for $name {
+                type Array = crate::secret_sharing::StdArray<$name, 1>;
+            }
+
+            impl FieldVectorizable<1> for $name {
+                type ArrayAlias = crate::secret_sharing::StdArray<$name, 1>;
+            }
+
             impl Field for $name {
+                const NAME: &'static str = stringify!($field);
+
                 const ONE: Self = Self($one);
 
                 fn as_u128(&self) -> u128 {
@@ -691,6 +707,26 @@ bit_array_impl!(
         impl From<Gf2> for bool {
             fn from(value: Gf2) -> Self {
                 value != Gf2::ZERO
+            }
+        }
+
+        impl From<crate::ff::boolean::Boolean> for Gf2 {
+            fn from(value: crate::ff::boolean::Boolean) -> Self {
+                bool::from(value).into()
+            }
+        }
+
+        impl From<Gf2> for crate::ff::boolean::Boolean {
+            fn from(value: Gf2) -> Self {
+                bool::from(value).into()
+            }
+        }
+
+        impl std::ops::Not for Gf2 {
+            type Output = Self;
+
+            fn not(self) -> Self {
+                (!bool::from(self)).into()
             }
         }
     }

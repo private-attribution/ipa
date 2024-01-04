@@ -8,7 +8,7 @@ use typenum::{U14, U2, U32, U8};
 use crate::{
     ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -39,6 +39,12 @@ impl<'a> Iterator for BAIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iterator.next().map(|v| Boolean::from(*v))
+    }
+}
+
+impl<'a> ExactSizeIterator for BAIterator<'a> {
+    fn len(&self) -> usize {
+        self.iterator.len()
     }
 }
 
@@ -95,6 +101,8 @@ macro_rules! boolean_array_impl_small {
 
         // TODO(812): remove this impl; BAs are not field elements.
         impl Field for $name {
+            const NAME: &'static str = stringify!($name);
+
             const ONE: Self = Self(bitarr_one!($bits));
 
             fn as_u128(&self) -> u128 {
@@ -152,6 +160,10 @@ macro_rules! boolean_array_impl_small {
             fn from_random_u128(src: u128) -> Self {
                 Field::truncate_from(src)
             }
+        }
+
+        impl FieldVectorizable<1> for $name {
+            type ArrayAlias = StdArray<$name, 1>;
         }
     };
 }
@@ -358,6 +370,10 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl Vectorizable<1> for $name {
+                type Array = StdArray<$name, 1>;
+            }
+
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
@@ -394,7 +410,7 @@ macro_rules! boolean_array_impl {
             #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
-                type IntoIter = ASIterator<BAIterator<'a>>;
+                type IntoIter = ASIterator<'a, $name>;
 
                 fn into_iter(self) -> Self::IntoIter {
                     self.iter()

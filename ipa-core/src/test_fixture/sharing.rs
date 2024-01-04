@@ -9,7 +9,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, SecretSharing,
+        BitDecomposed, FieldSimd, SecretSharing, Vectorizable,
     },
 };
 
@@ -20,7 +20,7 @@ pub fn into_bits<F: PrimeField>(v: F) -> BitDecomposed<F> {
     })
 }
 
-/// Deconstructs a value into N values, one for each bi3t.
+/// Deconstructs a value into N values, one for each bit.
 /// # Panics
 /// It won't
 #[must_use]
@@ -35,6 +35,19 @@ pub trait Reconstruct<T> {
     /// # Panics
     /// Panics if the given input is not a valid replicated secret share.
     fn reconstruct(&self) -> T;
+}
+
+/// Alternate version of `Reconstruct` for vectors.
+///
+/// There is no difference in the traits, but this avoids having to add
+/// type annotations everywhere to disambiguate whether a single-bit
+/// result should be reconstructed as `F` or `[F; 1]`.
+pub trait ReconstructArr<T> {
+    /// Validates correctness of the secret sharing scheme.
+    ///
+    /// # Panics
+    /// Panics if the given input is not a valid replicated secret share.
+    fn reconstruct_arr(&self) -> T;
 }
 
 impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
@@ -59,6 +72,27 @@ impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
 impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     fn reconstruct(&self) -> F {
         [&self[0], &self[1], &self[2]].reconstruct()
+    }
+}
+
+impl<F: Field + FieldSimd<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
+    for [Replicated<F, N>; 3]
+{
+    fn reconstruct_arr(&self) -> <F as Vectorizable<N>>::Array {
+        let s0l = self[0].left_arr();
+        let s0r = self[0].right_arr();
+        let s1l = self[1].left_arr();
+        let s1r = self[1].right_arr();
+        let s2l = self[2].left_arr();
+        let s2r = self[2].right_arr();
+
+        assert_eq!(s0l.clone() + s1l + s2l, s0r.clone() + s1r + s2r);
+
+        assert_eq!(s0r, s1l);
+        assert_eq!(s1r, s2l);
+        assert_eq!(s2r, s0l);
+
+        s0l.clone() + s1l + s2l
     }
 }
 

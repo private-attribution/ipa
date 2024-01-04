@@ -6,7 +6,7 @@ use super::Field;
 use crate::{
     ff::Serializable,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 pub trait PrimeField: Field {
@@ -33,7 +33,17 @@ macro_rules! field_impl {
             const ZERO: Self = $field(0);
         }
 
+        impl Vectorizable<1> for $field {
+            type Array = StdArray<$field, 1>;
+        }
+
+        impl FieldVectorizable<1> for $field {
+            type ArrayAlias = StdArray<$field, 1>;
+        }
+
         impl Field for $field {
+            const NAME: &'static str = stringify!($field);
+
             const ONE: Self = $field(1);
 
             fn as_u128(&self) -> u128 {
@@ -316,6 +326,14 @@ mod fp31 {
 
 mod fp32bit {
     field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
+
+    impl Vectorizable<32> for Fp32BitPrime {
+        type Array = StdArray<Fp32BitPrime, 32>;
+    }
+
+    impl FieldVectorizable<32> for Fp32BitPrime {
+        type ArrayAlias = StdArray<Fp32BitPrime, 32>;
+    }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {

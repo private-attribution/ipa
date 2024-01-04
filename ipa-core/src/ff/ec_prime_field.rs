@@ -9,7 +9,7 @@ use typenum::U32;
 use crate::{
     ff::{boolean_array::BA256, Field, Serializable},
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 impl Block for Scalar {
@@ -176,8 +176,18 @@ macro_rules! sc_hash_impl {
 #[cfg(test)]
 sc_hash_impl!(u64);
 
+impl Vectorizable<1> for Fp25519 {
+    type Array = StdArray<Self, 1>;
+}
+
+impl FieldVectorizable<1> for Fp25519 {
+    type ArrayAlias = StdArray<Self, 1>;
+}
+
 ///implement Field because required by PRSS
 impl Field for Fp25519 {
+    const NAME: &'static str = "Fp25519";
+
     const ONE: Fp25519 = Fp25519::ONE;
 
     ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519

@@ -7,7 +7,7 @@ use typenum::U32;
 
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 impl Block for CompressedRistretto {
@@ -33,6 +33,10 @@ impl SharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
     const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
+}
+
+impl Vectorizable<1> for RP25519 {
+    type Array = StdArray<Self, 1>;
 }
 
 #[derive(thiserror::Error, Debug)]
