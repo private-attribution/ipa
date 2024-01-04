@@ -265,9 +265,10 @@ async fn certificate_and_key(
     };
 
     let cert = rustls_pemfile::certs(&mut cert.as_ref())?;
-    let key = match rustls_pemfile::read_one(&mut key.as_ref())? {
-        Some(Item::RSAKey(key) | Item::PKCS8Key(key) | Item::ECKey(key)) => key,
-        _ => return Err("private key format not supported".into()),
+    let Some(Item::RSAKey(key) | Item::PKCS8Key(key) | Item::ECKey(key)) =
+        rustls_pemfile::read_one(&mut key.as_ref())?
+    else {
+        return Err("private key format not supported".into());
     };
 
     let cert = cert.into_iter().map(Certificate).collect();
