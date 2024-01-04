@@ -125,6 +125,7 @@ mod tests {
     use rand::{distributions::Distribution, thread_rng};
     use rand_core::RngCore;
 
+    #[allow(clippy::cast_precision_loss)]
     use super::*;
     #[test]
     fn dp_normal_distribution_sample_standard() {
