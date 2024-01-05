@@ -1,4 +1,3 @@
-use std::fmt::{Binary, Formatter};
 use bitvec::{
     prelude::{bitarr, BitArr, Lsb0},
     slice::Iter,
@@ -43,12 +42,10 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
+// TODO: indicate where and the source value
 #[derive(thiserror::Error, Debug)]
-enum DeserializationError {
-    // TODO: indicate where and the source value
-    #[error("The provided byte slice contains non-zero bits in padding")]
-    NonZeroPadding
-}
+#[error("The provided byte slice contains non-zero bits in padding")]
+pub struct NonZeroPadding;
 
 /// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
 /// This macro uses a bit of recursive repetition to produce those zeros.
@@ -98,8 +95,8 @@ macro_rules! bitarr_one {
 
 // Macro for boolean arrays <= 128 bits.
 macro_rules! boolean_array_impl_small {
-    ($modname:ident, $name:ident, $bits:tt) => {
-        boolean_array_impl!($modname, $name, $bits);
+    ($modname:ident, $name:ident, $bits:tt, $deser_type:tt) => {
+        boolean_array_impl!($modname, $name, $bits, $deser_type);
 
         // TODO(812): remove this impl; BAs are not field elements.
         impl Field for $name {
@@ -164,9 +161,45 @@ macro_rules! boolean_array_impl_small {
     };
 }
 
-//macro for implementing Boolean array, only works for a byte size for which Block is defined
+macro_rules! impl_serializable_trait {
+    ($name: ident, $bits: tt, fallible) => {
+        impl Serializable for $name {
+            type Size = <Store as Block>::Size;
+            type DeserializationError = NonZeroPadding;
+
+            fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+                buf.copy_from_slice(self.0.as_raw_slice());
+            }
+
+            fn deserialize(
+                buf: &GenericArray<u8, Self::Size>,
+            ) -> Result<Self, Self::DeserializationError> {
+                Ok(Self(<Store>::new(assert_copy(*buf).into())))
+            }
+        }
+    };
+
+    ($name: ident, $bits: tt, infallible) => {
+        impl Serializable for $name {
+            type Size = <Store as Block>::Size;
+            type DeserializationError = std::convert::Infallible;
+
+            fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+                buf.copy_from_slice(self.0.as_raw_slice());
+            }
+
+            fn deserialize(
+                buf: &GenericArray<u8, Self::Size>,
+            ) -> Result<Self, Self::DeserializationError> {
+                Ok(Self(<Store>::new(assert_copy(*buf).into())))
+            }
+        }
+    };
+}
+
+// macro for implementing Boolean array, only works for a byte size for which Block is defined
 macro_rules! boolean_array_impl {
-    ($modname:ident, $name:ident, $bits:tt) => {
+    ($modname:ident, $name:ident, $bits:tt, $deser_type: tt) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -215,20 +248,22 @@ macro_rules! boolean_array_impl {
                 const ZERO: Self = Self(<Store>::ZERO);
             }
 
-            impl Serializable for $name {
-                type Size = <Store as Block>::Size;
-                type DeserializationError = std::convert::Infallible;
+            impl_serializable_trait!($name, $bits, $deser_type);
 
-                fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-                    buf.copy_from_slice(self.0.as_raw_slice());
-                }
-
-                fn deserialize(
-                    buf: &GenericArray<u8, Self::Size>,
-                ) -> Result<Self, Self::DeserializationError> {
-                    Ok(Self(<Store>::new(assert_copy(*buf).into())))
-                }
-            }
+            // impl Serializable for $name {
+            //     type Size = <Store as Block>::Size;
+            //     type DeserializationError = std::convert::Infallible;
+            //
+            //     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+            //         buf.copy_from_slice(self.0.as_raw_slice());
+            //     }
+            //
+            //     fn deserialize(
+            //         buf: &GenericArray<u8, Self::Size>,
+            //     ) -> Result<Self, Self::DeserializationError> {
+            //         Ok(Self(<Store>::new(assert_copy(*buf).into())))
+            //     }
+            // }
 
             impl std::ops::Add for $name {
                 type Output = Self;
@@ -397,17 +432,17 @@ store_impl!(U14, 112);
 store_impl!(U32, 256);
 
 //impl BA3
-boolean_array_impl_small!(boolean_array_3, BA3, 3);
-boolean_array_impl_small!(boolean_array_4, BA4, 4);
-boolean_array_impl_small!(boolean_array_5, BA5, 5);
-boolean_array_impl_small!(boolean_array_6, BA6, 6);
-boolean_array_impl_small!(boolean_array_7, BA7, 7);
-boolean_array_impl_small!(boolean_array_8, BA8, 8);
-boolean_array_impl_small!(boolean_array_20, BA20, 20);
-boolean_array_impl_small!(boolean_array_32, BA32, 32);
-boolean_array_impl_small!(boolean_array_64, BA64, 64);
-boolean_array_impl_small!(boolean_array_112, BA112, 112);
-boolean_array_impl!(boolean_array_256, BA256, 256);
+boolean_array_impl_small!(boolean_array_3, BA3, 3, fallible);
+boolean_array_impl_small!(boolean_array_4, BA4, 4, infallible);
+boolean_array_impl_small!(boolean_array_5, BA5, 5, fallible);
+boolean_array_impl_small!(boolean_array_6, BA6, 6, fallible);
+boolean_array_impl_small!(boolean_array_7, BA7, 7, fallible);
+boolean_array_impl_small!(boolean_array_8, BA8, 8, infallible);
+boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
+boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
+boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
+boolean_array_impl_small!(boolean_array_112, BA112, 112, fallible);
+boolean_array_impl!(boolean_array_256, BA256, 256, infallible);
 
 // used to convert into Fp25519
 impl From<(u128, u128)> for BA256 {
@@ -445,13 +480,11 @@ impl Binary for BA3 {
 mod tests {
     use super::*;
 
-
     /// [`https://github.com/private-attribution/ipa/issues/911`]
     #[test]
     fn non_zero_padding_is_rejected() {
         let src = 7_u8 | 1 << 5;
-        let result = BA3::deserialize(&GenericArray::from_array([src])).unwrap_err();
 
-        assert_eq!(result, DeserializationError::NonZeroPadding);
+        let _ = BA3::deserialize(&GenericArray::from_array([src])).unwrap_err();
     }
 }
