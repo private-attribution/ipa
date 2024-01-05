@@ -1,3 +1,4 @@
+use std::fmt::{Binary, Formatter};
 use bitvec::{
     prelude::{bitarr, BitArr, Lsb0},
     slice::Iter,
@@ -40,6 +41,13 @@ impl<'a> Iterator for BAIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iterator.next().map(|v| Boolean::from(*v))
     }
+}
+
+#[derive(thiserror::Error, Debug)]
+enum DeserializationError {
+    // TODO: indicate where and the source value
+    #[error("The provided byte slice contains non-zero bits in padding")]
+    NonZeroPadding
 }
 
 /// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
@@ -171,7 +179,7 @@ macro_rules! boolean_array_impl {
                 },
             };
 
-    type Store = BitArr!(for $bits, in u8, Lsb0);
+            type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -424,5 +432,26 @@ impl FromRandom for BA256 {
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
         (rng.gen(), rng.gen()).into()
+    }
+}
+
+impl Binary for BA3 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Binary::fmt(&self.0, f)
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use super::*;
+
+
+    /// [`https://github.com/private-attribution/ipa/issues/911`]
+    #[test]
+    fn non_zero_padding_is_rejected() {
+        let src = 7_u8 | 1 << 5;
+        let result = BA3::deserialize(&GenericArray::from_array([src])).unwrap_err();
+
+        assert_eq!(result, DeserializationError::NonZeroPadding);
     }
 }
