@@ -279,9 +279,9 @@ mod tests {
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), &info)?;
 
             // TODO: fix once array split is a thing.
-            Ok(XorReplicated::deserialize(GenericArray::from_slice(
-                &enc.ct[..MATCHKEY_LEN],
-            )))
+            Ok(XorReplicated::deserialize_infallible(
+                GenericArray::from_slice(&enc.ct[..MATCHKEY_LEN]),
+            ))
         }
 
         pub fn advance_epoch(&mut self) {

@@ -10,7 +10,10 @@ mod field;
 mod galois_field;
 mod prime_field;
 
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::{
+    convert::Infallible,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
 
 pub use field::{Field, FieldType};
 pub use galois_field::{GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf8Bit, Gf9Bit};
@@ -18,6 +21,8 @@ use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
+
+use crate::error::UnwrapInfallible;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -43,6 +48,8 @@ impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength;
+    /// The error type that can be returned if an error occurs during deserialization.
+    type DeserializationError: std::error::Error + Send + Sync + 'static;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
@@ -53,7 +60,24 @@ pub trait Serializable: Sized {
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
+    ///
+    /// ## Errors
+    /// In general, deserialization may fail even if buffer size is enough. The bytes may
+    /// not represent a valid value in the domain, in this case implementations will return an error.
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError>;
+
+    /// Same as [`deserialize`] but returns an actual value if it is known at compile time that deserialization
+    /// is infallible.
+    ///
+    /// [`deserialize`]: Self::deserialize
+    fn deserialize_infallible(buf: &GenericArray<u8, Self::Size>) -> Self
+    where
+        Infallible: From<Self::DeserializationError>,
+    {
+        Self::deserialize(buf)
+            .map_err(Into::into)
+            .unwrap_infallible()
+    }
 }
 
 pub trait ArrayAccess {

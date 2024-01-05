@@ -209,13 +209,16 @@ macro_rules! boolean_array_impl {
 
             impl Serializable for $name {
                 type Size = <Store as Block>::Size;
+                type DeserializationError = std::convert::Infallible;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
-                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-                    Self(<Store>::new(assert_copy(*buf).into()))
+                fn deserialize(
+                    buf: &GenericArray<u8, Self::Size>,
+                ) -> Result<Self, Self::DeserializationError> {
+                    Ok(Self(<Store>::new(assert_copy(*buf).into())))
                 }
             }
 
@@ -407,7 +410,7 @@ impl From<(u128, u128)> for BA256 {
             .into_iter()
             .chain(value.1.to_le_bytes());
         let arr = GenericArray::<u8, U32>::try_from_iter(iter).unwrap();
-        BA256::deserialize(&arr)
+        BA256::deserialize_infallible(&arr)
     }
 }
 
