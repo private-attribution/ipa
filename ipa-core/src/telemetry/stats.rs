@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map::Iter, HashMap},
-    fmt::Debug,
-};
+use std::{collections::HashMap, fmt::Debug};
 
 use metrics::{KeyName, Label, SharedString};
 use metrics_util::{
@@ -55,8 +52,18 @@ impl CounterDetails {
     }
 
     #[must_use]
-    pub fn iter(&self) -> Iter<'_, SharedString, HashMap<SharedString, u64>> {
+    pub fn iter(
+        &self,
+    ) -> std::collections::hash_map::Iter<'_, SharedString, HashMap<SharedString, u64>> {
         self.dimensions.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a CounterDetails {
+    type Item = (&'a SharedString, &'a HashMap<SharedString, u64>);
+    type IntoIter = std::collections::hash_map::Iter<'a, SharedString, HashMap<SharedString, u64>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -131,7 +138,7 @@ impl Metrics {
 
         for (key_name, counter_stats) in &self.counters {
             let mut dim_cell_content = String::new();
-            for (dim, values) in counter_stats.iter() {
+            for (dim, values) in counter_stats {
                 dim_cell_content += format!("{dim}\n").as_str();
                 for (dim_value, &counter_val) in values {
                     dim_cell_content += format!("{dim_value} = {counter_val}\n").as_str();

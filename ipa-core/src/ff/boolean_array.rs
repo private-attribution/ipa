@@ -105,6 +105,15 @@ macro_rules! boolean_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
             pub struct $name(pub Store);
 
+            impl $name {
+                #[must_use]
+                pub fn iter(&self) -> BAIterator {
+                    BAIterator {
+                        iterator: self.0.iter().take(usize::try_from(<$name>::BITS).unwrap()),
+                    }
+                }
+            }
+
             impl ArrayAccess for $name {
                 type Output = Boolean;
 
@@ -289,9 +298,7 @@ macro_rules! boolean_array_impl {
                 type IntoIter = BAIterator<'a>;
 
                 fn into_iter(self) -> Self::IntoIter {
-                    BAIterator {
-                        iterator: self.0.iter().take(usize::try_from(<$name>::BITS).unwrap()),
-                    }
+                    self.iter()
                 }
             }
 
@@ -302,7 +309,7 @@ macro_rules! boolean_array_impl {
                 type IntoIter = ASIterator<BAIterator<'a>>;
 
                 fn into_iter(self) -> Self::IntoIter {
-                    ASIterator::<BAIterator<'a>>(self.0.into_iter(), self.1.into_iter())
+                    self.iter()
                 }
             }
 

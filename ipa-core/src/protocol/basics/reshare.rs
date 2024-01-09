@@ -427,7 +427,14 @@ mod tests {
                             let v = ctx.validator();
                             let m_ctx = v.context().set_total_records(1);
                             let record_id = RecordId::from(0);
-                            let m_a = v.context().upgrade(a).await.unwrap();
+                            let m_a = v
+                                .context()
+                                .upgrade([a])
+                                .await
+                                .unwrap()
+                                .into_iter()
+                                .next()
+                                .unwrap();
 
                             let m_reshared_a = if m_ctx.role() == *malicious_actor {
                                 // This role is spoiling the value.

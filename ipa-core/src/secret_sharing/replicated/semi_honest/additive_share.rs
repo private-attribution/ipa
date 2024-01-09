@@ -18,7 +18,22 @@ use crate::{
 pub struct AdditiveShare<V: SharedValue>(pub V, pub V);
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct ASIterator<T: Iterator>(pub T, pub T);
+pub struct ASIterator<T: Iterator>(T, T);
+
+impl<'i, V> AdditiveShare<V>
+where
+    V: SharedValue,
+    &'i V: IntoIterator,
+    <&'i V as IntoIterator>::IntoIter: Iterator + 'i,
+    <&'i V as IntoIterator>::Item: SharedValue,
+{
+    // An implementation of IntoIterator would conflict with the implementation of UpgradeToMalicious
+    // that is used to upgrade a single share to malicious without a record index in tests.
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn iter(&'i self) -> ASIterator<<&'i V as IntoIterator>::IntoIter> {
+        ASIterator::<<&'i V as IntoIterator>::IntoIter>(self.0.into_iter(), self.1.into_iter())
+    }
+}
 
 impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
