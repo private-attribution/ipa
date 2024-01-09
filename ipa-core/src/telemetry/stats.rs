@@ -37,9 +37,8 @@ pub struct Metrics {
 
 impl CounterDetails {
     pub fn add(&mut self, key: &CompositeKey, val: &DebugValue) {
-        let val = match val {
-            DebugValue::Counter(v) => v,
-            _ => unreachable!(),
+        let DebugValue::Counter(val) = val else {
+            unreachable!()
         };
         for label in key.key().labels() {
             let (label_key, label_val) = label.clone().into_parts();
@@ -60,8 +59,9 @@ impl CounterDetails {
 }
 
 impl<'a> IntoIterator for &'a CounterDetails {
-    type Item = (&'a SharedString, &'a HashMap<SharedString, u64>);
+    type Item = <Self::IntoIter as Iterator>::Item;
     type IntoIter = std::collections::hash_map::Iter<'a, SharedString, HashMap<SharedString, u64>>;
+
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }

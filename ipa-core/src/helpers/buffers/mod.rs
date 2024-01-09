@@ -1,4 +1,3 @@
-mod ordering_mpsc;
 mod ordering_sender;
 mod unordered_receiver;
 

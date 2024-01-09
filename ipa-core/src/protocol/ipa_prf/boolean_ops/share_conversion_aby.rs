@@ -99,7 +99,6 @@ pub async fn convert_to_fp25519<C, B>(
 ) -> Result<AdditiveShare<Fp25519>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
     B: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
@@ -112,7 +111,7 @@ where
         let mut r: AdditiveShare<BA256> = ctx
             .narrow(&Step::GenerateSecretSharing)
             .prss()
-            .generate_replicated(record_id);
+            .generate(record_id);
 
         // set 2 highest order bits of r1, r2, r3 to 0
         r.set(255, AdditiveShare::<Boolean>::ZERO);
@@ -184,7 +183,6 @@ where
 }
 
 /// inserts smaller array in the larger array starting from location offset
-#[allow(dead_code)]
 pub fn expand_shared_array_in_place<YS, XS>(
     y: &mut AdditiveShare<YS>,
     x: &AdditiveShare<XS>,
@@ -202,7 +200,6 @@ pub fn expand_shared_array_in_place<YS, XS>(
 }
 
 // This function extracts shares of a small array from the larger array
-#[allow(dead_code)]
 pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
 where
     YS: CustomArray<Element = Boolean> + SharedValue,
@@ -224,7 +221,6 @@ where
 #[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray,
     YS: CustomArray<Element = XS::Element> + SharedValue,
     XS::Element: SharedValue,
@@ -249,8 +245,6 @@ pub fn expand_shared_array<XS, YS>(
     offset: Option<usize>,
 ) -> AdditiveShare<YS>
 where
-    for<'a> &'a AdditiveShare<YS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray + SharedValue,
     YS: CustomArray<Element = XS::Element> + SharedValue,
     XS::Element: SharedValue,

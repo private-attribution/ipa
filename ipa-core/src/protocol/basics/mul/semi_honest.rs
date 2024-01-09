@@ -43,7 +43,7 @@ where
     zeros.1.check(role, "b", b);
 
     // Shared randomness used to mask the values that are sent.
-    let (s0, s1) = ctx.prss().generate_fields(record_id);
+    let (s0, s1) = ctx.prss().generate(record_id);
 
     let mut rhs = a.right() * b.right();
     if need_to_send {

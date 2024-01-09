@@ -46,6 +46,9 @@ pub(crate) enum Step {
 /// It terminates once the stack is empty.
 /// # Errors
 /// Will propagate errors from transport and a few typecasts
+///
+/// # Panics
+/// If you provide any invalid ranges, such as 0..0
 pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
     ctx: C,
     list: &mut [S],
@@ -57,9 +60,10 @@ where
     C: Context,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
-    for<'a> &'a AdditiveShare<K>: IntoIterator<Item = AdditiveShare<K::Element>>,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
 {
+    assert!(!ranges_to_sort.iter().any(Range::is_empty));
+
     let mut ranges_for_next_pass = Vec::with_capacity(ranges_to_sort.len() * 2);
     let mut quicksort_pass = 1;
 
@@ -67,13 +71,13 @@ where
     // make one pass, comparing each element to the pivot and splitting into two more
     // potentially incorrectly ordered ranges
     while !ranges_to_sort.is_empty() {
-        // compute the total number of comparisons that will be needed
-        let mut num_comparisons_needed = 0;
-        for range in &ranges_to_sort {
-            if range.len() > 1 {
-                num_comparisons_needed += range.len() - 1;
-            }
-        }
+        // The total number of comparisons in each range is one fewer than the
+        // number of items in that range.  And we don't accept empty range.
+        let num_comparisons_needed = ranges_to_sort
+            .iter()
+            .map(ExactSizeIterator::len)
+            .sum::<usize>()
+            - ranges_to_sort.len();
 
         let c = ctx
             .narrow(&Step::QuicksortPass(quicksort_pass))
@@ -115,29 +119,24 @@ where
         .try_collect()
         .await?;
 
-        let mut n = 0;
-        for range in &ranges_to_sort {
-            if range.len() <= 1 {
-                continue;
-            }
-
-            // swap elements based on comparisons
-            // i is index of first element larger than pivot
-            let mut i = range.start + 1;
-            for (j, b) in comp[n..(n + range.len() - 1)].iter().enumerate() {
-                if *b {
-                    list.swap(i, j + range.start + 1);
+        let mut comp_it = comp.into_iter();
+        for mut range in ranges_to_sort.into_iter().filter(|r| r.len() >= 2) {
+            let pivot_index = range.next().unwrap();
+            let mut i = pivot_index + 1;
+            for n in range.by_ref() {
+                let comparison = comp_it.next().unwrap();
+                if comparison {
+                    list.swap(i, n);
                     i += 1;
                 }
             }
-            n += range.len() - 1;
 
-            // put pivot to index i-1
-            list.swap(i - 1, range.start);
+            // swap the pivot element with the last of the elements meant to be left of it
+            list.swap(i - 1, pivot_index);
 
             // mark which ranges need to be sorted in the next pass
-            if i > range.start + 1 {
-                ranges_for_next_pass.push(range.start..(i - 1));
+            if i > pivot_index + 1 {
+                ranges_for_next_pass.push(pivot_index..(i - 1));
             }
             if i + 1 < range.end {
                 ranges_for_next_pass.push(i..range.end);
@@ -161,7 +160,6 @@ pub mod tests {
     use rand::Rng;
 
     use crate::{
-        error::Error,
         ff::{
             boolean_array::{BA20, BA64},
             Field,
@@ -176,23 +174,6 @@ pub mod tests {
     #[derive(Step)]
     pub(crate) enum Step {
         TestReverse,
-    }
-
-    pub async fn quicksort_insecure_test<C>(
-        ctx: C,
-        list: &[AdditiveShare<BA64>],
-        desc: bool,
-    ) -> Result<Vec<AdditiveShare<BA64>>, Error>
-    where
-        C: Context,
-    {
-        let mut list_mut = list.to_vec();
-        #[allow(clippy::single_range_in_vec_init)]
-        quicksort_ranges_by_key_insecure(ctx, &mut list_mut[..], desc, |x| x, vec![0..list.len()])
-            .await?;
-        let mut result: Vec<AdditiveShare<BA64>> = vec![];
-        list_mut.iter().for_each(|x| result.push(x.clone()));
-        Ok(result)
     }
 
     #[test]
@@ -221,10 +202,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
                             .await
-                            .unwrap()
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -269,10 +252,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..20])
                             .await
-                            .unwrap()
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -314,10 +299,12 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(ctx, &records, desc)
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(ctx, &mut r, desc, |x| x, vec![0..1])
                             .await
-                            .unwrap()
+                            .unwrap();
+                        r
                     })
                     .await
                     .reconstruct();
@@ -361,16 +348,22 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, records| async move {
-                        quicksort_insecure_test::<_>(
-                            ctx.narrow(&Step::TestReverse),
-                            &quicksort_insecure_test::<_>(ctx, &records, !desc)
-                                .await
-                                .unwrap(),
-                            desc,
-                        )
-                        .await
-                        .unwrap()
+                    .semi_honest(records.into_iter(), |ctx, mut r| async move {
+                        let c = ctx.clone();
+                        // Sort one direction
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(c, &mut r, !desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
+
+                        let c = ctx.narrow(&Step::TestReverse);
+                        // Then sort the other direction
+                        #[allow(clippy::single_range_in_vec_init)]
+                        quicksort_ranges_by_key_insecure(c, &mut r, desc, |x| x, vec![0..20])
+                            .await
+                            .unwrap();
+
+                        r
                     })
                     .await
                     .reconstruct();
@@ -391,6 +384,12 @@ pub mod tests {
     struct SillyStruct {
         timestamp: BA20,
         user_id: usize,
+    }
+
+    impl SillyStruct {
+        fn timestamp(x: &SillyStructShare) -> &AdditiveShare<BA20> {
+            &x.timestamp
+        }
     }
 
     #[derive(Clone, Debug)]
@@ -501,19 +500,19 @@ pub mod tests {
 
                 // compute mpc sort
                 let result: Vec<_> = world
-                    .semi_honest(records.into_iter(), |ctx, mut records| {
+                    .semi_honest(records.into_iter(), |ctx, mut r| {
                         let ranges_clone = ranges_to_sort.clone();
                         async move {
                             quicksort_ranges_by_key_insecure(
                                 ctx,
-                                &mut records[..],
+                                &mut r[..],
                                 desc,
-                                |x| &x.timestamp,
+                                SillyStruct::timestamp,
                                 ranges_clone,
                             )
                             .await
                             .unwrap();
-                            records
+                            r
                         }
                     })
                     .await

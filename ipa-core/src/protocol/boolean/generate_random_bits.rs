@@ -35,7 +35,7 @@ impl RawRandomBits {
         // This avoids `F::BITS` as that can be larger than we need.
         let count = u128::BITS - F::PRIME.into().leading_zeros();
         assert!(count <= u64::BITS);
-        let (left, right) = prss.generate_values(record_id);
+        let (left, right) = prss.generate::<(u128, u128), _>(record_id);
         #[allow(clippy::cast_possible_truncation)] // See above for the relevant assertion.
         Self {
             count,

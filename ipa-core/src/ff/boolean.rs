@@ -4,6 +4,7 @@ use typenum::U1;
 use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
+    protocol::prss::FromRandomU128,
     secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
 };
 
@@ -36,18 +37,23 @@ impl From<Boolean> for bool {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{0} is not a valid boolean value, only 0 and 1 are accepted.")]
+pub struct ParseBooleanError(u8);
+
 impl Serializable for Boolean {
     type Size = <<Boolean as SharedValue>::Storage as Block>::Size;
+    type DeserializationError = ParseBooleanError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf[0] = u8::from(self.0);
     }
 
-    ///## Panics
-    /// panics when u8 is not 0 or 1
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        assert!(buf[0] < 2u8);
-        Boolean(buf[0] != 0)
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        if buf[0] > 1 {
+            return Err(ParseBooleanError(buf[0]));
+        }
+        Ok(Boolean(buf[0] != 0))
     }
 }
 
@@ -158,6 +164,12 @@ impl TryFrom<u128> for Boolean {
     }
 }
 
+impl FromRandomU128 for Boolean {
+    fn from_random_u128(src: u128) -> Self {
+        Field::truncate_from(src)
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;
@@ -173,7 +185,7 @@ mod test {
         let input = rng.gen::<Boolean>();
         let mut a: GenericArray<u8, U1> = [0u8; 1].into();
         input.serialize(&mut a);
-        let output = Boolean::deserialize(&a);
+        let output = Boolean::deserialize(&a).unwrap();
         assert_eq!(input, output);
     }
 

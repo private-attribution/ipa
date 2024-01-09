@@ -25,7 +25,7 @@ impl Block for CompressedRistretto {
 /// since we always generate curve points from scalars (elements in Fp25519) and
 /// only deserialize previously serialized valid points, panics will not occur
 /// However, we still added a debug assert to deserialize since values are sent by other servers
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RP25519(CompressedRistretto);
 
 /// Implementing trait for secret sharing
@@ -35,16 +35,25 @@ impl SharedValue for RP25519 {
     const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{0:?} is not the canonical encoding of a Ristretto point.")]
+pub struct NonCanonicalEncoding(CompressedRistretto);
+
 impl Serializable for RP25519 {
     type Size = <<RP25519 as SharedValue>::Storage as Block>::Size;
+    type DeserializationError = NonCanonicalEncoding;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        debug_assert!(CompressedRistretto((*buf).into()).decompress().is_some());
-        RP25519(CompressedRistretto((*buf).into()))
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let point = CompressedRistretto((*buf).into());
+        if cfg!(debug_assertions) && point.decompress().is_none() {
+            return Err(NonCanonicalEncoding(point));
+        }
+
+        Ok(RP25519(point))
     }
 }
 
@@ -180,6 +189,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
+    use super::*;
     use crate::{
         ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
@@ -194,7 +204,7 @@ mod test {
         let input = rng.gen::<RP25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
-        let output = RP25519::deserialize(&a);
+        let output = RP25519::deserialize(&a).unwrap();
         assert_eq!(input, output);
     }
 
@@ -235,5 +245,14 @@ mod test {
         let fp_a = rng.gen::<RP25519>();
         assert_ne!(0u64, u64::from(fp_a));
         assert_ne!(0u32, u32::from(fp_a));
+    }
+
+    #[test]
+    fn non_canonical() {
+        const ZERO: u128 = 0;
+        // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
+        let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };
+        let err = RP25519::deserialize(GenericArray::from_slice(&buf)).unwrap_err();
+        assert!(matches!(err, NonCanonicalEncoding(_)));
     }
 }

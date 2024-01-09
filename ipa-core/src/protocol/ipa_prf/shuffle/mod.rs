@@ -18,7 +18,7 @@ use crate::{
 pub mod base;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
-async fn shuffle_inputs<C, BK, TV, TS>(
+pub async fn shuffle_inputs<C, BK, TV, TS>(
     ctx: C,
     input: Vec<OprfReport<BK, TV, TS>>,
 ) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
@@ -28,11 +28,6 @@ where
     BK: SharedValue + CustomArray<Element = Boolean> + Field,
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a AdditiveShare<TS>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> &'a AdditiveShare<TV>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> &'a AdditiveShare<BK>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> <&'a AdditiveShare<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a AdditiveShare<TS> as IntoIterator>::IntoIter: Send,
 {
     let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()

@@ -3,11 +3,16 @@ use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
 
-pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+pub use crypto::{
+    FromPrss, FromRandom, FromRandomU128, Generator, GeneratorFactory, KeyExchange,
+    SharedRandomness,
+};
+use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use x25519_dalek::PublicKey;
 
 use super::step::Gate;
 use crate::{
+    protocol::RecordId,
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
@@ -35,7 +40,8 @@ impl UsedSet {
     ///
     /// ## Panics
     /// Panic if this index has been used before.
-    fn insert(&self, index: u128) {
+    fn insert(&self, index: PrssIndex128) {
+        let index = u128::from(index);
         if index > usize::MAX as u128 {
             tracing::warn!(
                 "PRSS verification can validate values not exceeding {}, index {index} is greater.",
@@ -58,6 +64,65 @@ impl Debug for UsedSet {
     }
 }
 
+/// Internal PRSS index.
+///
+/// `PrssIndex128` values are directly input to the block cipher used for pseudo-random generation.
+/// Each invocation must use a distinct `PrssIndex128` value. Most code should use the `PrssIndex`
+/// type instead, which often corresponds to record IDs. `PrssIndex128` values are produced by
+/// the `PrssIndex::offset` function and include the primary `PrssIndex` plus a possible offset
+/// when more than 128 bits of randomness are required to generate the requested value.
+///
+/// This is public so that it can be used by the instrumentation wrappers in
+/// `ipa_core::protocol::context`.  It should not generally be used outside the PRSS implementation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PrssIndex128(u128);
+
+impl From<u128> for PrssIndex128 {
+    fn from(value: u128) -> Self {
+        Self(value)
+    }
+}
+
+impl From<PrssIndex128> for u128 {
+    fn from(value: PrssIndex128) -> Self {
+        value.0
+    }
+}
+
+/// PRSS index.
+///
+/// PRSS indexes are used to ensure that distinct pseudo-randomness is generated for every value
+/// output by PRSS. It is often sufficient to use record IDs as PRSS indexes, and
+/// `impl From<RecordId> for PrssIndex` is provided for that purpose.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct PrssIndex(u32);
+
+impl From<u32> for PrssIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+// It would be nice for this to be TryFrom, but there's a lot of places where we use u128s as PRSS indexes.
+impl From<u128> for PrssIndex {
+    fn from(value: u128) -> Self {
+        Self(value.try_into().unwrap())
+    }
+}
+
+impl From<RecordId> for PrssIndex {
+    fn from(value: RecordId) -> Self {
+        Self(u32::from(value))
+    }
+}
+
+impl PrssIndex {
+    fn offset(self, offset: usize) -> PrssIndex128 {
+        assert!(offset <= u16::MAX.into());
+        PrssIndex128::from(u128::from((u64::from(self.0) << 16) + (offset as u64)))
+    }
+}
+
 /// A participant in a 2-of-N replicated secret sharing.
 /// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
 /// You can read about it in the seminal paper:
@@ -73,14 +138,20 @@ pub struct IndexedSharedRandomness {
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
+    fn generate_arrays<I: Into<PrssIndex>, N: ArrayLength>(
+        &self,
+        index: I,
+    ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
         let index = index.into();
         #[cfg(debug_assertions)]
         {
-            self.used.insert(index);
+            for i in 0..N::USIZE {
+                self.used.insert(index.offset(i));
+            }
         }
-
-        (self.left.generate(index), self.right.generate(index))
+        let l = GenericArray::generate(|i| self.left.generate(index.offset(i).into()));
+        let r = GenericArray::generate(|i| self.right.generate(index.offset(i).into()));
+        (l, r)
     }
 }
 
@@ -264,7 +335,7 @@ pub mod test {
     use crate::{
         ff::{Field, Fp31},
         protocol::{
-            prss::{Endpoint, SharedRandomness},
+            prss::{Endpoint, PrssIndex, SharedRandomness},
             step::{Gate, StepNarrow},
         },
         rand::{thread_rng, Rng},
@@ -284,6 +355,42 @@ pub mod test {
 
     fn participants() -> [Endpoint; 3] {
         make_participants(&mut thread_rng())
+    }
+
+    /// Generate an additive share of zero.
+    /// Each party generates two values, one that is shared with the party to their left,
+    /// one with the party to their right.  If all entities add their left share
+    /// and subtract their right value, each share will be added once (as a left share)
+    /// and subtracted once (as a right share), resulting in values that sum to zero.
+    #[must_use]
+    fn zero_u128<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
+        let (l, r) = prss.generate_values(index);
+        l.wrapping_sub(r)
+    }
+
+    /// Generate an XOR share of zero.
+    #[must_use]
+    fn zero_xor<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
+        let (l, r) = prss.generate_values(index);
+        l ^ r
+    }
+
+    /// Generate an additive shares of a random value.
+    /// This is like `zero_u128`, except that the values are added.
+    /// The result is that each random value is added twice.  Note that thanks to
+    /// using a wrapping add, the result won't be even because the high bit will
+    /// wrap around and populate the low bit.
+    #[must_use]
+    fn random_u128<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> u128 {
+        let (l, r) = prss.generate_values(index);
+        l.wrapping_add(r)
+    }
+
+    /// Generate additive shares of a random field value.
+    #[must_use]
+    fn random<F: Field, P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> F {
+        let (l, r): (F, F) = prss.generate_fields(index);
+        l + r
     }
 
     /// When inputs are the same, outputs are the same.
@@ -349,9 +456,9 @@ pub mod test {
         let [p1, p2, p3] = participants();
 
         let step = Gate::default();
-        let z1 = p1.indexed(&step).zero_u128(IDX);
-        let z2 = p2.indexed(&step).zero_u128(IDX);
-        let z3 = p3.indexed(&step).zero_u128(IDX);
+        let z1 = zero_u128(&*p1.indexed(&step), IDX);
+        let z2 = zero_u128(&*p2.indexed(&step), IDX);
+        let z3 = zero_u128(&*p3.indexed(&step), IDX);
 
         assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
     }
@@ -362,9 +469,9 @@ pub mod test {
         let [p1, p2, p3] = participants();
 
         let step = Gate::default();
-        let z1 = p1.indexed(&step).zero_xor(IDX);
-        let z2 = p2.indexed(&step).zero_xor(IDX);
-        let z3 = p3.indexed(&step).zero_xor(IDX);
+        let z1 = zero_xor(&*p1.indexed(&step), IDX);
+        let z2 = zero_xor(&*p2.indexed(&step), IDX);
+        let z3 = zero_xor(&*p3.indexed(&step), IDX);
 
         assert_eq!(0, z1 ^ z2 ^ z3);
     }
@@ -376,16 +483,16 @@ pub mod test {
         let [p1, p2, p3] = participants();
 
         let step = Gate::default();
-        let r1 = p1.indexed(&step).random_u128(IDX1);
-        let r2 = p2.indexed(&step).random_u128(IDX1);
-        let r3 = p3.indexed(&step).random_u128(IDX1);
+        let r1 = random_u128(&*p1.indexed(&step), IDX1);
+        let r2 = random_u128(&*p2.indexed(&step), IDX1);
+        let r3 = random_u128(&*p3.indexed(&step), IDX1);
 
         let v1 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(0, v1);
 
-        let r1 = p1.indexed(&step).random_u128(IDX2);
-        let r2 = p2.indexed(&step).random_u128(IDX2);
-        let r3 = p3.indexed(&step).random_u128(IDX2);
+        let r1 = random_u128(&*p1.indexed(&step), IDX2);
+        let r2 = random_u128(&*p2.indexed(&step), IDX2);
+        let r3 = random_u128(&*p3.indexed(&step), IDX2);
 
         let v2 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(v1, v2);
@@ -432,18 +539,18 @@ pub mod test {
         let s2 = p2.indexed(&step);
         let s3 = p3.indexed(&step);
 
-        let r1: Fp31 = s1.random(IDX1);
-        let r2 = s2.random(IDX1);
-        let r3 = s3.random(IDX1);
+        let r1: Fp31 = random(&*s1, IDX1);
+        let r2 = random(&*s2, IDX1);
+        let r3 = random(&*s3, IDX1);
         let v1 = r1 + r2 + r3;
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
         // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
         let mut v2 = Fp31::truncate_from(0_u8);
         for i in IDX2..(IDX2 + 21) {
-            let r1: Fp31 = s1.random(i);
-            let r2 = s2.random(i);
-            let r3 = s3.random(i);
+            let r1: Fp31 = random(&*s1, i);
+            let r2 = random(&*s2, i);
+            let r3 = random(&*s3, i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {
@@ -524,20 +631,20 @@ pub mod test {
         let indexed_prss = p2.indexed(&step);
 
         for index in indices {
-            let _: u128 = indexed_prss.random_u128(index);
+            let _: u128 = random_u128(&*indexed_prss, index);
         }
     }
 
     #[test]
     #[cfg(debug_assertions)]
     #[should_panic(
-        expected = "Generated randomness for index '100' twice using the same key 'protocol/test'"
+        expected = "Generated randomness for index '6553600' twice using the same key 'protocol/test'"
     )]
     fn indexed_rejects_the_same_index() {
         let [p1, _p2, _p3] = participants();
         let step = Gate::default().narrow("test");
 
-        let _: u128 = p1.indexed(&step).random_u128(100_u128);
-        let _: u128 = p1.indexed(&step).random_u128(100_u128);
+        let _: u128 = random_u128(&*p1.indexed(&step), 100_u128);
+        let _: u128 = random_u128(&*p1.indexed(&step), 100_u128);
     }
 }

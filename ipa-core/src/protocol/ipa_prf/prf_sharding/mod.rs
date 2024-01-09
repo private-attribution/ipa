@@ -1,4 +1,7 @@
-use std::{num::NonZeroU32, ops::Not};
+use std::{
+    num::NonZeroU32,
+    ops::{Not, Range},
+};
 
 use futures::{
     future::{try_join, try_join3},
@@ -7,9 +10,14 @@ use futures::{
 };
 use ipa_macros::Step;
 
+use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA32, BA7},
+        ArrayAccess, CustomArray, Expand, Field, PrimeField, Serializable,
+    },
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
@@ -43,6 +51,36 @@ pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedVal
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+    pub sort_key: Replicated<BA32>,
+}
+
+impl<BK: SharedValue, TS, TV: SharedValue> PrfShardedIpaInputRow<BK, TV, TS>
+where
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    /// This function defines the sort key.
+    /// The order of sorting is `timestamp`, `is_trigger_bit`, `counter`.
+    /// We sort by `is_trigger_bit` to ensure source events come before trigger in case there
+    /// is a tie in timestamp
+    /// Counter is added to ensure each sorting key is unique to avoid privacy leakage
+    /// NOTE: the sort key will be interpreted in Little endian format, so the order in
+    /// which things are appended is important.
+    /// We still need to add epoch which will be added later
+    pub fn compute_sort_key(&mut self, counter: u64) {
+        expand_shared_array_in_place(
+            &mut self.sort_key,
+            &Replicated::new(BA7::truncate_from(counter), BA7::truncate_from(counter)),
+            0,
+        );
+        let mut offset = BA7::BITS as usize;
+
+        self.sort_key.0.set(offset, self.is_trigger_bit.left());
+        self.sort_key.1.set(offset, self.is_trigger_bit.right());
+
+        offset += 1;
+        expand_shared_array_in_place(&mut self.sort_key, &self.timestamp, offset);
+        // TODO(richaj): add epoch to sort key computation
+    }
 }
 
 impl<BK: SharedValue, TS: SharedValue, TV: SharedValue> GroupingKey
@@ -103,9 +141,6 @@ impl<
     ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
         C: Context,
-        for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
@@ -306,27 +341,44 @@ pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
-#[tracing::instrument(name = "compute_histogram_of_users_with_row_count", skip_all)]
-pub fn compute_histogram_of_users_with_row_count<S>(input: &[S]) -> Vec<usize>
+#[tracing::instrument(name = "histograms_ranges_sortkeys", skip_all)]
+/// This function does following computations per user
+/// 1. Compute histogram of users with row counts
+/// 2. Compute range of rows for each user in the input vector
+/// 3. Compute the sort key for the input rows which is used later for sorting
+pub fn histograms_ranges_sortkeys<BK, TV, TS>(
+    input: &mut [PrfShardedIpaInputRow<BK, TV, TS>],
+) -> (Vec<usize>, Vec<Range<usize>>)
 where
-    S: GroupingKey,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let mut histogram = vec![];
-    let mut last_prf = input[0].get_grouping_key() + 1;
+    let mut last_prf = 0;
     let mut cur_count = 0;
-    for row in input {
-        if row.get_grouping_key() == last_prf {
+    let mut start = 0;
+    let mut ranges = vec![];
+    for (idx, row) in input.iter_mut().enumerate() {
+        if idx != 0 && row.get_grouping_key() == last_prf {
             cur_count += 1;
         } else {
+            if idx > 0 {
+                ranges.push(start..idx);
+            }
+            start = idx;
             cur_count = 0;
             last_prf = row.get_grouping_key();
         }
+
+        row.compute_sort_key(cur_count.try_into().unwrap());
         if histogram.len() <= cur_count {
             histogram.push(0);
         }
         histogram[cur_count] += 1;
     }
-    histogram
+    ranges.push(start..input.len());
+    (histogram, ranges)
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -414,13 +466,6 @@ where
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
     SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -527,10 +572,6 @@ where
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
     SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -668,8 +709,6 @@ where
     C: Context,
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -724,7 +763,6 @@ where
     C: Context,
     TS: SharedValue,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -915,6 +953,7 @@ pub mod tests {
                     breakdown_key: breakdown_key0,
                     trigger_value: trigger_value0,
                     timestamp: timestamp0,
+                    sort_key: Replicated::ZERO,
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -922,6 +961,7 @@ pub mod tests {
                     breakdown_key: breakdown_key1,
                     trigger_value: trigger_value1,
                     timestamp: timestamp1,
+                    sort_key: Replicated::ZERO,
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -929,6 +969,7 @@ pub mod tests {
                     breakdown_key: breakdown_key2,
                     trigger_value: trigger_value2,
                     timestamp: timestamp2,
+                    sort_key: Replicated::ZERO,
                 },
             ]
         }

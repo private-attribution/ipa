@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 
 use ipa_macros::Step;
 
+use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -11,8 +12,7 @@ use crate::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
-                PrfShardedIpaInputRow,
+                attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
         RecordId,
@@ -27,17 +27,17 @@ use crate::{
 mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
-#[cfg(feature = "descriptive-gate")]
-#[cfg(all(test, unit_test))]
+
 mod quicksort;
-#[cfg(feature = "descriptive-gate")]
-pub mod shuffle;
+mod shuffle;
 
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
+    Shuffle,
+    SortByTimestamp,
 }
 
 /// IPA OPRF Protocol
@@ -48,10 +48,10 @@ pub(crate) enum Step {
 /// 2. Generates a random number of "dummy records" (needed to mask the information that will
 ///    be revealed in a later step, and thereby provide a differential privacy guarantee on that
 ///    information leakage) (TBD)
-/// 3. Shuffles the input (TBD)
+/// 3. Shuffles the input
 /// 4. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
 /// 5. Groups together rows with the same OPRF, and then obliviously sorts each group by the
-///    secret-shared timestamp (TBD)
+///    secret-shared timestamp
 /// 6. Attributes trigger events to source events
 /// 7. Caps each user's total contribution to the final result
 /// 8. Aggregates the contributions of all users
@@ -74,25 +74,25 @@ where
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
     SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
-    // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
-    // We might want to do it earlier as that's a cleaner code
+    let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
+    let mut prfd_inputs =
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
 
-    let prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
+    prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
+    let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
+    quicksort_ranges_by_key_insecure(
+        ctx.narrow(&Step::SortByTimestamp),
+        &mut prfd_inputs,
+        false,
+        |x| &x.sort_key,
+        ranges,
+    )
+    .await?;
 
-    // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
@@ -114,11 +114,6 @@ where
     BK: SharedValue + CustomArray<Element = Boolean> + Field,
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
@@ -145,6 +140,7 @@ where
                 breakdown_key: record.breakdown_key,
                 trigger_value: record.trigger_value,
                 timestamp: record.timestamp,
+                sort_key: Replicated::ZERO,
             })
         }
     }))
@@ -178,7 +174,7 @@ pub mod tests {
                     trigger_value: 0,
                 },
                 TestRawDataRecord {
-                    timestamp: 0,
+                    timestamp: 5,
                     user_id: 12345,
                     is_trigger_report: false,
                     breakdown_key: 2,

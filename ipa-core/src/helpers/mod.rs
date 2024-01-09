@@ -1,4 +1,5 @@
 use std::{
+    convert::Infallible,
     fmt::{Debug, Display, Formatter},
     num::NonZeroUsize,
 };
@@ -174,13 +175,8 @@ impl HelperIdentity {
 
 impl HelperIdentity {
     #[must_use]
-    #[allow(clippy::missing_panics_doc, clippy::unnecessary_fallible_conversions)]
     pub fn make_three() -> [Self; 3] {
-        [
-            Self::try_from(1).unwrap(),
-            Self::try_from(2).unwrap(),
-            Self::try_from(3).unwrap(),
-        ]
+        [Self::ONE, Self::TWO, Self::THREE]
     }
 }
 
@@ -437,13 +433,16 @@ impl<V: SharedValue> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(self.as_bytes());
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        Self::from(<[u8; 32]>::from(*buf))
+    fn deserialize(
+        buf: &GenericArray<u8, Self::Size>,
+    ) -> std::result::Result<Self, Self::DeserializationError> {
+        Ok(Self::from(<[u8; 32]>::from(*buf)))
     }
 }
 
@@ -818,7 +817,7 @@ mod concurrency_tests {
                         .unwrap();
 
                     let results = results.map(|bytes| {
-                        semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+                        semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
                             .collect::<Vec<_>>()
                     });
 
