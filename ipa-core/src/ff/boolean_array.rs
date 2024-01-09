@@ -1,5 +1,3 @@
-use std::fmt::{Binary, Formatter};
-
 use bitvec::{
     prelude::{bitarr, BitArr, Lsb0},
     slice::Iter,
@@ -44,57 +42,50 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
-/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` $bit values.
+/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
 /// This macro uses a bit of recursive repetition to produce those zeros.
 ///
 /// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
-macro_rules! bitarr_init {
+macro_rules! bitarr_one {
 
     // The binary value of `$bits-1` is expanded in MSB order for each of the values we care about.
     // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(expand)=> 1 0 0 1 1
-    [$bit:tt; 2] => { bitarr_init!($bit, 1) };
-    [$bit:tt; 3] => { bitarr_init!($bit, 1 0) };
-    [$bit:tt; 4] => { bitarr_init!($bit, 1 1) };
-    [$bit:tt; 5] => { bitarr_init!($bit, 1 0 0) };
-    [$bit:tt; 6] => { bitarr_init!($bit, 1 0 1) };
-    [$bit:tt; 7] => { bitarr_init!($bit, 1 1 0) };
-    [$bit:tt; 8] => { bitarr_init!($bit, 1 1 1) };
-    [$bit:tt; 20] => { bitarr_init!($bit, 1 0 0 1 1) };
-    [$bit:tt; 32] => { bitarr_init!($bit, 1 1 1 1 1) };
-    [$bit:tt; 64] => { bitarr_init!($bit, 1 1 1 1 1 1) };
-    [$bit:tt; 112] => { bitarr_init!($bit, 1 1 0 1 1 1 1) };
-    [$bit:tt; 256] => { bitarr_init!($bit, 1 1 1 1 1 1 1 1) };
 
-    // Incrementally convert 1 or 0 into `[$bit,]` or `[]` as needed for the recursion step.
+    (2) => { bitarr_one!(1) };
+    (3) => { bitarr_one!(1 0) };
+    (4) => { bitarr_one!(1 1) };
+    (5) => { bitarr_one!(1 0 0) };
+    (6) => { bitarr_one!(1 0 1) };
+    (7) => { bitarr_one!(1 1 0) };
+    (8) => { bitarr_one!(1 1 1) };
+    (20) => { bitarr_one!(1 0 0 1 1) };
+    (32) => { bitarr_one!(1 1 1 1 1) };
+    (64) => { bitarr_one!(1 1 1 1 1 1) };
+    (112) => { bitarr_one!(1 1 0 1 1 1 1) };
+    (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
+
+    // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
     // This also reverses the bit order so that the MSB comes last, as needed for recursion.
 
     // This passes a value back once the conversion is done.
-    ($bit:tt, $([$($x:tt)*])*) => { bitarr_init!(@r $bit, $([$($x)*])*) };
-    // This converts one 1 into `[$bit,]`.
-    ($bit:tt, $([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_init!($bit, [$bit,] $([$($x)*])* $($y)*) };
+    ($([$($x:tt)*])*) => { bitarr_one!(@r $([$($x)*])*) };
+    // This converts one 1 into `[0,]`.
+    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!([0,] $([$($x)*])* $($y)*) };
     // This converts one 0 into `[]`.
-    ($bit:tt, $([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_init!($bit, [] $([$($x)*])* $($y)*) };
+    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!([] $([$($x)*])* $($y)*) };
 
     // Recursion step.
 
     // This is where recursion ends with a `BitArray`.
-    (@r $bit:tt, [$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
+    (@r [$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
     // This is the recursion workhorse.  It takes a list of lists.  The outer lists are bracketed.
     // The inner lists contain any form that can be repeated and concatenated, which probably
     // means comma-separated values with a trailing comma.
     // The first value is repeated once.
     // The second value is repeated twice and merged into the first value.
     // The third and subsequent values are repeated twice and shifted along one place.
-    // One-valued bits are represented as `[$bits,]`, zero-valued bits as `[]`.
-    (@r $bit:tt, [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_init!(@r $bit, [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
-}
-
-/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
-/// This macro uses a bit of recursive repetition to produce those zeros.
-///
-/// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
-macro_rules! bitarr_one {
-    ($bits: tt) => { bitarr_init![0; $bits] }
+    // One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
+    (@r [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!(@r [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
 }
 
 // Macro for boolean arrays <= 128 bits.
@@ -168,7 +159,6 @@ macro_rules! boolean_array_impl_small {
 /// Macro to implement `Serializable` trait for boolean arrays. Depending on the size, conversion from [u8; N] to `BAXX`
 /// can be fallible (if N is not a multiple of 8) or infallible. This macro takes care of it and provides the correct
 /// implementation. Because macros can't do math, a hint is required to advise it which implementation it should provide.
-#[rustfmt::skip]
 macro_rules! impl_serializable_trait {
     ($name: ident, $bits: tt, fallible) => {
         #[derive(thiserror::Error, Debug)]
@@ -177,13 +167,6 @@ macro_rules! impl_serializable_trait {
             $bits
         )]
         pub struct NonZeroPadding(Store);
-
-        /// The maximum value this boolean array can represent: `2^N - 1` where `N` is the number of bits.
-        /// Because of the [`restrictions`](https://docs.rs/bitvec/1.0.1/bitvec/array/struct.BitArray.html#usage),
-        /// for arrays with size `N` that is not a multiple of `8`, the `Store` capacity is greater than the
-        /// maximum value. For example: `BA20` (20 bit array) requires 3 bytes in memory and
-        /// store capacity (~16M) is greater than the maximum value for `BA20` which is (~1M).
-        const MAX_VALUE: Store = bitarr_init![1; $bits];
 
         impl Serializable for $name {
             type Size = <Store as Block>::Size;
@@ -199,7 +182,7 @@ macro_rules! impl_serializable_trait {
                 let raw_val = <Store>::new(assert_copy(*buf).into());
 
                 // make sure trailing bits (padding) are zeroes.
-                if MAX_VALUE == MAX_VALUE | raw_val {
+                if raw_val[$bits..].not_any() {
                     Ok(Self(raw_val))
                 } else {
                     Err(NonZeroPadding(raw_val))
@@ -214,6 +197,10 @@ macro_rules! impl_serializable_trait {
             /// [`https://github.com/private-attribution/ipa/issues/911`]
             #[test]
             fn deals_with_padding() {
+                fn deserialize(val: Store) -> Result<$name, NonZeroPadding> {
+                    $name::deserialize(&GenericArray::from_array(val.into_inner()))
+                }
+
                 assert_ne!(
                     0,
                     $bits % 8,
@@ -223,16 +210,16 @@ macro_rules! impl_serializable_trait {
                 non_zero_padding.set($bits, true);
                 let min_value: Store = $name::ZERO.0;
                 let one = $name::ONE.0;
+                let mut max_value = $name::ZERO.0;
+                max_value[..$bits].fill(true);
 
-                let err =
-                    $name::deserialize(&GenericArray::from_array(non_zero_padding.into_inner()))
-                        .unwrap_err();
-                assert_eq!(non_zero_padding, err.0);
-                let _ =
-                    $name::deserialize(&GenericArray::from_array(min_value.into_inner())).unwrap();
-                let _ = $name::deserialize(&GenericArray::from_array(one.into_inner())).unwrap();
-                let _ =
-                    $name::deserialize(&GenericArray::from_array(MAX_VALUE.into_inner())).unwrap();
+                assert_eq!(
+                    non_zero_padding,
+                    deserialize(non_zero_padding).unwrap_err().0
+                );
+                deserialize(min_value).unwrap();
+                deserialize(one).unwrap();
+                deserialize(max_value).unwrap();
             }
         }
     };
