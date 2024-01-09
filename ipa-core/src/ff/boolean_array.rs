@@ -261,7 +261,7 @@ macro_rules! boolean_array_impl {
                     SharedValue,
                 },
             };
-            // formatting does not set the indent properly
+
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
