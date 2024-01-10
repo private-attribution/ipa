@@ -206,19 +206,22 @@ macro_rules! impl_serializable_trait {
                     $bits % 8,
                     "Padding only makes sense for lengths that are not multiples of 8."
                 );
+
                 let mut non_zero_padding: Store = $name::ZERO.0;
                 non_zero_padding.set($bits, true);
-                let min_value: Store = $name::ZERO.0;
-                let one = $name::ONE.0;
-                let mut max_value = $name::ZERO.0;
-                max_value[..$bits].fill(true);
-
                 assert_eq!(
                     non_zero_padding,
                     deserialize(non_zero_padding).unwrap_err().0
                 );
+
+                let min_value: Store = $name::ZERO.0;
                 deserialize(min_value).unwrap();
+
+                let one = $name::ONE.0;
                 deserialize(one).unwrap();
+
+                let mut max_value = $name::ZERO.0;
+                max_value[..$bits].fill(true);
                 deserialize(max_value).unwrap();
             }
         }
