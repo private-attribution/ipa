@@ -164,10 +164,10 @@ pub struct NonZeroPadding<B: Block>(GenericArray<u8, B::Size>, usize);
 /// can be fallible (if N is not a multiple of 8) or infallible. This macro takes care of it and provides the correct
 /// implementation. Because macros can't do math, a hint is required to advise it which implementation it should provide.
 macro_rules! impl_serializable_trait {
-    ($name: ident, $bits: tt, fallible) => {
+    ($name: ident, $bits: tt, $store: ty, fallible) => {
         impl Serializable for $name {
-            type Size = <Store as Block>::Size;
-            type DeserializationError = NonZeroPadding<Store>;
+            type Size = <$store as Block>::Size;
+            type DeserializationError = NonZeroPadding<$store>;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                 buf.copy_from_slice(self.0.as_raw_slice());
@@ -176,7 +176,7 @@ macro_rules! impl_serializable_trait {
             fn deserialize(
                 buf: &GenericArray<u8, Self::Size>,
             ) -> Result<Self, Self::DeserializationError> {
-                let raw_val = <Store>::new(assert_copy(*buf).into());
+                let raw_val = <$store>::new(assert_copy(*buf).into());
 
                 // make sure trailing bits (padding) are zeroes.
                 if raw_val[$bits..].not_any() {
@@ -197,7 +197,7 @@ macro_rules! impl_serializable_trait {
             /// [`https://github.com/private-attribution/ipa/issues/911`]
             #[test]
             fn deals_with_padding() {
-                fn deserialize(val: Store) -> Result<$name, NonZeroPadding<Store>> {
+                fn deserialize(val: $store) -> Result<$name, NonZeroPadding<$store>> {
                     $name::deserialize(&GenericArray::from_array(val.into_inner()))
                 }
 
@@ -207,14 +207,14 @@ macro_rules! impl_serializable_trait {
                     "Padding only makes sense for lengths that are not multiples of 8."
                 );
 
-                let mut non_zero_padding: Store = $name::ZERO.0;
+                let mut non_zero_padding = $name::ZERO.0;
                 non_zero_padding.set($bits, true);
                 assert_eq!(
                     GenericArray::from_array(non_zero_padding.into_inner()),
                     deserialize(non_zero_padding).unwrap_err().0
                 );
 
-                let min_value: Store = $name::ZERO.0;
+                let min_value = $name::ZERO.0;
                 deserialize(min_value).unwrap();
 
                 let one = $name::ONE.0;
@@ -227,14 +227,14 @@ macro_rules! impl_serializable_trait {
         }
     };
 
-    ($name: ident, $bits: tt, infallible) => {
+    ($name: ident, $bits: tt, $store: ty, infallible) => {
         const _SAFEGUARD: () = assert!(
             $bits % 8 == 0,
             "Infallible deserialization is defined for lengths that are multiples of 8 only"
         );
 
         impl Serializable for $name {
-            type Size = <Store as Block>::Size;
+            type Size = <$store as Block>::Size;
             type DeserializationError = std::convert::Infallible;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
@@ -244,7 +244,7 @@ macro_rules! impl_serializable_trait {
             fn deserialize(
                 buf: &GenericArray<u8, Self::Size>,
             ) -> Result<Self, Self::DeserializationError> {
-                Ok(Self(<Store>::new(assert_copy(*buf).into())))
+                Ok(Self(<$store>::new(assert_copy(*buf).into())))
             }
         }
     };
@@ -301,7 +301,7 @@ macro_rules! boolean_array_impl {
                 const ZERO: Self = Self(<Store>::ZERO);
             }
 
-            impl_serializable_trait!($name, $bits, $deser_type);
+            impl_serializable_trait!($name, $bits, Store, $deser_type);
 
             impl std::ops::Add for $name {
                 type Output = Self;
