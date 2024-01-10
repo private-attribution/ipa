@@ -156,21 +156,18 @@ macro_rules! boolean_array_impl_small {
     };
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("The provided byte slice contains non-zero value(s) {0:?} in padding bits [{1}..]")]
+pub struct NonZeroPadding<B: Block>(GenericArray<u8, B::Size>, usize);
+
 /// Macro to implement `Serializable` trait for boolean arrays. Depending on the size, conversion from [u8; N] to `BAXX`
 /// can be fallible (if N is not a multiple of 8) or infallible. This macro takes care of it and provides the correct
 /// implementation. Because macros can't do math, a hint is required to advise it which implementation it should provide.
 macro_rules! impl_serializable_trait {
     ($name: ident, $bits: tt, fallible) => {
-        #[derive(thiserror::Error, Debug)]
-        #[error(
-            "The provided byte slice contains non-zero value(s) {0:?} in padding bits [{}..]",
-            $bits
-        )]
-        pub struct NonZeroPadding(Store);
-
         impl Serializable for $name {
             type Size = <Store as Block>::Size;
-            type DeserializationError = NonZeroPadding;
+            type DeserializationError = NonZeroPadding<Store>;
 
             fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                 buf.copy_from_slice(self.0.as_raw_slice());
@@ -185,7 +182,10 @@ macro_rules! impl_serializable_trait {
                 if raw_val[$bits..].not_any() {
                     Ok(Self(raw_val))
                 } else {
-                    Err(NonZeroPadding(raw_val))
+                    Err(NonZeroPadding(
+                        GenericArray::from_array(raw_val.into_inner()),
+                        $bits,
+                    ))
                 }
             }
         }
@@ -197,7 +197,7 @@ macro_rules! impl_serializable_trait {
             /// [`https://github.com/private-attribution/ipa/issues/911`]
             #[test]
             fn deals_with_padding() {
-                fn deserialize(val: Store) -> Result<$name, NonZeroPadding> {
+                fn deserialize(val: Store) -> Result<$name, NonZeroPadding<Store>> {
                     $name::deserialize(&GenericArray::from_array(val.into_inner()))
                 }
 
@@ -210,7 +210,7 @@ macro_rules! impl_serializable_trait {
                 let mut non_zero_padding: Store = $name::ZERO.0;
                 non_zero_padding.set($bits, true);
                 assert_eq!(
-                    non_zero_padding,
+                    GenericArray::from_array(non_zero_padding.into_inner()),
                     deserialize(non_zero_padding).unwrap_err().0
                 );
 
