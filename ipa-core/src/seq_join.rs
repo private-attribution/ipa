@@ -415,8 +415,6 @@ mod multi_thread {
         // TODO: implement spawner for shuttle
         let mut scope = {
             let iter = iterable.into_iter();
-            // SAFETY: scope object does not escape this function. All futures are driven to
-            // completion inside it or cancelled if a panic occurs.
             let mut scope = unsafe { create_spawner() };
             for element in iter {
                 // it is important to make those cancellable.
