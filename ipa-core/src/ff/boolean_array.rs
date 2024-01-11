@@ -158,11 +158,12 @@ macro_rules! boolean_array_impl_small {
 
 #[derive(thiserror::Error, Debug)]
 #[error("The provided byte slice contains non-zero value(s) {0:?} in padding bits [{1}..]")]
-pub struct NonZeroPadding<B: Block>(GenericArray<u8, B::Size>, usize);
+pub struct NonZeroPadding<B: Block>(pub GenericArray<u8, B::Size>, pub usize);
 
 /// Macro to implement `Serializable` trait for boolean arrays. Depending on the size, conversion from [u8; N] to `BAXX`
 /// can be fallible (if N is not a multiple of 8) or infallible. This macro takes care of it and provides the correct
 /// implementation. Because macros can't do math, a hint is required to advise it which implementation it should provide.
+#[macro_export]
 macro_rules! impl_serializable_trait {
     ($name: ident, $bits: tt, $store: ty, fallible) => {
         impl Serializable for $name {
