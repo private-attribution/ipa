@@ -1,16 +1,23 @@
-use std::{num::NonZeroU32, ops::Not, pin::pin};
+use std::{
+    num::NonZeroU32,
+    ops::{Not, Range},
+};
 
-use futures::{stream::iter as stream_iter, TryStreamExt};
-use futures_util::{
+use futures::{
     future::{try_join, try_join3},
-    stream::unfold,
-    Stream, StreamExt,
+    stream::{iter as stream_iter, unfold},
+    Stream, StreamExt, TryStreamExt,
 };
 use ipa_macros::Step;
 
+use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA32, BA7},
+        ArrayAccess, CustomArray, Expand, Field, PrimeField, Serializable,
+    },
     helpers::Role,
     protocol::{
         basics::{if_else, SecureMul, ShareKnownValue},
@@ -28,7 +35,7 @@ use crate::{
             malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, WeakSharedValue,
+        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
     },
     seq_join::{seq_join, SeqJoin},
 };
@@ -38,15 +45,45 @@ pub mod bucket;
 pub mod feature_label_dot_product;
 
 #[derive(Debug)]
-pub struct PrfShardedIpaInputRow<BK: WeakSharedValue, TV: WeakSharedValue, TS: WeakSharedValue> {
+pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     pub prf_of_match_key: u64,
     pub is_trigger_bit: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
+    pub sort_key: Replicated<BA32>,
 }
 
-impl<BK: WeakSharedValue, TS: WeakSharedValue, TV: WeakSharedValue> GroupingKey
+impl<BK: SharedValue, TS, TV: SharedValue> PrfShardedIpaInputRow<BK, TV, TS>
+where
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    /// This function defines the sort key.
+    /// The order of sorting is `timestamp`, `is_trigger_bit`, `counter`.
+    /// We sort by `is_trigger_bit` to ensure source events come before trigger in case there
+    /// is a tie in timestamp
+    /// Counter is added to ensure each sorting key is unique to avoid privacy leakage
+    /// NOTE: the sort key will be interpreted in Little endian format, so the order in
+    /// which things are appended is important.
+    /// We still need to add epoch which will be added later
+    pub fn compute_sort_key(&mut self, counter: u64) {
+        expand_shared_array_in_place(
+            &mut self.sort_key,
+            &Replicated::new(BA7::truncate_from(counter), BA7::truncate_from(counter)),
+            0,
+        );
+        let mut offset = BA7::BITS as usize;
+
+        self.sort_key.0.set(offset, self.is_trigger_bit.left());
+        self.sort_key.1.set(offset, self.is_trigger_bit.right());
+
+        offset += 1;
+        expand_shared_array_in_place(&mut self.sort_key, &self.timestamp, offset);
+        // TODO(richaj): add epoch to sort key computation
+    }
+}
+
+impl<BK: SharedValue, TS: SharedValue, TV: SharedValue> GroupingKey
     for PrfShardedIpaInputRow<BK, TV, TS>
 {
     fn get_grouping_key(&self) -> u64 {
@@ -54,12 +91,8 @@ impl<BK: WeakSharedValue, TS: WeakSharedValue, TV: WeakSharedValue> GroupingKey
     }
 }
 
-struct InputsRequiredFromPrevRow<
-    BK: WeakSharedValue,
-    TV: WeakSharedValue,
-    TS: WeakSharedValue,
-    SS: WeakSharedValue,
-> {
+struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedValue, SS: SharedValue>
+{
     ever_encountered_a_source_event: Replicated<Boolean>,
     attributed_breakdown_key_bits: Replicated<BK>,
     saturating_sum: Replicated<SS>,
@@ -69,10 +102,10 @@ struct InputsRequiredFromPrevRow<
 }
 
 impl<
-        BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-        TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-        TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-        SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        BK: SharedValue + CustomArray<Element = Boolean> + Field,
+        TV: SharedValue + CustomArray<Element = Boolean> + Field,
+        TS: SharedValue + CustomArray<Element = Boolean> + Field,
+        SS: SharedValue + CustomArray<Element = Boolean> + Field,
     > InputsRequiredFromPrevRow<BK, TV, TS, SS>
 {
     ///
@@ -108,9 +141,6 @@ impl<
     ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
         C: Context,
-        for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
@@ -209,14 +239,14 @@ impl<
 }
 
 #[derive(Debug)]
-pub struct CappedAttributionOutputs<BK: WeakSharedValue, TV: WeakSharedValue> {
+pub struct CappedAttributionOutputs<BK: SharedValue, TV: SharedValue> {
     pub attributed_breakdown_key_bits: Replicated<BK>,
     pub capped_attributed_trigger_value: Replicated<TV>,
 }
 
 impl<
-        BK: WeakSharedValue + CustomArray<Element = Boolean>,
-        TV: WeakSharedValue + CustomArray<Element = Boolean>,
+        BK: SharedValue + CustomArray<Element = Boolean>,
+        TV: SharedValue + CustomArray<Element = Boolean>,
     > ToBitConversionTriples for CappedAttributionOutputs<BK, TV>
 {
     type Residual = ();
@@ -311,26 +341,44 @@ pub trait GroupingKey {
     fn get_grouping_key(&self) -> u64;
 }
 
-pub fn compute_histogram_of_users_with_row_count<S>(input: &[S]) -> Vec<usize>
+#[tracing::instrument(name = "histograms_ranges_sortkeys", skip_all)]
+/// This function does following computations per user
+/// 1. Compute histogram of users with row counts
+/// 2. Compute range of rows for each user in the input vector
+/// 3. Compute the sort key for the input rows which is used later for sorting
+pub fn histograms_ranges_sortkeys<BK, TV, TS>(
+    input: &mut [PrfShardedIpaInputRow<BK, TV, TS>],
+) -> (Vec<usize>, Vec<Range<usize>>)
 where
-    S: GroupingKey,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let mut histogram = vec![];
-    let mut last_prf = input[0].get_grouping_key() + 1;
+    let mut last_prf = 0;
     let mut cur_count = 0;
-    for row in input {
-        if row.get_grouping_key() == last_prf {
+    let mut start = 0;
+    let mut ranges = vec![];
+    for (idx, row) in input.iter_mut().enumerate() {
+        if idx != 0 && row.get_grouping_key() == last_prf {
             cur_count += 1;
         } else {
+            if idx > 0 {
+                ranges.push(start..idx);
+            }
+            start = idx;
             cur_count = 0;
             last_prf = row.get_grouping_key();
         }
+
+        row.compute_sort_key(cur_count.try_into().unwrap());
         if histogram.len() <= cur_count {
             histogram.push(0);
         }
         histogram[cur_count] += 1;
     }
-    histogram
+    ranges.push(start..input.len());
+    (histogram, ranges)
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -362,9 +410,9 @@ fn chunk_rows_by_user<IS, BK, TV, TS>(
     first_row: PrfShardedIpaInputRow<BK, TV, TS>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<BK, TV, TS>>>
 where
-    BK: WeakSharedValue,
-    TV: WeakSharedValue,
-    TS: WeakSharedValue,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue,
     IS: Stream<Item = PrfShardedIpaInputRow<BK, TV, TS>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -402,6 +450,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
+#[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
 pub async fn attribute_cap_aggregate<C, BK, TV, TS, SS, S, F>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
@@ -413,17 +462,10 @@ where
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
-    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    SS: SharedValue + CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -436,7 +478,6 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
@@ -451,29 +492,23 @@ where
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-    // Convert to a stream of async futures that represent the result of executing the per-user circuit
-    let stream_of_per_user_circuits = pin!(stream_iter(collected).then(|rows_for_user| {
-        let num_user_rows = rows_for_user.len();
-        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
-        let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
+    let per_user_results = collected
+        .into_iter()
+        .enumerate()
+        .map(|(record_id, rows_for_user)| {
+            let num_user_rows = rows_for_user.len();
+            let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-        for count in &mut record_id_for_row_depth[..num_user_rows] {
-            *count += 1;
-        }
-        #[allow(clippy::async_yields_async)]
-        // this is ok, because seq join wants a stream of futures
-        async move {
             evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
                 contexts,
-                record_ids,
+                RecordId::from(record_id),
                 rows_for_user,
                 attribution_window_seconds,
             )
-        }
-    }));
+        });
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattenned_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
+    let flattened_stream = seq_join(sh_ctx.active_work(), stream_iter(per_user_results))
         .flat_map(|x| stream_iter(x.unwrap()));
 
     // modulus convert breakdown keys and trigger values
@@ -481,8 +516,8 @@ where
         prime_field_ctx
             .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
             .set_total_records(num_outputs),
-        flattenned_stream,
-        0..(<BK as WeakSharedValue>::BITS + <TV as WeakSharedValue>::BITS),
+        flattened_stream,
+        0..(<BK as SharedValue>::BITS + <TV as SharedValue>::BITS),
     );
 
     // move each value to the correct bucket
@@ -496,14 +531,14 @@ where
         .map(|(i, (bk_and_tv_bits, ctx))| {
             let record_id: RecordId = RecordId::from(i);
             let bk_and_tv_bits = bk_and_tv_bits.unwrap();
-            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(<BK as WeakSharedValue>::BITS);
+            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(<BK as SharedValue>::BITS);
             async move {
                 bucket::move_single_value_to_bucket(
                     ctx,
                     record_id,
                     bk_bits,
                     BitDecomposed::to_additive_sharing_in_large_field_consuming(tv_bits),
-                    1 << <BK as WeakSharedValue>::BITS,
+                    1 << <BK as SharedValue>::BITS,
                     false,
                 )
                 .await
@@ -514,7 +549,7 @@ where
     let row_contributions = seq_join(prime_field_ctx.active_work(), row_contributions_stream);
     row_contributions
         .try_fold(
-            vec![S::ZERO; 1 << <BK as WeakSharedValue>::BITS],
+            vec![S::ZERO; 1 << <BK as SharedValue>::BITS],
             |mut running_sums, row_contribution| async move {
                 for (i, contribution) in row_contribution.iter().enumerate() {
                     running_sums[i] += contribution;
@@ -527,20 +562,16 @@ where
 
 async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
     ctx_for_row_number: Vec<C>,
-    record_id_for_each_depth: Vec<u32>,
+    record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
 where
     C: Context,
-    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    SS: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -553,12 +584,11 @@ where
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (i, row) in rows_for_user.iter().skip(1).enumerate() {
         let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
-        let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
 
         let capped_attribution_outputs = prev_row_inputs
             .compute_row_with_previous(
                 ctx_for_this_row_depth,
-                record_id_for_this_row_depth,
+                record_id,
                 row,
                 attribution_window_seconds,
             )
@@ -577,10 +607,10 @@ fn initialize_new_device_attribution_variables<BK, TV, TS, SS>(
     input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
 ) -> InputsRequiredFromPrevRow<BK, TV, TS, SS>
 where
-    BK: WeakSharedValue,
-    TV: WeakSharedValue,
-    TS: WeakSharedValue,
-    SS: WeakSharedValue,
+    BK: SharedValue,
+    TV: SharedValue,
+    TS: SharedValue,
+    SS: SharedValue,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_source_event: input_row.is_trigger_bit.clone().not(),
@@ -610,7 +640,7 @@ async fn breakdown_key_of_most_recent_source_event<C, BK>(
 ) -> Result<Replicated<BK>, Error>
 where
     C: Context,
-    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     let is_trigger_bit_array = Replicated::<BK>::expand(is_trigger_bit);
 
@@ -636,7 +666,7 @@ async fn timestamp_of_most_recent_source_event<C, TS>(
 ) -> Result<Replicated<TS>, Error>
 where
     C: Context,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
@@ -677,10 +707,8 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -733,9 +761,8 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 ) -> Result<Replicated<Boolean>, Error>
 where
     C: Context,
-    TS: WeakSharedValue,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
+    TS: SharedValue,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -791,7 +818,7 @@ async fn compute_capped_trigger_value<C, TV>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
@@ -805,7 +832,7 @@ where
         narrowed_ctx1,
         record_id,
         &is_saturated_array,
-        &Replicated::new(<TV as WeakSharedValue>::ZERO, <TV as WeakSharedValue>::ZERO),
+        &Replicated::new(<TV as SharedValue>::ZERO, <TV as SharedValue>::ZERO),
         attributed_trigger_value,
     )
     .await?;
@@ -834,17 +861,13 @@ pub mod tests {
         protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
         rand::Rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, WeakSharedValue,
+            replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
         },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<
-        BK: WeakSharedValue,
-        TV: WeakSharedValue,
-        TS: WeakSharedValue,
-    > {
+    struct PreShardedAndSortedOPRFTestInput<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
         breakdown_key: BK,
@@ -859,7 +882,7 @@ pub mod tests {
         trigger_value: u8,
     ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
     where
-        BK: WeakSharedValue + Field,
+        BK: SharedValue + Field,
     {
         oprf_test_input_with_timestamp(
             prf_of_match_key,
@@ -878,7 +901,7 @@ pub mod tests {
         timestamp: u32,
     ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
     where
-        BK: WeakSharedValue + Field,
+        BK: SharedValue + Field,
     {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
@@ -904,9 +927,9 @@ pub mod tests {
     impl<BK, TV, TS> IntoShares<PrfShardedIpaInputRow<BK, TV, TS>>
         for PreShardedAndSortedOPRFTestInput<BK, TV, TS>
     where
-        BK: WeakSharedValue + IntoShares<Replicated<BK>>,
-        TV: WeakSharedValue + IntoShares<Replicated<TV>>,
-        TS: WeakSharedValue + IntoShares<Replicated<TS>>,
+        BK: SharedValue + IntoShares<Replicated<BK>>,
+        TV: SharedValue + IntoShares<Replicated<TV>>,
+        TS: SharedValue + IntoShares<Replicated<TS>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<BK, TV, TS>; 3] {
             let PreShardedAndSortedOPRFTestInput {
@@ -930,6 +953,7 @@ pub mod tests {
                     breakdown_key: breakdown_key0,
                     trigger_value: trigger_value0,
                     timestamp: timestamp0,
+                    sort_key: Replicated::ZERO,
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -937,6 +961,7 @@ pub mod tests {
                     breakdown_key: breakdown_key1,
                     trigger_value: trigger_value1,
                     timestamp: timestamp1,
+                    sort_key: Replicated::ZERO,
                 },
                 PrfShardedIpaInputRow {
                     prf_of_match_key,
@@ -944,6 +969,7 @@ pub mod tests {
                     breakdown_key: breakdown_key2,
                     trigger_value: trigger_value2,
                     timestamp: timestamp2,
+                    sort_key: Replicated::ZERO,
                 },
             ]
         }
@@ -952,8 +978,8 @@ pub mod tests {
     impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
         for [&CappedAttributionOutputs<BK, TV>; 3]
     where
-        BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-        TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+        BK: SharedValue + CustomArray<Element = Boolean> + Field,
+        TV: SharedValue + CustomArray<Element = Boolean> + Field,
     {
         fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
             let [s0, s1, s2] = self;

@@ -51,44 +51,25 @@ pub trait Block: Sized + Copy + Debug {
     type Size: ArrayLength;
 }
 
-///allows basic secret sharing operations
-pub trait WeakSharedValue:
-    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
-{
-    type Storage: Block;
-
-    const BITS: u32;
-
-    const ZERO: Self;
-}
-
-///allows advanced secret sharing operations, requires multiplication
+/// Trait for types that are input to our additive secret sharing scheme.
+///
+/// Additive secret sharing requires an addition operation. In cases where arithmetic secret sharing
+/// (capable of supporting addition and multiplication) is desired, the `Field` trait extends
+/// `SharedValue` to require multiplication.
 pub trait SharedValue:
-    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Arithmetic + Serializable + 'static
+    Clone + Copy + Eq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
 {
     type Storage: Block;
 
     const BITS: u32;
 
     const ZERO: Self;
-}
-
-///any `SharedValue` is also a `WeakSharedValue`
-impl<T> WeakSharedValue for T
-where
-    T: SharedValue,
-{
-    type Storage = T::Storage;
-
-    const BITS: u32 = T::BITS;
-
-    const ZERO: Self = T::ZERO;
 }
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 impl<V> IntoShares<AdditiveShare<V>> for V
 where
-    V: WeakSharedValue,
+    V: SharedValue,
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {
@@ -107,16 +88,16 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::Fp31,
+        ff::{Field, Fp31},
         secret_sharing::{
             replicated::{malicious, semi_honest},
-            Linear, LinearRefOps, SharedValue,
+            Linear, LinearRefOps,
         },
     };
 
-    fn arithmetic<L: Linear<V> + PartialEq, V: SharedValue>()
+    fn arithmetic<L: Linear<F> + PartialEq, F: Field>()
     where
-        for<'a> &'a L: LinearRefOps<'a, L, V>,
+        for<'a> &'a L: LinearRefOps<'a, L, F>,
     {
         let a = L::ZERO;
         let b = L::ZERO;
@@ -127,32 +108,32 @@ mod tests {
         assert_eq!(L::ZERO, a + b);
     }
 
-    fn trait_bounds<L: Linear<V> + PartialEq, V: SharedValue>()
+    fn trait_bounds<L: Linear<F> + PartialEq, F: Field>()
     where
-        for<'a> &'a L: LinearRefOps<'a, L, V>,
+        for<'a> &'a L: LinearRefOps<'a, L, F>,
     {
-        fn sum_owned<S: Linear<V>, V: SharedValue>(a: S, b: S) -> S {
+        fn sum_owned<S: Linear<F>, F: Field>(a: S, b: S) -> S {
             a + b
         }
 
-        fn sum_ref_ref<S, V>(a: &S, b: &S) -> S
+        fn sum_ref_ref<S, F>(a: &S, b: &S) -> S
         where
-            S: Linear<V>,
-            V: SharedValue,
-            for<'a> &'a S: LinearRefOps<'a, S, V>,
+            S: Linear<F>,
+            F: Field,
+            for<'a> &'a S: LinearRefOps<'a, S, F>,
         {
             a + b
         }
 
-        fn sum_owned_ref<S: Linear<V>, V: SharedValue>(a: S, b: &S) -> S {
+        fn sum_owned_ref<S: Linear<F>, F: Field>(a: S, b: &S) -> S {
             a + b
         }
 
-        fn sum_ref_owned<S, V>(a: &S, b: S) -> S
+        fn sum_ref_owned<S, F>(a: &S, b: S) -> S
         where
-            S: Linear<V>,
-            V: SharedValue,
-            for<'a> &'a S: LinearRefOps<'a, S, V>,
+            S: Linear<F>,
+            F: Field,
+            for<'a> &'a S: LinearRefOps<'a, S, F>,
         {
             a + b
         }

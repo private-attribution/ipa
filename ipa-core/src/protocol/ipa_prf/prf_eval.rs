@@ -54,9 +54,7 @@ pub fn gen_prf_key<C>(ctx: &C) -> AdditiveShare<Fp25519>
 where
     C: Context,
 {
-    ctx.narrow(&Step::PRFKeyGen)
-        .prss()
-        .generate_replicated(RecordId(0))
+    ctx.narrow(&Step::PRFKeyGen).prss().generate(RecordId(0))
 }
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))
@@ -76,10 +74,7 @@ pub async fn eval_dy_prf<C>(
 where
     C: Context,
 {
-    let sh_r: AdditiveShare<Fp25519> = ctx
-        .narrow(&Step::GenRandomMask)
-        .prss()
-        .generate_replicated(record_id);
+    let sh_r: AdditiveShare<Fp25519> = ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
 
     //compute (g^left, g^right)
     let sh_gr = AdditiveShare::<RP25519>::from(sh_r.clone());

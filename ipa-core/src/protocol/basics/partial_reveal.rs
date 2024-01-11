@@ -13,7 +13,7 @@ use crate::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        WeakSharedValue,
+        SharedValue,
     },
 };
 
@@ -40,7 +40,7 @@ pub trait PartialReveal<C: Context, B: RecordBinding>: Sized {
 /// i.e. their own shares and received share.
 #[async_trait]
 // #[embed_doc_image("reveal", "images/reveal.png")]
-impl<C: Context, V: WeakSharedValue> PartialReveal<C, RecordId> for Replicated<V> {
+impl<C: Context, V: SharedValue> PartialReveal<C, RecordId> for Replicated<V> {
     type Output = V;
 
     async fn partial_reveal<'fut>(

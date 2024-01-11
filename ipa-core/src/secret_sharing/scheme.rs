@@ -3,16 +3,16 @@ use std::{
     ops::{Mul, Neg},
 };
 
-use super::{SharedValue, WeakSharedValue};
-use crate::ff::{AddSub, AddSubAssign, GaloisField};
+use super::SharedValue;
+use crate::ff::{AddSub, AddSubAssign, Field, GaloisField};
 
 /// Secret sharing scheme i.e. Replicated secret sharing
-pub trait SecretSharing<V: WeakSharedValue>: Clone + Debug + Sized + Send + Sync + 'static {
+pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync + 'static {
     const ZERO: Self;
 }
 
 /// Secret share of a secret that has additive and multiplicative properties.
-pub trait Linear<V: SharedValue>:
+pub trait Linear<V: Field>:
     SecretSharing<V>
     + AddSub
     + AddSubAssign

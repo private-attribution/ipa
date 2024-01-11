@@ -11,7 +11,7 @@ use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf2, PrimeField, Serializable},
+    ff::{ArrayAccess, Field, Gf2, PrimeField, Serializable},
     helpers::{query::IpaQueryConfig, Role},
     protocol::{
         attribution::secure_attribution,
@@ -35,7 +35,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SharedValue,
     },
 };
 
@@ -60,7 +60,7 @@ pub(crate) enum IPAInputRowResharableStep {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
+pub struct IPAInputRow<F: Field, MK: SharedValue, BK: SharedValue> {
     pub timestamp: Replicated<F>,
     pub mk_shares: Replicated<MK>,
     pub is_trigger_bit: Replicated<F>,
@@ -68,7 +68,7 @@ pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field, MK: GaloisField, BK: GaloisField> Serializable for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: SharedValue, BK: SharedValue> Serializable for IPAInputRow<F, MK, BK>
 where
     Replicated<BK>: Serializable,
     Replicated<MK>: Serializable,
@@ -115,6 +115,7 @@ where
             >>::Output,
         >>::Output,
     >>::Output;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
@@ -136,34 +137,40 @@ where
         ));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]));
+        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]))
+            .map_err(|e| Error::ParseError(e.into()))?;
         let mk_shares =
-            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
+            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]))
+                .map_err(|e| Error::ParseError(e.into()))?;
         let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let trigger_value = Replicated::<F>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz + bk_sz..],
-        ));
-        Self {
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+
+        Ok(Self {
             timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
-        }
+        })
     }
 }
 
-impl<F: Field, MK: GaloisField, BK: GaloisField> IPAInputRow<F, MK, BK>
+impl<F: Field, MK: SharedValue, BK: SharedValue> IPAInputRow<F, MK, BK>
 where
     IPAInputRow<F, MK, BK>: Serializable,
 {
@@ -172,7 +179,9 @@ where
     ///
     /// ## Panics
     /// Panics if the slice buffer is not aligned with the size of this struct.
-    pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
+    pub fn from_byte_slice(
+        input: &[u8],
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserializationError>> + '_ {
         assert_eq!(
             0,
             input.len() % <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE,
@@ -323,8 +332,8 @@ where
         + 'static,
     for<'r> &'r SB: LinearRefOps<'r, SB, Gf2>,
     F: PrimeField + ExtendableField,
-    MK: GaloisField,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
     for<'u> UpgradeContext<'u, C::UpgradedContext<F>, F, RecordId>: UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<S>>
         + UpgradeToMalicious<
@@ -413,16 +422,16 @@ fn get_gf2_match_key_bits<F, MK, BK>(
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
-    MK: GaloisField,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
 {
     input_rows
         .iter()
         .map(|row| {
             BitDecomposed::decompose(MK::BITS, |i| {
                 Replicated::new(
-                    Gf2::truncate_from(row.mk_shares.left()[i]),
-                    Gf2::truncate_from(row.mk_shares.right()[i]),
+                    Gf2::truncate_from(row.mk_shares.left().get(i.try_into().unwrap()).unwrap()),
+                    Gf2::truncate_from(row.mk_shares.right().get(i.try_into().unwrap()).unwrap()),
                 )
             })
         })
@@ -434,16 +443,23 @@ fn get_gf2_breakdown_key_bits<F, MK, BK>(
 ) -> Vec<BitDecomposed<Replicated<Gf2>>>
 where
     F: PrimeField,
-    MK: GaloisField,
-    BK: GaloisField,
+    MK: SharedValue + ArrayAccess<Output = bool>,
+    BK: SharedValue + ArrayAccess<Output = bool>,
 {
     input_rows
         .iter()
         .map(|row| {
             BitDecomposed::decompose(BK::BITS, |i| {
                 Replicated::new(
-                    Gf2::truncate_from(row.breakdown_key.left()[i]),
-                    Gf2::truncate_from(row.breakdown_key.right()[i]),
+                    Gf2::truncate_from(
+                        row.breakdown_key.left().get(i.try_into().unwrap()).unwrap(),
+                    ),
+                    Gf2::truncate_from(
+                        row.breakdown_key
+                            .right()
+                            .get(i.try_into().unwrap())
+                            .unwrap(),
+                    ),
                 )
             })
         })
@@ -961,7 +977,9 @@ pub mod tests {
 
             assert_eq!(
                 vec![a, b],
-                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
+                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
             );
         }
 

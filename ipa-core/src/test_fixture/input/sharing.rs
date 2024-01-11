@@ -17,7 +17,7 @@ use crate::{
     report::{EventType, OprfReport, Report},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        IntoShares, WeakSharedValue,
+        IntoShares, SharedValue,
     },
     test_fixture::{
         input::{GenericReportShare, GenericReportTestInput},
@@ -362,9 +362,9 @@ where
 
 impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: WeakSharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: WeakSharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: WeakSharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
+    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
+    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let is_trigger = Replicated::new(
@@ -400,5 +400,41 @@ where
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+    }
+}
+
+impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OprfReport<BK, TV, TS>; 3]
+where
+    BK: SharedValue + Field,
+    TV: SharedValue + Field,
+    TS: SharedValue + Field,
+{
+    fn reconstruct(&self) -> TestRawDataRecord {
+        let [s0, s1, s2] = self;
+
+        let is_trigger_report = [&s0.is_trigger, &s1.is_trigger, &s2.is_trigger].reconstruct();
+
+        let user_id = [&s0.match_key, &s1.match_key, &s2.match_key]
+            .reconstruct()
+            .as_u128();
+
+        let breakdown_key = [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key]
+            .reconstruct()
+            .as_u128();
+
+        let trigger_value = [&s0.trigger_value, &s1.trigger_value, &s2.trigger_value]
+            .reconstruct()
+            .as_u128();
+        let timestamp = [&s0.timestamp, &s1.timestamp, &s2.timestamp]
+            .reconstruct()
+            .as_u128();
+
+        TestRawDataRecord {
+            user_id: user_id.try_into().unwrap(),
+            is_trigger_report: is_trigger_report.into(),
+            breakdown_key: breakdown_key.try_into().unwrap(),
+            trigger_value: trigger_value.try_into().unwrap(),
+            timestamp: timestamp.try_into().unwrap(),
+        }
     }
 }

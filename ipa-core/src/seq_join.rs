@@ -577,7 +577,6 @@ mod test {
     };
 
     use super::*;
-    use crate::seq_join::multi_thread::parallel_join;
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -672,8 +671,10 @@ mod test {
     /// This test demonstrates that forgetting the future returned by `parallel_join` is not safe and will cause
     /// use-after-free safety error.
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "multi-threading")]
     #[ignore] // sanitizers will flag this test
     async fn parallel_join_forget_is_not_safe() {
+        use crate::seq_join::multi_thread::parallel_join;
         const N: usize = 24;
         let borrow_from_me = vec![1, 2, 3];
         let barrier1 = Arc::new(tokio::sync::Barrier::new(N + 1));

@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
 };
 
 #[cfg(all(test, unit_test))]
@@ -30,9 +30,8 @@ pub async fn compare_geq<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray + Field,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     // we need to initialize carry to 1 for x>=y,
@@ -55,9 +54,8 @@ pub async fn compare_gt<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray + Field,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     // we need to initialize carry to 0 for x>y
@@ -80,9 +78,8 @@ pub async fn integer_sub<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
-    XS: WeakSharedValue + CustomArray + Field,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     // we need to initialize carry to 1 for a subtraction
@@ -104,7 +101,6 @@ pub async fn integer_sat_sub<C, S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
     S: CustomArray + Field,
     S::Element: Field + std::ops::Not<Output = S::Element>,
 {
@@ -141,13 +137,12 @@ async fn subtraction_circuit<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    XS: WeakSharedValue + CustomArray,
-    YS: WeakSharedValue + CustomArray<Element = XS::Element>,
+    XS: SharedValue + CustomArray,
+    YS: SharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
+    for (i, v) in x.iter().enumerate() {
         result.set(
             i,
             bit_subtractor(

@@ -42,7 +42,7 @@ extern crate shuttle_crate as shuttle;
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod sync {
-    pub use shuttle::sync::{Arc, Mutex, MutexGuard, Once, Weak};
+    pub use shuttle::sync::{Arc, Mutex, MutexGuard, Weak};
     pub mod atomic {
         pub use shuttle::sync::atomic::{AtomicUsize, Ordering};
     }
@@ -50,7 +50,7 @@ pub(crate) mod sync {
 
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod sync {
-    pub use std::sync::{Arc, Mutex, MutexGuard, Once, Weak};
+    pub use std::sync::{Arc, Mutex, MutexGuard, Weak};
     pub mod atomic {
         pub use std::sync::atomic::{AtomicUsize, Ordering};
     }

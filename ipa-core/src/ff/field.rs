@@ -1,9 +1,13 @@
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    ops::{Mul, MulAssign},
+};
 
 use typenum::{U1, U4};
 
 use crate::{
     error,
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -15,7 +19,17 @@ impl Block for u32 {
     type Size = U4;
 }
 
-pub trait Field: SharedValue + TryFrom<u128, Error = error::Error> + Into<Self::Storage> {
+/// Trait for field elements.
+///
+/// Basic functionality (Clone, Eq, Debug) and an addition operation are inherited from `SharedValue`.
+pub trait Field:
+    SharedValue
+    + Mul<Self, Output = Self>
+    + MulAssign<Self>
+    + FromRandomU128
+    + TryFrom<u128, Error = error::Error>
+    + Into<Self::Storage>
+{
     /// Multiplicative identity element
     const ONE: Self;
 

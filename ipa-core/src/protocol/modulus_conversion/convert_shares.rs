@@ -34,7 +34,7 @@ use pin_project::pin_project;
 use crate::{
     error::Error,
     exact::ExactSizeStream,
-    ff::{Field, GaloisField, Gf2, PrimeField},
+    ff::{ArrayAccess, Field, Gf2, PrimeField},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},
@@ -44,7 +44,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, Linear as LinearSecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
     },
     seq_join::seq_join,
 };
@@ -132,7 +132,9 @@ pub trait ToBitConversionTriples {
         I: IntoIterator<Item = u32>;
 }
 
-impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
+impl<B: SharedValue + ArrayAccess<Output = T>, T: Into<bool>> ToBitConversionTriples
+    for Replicated<B>
+{
     type Residual = ();
 
     fn bits(&self) -> u32 {
@@ -140,7 +142,12 @@ impl<B: GaloisField> ToBitConversionTriples for Replicated<B> {
     }
 
     fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
-        BitConversionTriple::new(role, self.left()[i], self.right()[i])
+        let i = usize::try_from(i).unwrap();
+        BitConversionTriple::new(
+            role,
+            self.left().get(i).unwrap().into(),
+            self.right().get(i).unwrap().into(),
+        )
     }
 
     fn into_triples<F, I>(

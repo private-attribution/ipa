@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 
 use ipa_macros::Step;
 
+use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::Error,
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
@@ -11,8 +12,7 @@ use crate::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
             prf_sharding::{
-                attribute_cap_aggregate, compute_histogram_of_users_with_row_count,
-                PrfShardedIpaInputRow,
+                attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
         RecordId,
@@ -20,21 +20,24 @@ use crate::{
     report::OprfReport,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        WeakSharedValue,
+        SharedValue,
     },
 };
 
 mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
-#[cfg(feature = "descriptive-gate")]
-pub mod shuffle;
+
+mod quicksort;
+mod shuffle;
 
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
+    Shuffle,
+    SortByTimestamp,
 }
 
 /// IPA OPRF Protocol
@@ -45,10 +48,10 @@ pub(crate) enum Step {
 /// 2. Generates a random number of "dummy records" (needed to mask the information that will
 ///    be revealed in a later step, and thereby provide a differential privacy guarantee on that
 ///    information leakage) (TBD)
-/// 3. Shuffles the input (TBD)
+/// 3. Shuffles the input
 /// 4. Computes an OPRF of these elliptic curve points and reveals this "pseudonym"
 /// 5. Groups together rows with the same OPRF, and then obliviously sorts each group by the
-///    secret-shared timestamp (TBD)
+///    secret-shared timestamp
 /// 6. Attributes trigger events to source events
 /// 7. Caps each user's total contribution to the final result
 /// 8. Aggregates the contributions of all users
@@ -67,29 +70,29 @@ where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    SS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    SS: SharedValue + CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
-    // TODO (richaj): Add shuffle either before the protocol starts or, after converting match keys to elliptical curve.
-    // We might want to do it earlier as that's a cleaner code
+    let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
+    let mut prfd_inputs =
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
 
-    let prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), input_rows).await?;
+    prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
-    let histogram = compute_histogram_of_users_with_row_count(&prfd_inputs);
+    let (histogram, ranges) = histograms_ranges_sortkeys(&mut prfd_inputs);
+    quicksort_ranges_by_key_insecure(
+        ctx.narrow(&Step::SortByTimestamp),
+        &mut prfd_inputs,
+        false,
+        |x| &x.sort_key,
+        ranges,
+    )
+    .await?;
 
-    // TODO (richaj) : Call quicksort on match keys followed by timestamp before calling attribution logic
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
         ctx,
         prfd_inputs,
@@ -99,6 +102,7 @@ where
     .await
 }
 
+#[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
     input_rows: Vec<OprfReport<BK, TV, TS>>,
@@ -107,14 +111,9 @@ where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    BK: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TV: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    TS: WeakSharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
+    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
@@ -124,16 +123,16 @@ where
 
     let prf_key = gen_prf_key(&convert_ctx);
 
-    ctx.parallel_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
+    ctx.try_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
         let convert_ctx = convert_ctx.clone();
         let eval_ctx = eval_ctx.clone();
-        let prf_key = prf_key.clone();
+        let prf_key = &prf_key;
         async move {
             let record_id = RecordId::from(idx);
             let elliptic_curve_pt =
                 convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key).await?;
             let elliptic_curve_pt =
-                eval_dy_prf(eval_ctx, record_id, &prf_key, &elliptic_curve_pt).await?;
+                eval_dy_prf(eval_ctx, record_id, prf_key, &elliptic_curve_pt).await?;
 
             Ok::<_, Error>(PrfShardedIpaInputRow {
                 prf_of_match_key: elliptic_curve_pt,
@@ -141,6 +140,7 @@ where
                 breakdown_key: record.breakdown_key,
                 trigger_value: record.trigger_value,
                 timestamp: record.timestamp,
+                sort_key: Replicated::ZERO,
             })
         }
     }))
@@ -174,7 +174,7 @@ pub mod tests {
                     trigger_value: 0,
                 },
                 TestRawDataRecord {
-                    timestamp: 0,
+                    timestamp: 5,
                     user_id: 12345,
                     is_trigger_report: false,
                     breakdown_key: 2,

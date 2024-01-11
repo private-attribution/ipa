@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess, CustomArray,
-        Field,
+        Expand, Field,
     },
     helpers::Role,
     protocol::{
@@ -15,7 +15,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        WeakSharedValue,
+        SharedValue,
     },
 };
 
@@ -99,8 +99,7 @@ pub async fn convert_to_fp25519<C, B>(
 ) -> Result<AdditiveShare<Fp25519>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
-    B: WeakSharedValue + CustomArray<Element = Boolean> + Field,
+    B: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
@@ -112,7 +111,7 @@ where
         let mut r: AdditiveShare<BA256> = ctx
             .narrow(&Step::GenerateSecretSharing)
             .prss()
-            .generate_replicated(record_id);
+            .generate(record_id);
 
         // set 2 highest order bits of r1, r2, r3 to 0
         r.set(255, AdditiveShare::<Boolean>::ZERO);
@@ -123,22 +122,16 @@ where
         // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
         match ctx.role() {
             Role::H1 => (
-                AdditiveShare(
-                    <BA256 as WeakSharedValue>::ZERO,
-                    <BA256 as WeakSharedValue>::ZERO,
-                ),
-                AdditiveShare(r.0, <BA256 as WeakSharedValue>::ZERO),
+                AdditiveShare(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
+                AdditiveShare(r.0, <BA256 as SharedValue>::ZERO),
             ),
             Role::H2 => (
-                AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
-                AdditiveShare(
-                    <BA256 as WeakSharedValue>::ZERO,
-                    <BA256 as WeakSharedValue>::ZERO,
-                ),
+                AdditiveShare(<BA256 as SharedValue>::ZERO, r.1),
+                AdditiveShare(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
             ),
             Role::H3 => (
-                AdditiveShare(r.0, <BA256 as WeakSharedValue>::ZERO),
-                AdditiveShare(<BA256 as WeakSharedValue>::ZERO, r.1),
+                AdditiveShare(r.0, <BA256 as SharedValue>::ZERO),
+                AdditiveShare(<BA256 as SharedValue>::ZERO, r.1),
             ),
         }
     };
@@ -189,16 +182,48 @@ where
     }
 }
 
+/// inserts smaller array in the larger array starting from location offset
+pub fn expand_shared_array_in_place<YS, XS>(
+    y: &mut AdditiveShare<YS>,
+    x: &AdditiveShare<XS>,
+    offset: usize,
+) where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    for i in 0..XS::BITS as usize {
+        y.set(
+            i + offset,
+            x.get(i).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+        );
+    }
+}
+
+// This function extracts shares of a small array from the larger array
+pub fn extract_from_shared_array<YS, XS>(y: &AdditiveShare<YS>, offset: usize) -> AdditiveShare<XS>
+where
+    YS: CustomArray<Element = Boolean> + SharedValue,
+    XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+{
+    let mut x = AdditiveShare::<XS>::ZERO;
+    for i in 0..XS::BITS as usize {
+        x.set(
+            i,
+            y.get(i + offset).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+        );
+    }
+    x
+}
+
 /// inserts a smaller array into a larger
 /// allows conversion between Boolean Array types like 'BA64' and 'BA256'
 /// we don't use it right except for testing purposes
 #[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray,
-    YS: CustomArray<Element = XS::Element> + WeakSharedValue,
-    XS::Element: WeakSharedValue,
+    YS: CustomArray<Element = XS::Element> + SharedValue,
+    XS::Element: SharedValue,
 {
     let mut y = YS::ZERO;
     for i in 0..<YS>::BITS as usize {
@@ -220,11 +245,9 @@ pub fn expand_shared_array<XS, YS>(
     offset: Option<usize>,
 ) -> AdditiveShare<YS>
 where
-    for<'a> &'a AdditiveShare<YS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
-    XS: CustomArray + WeakSharedValue,
-    YS: CustomArray<Element = XS::Element> + WeakSharedValue,
-    XS::Element: WeakSharedValue,
+    XS: CustomArray + SharedValue,
+    YS: CustomArray<Element = XS::Element> + SharedValue,
+    XS::Element: SharedValue,
 {
     AdditiveShare::<YS>(
         expand_array(&x.left(), offset),
@@ -254,7 +277,7 @@ mod tests {
             },
         },
         rand::thread_rng,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, WeakSharedValue},
+        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };

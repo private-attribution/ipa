@@ -3,12 +3,17 @@ use std::{
     ops::Index,
 };
 
-use bitvec::prelude::{bitarr, BitArr, Lsb0};
+use bitvec::{
+    prelude::{bitarr, BitArr, Lsb0},
+    slice::Iter,
+};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
+use super::ArrayAccess;
 use crate::{
     ff::{Field, Serializable},
+    protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
 
@@ -130,6 +135,18 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
     product
 }
 
+/// Iterates over bit arrays and yields `bool` values. The reason why we can't use [`BitValIter`] from the bitvec crate
+/// is that this type is not `Send`.
+///
+/// [`BitValIter`]: bitvec::slice::BitValIter
+pub struct BoolIterator<'a>(Iter<'a, u8, Lsb0>);
+impl<'a> Iterator for BoolIterator<'a> {
+    type Item = bool;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|v| *v)
+    }
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
@@ -162,6 +179,35 @@ macro_rules! bit_array_impl {
                     const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
                     let v = &(v.into() & MASK).to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+
+            impl ArrayAccess for $name {
+                type Output = bool;
+                type Iter<'a> = BoolIterator<'a>;
+
+                fn get(&self, index: usize) -> Option<Self::Output> {
+                    if index < usize::try_from(<$name>::BITS).unwrap() {
+                        Some(self.0[index].into())
+                    } else {
+                        None
+                    }
+                }
+
+                fn set(&mut self, index: usize, e: Self::Output) {
+                    debug_assert!(index < usize::try_from(<$name>::BITS).unwrap());
+                    self.0.set(index, bool::from(e));
+                }
+
+                fn iter(&self) -> Self::Iter<'_> {
+                    BoolIterator(self.0.iter())
+                }
+            }
+
+            impl FromRandomU128 for $name {
+                fn from_random_u128(src: u128) -> Self {
+                    Field::truncate_from(src)
                 }
             }
 
@@ -418,13 +464,14 @@ macro_rules! bit_array_impl {
 
             impl Serializable for $name {
                 type Size = <$store as Block>::Size;
+                type DeserializationError = std::convert::Infallible;
 
                 fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
-                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-                    Self(<$store>::new(assert_copy(*buf).into()))
+                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+                    Ok(Self(<$store>::new(assert_copy(*buf).into())))
                 }
             }
 
@@ -552,7 +599,7 @@ macro_rules! bit_array_impl {
                     let mut buf = GenericArray::default();
                     a.clone().serialize(&mut buf);
 
-                    assert_eq!(a, $name::deserialize(&buf));
+                    assert_eq!(a, $name::deserialize_infallible(&buf));
                 }
             }
 
@@ -611,16 +658,6 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^9 + x^4 + x^3 + x + 1
     0b10_0001_1011_u128,
-);
-
-bit_array_impl!(
-    bit_array_5,
-    Gf5Bit,
-    U8_1,
-    5,
-    bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0),
-    // x^5 + x^4 + x^3 + x^2 + x + 1
-    0b111_111_u128,
 );
 
 bit_array_impl!(

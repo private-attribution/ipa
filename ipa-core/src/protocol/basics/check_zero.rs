@@ -52,7 +52,7 @@ pub async fn check_zero<C: Context, F: Field>(
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
-    let r_sharing = ctx.prss().generate_replicated(record_id);
+    let r_sharing: Replicated<F> = ctx.prss().generate(record_id);
 
     let rv_share = r_sharing
         .multiply(v, ctx.narrow(&Step::MultiplyWithR), record_id)
