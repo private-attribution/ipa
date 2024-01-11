@@ -668,33 +668,37 @@ mod test {
 
     /// This test demonstrates that forgetting the future returned by `parallel_join` is not safe and will cause
     /// use-after-free safety error.
+    ///
+    /// TODO: Run tests with multi-threading runtimes in CI
     #[tokio::test(flavor = "multi_thread")]
     #[cfg(feature = "multi-threading")]
-    #[ignore] // sanitizers will flag this test
     async fn parallel_join_forget_is_not_safe() {
         use futures::future::poll_immediate;
 
         use crate::{seq_join::multi_thread::parallel_join, sync::Arc};
 
         const N: usize = 24;
-        let borrow_from_me = vec![1, 2, 3];
-        let barrier1 = Arc::new(tokio::sync::Barrier::new(N + 1));
-        let barrier2 = Arc::new(tokio::sync::Barrier::new(N + 1));
+        let borrow_from_me = Arc::new(vec![1, 2, 3]);
+        let start = Arc::new(tokio::sync::Barrier::new(N + 1));
+        // counts how many tasks have accessed `borrow_from_me` after it was destroyed.
+        // this test expects all tasks to access `borrow_from_me` at least once.
+        let bad_accesses = Arc::new(tokio::sync::Barrier::new(N + 1));
 
         let iterable = (0..N)
-            .map(|i| {
-                let borrowed = &borrow_from_me;
-                let b1 = barrier1.clone();
-                let b2 = barrier2.clone();
+            .map(|_| {
+                let borrowed = Arc::downgrade(&borrow_from_me);
+                let start = start.clone();
+                let bad_access = bad_accesses.clone();
                 async move {
-                    b1.wait().await;
+                    start.wait().await;
+                    // at this point, the parent future is forgotten and borrowed should point to nothing
                     for _ in 0..100 {
-                        if borrowed != &vec![1, 2, 3] {
-                            panic!("corruption inside task {i}: {borrowed:?} != [1, 2, 3]")
+                        if borrowed.upgrade().is_none() {
+                            bad_access.wait().await;
+                            break;
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        tokio::task::yield_now().await;
                     }
-                    b2.wait().await;
                     Ok::<(), ()>(())
                 }
             })
@@ -702,13 +706,15 @@ mod test {
 
         let mut f = parallel_join(iterable);
         poll_immediate(&mut f).await;
-        barrier1.wait().await;
+        start.wait().await;
 
         // forgetting f does not mean that futures spawned by `parallel_join` will be cancelled.
         std::mem::forget(f);
 
-        // Async executor will still be polling futures that borrow this vector and this will cause use-after-free.
+        // Async executor will still be polling futures and they will try to follow this pointer.
         drop(borrow_from_me);
-        barrier2.wait().await;
+
+        // this test should terminate because all tasks should access `borrow_from_me` at least once.
+        bad_accesses.wait().await;
     }
 }
