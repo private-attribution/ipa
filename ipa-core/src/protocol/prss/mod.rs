@@ -47,7 +47,7 @@ impl UsedSet {
         let raw_index = u128::from(index);
         if raw_index > usize::MAX as u128 {
             // This is unreachable with the current PRSS index encoding.
-            tracing::warn!("Index '{index}' is not supported by PRSS verification.");
+            tracing::warn!("PRSS index is too large: {index} > usize::MAX");
         } else {
             assert!(
                 self.used.lock().unwrap().insert(raw_index as usize),
@@ -91,9 +91,7 @@ impl Display for PrssIndex128 {
 impl From<u64> for PrssIndex128 {
     fn from(value: u64) -> Self {
         Self {
-            index: u32::try_from((value >> 32) & u64::from(u32::MAX))
-                .unwrap()
-                .into(),
+            index: u32::try_from(value >> 32).unwrap().into(),
             offset: u32::try_from(value & u64::from(u32::MAX)).unwrap(),
         }
     }
@@ -122,7 +120,10 @@ impl From<u32> for PrssIndex {
 // It would be nice for this to be TryFrom, but there's a lot of places where we use u128s as PRSS indexes.
 impl From<u128> for PrssIndex {
     fn from(value: u128) -> Self {
-        Self(value.try_into().expect("PRSS index out of range"))
+        let Ok(v) = u32::try_from(value) else {
+            panic!("PRSS indices need to be smaller: {value} > u32::MAX");
+        };
+        Self(v)
     }
 }
 
