@@ -196,6 +196,22 @@ impl FromRandomU128 for Boolean {
     }
 }
 
+impl Vectorizable<64> for Boolean {
+    type Array = crate::ff::boolean_array::BA64;
+}
+
+impl FieldVectorizable<64> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA64;
+}
+
+impl Vectorizable<256> for Boolean {
+    type Array = crate::ff::boolean_array::BA256;
+}
+
+impl FieldVectorizable<256> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA256;
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;

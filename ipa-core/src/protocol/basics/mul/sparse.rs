@@ -121,14 +121,14 @@ impl ZeroPositions {
             let flags = <[bool; 3]>::from(self);
             if flags[role as usize] {
                 assert_eq!(
-                    &<V as Vectorizable<N>>::Array::ZERO,
+                    &<V as Vectorizable<N>>::Array::ZERO_ARRAY,
                     v.left_arr(),
                     "expected a zero on the left for input {which}"
                 );
             }
             if flags[role.peer(Right) as usize] {
                 assert_eq!(
-                    &<V as Vectorizable<N>>::Array::ZERO,
+                    &<V as Vectorizable<N>>::Array::ZERO_ARRAY,
                     v.right_arr(),
                     "expected a zero on the right for input {which}"
                 );

@@ -63,7 +63,7 @@ impl<V: SharedValue, const N: usize> SharedValueArray<V> for StdArray<V, N>
 where
     Self: Sendable,
 {
-    const ZERO: Self = Self([V::ZERO; N]);
+    const ZERO_ARRAY: Self = Self([V::ZERO; N]);
 
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self {
         Self(array::from_fn(f))
@@ -91,7 +91,7 @@ where
     Self: Sendable, // required for `<Self as SharedValueArray>::ZERO`
 {
     fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
-        let mut res = Self::ZERO;
+        let mut res = Self::ZERO_ARRAY;
         let mut iter = iter.into_iter();
 
         for i in 0..N {

@@ -6,7 +6,7 @@ use generic_array::GenericArray;
 use typenum::{U14, U2, U32, U8};
 
 use crate::{
-    ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
+    ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
@@ -28,9 +28,14 @@ macro_rules! store_impl {
     };
 }
 
-/// iterator for Boolean arrays
+/// Iterator returned by `.iter()` on Boolean arrays
 pub struct BAIterator<'a> {
     iterator: std::iter::Take<Iter<'a, u8, Lsb0>>,
+}
+
+/// Iterator returned by `.into_iter()` on Boolean arrays
+pub struct BAOwnedIterator<S: IntoIterator> {
+    iterator: std::iter::Take<S::IntoIter>,
 }
 
 ///impl Iterator for all Boolean arrays
@@ -43,6 +48,30 @@ impl<'a> Iterator for BAIterator<'a> {
 }
 
 impl<'a> ExactSizeIterator for BAIterator<'a> {
+    fn len(&self) -> usize {
+        self.iterator.len()
+    }
+}
+
+impl<S> Iterator for BAOwnedIterator<S>
+where
+    S: IntoIterator,
+    S::IntoIter: ExactSizeIterator,
+    <S::IntoIter as Iterator>::Item: Into<Boolean>,
+{
+    type Item = Boolean;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iterator.next().map(Into::into)
+    }
+}
+
+impl<S> ExactSizeIterator for BAOwnedIterator<S>
+where
+    S: IntoIterator,
+    S::IntoIter: ExactSizeIterator,
+    <S::IntoIter as Iterator>::Item: Into<Boolean>,
+{
     fn len(&self) -> usize {
         self.iterator.len()
     }
@@ -271,11 +300,11 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, ArrayBuild, Expand, Serializable},
                 impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{ASIterator, AdditiveShare},
-                    SharedValue,
+                    FieldArray, SharedValue, SharedValueArray,
                 },
             };
 
@@ -324,17 +353,17 @@ macro_rules! boolean_array_impl {
 
             impl_serializable_trait!($name, $bits, Store, $deser_type);
 
-            impl std::ops::Add for $name {
+            impl std::ops::Add<&Self> for $name {
                 type Output = Self;
-                fn add(self, rhs: Self) -> Self::Output {
+                fn add(self, rhs: &Self) -> Self::Output {
                     Self(self.0 ^ rhs.0)
                 }
             }
 
-            impl std::ops::Add<&$name> for $name {
-                type Output = $name;
-                fn add(self, rhs: &$name) -> Self::Output {
-                    $name(self.0 ^ rhs.0)
+            impl std::ops::Add for $name {
+                type Output = Self;
+                fn add(self, rhs: Self) -> Self::Output {
+                    std::ops::Add::add(self, &rhs)
                 }
             }
 
@@ -352,22 +381,41 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl std::ops::AddAssign<&Self> for $name {
+                fn add_assign(&mut self, rhs: &Self) {
+                    *self.0.as_mut_bitslice() ^= rhs.0;
+                }
+            }
+
             impl std::ops::AddAssign for $name {
                 fn add_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() ^= rhs.0;
+                    std::ops::AddAssign::add_assign(self, &rhs);
+                }
+            }
+
+            impl std::ops::Sub<&Self> for $name {
+                type Output = Self;
+                fn sub(self, rhs: &Self) -> Self::Output {
+                    std::ops::Add::add(self, rhs)
                 }
             }
 
             impl std::ops::Sub for $name {
                 type Output = Self;
                 fn sub(self, rhs: Self) -> Self::Output {
-                    self + rhs
+                    std::ops::Add::add(self, rhs)
+                }
+            }
+
+            impl std::ops::SubAssign<&Self> for $name {
+                fn sub_assign(&mut self, rhs: &Self) {
+                    std::ops::AddAssign::add_assign(self, rhs);
                 }
             }
 
             impl std::ops::SubAssign for $name {
                 fn sub_assign(&mut self, rhs: Self) {
-                    *self += rhs;
+                    std::ops::SubAssign::sub_assign(self, &rhs);
                 }
             }
 
@@ -382,16 +430,34 @@ macro_rules! boolean_array_impl {
                 type Array = StdArray<$name, 1>;
             }
 
+            impl std::ops::Mul<&Self> for $name {
+                type Output = Self;
+                fn mul(self, rhs: &Self) -> Self::Output {
+                    Self(self.0 & rhs.0)
+                }
+            }
+
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    Self(self.0 & rhs.0)
+                    std::ops::Mul::mul(self, &rhs)
                 }
             }
 
             impl std::ops::MulAssign for $name {
                 fn mul_assign(&mut self, rhs: Self) {
-                    *self = *self * rhs;
+                    self.0 &= rhs.0;
+                }
+            }
+
+            impl std::ops::Mul<&Boolean> for $name {
+                type Output = Self;
+                fn mul(self, rhs: &Boolean) -> Self::Output {
+                    if *rhs == Boolean::ONE {
+                        self
+                    } else {
+                        <Self as SharedValue>::ZERO
+                    }
                 }
             }
 
@@ -405,11 +471,75 @@ macro_rules! boolean_array_impl {
                 type Input = Boolean;
 
                 fn expand(v: &Boolean) -> Self {
-                    let mut result = <$name>::ZERO;
+                    let mut result = <$name as SharedValue>::ZERO;
                     for i in 0..usize::try_from(<$name>::BITS).unwrap() {
-                        result.set(i, *v);
+                        result.0.set(i, bool::from(*v));
                     }
                     result
+                }
+            }
+
+            impl TryFrom<Vec<Boolean>> for $name {
+                type Error = ();
+                fn try_from(value: Vec<Boolean>) -> Result<Self, Self::Error> {
+                    if value.len() == $bits {
+                        Ok(value.into_iter().collect::<Self>())
+                    } else {
+                        Err(())
+                    }
+                }
+            }
+
+            impl ArrayBuild for $name {
+                type Input = Boolean;
+                type Builder = BooleanArrayBuilder<$name>;
+
+                fn builder() -> Self::Builder {
+                    BooleanArrayBuilder::new()
+                }
+            }
+
+            impl SharedValueArray<Boolean> for $name {
+                const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
+
+                fn from_fn<F: FnMut(usize) -> Boolean>(mut f: F) -> Self {
+                    let mut res = <Self as SharedValueArray<Boolean>>::ZERO_ARRAY;
+
+                    for i in 0..$bits {
+                        res.0.set(i, bool::from(f(i)));
+                    }
+
+                    res
+                }
+            }
+
+            impl FieldArray<Boolean> for $name {}
+
+            // Panics if the iterator terminates before producing N items.
+            impl FromIterator<Boolean> for $name {
+                fn from_iter<T: IntoIterator<Item = Boolean>>(iter: T) -> Self {
+                    let mut res = <Self as SharedValueArray<Boolean>>::ZERO_ARRAY;
+                    let mut iter = iter.into_iter();
+
+                    for i in 0..$bits {
+                        res.0.set(i, bool::from(iter.next().unwrap()));
+                    }
+
+                    res
+                }
+            }
+
+            impl IntoIterator for $name {
+                type Item = Boolean;
+                type IntoIter = BAOwnedIterator<Store>;
+
+                fn into_iter(self) -> Self::IntoIter {
+                    BAOwnedIterator {
+                        iterator: self
+                            .0
+                            .into_iter()
+                            .take(usize::try_from(<$name>::BITS).unwrap()),
+                    }
                 }
             }
 
@@ -418,7 +548,7 @@ macro_rules! boolean_array_impl {
             #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
-                type IntoIter = ASIterator<'a, $name>;
+                type IntoIter = ASIterator<'a, $name, Boolean>;
 
                 fn into_iter(self) -> Self::IntoIter {
                     self.iter()
@@ -554,5 +684,42 @@ impl FromRandom for BA256 {
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
         (rng.gen(), rng.gen()).into()
+    }
+}
+
+pub struct BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean>,
+{
+    array: T,
+    index: usize,
+}
+
+impl<T> BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean> + SharedValue,
+{
+    fn new() -> Self {
+        Self {
+            array: T::ZERO,
+            index: 0,
+        }
+    }
+}
+
+impl<T> ArrayBuilder for BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean> + Send,
+{
+    type Element = Boolean;
+    type Array = T;
+
+    fn push(&mut self, value: Self::Element) {
+        self.array.set(self.index, value);
+        self.index += 1;
+    }
+
+    fn build(self) -> Self::Array {
+        self.array
     }
 }

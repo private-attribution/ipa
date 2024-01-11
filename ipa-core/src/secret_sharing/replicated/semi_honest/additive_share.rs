@@ -1,5 +1,6 @@
 use std::{
     fmt::{Debug, Formatter},
+    marker::PhantomData,
     ops::{Add, AddAssign, Mul, Neg, Range, Sub, SubAssign},
 };
 
@@ -7,7 +8,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{ArrayAccess, Expand, Field, Serializable},
+    ff::{ArrayAccess, ArrayAccessRef, ArrayBuild, ArrayBuilder, Expand, Field, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, FieldSimd, Linear as LinearSecretSharing,
         SecretSharing, SharedValue, SharedValueArray, Vectorizable,
@@ -24,16 +25,23 @@ pub struct AdditiveShare<V: SharedValue + Vectorizable<N>, const N: usize = 1>(
     <V as Vectorizable<N>>::Array,
 );
 
+// The `V` type parameter allows ASIterator to convert array elements to a new type before
+// returning. It is used for Galois fields, which use `bool` as the native array element type.
 #[derive(Clone, PartialEq, Eq)]
-pub struct ASIterator<'a, S: SharedValue + ArrayAccess> {
+pub struct ASIterator<'a, S, V = <S as ArrayAccess>::Output>
+where
+    S: SharedValue + ArrayAccess,
+    V: From<<S as ArrayAccess>::Output>,
+{
     range: Range<usize>,
     share: &'a AdditiveShare<S>,
+    phantom_data: PhantomData<V>,
 }
 
 impl<V: SharedValue + Vectorizable<N>, const N: usize> SecretSharing<V> for AdditiveShare<V, N> {
     const ZERO: Self = Self(
-        <V as Vectorizable<N>>::Array::ZERO,
-        <V as Vectorizable<N>>::Array::ZERO,
+        <V as Vectorizable<N>>::Array::ZERO_ARRAY,
+        <V as Vectorizable<N>>::Array::ZERO_ARRAY,
     );
 }
 
@@ -54,8 +62,8 @@ impl<V: SharedValue> Default for AdditiveShare<V> {
 impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
     /// Replicated secret share where both left and right values are `V::ZERO`
     pub const ZERO: Self = Self(
-        <V as Vectorizable<N>>::Array::ZERO,
-        <V as Vectorizable<N>>::Array::ZERO,
+        <V as Vectorizable<N>>::Array::ZERO_ARRAY,
+        <V as Vectorizable<N>>::Array::ZERO_ARRAY,
     );
 }
 
@@ -353,7 +361,35 @@ where
                 end: S::from_array(&self.0).iter().len(),
             },
             share: self,
+            phantom_data: PhantomData,
         }
+    }
+}
+
+impl<S, V, A> ArrayAccessRef for AdditiveShare<S>
+where
+    S: SharedValue + ArrayAccess<Output = V>,
+    V: SharedValue + Vectorizable<1, Array = A>,
+    A: SharedValueArray<V>,
+{
+    type Element = AdditiveShare<V>;
+    type Ref<'a> = AdditiveShare<V>;
+    type Iter<'a> = ASIterator<'a, S>;
+
+    fn get(&self, index: usize) -> Option<Self::Ref<'_>> {
+        ArrayAccess::get(self, index)
+    }
+
+    fn set(&mut self, index: usize, e: Self::Ref<'_>) {
+        ArrayAccess::set(self, index, e);
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        ArrayAccess::iter(self)
+    }
+
+    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
+        src.clone()
     }
 }
 
@@ -373,27 +409,27 @@ where
     }
 }
 
-impl<'a, S, T> Iterator for ASIterator<'a, S>
+impl<'a, S, V> Iterator for ASIterator<'a, S, V>
 where
-    S: SharedValue + ArrayAccess<Output = T>,
-    T: SharedValue,
+    S: SharedValue + ArrayAccess,
+    V: SharedValue + From<<S as ArrayAccess>::Output>,
 {
-    type Item = AdditiveShare<T>;
+    type Item = AdditiveShare<V>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.range.next().map(|i| {
             AdditiveShare(
-                S::from_array(&self.share.0).get(i).unwrap().into_array(),
-                S::from_array(&self.share.1).get(i).unwrap().into_array(),
+                V::from(S::from_array(&self.share.0).get(i).unwrap()).into_array(),
+                V::from(S::from_array(&self.share.1).get(i).unwrap()).into_array(),
             )
         })
     }
 }
 
-impl<'a, S> ExactSizeIterator for ASIterator<'a, S>
+impl<'a, S, V> ExactSizeIterator for ASIterator<'a, S, V>
 where
     S: SharedValue + ArrayAccess,
-    <S as ArrayAccess>::Output: SharedValue,
+    V: SharedValue + From<<S as ArrayAccess>::Output>,
 {
     fn len(&self) -> usize {
         self.range.len()
@@ -411,9 +447,59 @@ where
     {
         let mut result = AdditiveShare::<S>::ZERO;
         for (i, v) in iter.into_iter().enumerate() {
-            result.set(i, v);
+            // Disambiguate ArrayAccess vs. ArrayAccessRef
+            ArrayAccess::set(&mut result, i, v);
         }
         result
+    }
+}
+
+pub struct AdditiveShareArrayBuilder<B>
+where
+    B: ArrayBuilder,
+    B::Array: SharedValue,
+    B::Element: SharedValue,
+{
+    left_builder: B,
+    right_builder: B,
+}
+
+impl<B> ArrayBuilder for AdditiveShareArrayBuilder<B>
+where
+    B: ArrayBuilder,
+    B::Array: SharedValue,
+    B::Element: SharedValue,
+{
+    type Element = AdditiveShare<B::Element>;
+    type Array = AdditiveShare<B::Array>;
+
+    fn push(&mut self, value: Self::Element) {
+        self.left_builder.push(value.left());
+        self.right_builder.push(value.right());
+    }
+
+    fn build(self) -> Self::Array {
+        let Self {
+            left_builder,
+            right_builder,
+        } = self;
+        AdditiveShare::new(left_builder.build(), right_builder.build())
+    }
+}
+
+impl<A> ArrayBuild for AdditiveShare<A>
+where
+    A: SharedValue + ArrayBuild,
+    <A as ArrayBuild>::Input: SharedValue,
+{
+    type Input = AdditiveShare<<A as ArrayBuild>::Input>;
+    type Builder = AdditiveShareArrayBuilder<<A as ArrayBuild>::Builder>;
+
+    fn builder() -> Self::Builder {
+        AdditiveShareArrayBuilder {
+            left_builder: A::builder(),
+            right_builder: A::builder(),
+        }
     }
 }
 

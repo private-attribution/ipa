@@ -1,8 +1,8 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref, slice};
 
 use crate::{
     error::Error,
-    ff::PrimeField,
+    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
@@ -110,6 +110,37 @@ impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
     }
 }
 
+pub struct BitDecomposedBuilder<S> {
+    bits: Vec<S>,
+}
+
+impl<S: Send> ArrayBuild for BitDecomposed<S> {
+    type Input = S;
+    type Builder = BitDecomposedBuilder<S>;
+
+    fn builder() -> Self::Builder {
+        BitDecomposedBuilder { bits: Vec::new() }
+    }
+}
+
+impl<S: Send> ArrayBuilder for BitDecomposedBuilder<S> {
+    type Element = S;
+    type Array = BitDecomposed<S>;
+
+    fn with_capacity(mut self, capacity: usize) -> Self {
+        self.bits.reserve(capacity);
+        self
+    }
+
+    fn push(&mut self, value: S) {
+        self.bits.push(value);
+    }
+
+    fn build(self) -> Self::Array {
+        BitDecomposed::new(self.bits)
+    }
+}
+
 impl<S> Deref for BitDecomposed<S> {
     type Target = [S];
     fn deref(&self) -> &Self::Target {
@@ -122,5 +153,27 @@ impl<S> IntoIterator for BitDecomposed<S> {
     type IntoIter = <Vec<S> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.bits.into_iter()
+    }
+}
+
+impl<S: Clone + Send + Sync> ArrayAccessRef for BitDecomposed<S> {
+    type Element = S;
+    type Ref<'a> = &'a S where S: 'a;
+    type Iter<'a> = slice::Iter<'a, S> where S: 'a;
+
+    fn get(&self, index: usize) -> Option<Self::Ref<'_>> {
+        self.bits.get(index)
+    }
+
+    fn set(&mut self, index: usize, e: Self::Ref<'_>) {
+        self.bits[index] = e.clone();
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.bits.iter()
+    }
+
+    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
+        src
     }
 }
