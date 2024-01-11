@@ -568,10 +568,10 @@ mod local_test {
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::{convert::Infallible, iter::once, sync::Arc};
+    use std::{convert::Infallible, iter::once};
 
     use futures::{
-        future::{lazy, poll_immediate as poll_immediate_fut, BoxFuture},
+        future::{lazy, BoxFuture},
         stream::{iter, poll_immediate},
         Future, StreamExt,
     };
@@ -674,7 +674,10 @@ mod test {
     #[cfg(feature = "multi-threading")]
     #[ignore] // sanitizers will flag this test
     async fn parallel_join_forget_is_not_safe() {
-        use crate::seq_join::multi_thread::parallel_join;
+        use futures::future::poll_immediate;
+
+        use crate::{seq_join::multi_thread::parallel_join, sync::Arc};
+
         const N: usize = 24;
         let borrow_from_me = vec![1, 2, 3];
         let barrier1 = Arc::new(tokio::sync::Barrier::new(N + 1));
@@ -700,7 +703,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let mut f = parallel_join(iterable);
-        poll_immediate_fut(&mut f).await;
+        poll_immediate(&mut f).await;
         barrier1.wait().await;
 
         // forgetting f does not mean that futures spawned by `parallel_join` will be cancelled.
