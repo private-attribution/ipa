@@ -310,13 +310,13 @@ mod multi_thread {
     #[cfg(feature = "shuttle")]
     type Spawner<'fut, T> = async_scoped::Scope<'fut, T, shuttle_spawner::ShuttleSpawner>;
     #[cfg(not(feature = "shuttle"))]
-    type Spawner<'fut, T> = TokioScope<'fut, T>;
+    type Spawner<'fut, T> = async_scoped::TokioScope<'fut, T>;
 
     unsafe fn create_spawner<'fut, T: Send + 'static>() -> Spawner<'fut, T> {
         #[cfg(feature = "shuttle")]
         return async_scoped::Scope::create(shuttle_spawner::ShuttleSpawner);
         #[cfg(not(feature = "shuttle"))]
-        return TokioScope::create(Tokio);
+        return async_scoped::TokioScope::create();
     }
 
     #[pin_project]
@@ -568,15 +568,16 @@ mod local_test {
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::{convert::Infallible, iter::once};
+    use std::{convert::Infallible, iter::once, sync::Arc};
 
     use futures::{
-        future::{lazy, BoxFuture},
+        future::{lazy, poll_immediate as poll_immediate_fut, BoxFuture},
         stream::{iter, poll_immediate},
         Future, StreamExt,
     };
 
     use super::*;
+    use crate::seq_join::multi_thread::parallel_join;
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -666,5 +667,46 @@ mod test {
         let active = NonZeroUsize::new(10).unwrap();
         let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
         assert_eq!(err, ERROR);
+    }
+
+    /// This test demonstrates that forgetting the future returned by `parallel_join` is not safe and will cause
+    /// use-after-free safety error.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore] // sanitizers will flag this test
+    async fn parallel_join_forget_is_not_safe() {
+        const N: usize = 24;
+        let borrow_from_me = vec![1, 2, 3];
+        let barrier1 = Arc::new(tokio::sync::Barrier::new(N + 1));
+        let barrier2 = Arc::new(tokio::sync::Barrier::new(N + 1));
+
+        let iterable = (0..N)
+            .map(|i| {
+                let borrowed = &borrow_from_me;
+                let b1 = barrier1.clone();
+                let b2 = barrier2.clone();
+                async move {
+                    b1.wait().await;
+                    for _ in 0..100 {
+                        if borrowed != &vec![1, 2, 3] {
+                            panic!("corruption inside task {i}: {borrowed:?} != [1, 2, 3]")
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                    b2.wait().await;
+                    Ok::<(), ()>(())
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut f = parallel_join(iterable);
+        poll_immediate_fut(&mut f).await;
+        barrier1.wait().await;
+
+        // forgetting f does not mean that futures spawned by `parallel_join` will be cancelled.
+        std::mem::forget(f);
+
+        // Async executor will still be polling futures that borrow this vector and this will cause use-after-free.
+        drop(borrow_from_me);
+        barrier2.wait().await;
     }
 }
