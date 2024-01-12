@@ -486,6 +486,7 @@ where
 
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
     const TV_OFFSET: usize = Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
+    const TV_END: usize = Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE;
 
     pub fn encap_key_mk(&self) -> &[u8] {
         &self.data[Self::ENCAP_KEY_MK_OFFSET..Self::CIPHERTEXT_MK_OFFSET]
@@ -568,29 +569,16 @@ where
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
-            timestamp: Replicated::<TS>::deserialize(GenericArray::<
-                u8,
-                <Replicated<TS> as Serializable>::Size,
-            >::from_slice(
+            timestamp: Replicated::<TS>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
             )),
-            match_key: Replicated::<BA64>::deserialize(GenericArray::<
-                u8,
-                <Replicated<BA64> as Serializable>::Size,
-            >::from_slice(plaintext_mk)),
+            match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk)),
             is_trigger: Replicated::<Boolean>::from(&self.event_type()),
-            breakdown_key: Replicated::<BK>::deserialize(GenericArray::<
-                u8,
-                <Replicated<BK> as Serializable>::Size,
-            >::from_slice(
+            breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
             )),
-            trigger_value: Replicated::<TV>::deserialize(GenericArray::<
-                u8,
-                <Replicated<TV> as Serializable>::Size,
-            >::from_slice(
-                &plaintext_btt[Self::TV_OFFSET
-                    ..Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE],
+            trigger_value: Replicated::<TV>::deserialize(GenericArray::from_slice(
+                &plaintext_btt[Self::TV_OFFSET..Self::TV_END],
             )),
             epoch: self.epoch(),
             site_domain: self.site_domain().to_owned(),
