@@ -582,17 +582,19 @@ where
         Ok(OprfReport::<BK, TV, TS> {
             timestamp: Replicated::<TS>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
-            )).map_err(|e| Error::ParseError(e.into()))?,
-            match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(
-                plaintext_mk
-            )).map_err(|e| Error::ParseError(e.into()))?,
+            ))
+            .map_err(|e| InvalidReportError::DeserializationError("timestamp", e.into()))?,
+            match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
+                .map_err(|e| InvalidReportError::DeserializationError("matchkey", e.into()))?,
             is_trigger: Replicated::<Boolean>::from(&self.event_type()),
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
-            )).map_err(|e| Error::ParseError(e.into()))?,
+            ))
+            .map_err(|e| InvalidReportError::DeserializationError("is_trigger", e.into()))?,
             trigger_value: Replicated::<TV>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::TV_OFFSET..Self::TV_END],
-            )).map_err(|e| Error::ParseError(e.into()))?,
+            ))
+            .map_err(|e| InvalidReportError::DeserializationError("trigger_value", e.into()))?,
             epoch: self.epoch(),
             site_domain: self.site_domain().to_owned(),
         })
@@ -713,27 +715,31 @@ where
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
         let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
 
-        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz])).unwrap_infallible();
-        let timestamp = Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
+        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+            .unwrap_infallible();
+        let timestamp =
+            Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
                 .map_err(|e| Error::ParseError(e.into()))?;
         let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[mk_sz + ts_sz..mk_sz + ts_sz + bk_sz],
-        )).map_err(|e| Error::ParseError(e.into()))?;
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
             &buf[mk_sz + ts_sz + bk_sz..mk_sz + ts_sz + bk_sz + tv_sz],
-        )).map_err(|e| Error::ParseError(e.into()))?;
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let is_trigger = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
             &buf[mk_sz + ts_sz + bk_sz + tv_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
-        )).map_err(|e| Error::ParseError(e.into()))?;
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let epoch = u16::from_le_bytes([
             buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
             buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 1usize],
         ]);
-        // unwrap is safe since it deserializes serialized valid strings
         let site_domain = String::from_utf8(
             buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 2usize..Self::Size::USIZE].to_vec(),
         )
-        .unwrap();
+        .map_err(|e| Error::ParseError(e.into()))?;
         Ok(Self {
             match_key,
             is_trigger,
