@@ -282,7 +282,9 @@ mod tests {
         let bytes = Box::new(input).into_bytes();
         assert_eq!(
             expected,
-            AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+            AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
         );
     }
 }

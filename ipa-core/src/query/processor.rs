@@ -549,7 +549,9 @@ mod tests {
                 .await?;
 
             let results = results.map(|bytes| {
-                semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+                semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
             });
 
             Ok(assert_eq!(
@@ -576,7 +578,8 @@ mod tests {
             }
 
             let results = app.complete_query(query_id).await?.map(|bytes| {
-                semi_honest::AdditiveShare::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+                semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
+                    .collect::<Vec<_>>()
             });
 
             Ok(assert_eq!(

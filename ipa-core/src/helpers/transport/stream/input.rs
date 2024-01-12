@@ -1,6 +1,7 @@
 use std::{
     cmp::max,
     collections::VecDeque,
+    convert::Infallible,
     fmt::{Debug, Formatter},
     future::Ready,
     io,
@@ -94,12 +95,15 @@ impl BufDeque {
     ///
     /// Deserializes `count` items of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there are less than `count` items available, or if `count` is zero.
-    fn read_multi<T: Serializable>(&mut self, count: usize) -> Option<Vec<T>> {
+    fn read_multi<T: Serializable>(
+        &mut self,
+        count: usize,
+    ) -> Option<Result<Vec<T>, T::DeserializationError>> {
         self.read_bytes(count * T::Size::USIZE).map(|bytes| {
             bytes
                 .chunks(T::Size::USIZE)
                 .map(|bytes| T::deserialize(GenericArray::from_slice(bytes)))
-                .collect()
+                .collect::<Result<_, _>>()
         })
     }
 
@@ -107,9 +111,9 @@ impl BufDeque {
     ///
     /// Deserializes a single instance of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there is insufficient data available.
-    fn read<T: Serializable>(&mut self) -> Option<T> {
+    fn read<T: Serializable<DeserializationError = Infallible>>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
-            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)))
+            .map(|bytes| T::deserialize_infallible(GenericArray::from_slice(&bytes)))
     }
 
     /// Update the buffer with the result of polling a stream.
@@ -188,14 +192,16 @@ where
     S: BytesStream,
     T: Serializable,
 {
-    type Item = Result<Vec<T>, io::Error>;
+    type Item = Result<Vec<T>, crate::error::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         loop {
             let count = max(1, this.buffer.contiguous_len() / T::Size::USIZE);
             if let Some(items) = this.buffer.read_multi(count) {
-                return Poll::Ready(Some(Ok(items)));
+                return Poll::Ready(Some(items.map_err(|e: T::DeserializationError| {
+                    crate::error::Error::ParseError(e.into())
+                })));
             }
 
             // We need more data, poll the stream
@@ -205,7 +211,7 @@ where
 
             match this.buffer.extend(polled_item) {
                 ExtendResult::Finished => return Poll::Ready(None),
-                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err))),
+                ExtendResult::Error(err) => return Poll::Ready(Some(Err(err.into()))),
                 ExtendResult::Ok => (),
             }
         }
@@ -259,13 +265,16 @@ struct Length(u16);
 
 impl Serializable for Length {
     type Size = U2;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut generic_array::GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_le_bytes();
     }
 
-    fn deserialize(buf: &generic_array::GenericArray<u8, Self::Size>) -> Self {
-        Self(u16::from_le_bytes(<[u8; 2]>::from(*buf)))
+    fn deserialize(
+        buf: &generic_array::GenericArray<u8, Self::Size>,
+    ) -> Result<Self, Self::DeserializationError> {
+        Ok(Self(u16::from_le_bytes(<[u8; 2]>::from(*buf))))
     }
 }
 
@@ -456,6 +465,7 @@ mod test {
 
         use super::*;
         use crate::{
+            error::Error,
             ff::{Fp31, Fp32BitPrime, Serializable},
             secret_sharing::replicated::semi_honest::AdditiveShare,
         };
@@ -501,7 +511,11 @@ mod test {
 
             // invalid remainder
             let err = stream.next().await.unwrap().unwrap_err();
-            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+            if let Error::Io(err) = err {
+                assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+            } else {
+                panic!("unexpected error: {err}")
+            }
         }
 
         // this test confirms that `RecordsStream` doesn't buffer more than it needs to as it produces
@@ -518,7 +532,8 @@ mod test {
             let mut stream = RecordsStream::<Fp32BitPrime, _>::from(chunks);
             assert_eq!(stream.buffer.len(), 0);
             for expected_chunk in vec.chunks(<Fp32BitPrime as Serializable>::Size::USIZE) {
-                let expected = Fp32BitPrime::deserialize(GenericArray::from_slice(expected_chunk));
+                let expected =
+                    Fp32BitPrime::deserialize_unchecked(GenericArray::from_slice(expected_chunk));
                 let n = stream.next().await.unwrap().unwrap();
                 // `RecordsStream` outputs correct value
                 assert_eq!(vec![expected], n);
@@ -704,7 +719,7 @@ mod test {
                                             (data in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
             -> (Vec<Fp32BitPrime>, Vec<Vec<u8>>, u64) {
                 let expected = data.chunks(<Fp32BitPrime as Serializable>::Size::USIZE)
-                    .map(|chunk| Fp32BitPrime::deserialize(<GenericArray<u8, _>>::from_slice(chunk)))
+                    .map(|chunk| Fp32BitPrime::deserialize_unchecked(<GenericArray<u8, _>>::from_slice(chunk)))
                     .collect();
                 (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
             }

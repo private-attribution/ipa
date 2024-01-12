@@ -30,7 +30,6 @@ pub async fn compare_geq<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
@@ -55,7 +54,6 @@ pub async fn compare_gt<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
@@ -80,7 +78,6 @@ pub async fn integer_sub<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
@@ -104,7 +101,6 @@ pub async fn integer_sat_sub<C, S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
     S: CustomArray + Field,
     S::Element: Field + std::ops::Not<Output = S::Element>,
 {
@@ -141,13 +137,12 @@ async fn subtraction_circuit<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     XS: SharedValue + CustomArray,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS::Element: Field + std::ops::Not<Output = XS::Element>,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
+    for (i, v) in x.iter().enumerate() {
         result.set(
             i,
             bit_subtractor(

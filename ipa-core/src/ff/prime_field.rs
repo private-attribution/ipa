@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use generic_array::GenericArray;
 
 use super::Field;
@@ -13,21 +15,9 @@ pub trait PrimeField: Field {
     const PRIME: Self::PrimeInteger;
 }
 
-impl<F: PrimeField> Serializable for F {
-    type Size = <F::Storage as Block>::Size;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.as_u128().to_le_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mut buf_to = [0u8; 16];
-        buf_to[..buf.len()].copy_from_slice(buf);
-
-        Self::try_from(u128::from_le_bytes(buf_to)).unwrap()
-    }
-}
+#[derive(thiserror::Error, Debug)]
+#[error("Field value {0} provided is greater than prime: {1}")]
+pub struct GreaterThanPrimeError<V: Display>(V, u128);
 
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
@@ -185,6 +175,40 @@ macro_rules! field_impl {
             }
         }
 
+        impl Serializable for $field {
+            type Size = <<Self as SharedValue>::Storage as Block>::Size;
+            type DeserializationError = GreaterThanPrimeError<$store>;
+
+            fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+                buf.copy_from_slice(&self.0.to_le_bytes());
+            }
+
+            fn deserialize(
+                buf: &GenericArray<u8, Self::Size>,
+            ) -> Result<Self, Self::DeserializationError> {
+                let v = <$store>::from_le_bytes((*buf).into());
+                if v < Self::PRIME {
+                    Ok(Self(v))
+                } else {
+                    Err(GreaterThanPrimeError(v, Self::PRIME.into()))
+                }
+            }
+        }
+
+        #[cfg(any(test, unit_test))]
+        impl $field {
+            /// Deserialize a field value, ignoring the fact that it can be greater than PRIME. Therefore, will panic
+            /// at runtime.
+            ///
+            /// This method is available for tests only as a shortcut to `unwrap()`.
+            #[allow(unused)]
+            pub(crate) fn deserialize_unchecked(
+                buf: &GenericArray<u8, <Self as Serializable>::Size>,
+            ) -> Self {
+                Self::deserialize(buf).unwrap()
+            }
+        }
+
         #[cfg(any(test, unit_test))]
         impl std::cmp::PartialEq<u128> for $field {
             fn eq(&self, other: &u128) -> bool {
@@ -233,7 +257,16 @@ macro_rules! field_impl {
                     let mut buf = GenericArray::default();
                     field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize(&buf));
+                    assert_eq!(field_v, $field::deserialize_unchecked(&buf));
+                }
+
+                #[test]
+                #[allow(clippy::ignored_unit_patterns)]
+                fn deserialize_fail_if_greater_than_prime(v in $field::PRIME..) {
+                    let mut buf = GenericArray::default();
+                    buf.copy_from_slice(&v.to_le_bytes());
+                    let err = $field::deserialize(&buf).unwrap_err();
+                    assert!(matches!(err, GreaterThanPrimeError(..)))
                 }
             }
         }

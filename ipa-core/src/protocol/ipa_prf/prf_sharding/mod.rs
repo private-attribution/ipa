@@ -141,9 +141,6 @@ impl<
     ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
         C: Context,
-        for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-        for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
     {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
@@ -358,19 +355,22 @@ where
     TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     let mut histogram = vec![];
-    let mut last_prf = input[0].get_grouping_key() + 1;
+    let mut last_prf = 0;
     let mut cur_count = 0;
     let mut start = 0;
     let mut ranges = vec![];
     for (idx, row) in input.iter_mut().enumerate() {
-        if row.get_grouping_key() == last_prf {
+        if idx != 0 && row.get_grouping_key() == last_prf {
             cur_count += 1;
         } else {
-            ranges.push(start..idx);
+            if idx > 0 {
+                ranges.push(start..idx);
+            }
             start = idx;
             cur_count = 0;
             last_prf = row.get_grouping_key();
         }
+
         row.compute_sort_key(cur_count.try_into().unwrap());
         if histogram.len() <= cur_count {
             histogram.push(0);
@@ -466,13 +466,6 @@ where
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
     SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> <&'a Replicated<SS> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a Replicated<TS> as IntoIterator>::IntoIter: Send,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -579,10 +572,6 @@ where
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
     SS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<SS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<BK>: IntoIterator<Item = Replicated<Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -720,8 +709,6 @@ where
     C: Context,
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
-    for<'a> &'a Replicated<TV>: IntoIterator<Item = Replicated<Boolean>>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -776,7 +763,6 @@ where
     C: Context,
     TS: SharedValue,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a Replicated<TS>: IntoIterator<Item = Replicated<Boolean>>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
