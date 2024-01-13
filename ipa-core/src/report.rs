@@ -24,6 +24,7 @@ use crate::{
     report::InvalidReportError::PlaintextLengthError,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
+use crate::hpke::TagSize;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -395,7 +396,7 @@ where
         key_registry: &impl PublicKeyRegistry,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidReportError> {
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(usize::from(self.encrypted_len()));
         self.encrypt_to(key_id, key_registry, rng, &mut out)?;
         debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
         Ok(out)
@@ -451,6 +452,7 @@ where
 ///     `ct_btt`: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
 ///     associated data of `ct_mk`: `key_id`, `epoch`, `event_type`, `site_domain`,
 
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedOprfReport<BK, TV, TS, B>
 where
@@ -464,6 +466,21 @@ where
 }
 
 /// follows the outline of the implementation of `EncryptedReport`
+
+// Report structure:
+//  * 0..a: `encap_key_1`
+//  * a..b: `mk_ciphertext`
+//  * b..c: `encap_key_2`
+//  * c..d: `btt_ciphertext`
+//  * d: `event_type`
+//  * d+1: `key_id`
+//  * d+2..c+4: `epoch`
+//  * d+4..: `site_domain`
+
+// btt ciphertext structure
+// * 0..a `timestamp`
+// * a..b `breakdown`
+// * b..c `trigger value`
 impl<B, BK, TV, TS> EncryptedOprfReport<BK, TV, TS, B>
 where
     B: Deref<Target = [u8]>,
@@ -478,14 +495,14 @@ where
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
     // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
     const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
-        + U16::USIZE
+        + TagSize::USIZE
         + ((<Replicated<BA64> as Serializable>::Size::USIZE) + 15))
         & (!15);
     const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
     // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
 
     const EVENT_TYPE_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
-        + U16::USIZE
+        + TagSize::USIZE
         + ((<Replicated<BK> as Serializable>::Size::USIZE
             + <Replicated<TV> as Serializable>::Size::USIZE
             + <Replicated<TS> as Serializable>::Size::USIZE)
@@ -796,7 +813,7 @@ where
         key_registry: &impl PublicKeyRegistry,
         rng: &mut R,
     ) -> Result<Vec<u8>, InvalidReportError> {
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(usize::from(self.encrypted_len()));
         self.encrypt_to(key_id, key_registry, rng, &mut out)?;
         debug_assert_eq!(out.len(), usize::from(self.encrypted_len()));
         Ok(out)
@@ -829,17 +846,17 @@ where
 
         let mut plaintext_btt = vec![0u8; Self::BTT_END];
         self.timestamp.serialize(
-            GenericArray::<u8, <Replicated<TS> as Serializable>::Size>::from_mut_slice(
+            GenericArray::from_mut_slice(
                 &mut plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
             ),
         );
         self.breakdown_key.serialize(
-            GenericArray::<u8, <Replicated<BK> as Serializable>::Size>::from_mut_slice(
+            GenericArray::from_mut_slice(
                 &mut plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
             ),
         );
         self.trigger_value.serialize(
-            GenericArray::<u8, <Replicated<TV> as Serializable>::Size>::from_mut_slice(
+            GenericArray::from_mut_slice(
                 &mut plaintext_btt[Self::TV_OFFSET
                     ..(Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE)],
             ),
