@@ -19,12 +19,11 @@ use crate::{
     },
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, FieldShareCrypt, Info,
-        KeyPair, KeyRegistry, PublicKeyRegistry,
+        KeyPair, KeyRegistry, PublicKeyRegistry, TagSize,
     },
     report::InvalidReportError::PlaintextLengthError,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
-use crate::hpke::TagSize;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
@@ -452,7 +451,6 @@ where
 ///     `ct_btt`: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
 ///     associated data of `ct_mk`: `key_id`, `epoch`, `event_type`, `site_domain`,
 
-
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedOprfReport<BK, TV, TS, B>
 where
@@ -845,22 +843,16 @@ where
             .serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
 
         let mut plaintext_btt = vec![0u8; Self::BTT_END];
-        self.timestamp.serialize(
-            GenericArray::from_mut_slice(
-                &mut plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
-            ),
-        );
-        self.breakdown_key.serialize(
-            GenericArray::from_mut_slice(
-                &mut plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
-            ),
-        );
-        self.trigger_value.serialize(
-            GenericArray::from_mut_slice(
-                &mut plaintext_btt[Self::TV_OFFSET
-                    ..(Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE)],
-            ),
-        );
+        self.timestamp.serialize(GenericArray::from_mut_slice(
+            &mut plaintext_btt[Self::TS_OFFSET..Self::BK_OFFSET],
+        ));
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
+        ));
+        self.trigger_value.serialize(GenericArray::from_mut_slice(
+            &mut plaintext_btt[Self::TV_OFFSET
+                ..(Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE)],
+        ));
 
         let (encap_key_mk, ciphertext_mk, tag_mk) =
             seal_in_place(key_registry, plaintext_mk.as_mut(), &info, rng)?;
