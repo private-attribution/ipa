@@ -161,8 +161,6 @@ jobs:
   coverage:
     name: Measure coverage
     runs-on: ubuntu-latest
-    env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -183,6 +181,7 @@ jobs:
       - name: Report to codecov.io
         uses: codecov/codecov-action@v3
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           file: ipa.cov
           fail_ci_if_error: false
 
