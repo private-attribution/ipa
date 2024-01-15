@@ -331,7 +331,7 @@ macro_rules! bit_array_impl {
             //
             // Since we know that x^8 + x^4 + x^3 + x + 1 = 0, we can distribute out terms of this structure and replace them with zero.
             //
-            // So the result of our multipliation was:
+            // So the result of our multiplication was:
             // 110100011111110
             // which you can think of as:
             // x^14 + x^13 + 0 + x^11 + 0 + 0 + 0 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 0
