@@ -331,7 +331,7 @@ macro_rules! bit_array_impl {
             //
             // Since we know that x^8 + x^4 + x^3 + x + 1 = 0, we can distribute out terms of this structure and replace them with zero.
             //
-            // So the result of our multipliation was:
+            // So the result of our multiplication was:
             // 110100011111110
             // which you can think of as:
             // x^14 + x^13 + 0 + x^11 + 0 + 0 + 0 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 0
@@ -361,12 +361,10 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
                     let mut product = clmul(self, rhs);
-                    let poly = <Self as GaloisField>::POLYNOMIAL;
-                    while (u128::BITS - product.leading_zeros()) > Self::BITS {
-                        let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
-                        product ^= (poly << bits_to_shift);
+                    for i in (0..(Self::BITS - 1)).into_iter().rev() {
+                        let b = product >> (Self::BITS + i);
+                        product ^= (<Self as GaloisField>::POLYNOMIAL * b) << i;
                     }
-
                     Self::try_from(product).unwrap()
                 }
             }
@@ -525,6 +523,12 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
+                pub fn polynomial_bits() {
+                    assert_eq!($name::BITS + 1, u128::BITS - $name::POLYNOMIAL.leading_zeros(),
+                               "The polynomial should have one more bit than the field.");
+                }
+
+                #[test]
                 pub fn distributive_property_of_multiplication() {
                     let mut rng = thread_rng();
                     let a = $name::truncate_from(rng.gen::<u128>());
@@ -629,7 +633,7 @@ bit_array_impl!(
     20,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^20 + x^7 + x^3 + x^2 + 1
-    0b1000_0000_0000_1000_1101_u128,
+    0b1_0000_0000_0000_1000_1101_u128,
     fallible,
 );
 
