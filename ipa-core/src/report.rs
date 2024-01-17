@@ -472,7 +472,7 @@ where
 //  * c..d: `btt_ciphertext`
 //  * d: `event_type`
 //  * d+1: `key_id`
-//  * d+2..c+4: `epoch`
+//  * d+2..d+4: `epoch`
 //  * d+4..: `site_domain`
 
 // btt ciphertext structure
@@ -506,7 +506,9 @@ where
             + <Replicated<TS> as Serializable>::Size::USIZE)
             + 15))
         & (!15);
-    const SITE_DOMAIN_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 4;
+    const KEY_IDENTIFIER_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 1;
+    const EPOCH_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
+    const SITE_DOMAIN_OFFSET: usize = Self::EPOCH_OFFSET + 2;
 
     const TS_OFFSET: usize = 0;
 
@@ -537,14 +539,14 @@ where
     }
 
     pub fn key_id(&self) -> KeyIdentifier {
-        self.data[Self::EVENT_TYPE_OFFSET + 1]
+        self.data[Self::KEY_IDENTIFIER_OFFSET]
     }
 
     /// ## Panics
     /// Never.
     pub fn epoch(&self) -> Epoch {
         u16::from_le_bytes(
-            self.data[Self::EVENT_TYPE_OFFSET + 2..Self::SITE_DOMAIN_OFFSET]
+            self.data[Self::EPOCH_OFFSET..Self::SITE_DOMAIN_OFFSET]
                 .try_into()
                 .unwrap(), // infallible slice-to-array conversion
         )
