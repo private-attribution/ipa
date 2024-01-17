@@ -462,12 +462,25 @@ macro_rules! boolean_array_impl {
                     use crate::secret_sharing::replicated::ReplicatedSecretSharing;
                     let bits = AdditiveShare::new(ONE, ONE);
                     let iter = bits.into_iter();
+                    assert_eq!(iter.len(), $bits);
                     for (i, j) in iter.enumerate() {
                         if i == 0 {
                             assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
                         } else {
                             assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
                         }
+                    }
+                }
+
+                #[test]
+                fn iterate_secret_shared_boolean_array_len() {
+                    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                    let bits = AdditiveShare::new(ONE, ONE);
+                    let mut iter = bits.into_iter();
+                    assert_eq!(iter.len(), $bits);
+                    for b in (0..$bits).rev() {
+                        iter.next().unwrap();
+                        assert_eq!(iter.len(), b);
                     }
                 }
 

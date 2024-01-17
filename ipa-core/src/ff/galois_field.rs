@@ -703,31 +703,5 @@ bit_array_impl!(
                 v
             }
         }
-
-        impl From<Gf2> for bool {
-            fn from(value: Gf2) -> Self {
-                value != Gf2::ZERO
-            }
-        }
-
-        impl From<crate::ff::boolean::Boolean> for Gf2 {
-            fn from(value: crate::ff::boolean::Boolean) -> Self {
-                bool::from(value).into()
-            }
-        }
-
-        impl From<Gf2> for crate::ff::boolean::Boolean {
-            fn from(value: Gf2) -> Self {
-                bool::from(value).into()
-            }
-        }
-
-        impl std::ops::Not for Gf2 {
-            type Output = Self;
-
-            fn not(self) -> Self {
-                (!bool::from(self)).into()
-            }
-        }
     }
 );

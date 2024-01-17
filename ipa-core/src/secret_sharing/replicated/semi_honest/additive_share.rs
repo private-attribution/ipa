@@ -419,10 +419,17 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::AdditiveShare;
+    use proptest::{
+        prelude::{prop, Arbitrary, Strategy},
+        proptest,
+    };
+
+    use super::*;
     use crate::{
-        ff::{Field, Fp31},
-        secret_sharing::replicated::ReplicatedSecretSharing,
+        ff::{Field, Fp31, Fp32BitPrime},
+        secret_sharing::{
+            replicated::ReplicatedSecretSharing, SharedValue, StdArray, Vectorizable,
+        },
     };
 
     fn secret_share(
@@ -564,5 +571,96 @@ mod tests {
         mult_by_constant_test_case((0, 1, 0), 2, 2);
         mult_by_constant_test_case((0, 0, 1), 2, 2);
         mult_by_constant_test_case((0, 0, 0), 2, 0);
+    }
+
+    impl<V: SharedValue, const N: usize> Arbitrary for AdditiveShare<V, N>
+    where
+        V: Vectorizable<N, Array = StdArray<V, N>>,
+        StdArray<V, N>: Arbitrary,
+    {
+        type Parameters = <(StdArray<V, N>, StdArray<V, N>) as Arbitrary>::Parameters;
+        type Strategy = prop::strategy::Map<
+            <(StdArray<V, N>, StdArray<V, N>) as Arbitrary>::Strategy,
+            fn((StdArray<V, N>, StdArray<V, N>)) -> Self,
+        >;
+
+        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+            <(StdArray<V, N>, StdArray<V, N>)>::arbitrary_with(args)
+                .prop_map(|(l, r)| AdditiveShare::new_arr(l, r))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn vector_add_assign_proptest(a: AdditiveShare<Fp32BitPrime, 32>, b: AdditiveShare<Fp32BitPrime, 32>) {
+            let left_sum = a.left_arr() + b.left_arr();
+            let right_sum = a.right_arr() + b.right_arr();
+            let expected = AdditiveShare::new_arr(left_sum, right_sum);
+            let mut sum1 = a.clone();
+            let mut sum2 = a;
+            sum1 += &b;
+            sum2 += b;
+            assert_eq!(sum1, expected);
+            assert_eq!(sum2, expected);
+        }
+
+        #[test]
+        fn sub_proptest(a: AdditiveShare<Fp32BitPrime>, b: AdditiveShare<Fp32BitPrime>) {
+            let left_diff = a.left() - b.left();
+            let right_diff = a.right() - b.right();
+            let expected = AdditiveShare::new(left_diff, right_diff);
+            let diff1 = &a - &b;
+            let diff2 = &a - b.clone();
+            let diff3 = a.clone() - &b;
+            let diff4 = a - b;
+            assert_eq!(diff1, expected);
+            assert_eq!(diff2, expected);
+            assert_eq!(diff3, expected);
+            assert_eq!(diff4, expected);
+        }
+
+        #[test]
+        fn vector_sub_proptest(a: AdditiveShare<Fp32BitPrime, 32>, b: AdditiveShare<Fp32BitPrime, 32>) {
+            let left_diff = a.left_arr() - b.left_arr();
+            let right_diff = a.right_arr() - b.right_arr();
+            let expected = AdditiveShare::new_arr(left_diff, right_diff);
+            let diff1 = &a - &b;
+            let diff2 = &a - b.clone();
+            let diff3 = a.clone() - &b;
+            let diff4 = a - b;
+            assert_eq!(diff1, expected);
+            assert_eq!(diff2, expected);
+            assert_eq!(diff3, expected);
+            assert_eq!(diff4, expected);
+        }
+
+        #[test]
+        fn vector_sub_assign_proptest(a: AdditiveShare<Fp32BitPrime, 32>, b: AdditiveShare<Fp32BitPrime, 32>) {
+            let left_diff = a.left_arr() - b.left_arr();
+            let right_diff = a.right_arr() - b.right_arr();
+            let expected = AdditiveShare::new_arr(left_diff, right_diff);
+            let mut diff1 = a.clone();
+            let mut diff2 = a;
+            diff1 -= &b;
+            diff2 -= b;
+            assert_eq!(diff1, expected);
+            assert_eq!(diff2, expected);
+        }
+
+        #[test]
+        fn vector_mul_scalar_proptest(a: AdditiveShare<Fp32BitPrime, 32>, b: Fp32BitPrime) {
+            let left_prod = a.left_arr() * b;
+            let right_prod = a.right_arr() * b;
+            let expected = AdditiveShare::new_arr(left_prod, right_prod);
+            let b_ref = &b; // clippy complains inline ref to Copy type is needless
+            let prod1 = &a * b_ref;
+            let prod2 = &a * b;
+            let prod3 = a.clone() * b_ref;
+            let prod4 = a * b;
+            assert_eq!(prod1, expected);
+            assert_eq!(prod2, expected);
+            assert_eq!(prod3, expected);
+            assert_eq!(prod4, expected);
+        }
     }
 }

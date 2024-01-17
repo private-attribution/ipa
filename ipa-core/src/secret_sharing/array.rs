@@ -313,3 +313,110 @@ where
 }
 
 impl<V: SharedValue, const N: usize> Message for StdArray<V, N> where Self: Serializable {}
+
+#[cfg(all(test, unit_test))]
+mod test {
+    use proptest::{
+        prelude::{prop, Arbitrary, Strategy},
+        proptest,
+    };
+
+    use super::*;
+
+    impl<V: SharedValue, const N: usize> Arbitrary for StdArray<V, N>
+    where
+        [V; N]: Arbitrary,
+    {
+        type Parameters = <[V; N] as Arbitrary>::Parameters;
+        type Strategy = prop::strategy::Map<<[V; N] as Arbitrary>::Strategy, fn([V; N]) -> Self>;
+
+        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+            <[V; N]>::arbitrary_with(args).prop_map(Self)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn add(a: StdArray<Fp32BitPrime, 2>, b: StdArray<Fp32BitPrime, 2>) {
+            let expected = StdArray([a.0[0] + b.0[0], a.0[1] + b.0[1]]);
+            let sum1 = &a + &b;
+            let sum2 = &a + b.clone();
+            let sum3 = a.clone() + &b;
+            let sum4 = a + b;
+            assert_eq!(sum1, expected);
+            assert_eq!(sum2, expected);
+            assert_eq!(sum3, expected);
+            assert_eq!(sum4, expected);
+        }
+
+        #[test]
+        fn add_assign(a: StdArray<Fp32BitPrime, 2>, b: StdArray<Fp32BitPrime, 2>) {
+            let expected = StdArray([a.0[0] + b.0[0], a.0[1] + b.0[1]]);
+            let mut sum1 = a.clone();
+            let mut sum2 = a.clone();
+            sum1 += &b;
+            sum2 += b;
+            assert_eq!(sum1, expected);
+            assert_eq!(sum2, expected);
+        }
+
+        #[test]
+        fn sub(a: StdArray<Fp32BitPrime, 2>, b: StdArray<Fp32BitPrime, 2>) {
+            let expected = StdArray([a.0[0] - b.0[0], a.0[1] - b.0[1]]);
+            let diff1 = &a - &b;
+            let diff2 = &a - b.clone();
+            let diff3 = a.clone() - &b;
+            let diff4 = a - b;
+            assert_eq!(diff1, expected);
+            assert_eq!(diff2, expected);
+            assert_eq!(diff3, expected);
+            assert_eq!(diff4, expected);
+        }
+
+        #[test]
+        fn sub_assign(a: StdArray<Fp32BitPrime, 2>, b: StdArray<Fp32BitPrime, 2>) {
+            let expected = StdArray([a.0[0] - b.0[0], a.0[1] - b.0[1]]);
+            let mut diff1 = a.clone();
+            let mut diff2 = a.clone();
+            diff1 -= &b;
+            diff2 -= b;
+            assert_eq!(diff1, expected);
+            assert_eq!(diff2, expected);
+        }
+
+        #[test]
+        fn mul_scalar(a: StdArray<Fp32BitPrime, 2>, b: Fp32BitPrime) {
+            let expected = StdArray([a.0[0] * b, a.0[1] * b]);
+            let b_ref = &b; // clippy complains inline ref to Copy type is needless
+            let prod1 = &a * b_ref;
+            let prod2 = &a * b;
+            let prod3 = a.clone() * b_ref;
+            let prod4 = a * b;
+            assert_eq!(prod1, expected);
+            assert_eq!(prod2, expected);
+            assert_eq!(prod3, expected);
+            assert_eq!(prod4, expected);
+        }
+
+        #[test]
+        fn into_iter(a: StdArray<Fp32BitPrime, 2>) {
+            let expected = a.clone();
+            let copy: StdArray<Fp32BitPrime, 2> = a.into_iter()
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            assert_eq!(copy, expected);
+        }
+
+        #[test]
+        fn get_set(mut a: StdArray<Fp32BitPrime, 1>, b: Fp32BitPrime, c: Fp32BitPrime) {
+            assert_eq!(a.get(0), a.0[0]);
+            a.set(0, b);
+            assert_eq!(a.get(0), b);
+            *a.get_mut(0) = c;
+            assert_eq!(a.get(0), c);
+            let from_fn = StdArray::<Fp32BitPrime, 1>::from_fn(|i| a.0[i]);
+            assert_eq!(from_fn, a);
+        }
+    }
+}
