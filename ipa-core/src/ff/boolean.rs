@@ -22,7 +22,7 @@ impl Boolean {
 
     #[must_use]
     pub fn as_u128(&self) -> u128 {
-        bool::from(*self).into()
+        u128::from(bool::from(*self))
     }
 }
 
