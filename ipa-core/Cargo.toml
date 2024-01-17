@@ -155,7 +155,7 @@ cfg_aliases = "0.1.1"
 command-fds = "0.2.2"
 hex = "0.4"
 permutation = "0.4.1"
-proptest = "1"
+proptest = "1.4"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tempfile = "3"
 
