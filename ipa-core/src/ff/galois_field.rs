@@ -687,5 +687,11 @@ bit_array_impl!(
                 v
             }
         }
+
+        impl From<Gf2> for bool {
+            fn from(value: Gf2) -> Self {
+                value != Gf2::ZERO
+            }
+        }
     }
 );

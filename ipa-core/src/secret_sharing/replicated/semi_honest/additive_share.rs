@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: SharedValue>(pub V, pub V);
+pub struct AdditiveShare<V: SharedValue>(V, V);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ASIterator<T: Iterator>(pub T, pub T);
