@@ -985,7 +985,6 @@ pub mod tests {
 
         proptest! {
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
                 serde_internal::<Fp31>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
                 serde_internal::<Fp32BitPrime>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);

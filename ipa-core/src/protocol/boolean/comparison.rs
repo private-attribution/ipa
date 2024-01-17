@@ -558,7 +558,6 @@ mod tests {
 
     proptest! {
         #[test]
-        #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
         fn gt_fp31_proptest(a in 0..Fp31::PRIME, c in 0..Fp31::PRIME) {
             type F = Fp31;
             let r = thread_rng().gen::<F>();
@@ -567,7 +566,6 @@ mod tests {
         }
 
         #[test]
-        #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
         fn gt_fp_32bit_prime_proptest(a in 0..Fp32BitPrime::PRIME, c in 0..Fp32BitPrime::PRIME) {
             type F = Fp32BitPrime;
             let r = thread_rng().gen::<F>();
