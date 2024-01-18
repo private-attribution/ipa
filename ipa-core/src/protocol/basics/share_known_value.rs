@@ -12,6 +12,10 @@ use crate::{
     },
 };
 
+/// Produce a share of some pre-determined constant.
+///
+/// The context is only used to determine the helper role. It is not used for communication or PRSS,
+/// and it is not necessary to use a uniquely narrowed context.
 pub trait ShareKnownValue<C: Context, V: SharedValue> {
     fn share_known_value(ctx: &C, value: V) -> Self;
 }

@@ -28,11 +28,6 @@ where
     BK: SharedValue + CustomArray<Element = Boolean> + Field,
     TV: SharedValue + CustomArray<Element = Boolean> + Field,
     TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    for<'a> &'a AdditiveShare<TS>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> &'a AdditiveShare<TV>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> &'a AdditiveShare<BK>: IntoIterator<Item = AdditiveShare<Boolean>>,
-    for<'a> <&'a AdditiveShare<TV> as IntoIterator>::IntoIter: Send,
-    for<'a> <&'a AdditiveShare<TS> as IntoIterator>::IntoIter: Send,
 {
     let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()
@@ -62,8 +57,7 @@ where
 
     let mut offset = BA64::BITS as usize;
 
-    y.0.set(offset, input.is_trigger.left());
-    y.1.set(offset, input.is_trigger.right());
+    y.set(offset, input.is_trigger.clone());
 
     offset += 1;
 

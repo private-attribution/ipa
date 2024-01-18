@@ -115,6 +115,7 @@ where
             >>::Output,
         >>::Output,
     >>::Output;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
@@ -136,30 +137,36 @@ where
         ));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]));
+        let timestamp = Replicated::<F>::deserialize(GenericArray::from_slice(&buf[..f_sz]))
+            .map_err(|e| Error::ParseError(e.into()))?;
         let mk_shares =
-            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]));
+            Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[f_sz..f_sz + mk_sz]))
+                .map_err(|e| Error::ParseError(e.into()))?;
         let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz..f_sz + mk_sz + f_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz..f_sz + mk_sz + f_sz + bk_sz],
-        ));
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
         let trigger_value = Replicated::<F>::deserialize(GenericArray::from_slice(
             &buf[f_sz + mk_sz + f_sz + bk_sz..],
-        ));
-        Self {
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+
+        Ok(Self {
             timestamp,
             mk_shares,
             is_trigger_bit,
             breakdown_key,
             trigger_value,
-        }
+        })
     }
 }
 
@@ -172,7 +179,9 @@ where
     ///
     /// ## Panics
     /// Panics if the slice buffer is not aligned with the size of this struct.
-    pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
+    pub fn from_byte_slice(
+        input: &[u8],
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserializationError>> + '_ {
         assert_eq!(
             0,
             input.len() % <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE,
@@ -968,13 +977,14 @@ pub mod tests {
 
             assert_eq!(
                 vec![a, b],
-                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
+                IPAInputRow::<F, MatchKey, BreakdownKey>::from_byte_slice(&buf)
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
             );
         }
 
         proptest! {
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
                 serde_internal::<Fp31>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
                 serde_internal::<Fp32BitPrime>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);

@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: SharedValue>(pub V, pub V);
+pub struct AdditiveShare<V: SharedValue>(V, V);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ASIterator<T: Iterator>(pub T, pub T);
@@ -65,13 +65,24 @@ where
     Self: Serializable,
 {
     // Deserialize a slice of bytes into an iterator of replicated shares
-    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+    pub fn from_byte_slice(
+        from: &[u8],
+    ) -> impl Iterator<Item = Result<Self, <Self as Serializable>::DeserializationError>> + '_ {
         debug_assert!(from.len() % <AdditiveShare<V> as Serializable>::Size::USIZE == 0);
 
         from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
-            .map(|chunk| {
-                <AdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(chunk))
-            })
+            .map(|chunk| Serializable::deserialize(GenericArray::from_slice(chunk)))
+    }
+
+    /// Same as [`from_byte_slice`] but ignores runtime errors.
+    ///
+    /// [`from_byte_slice`]: Self::from_byte_slice
+    ///
+    /// ## Panics
+    /// If one or more elements fail to deserialize.
+    #[cfg(any(test, unit_test))]
+    pub fn from_byte_slice_unchecked(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        Self::from_byte_slice(from).map(Result::unwrap)
     }
 }
 
@@ -233,6 +244,7 @@ where
     <V::Size as Add<V::Size>>::Output: ArrayLength,
 {
     type Size = <V::Size as Add<V::Size>>::Output;
+    type DeserializationError = <V as Serializable>::DeserializationError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) = buf.split_at_mut(V::Size::USIZE);
@@ -240,11 +252,11 @@ where
         self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]));
-        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]))?;
+        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]))?;
 
-        Self::new(left, right)
+        Ok(Self::new(left, right))
     }
 }
 
@@ -255,6 +267,7 @@ where
     <S as ArrayAccess>::Output: SharedValue,
 {
     type Output = AdditiveShare<<S as ArrayAccess>::Output>;
+    type Iter<'a> = ASIterator<S::Iter<'a>>;
 
     fn get(&self, index: usize) -> Option<Self::Output> {
         self.0
@@ -266,6 +279,10 @@ where
     fn set(&mut self, index: usize, e: Self::Output) {
         self.0.set(index, e.0);
         self.1.set(index, e.1);
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        ASIterator(self.0.iter(), self.1.iter())
     }
 }
 

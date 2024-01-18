@@ -99,7 +99,6 @@ pub async fn convert_to_fp25519<C, B>(
 ) -> Result<AdditiveShare<Fp25519>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<B>: IntoIterator<Item = AdditiveShare<B::Element>>,
     B: SharedValue + CustomArray<Element = Boolean> + Field,
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
@@ -123,16 +122,16 @@ where
         // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
         match ctx.role() {
             Role::H1 => (
-                AdditiveShare(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
-                AdditiveShare(r.0, <BA256 as SharedValue>::ZERO),
+                AdditiveShare::new(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
+                AdditiveShare::new(r.left(), <BA256 as SharedValue>::ZERO),
             ),
             Role::H2 => (
-                AdditiveShare(<BA256 as SharedValue>::ZERO, r.1),
-                AdditiveShare(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
+                AdditiveShare::new(<BA256 as SharedValue>::ZERO, r.right()),
+                AdditiveShare::new(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
             ),
             Role::H3 => (
-                AdditiveShare(r.0, <BA256 as SharedValue>::ZERO),
-                AdditiveShare(<BA256 as SharedValue>::ZERO, r.1),
+                AdditiveShare::new(r.left(), <BA256 as SharedValue>::ZERO),
+                AdditiveShare::new(<BA256 as SharedValue>::ZERO, r.right()),
             ),
         }
     };
@@ -163,22 +162,22 @@ where
             .await?;
 
     // this leaks information, but with negligible probability
-    let y = AdditiveShare::<BA256>(sh_y.left(), sh_y.right())
+    let y = AdditiveShare::<BA256>::new(sh_y.left(), sh_y.right())
         .partial_reveal(ctx.narrow(&Step::RevealY), record_id, Role::H3)
         .await?;
 
     match ctx.role() {
-        Role::H1 => Ok(AdditiveShare::<Fp25519>(
-            Fp25519::from(sh_s.0).neg(),
+        Role::H1 => Ok(AdditiveShare::<Fp25519>::new(
+            Fp25519::from(sh_s.left()).neg(),
             Fp25519::from(y.unwrap()),
         )),
-        Role::H2 => Ok(AdditiveShare::<Fp25519>(
+        Role::H2 => Ok(AdditiveShare::<Fp25519>::new(
             Fp25519::from(y.unwrap()),
-            Fp25519::from(sh_r.1).neg(),
+            Fp25519::from(sh_r.right()).neg(),
         )),
-        Role::H3 => Ok(AdditiveShare::<Fp25519>(
-            Fp25519::from(sh_r.0).neg(),
-            Fp25519::from(sh_s.1).neg(),
+        Role::H3 => Ok(AdditiveShare::<Fp25519>::new(
+            Fp25519::from(sh_r.left()).neg(),
+            Fp25519::from(sh_s.right()).neg(),
         )),
     }
 }
@@ -222,7 +221,6 @@ where
 #[cfg(all(test, unit_test))]
 pub fn expand_array<XS, YS>(x: &XS, offset: Option<usize>) -> YS
 where
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
     XS: CustomArray,
     YS: CustomArray<Element = XS::Element> + SharedValue,
     XS::Element: SharedValue,
@@ -236,27 +234,6 @@ where
         );
     }
     y
-}
-
-/// inserts a smaller array into a larger
-/// allows share conversion between secret shared Boolean Array types like 'BA64' and 'BA256'
-/// only used for testing purposes
-#[cfg(all(test, unit_test))]
-pub fn expand_shared_array<XS, YS>(
-    x: &AdditiveShare<XS>,
-    offset: Option<usize>,
-) -> AdditiveShare<YS>
-where
-    for<'a> &'a AdditiveShare<YS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
-    for<'a> &'a YS: IntoIterator<Item = XS::Element>,
-    XS: CustomArray + SharedValue,
-    YS: CustomArray<Element = XS::Element> + SharedValue,
-    XS::Element: SharedValue,
-{
-    AdditiveShare::<YS>(
-        expand_array(&x.left(), offset),
-        expand_array(&x.right(), offset),
-    )
 }
 
 #[cfg(all(test, unit_test))]
@@ -276,12 +253,10 @@ mod tests {
         protocol,
         protocol::{
             context::Context,
-            ipa_prf::boolean_ops::share_conversion_aby::{
-                convert_to_fp25519, expand_array, expand_shared_array,
-            },
+            ipa_prf::boolean_ops::share_conversion_aby::{convert_to_fp25519, expand_array},
         },
         rand::thread_rng,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+        secret_sharing::SharedValue,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -323,20 +298,12 @@ mod tests {
 
         let a = rng.gen::<BA64>();
 
-        let shared_a = AdditiveShare::<BA64>(rng.gen::<BA64>(), rng.gen::<BA64>());
-
         let b = expand_array::<_, BA256>(&a, None);
-
-        let shared_b = expand_shared_array::<_, BA256>(&shared_a, None);
 
         for i in 0..BA256::BITS as usize {
             assert_eq!(
                 (i, b.get(i).unwrap_or(Boolean::ZERO)),
                 (i, a.get(i).unwrap_or(Boolean::ZERO))
-            );
-            assert_eq!(
-                (i, shared_b.get(i).unwrap_or(AdditiveShare::<Boolean>::ZERO)),
-                (i, shared_a.get(i).unwrap_or(AdditiveShare::<Boolean>::ZERO))
             );
         }
     }

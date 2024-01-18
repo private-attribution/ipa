@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
 use hkdf::Hkdf;
@@ -48,14 +50,15 @@ impl From<Fp25519> for Scalar {
 
 impl Serializable for Fp25519 {
     type Size = <<Fp25519 as SharedValue>::Storage as Block>::Size;
+    type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         *buf.as_mut() = self.0.to_bytes();
     }
 
     /// Deserialized values are reduced modulo the field order.
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        Fp25519(Scalar::from_bytes_mod_order((*buf).into()))
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        Ok(Fp25519(Scalar::from_bytes_mod_order((*buf).into())))
     }
 }
 
@@ -135,7 +138,7 @@ impl From<BA256> for Fp25519 {
         let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
         s.serialize(&mut buf);
         // Reduces mod order
-        Fp25519::deserialize(&buf)
+        Fp25519::deserialize_infallible(&buf)
     }
 }
 
@@ -159,11 +162,12 @@ macro_rules! sc_hash_impl {
             fn from(s: $u_type) -> Self {
                 use hkdf::Hkdf;
                 use sha2::Sha256;
+
                 let hk = Hkdf::<Sha256>::new(None, &s.to_le_bytes());
                 let mut okm = [0u8; 32];
                 //error invalid length from expand only happens when okm is very large
                 hk.expand(&[], &mut okm).unwrap();
-                Fp25519::deserialize(&okm.into())
+                Fp25519::deserialize_infallible(&okm.into())
             }
         }
     };
@@ -195,7 +199,7 @@ impl FromRandomU128 for Fp25519 {
         let mut okm = [0u8; 32];
         //error invalid length from expand only happens when okm is very large
         hk.expand(&[], &mut okm).unwrap();
-        Fp25519::deserialize(&okm.into())
+        Fp25519::deserialize_infallible(&okm.into())
     }
 }
 
@@ -233,7 +237,7 @@ mod test {
         let input = rng.gen::<Fp25519>();
         let mut a: GenericArray<u8, U32> = [0u8; 32].into();
         input.serialize(&mut a);
-        let output = Fp25519::deserialize(&a);
+        let output = Fp25519::deserialize_infallible(&a);
         assert_eq!(input, output);
     }
 

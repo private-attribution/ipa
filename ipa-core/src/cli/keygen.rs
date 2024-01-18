@@ -35,6 +35,10 @@ pub struct KeygenArgs {
     #[arg(long, visible_alias("key"))]
     pub(crate) tls_key: PathBuf,
 
+    /// How long the certificates stay valid before rotation is required.
+    #[arg(long, visible_alias("tls-valid-days"), default_value = "91")]
+    pub(crate) tls_expire_after: u16,
+
     /// Writes the generated report public key to the file
     #[arg(long)]
     pub(crate) mk_public_key: PathBuf,
@@ -74,7 +78,7 @@ pub fn keygen_tls<R: Rng + CryptoRng>(args: &KeygenArgs, rng: &mut R) -> Result<
         ExtendedKeyUsagePurpose::ClientAuth,
     ];
     params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
-    params.not_after = params.not_before + Duration::days(91);
+    params.not_after = params.not_before + Duration::days(args.tls_expire_after.into());
     params.serial_number = Some(SerialNumber::from(
         rng.gen_range(0..=i64::MAX.try_into().unwrap()),
     ));

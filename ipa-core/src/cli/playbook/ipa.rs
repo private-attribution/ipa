@@ -186,7 +186,11 @@ where
         .unwrap();
 
     let results: Vec<F> = results
-        .map(|bytes| AdditiveShare::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
+        .map(|bytes| {
+            AdditiveShare::<F>::from_byte_slice(&bytes)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        })
         .reconstruct();
 
     let lat = mpc_time.elapsed();
