@@ -67,7 +67,7 @@ jobs:
         run: cargo test
 
       - name: Run tests with multithreading feature enabled
-        run: cargo test --feature "multi-threading"
+        run: cargo test --features "multi-threading"
 
       - name: Run Web Tests
         run: cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
