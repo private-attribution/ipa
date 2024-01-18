@@ -316,7 +316,7 @@ mod multi_thread {
         #[cfg(feature = "shuttle")]
         return async_scoped::Scope::create(shuttle_spawner::ShuttleSpawner);
         #[cfg(not(feature = "shuttle"))]
-        return async_scoped::TokioScope::create();
+        return async_scoped::TokioScope::create(async_scoped::spawner::use_tokio::Tokio);
     }
 
     #[pin_project]
