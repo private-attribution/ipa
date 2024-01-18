@@ -140,7 +140,7 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 /// is that this type is not `Send`.
 ///
 /// [`BitValIter`]: bitvec::slice::BitValIter
-pub struct BoolIterator<'a>(Iter<'a, u8, Lsb0>);
+pub struct BoolIterator<'a>(std::iter::Take<Iter<'a, u8, Lsb0>>);
 impl<'a> Iterator for BoolIterator<'a> {
     type Item = bool;
     fn next(&mut self) -> Option<Self::Item> {
@@ -218,7 +218,7 @@ macro_rules! bit_array_impl {
                 }
 
                 fn iter(&self) -> Self::Iter<'_> {
-                    BoolIterator(self.0.iter())
+                    BoolIterator(self.0.iter().take(<$name>::BITS as usize))
                 }
             }
 
@@ -489,9 +489,21 @@ macro_rules! bit_array_impl {
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
+                use proptest::proptest;
+                use proptest::prelude::{prop, Strategy, Arbitrary};
                 use rand::{thread_rng, Rng};
+                use std::ops::RangeInclusive;
 
                 const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
+
+                impl Arbitrary for $name {
+                    type Parameters = ();
+                    type Strategy = prop::strategy::Map<RangeInclusive<u128>, fn(u128) -> Self>;
+
+                    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+                        (0..=MASK).prop_map(Field::truncate_from as _)
+                    }
+                }
 
                 #[test]
                 pub fn basic() {
@@ -598,6 +610,37 @@ macro_rules! bit_array_impl {
                     println!("b: {b}");
 
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
+                }
+
+                proptest! {
+                    #[test]
+                    fn arrayaccess_get_set(mut a: $name, b: bool, c: bool) {
+                        assert_eq!(a.get(0), Some(a.0[0]));
+                        a.set(0, b);
+                        assert_eq!(a.get(0), Some(b));
+                        a.set($bits - 1, c);
+                        assert_eq!(a.get($bits - 1), Some(c));
+                        assert_eq!(a.get($bits), None);
+                    }
+
+                    #[test]
+                    fn arrayacces_iter(a: $name) {
+                        let mut val = 0u128;
+                        for (i, b) in a.iter().enumerate() {
+                            val |= u128::from(b) << i;
+                        }
+                        assert_eq!(val, a.as_u128());
+                    }
+
+                    #[test]
+                    fn arrayacces_iter_len(a: $name) {
+                        let mut iter = a.iter();
+                        assert_eq!(iter.len(), $bits);
+                        for i in (0..$bits).rev() {
+                            iter.next().unwrap();
+                            assert_eq!(iter.len(), i);
+                        }
+                    }
                 }
 
                 #[test]
