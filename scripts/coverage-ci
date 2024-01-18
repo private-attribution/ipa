@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# shamelessly stolen from https://github.com/rustls/rustls/blob/c296594db33c7d50ab642ab48f8302e6a88dcebf/admin/coverage
+
+set -e
+
+source <(cargo llvm-cov show-env --export-prefix)
+cargo llvm-cov clean --workspace
+
+cargo build --all-targets
+
+# Need to be kept in sync manually with tests we run inside check.yml.
+cargo test
+for gate in "compact" "descriptive"; do
+  cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate-gate"
+done
+
+cargo llvm-cov report "$@"

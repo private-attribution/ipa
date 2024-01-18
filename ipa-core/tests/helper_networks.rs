@@ -99,6 +99,7 @@ fn exec_keygen_cmd(helper_identity: HelperIdentity, dest_dir: &Path) {
             "--tls-key".as_ref(),
             dest_dir.helper_tls_key(helper_identity).as_os_str(),
         ])
+        .args(["--tls-valid-days".as_ref(), "2"])
         .args([
             "--mk-private-key".as_ref(),
             dest_dir.helper_mk_private_key(helper_identity).as_os_str(),

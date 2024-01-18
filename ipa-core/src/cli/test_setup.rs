@@ -62,6 +62,7 @@ pub fn test_setup(args: TestSetupArgs) -> Result<(), BoxError> {
                 name: localhost.clone(),
                 tls_cert: args.output_dir.helper_tls_cert(id),
                 tls_key: args.output_dir.helper_tls_key(id),
+                tls_expire_after: 365,
                 mk_public_key: args.output_dir.helper_mk_public_key(id),
                 mk_private_key: args.output_dir.helper_mk_private_key(id),
             };

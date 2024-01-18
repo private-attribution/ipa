@@ -12,7 +12,8 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use super::ArrayAccess;
 use crate::{
-    ff::{Field, Serializable},
+    ff::{boolean_array::NonZeroPadding, Field, Serializable},
+    impl_serializable_trait,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
@@ -148,7 +149,7 @@ impl<'a> Iterator for BoolIterator<'a> {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $({$($extra:item)*})? ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $one:expr, $polynomial:expr, $deser_type: tt, $({$($extra:item)*})? ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -330,7 +331,7 @@ macro_rules! bit_array_impl {
             //
             // Since we know that x^8 + x^4 + x^3 + x + 1 = 0, we can distribute out terms of this structure and replace them with zero.
             //
-            // So the result of our multipliation was:
+            // So the result of our multiplication was:
             // 110100011111110
             // which you can think of as:
             // x^14 + x^13 + 0 + x^11 + 0 + 0 + 0 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 0
@@ -360,12 +361,10 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
                     let mut product = clmul(self, rhs);
-                    let poly = <Self as GaloisField>::POLYNOMIAL;
-                    while (u128::BITS - product.leading_zeros()) > Self::BITS {
-                        let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
-                        product ^= (poly << bits_to_shift);
+                    for i in (0..(Self::BITS - 1)).into_iter().rev() {
+                        let b = product >> (Self::BITS + i);
+                        product ^= (<Self as GaloisField>::POLYNOMIAL * b) << i;
                     }
-
                     Self::try_from(product).unwrap()
                 }
             }
@@ -462,18 +461,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl Serializable for $name {
-                type Size = <$store as Block>::Size;
-                type DeserializationError = std::convert::Infallible;
-
-                fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-                    buf.copy_from_slice(self.0.as_raw_slice());
-                }
-
-                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-                    Ok(Self(<$store>::new(assert_copy(*buf).into())))
-                }
-            }
+            impl_serializable_trait!($name, $bits, $store, $deser_type);
 
             impl Debug for $name {
                 fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -532,6 +520,12 @@ macro_rules! bit_array_impl {
                     assert_eq!(a - b, xor);
                     assert_eq!(-a, a);
                     assert_eq!(a + (-a), $name::ZERO);
+                }
+
+                #[test]
+                pub fn polynomial_bits() {
+                    assert_eq!($name::BITS + 1, u128::BITS - $name::POLYNOMIAL.leading_zeros(),
+                               "The polynomial should have one more bit than the field.");
                 }
 
                 #[test]
@@ -599,7 +593,7 @@ macro_rules! bit_array_impl {
                     let mut buf = GenericArray::default();
                     a.clone().serialize(&mut buf);
 
-                    assert_eq!(a, $name::deserialize_infallible(&buf));
+                    assert_eq!(a, $name::deserialize(&buf).unwrap(), "failed to serialize/deserialize {a:?}");
                 }
             }
 
@@ -618,6 +612,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128,
+    infallible,
 );
 
 bit_array_impl!(
@@ -628,6 +623,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128,
+    infallible,
 );
 
 bit_array_impl!(
@@ -637,7 +633,8 @@ bit_array_impl!(
     20,
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^20 + x^7 + x^3 + x^2 + 1
-    0b1000_0000_0000_1000_1101_u128,
+    0b1_0000_0000_0000_1000_1101_u128,
+    fallible,
 );
 
 bit_array_impl!(
@@ -648,6 +645,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128,
+    infallible,
 );
 
 bit_array_impl!(
@@ -658,6 +656,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0, 0, 0, 0, 0, 0, 0),
     // x^9 + x^4 + x^3 + x + 1
     0b10_0001_1011_u128,
+    fallible,
 );
 
 bit_array_impl!(
@@ -668,6 +667,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1, 0, 0),
     // x^3 + x + 1
     0b1_011_u128,
+    fallible,
 );
 
 bit_array_impl!(
@@ -678,6 +678,7 @@ bit_array_impl!(
     bitarr!(const u8, Lsb0; 1),
     // x
     0b10_u128,
+    fallible,
     {
         impl From<bool> for Gf2 {
             fn from(value: bool) -> Self {
