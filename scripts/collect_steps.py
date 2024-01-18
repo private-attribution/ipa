@@ -19,7 +19,7 @@ ARGS = [
     "--num-multi-bits",
     "3",
 ]
-QUERY_SIZE = 10
+QUERY_SIZE = 100
 # per_user_cap = 1 runs an optimized protocol, so 1 and anything larger than 1
 PER_USER_CAP = [1, 3]
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
@@ -173,28 +173,28 @@ def ipa_steps():
 
 OPRF_BREAKDOWN_KEY = 256
 OPRF_USER_CAP = [8, 16, 32, 64, 128]
-OPRF_SECURITY_MODEL = "semi-honest"
 OPRF_TRIGGER_VALUE = [6, 7]
 
 def oprf_steps():
     output = set()
     for c in OPRF_USER_CAP:
         for w in ATTRIBUTION_WINDOW:
-            for tv in OPRF_TRIGGER_VALUE:
-                args = ARGS + [
-                    "-n",
-                    str(QUERY_SIZE),
-                    "-c",
-                    str(c),
-                    "-w",
-                    str(w),
-                    "-b",
-                    str(OPRF_BREAKDOWN_KEY),
-                    "-m",
-                    OPRF_SECURITY_MODEL,
-                    "-t",
-                    str(tv),
-                    "-o"
+            for m in SECURITY_MODEL:
+                for tv in OPRF_TRIGGER_VALUE:
+                    args = ARGS + [
+                        "-n",
+                        str(QUERY_SIZE),
+                        "-c",
+                        str(c),
+                        "-w",
+                        str(w),
+                        "-b",
+                        str(OPRF_BREAKDOWN_KEY),
+                        "-m",
+                        str(m),
+                        "-t",
+                        str(tv),
+                        "-o"
             ]
             print(" ".join(args), file=sys.stderr)
             output.update(collect_steps(args))
