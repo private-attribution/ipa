@@ -10,8 +10,7 @@ use crate::{
         context::{UpgradableContext, UpgradedContext, Validator},
         ipa_prf::prf_sharding::bucket::move_single_value_to_bucket,
         modulus_conversion::convert_bits,
-        sort::{bitwise_to_onehot, generate_permutation::ShuffledPermutationWrapper},
-        step::BitOpStep,
+        sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, RecordId,
     },
     secret_sharing::{
@@ -75,6 +74,10 @@ where
     let record_count = breakdown_keys.len();
     let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
+    let move_value_to_bucket_context = ctx
+        .narrow(&Step::MoveValueToBucket)
+        .set_total_records(record_count);
+
     let converted_bk = convert_bits(
         ctx.narrow(&Step::ModConvBreakdownKeyBits)
             .set_total_records(record_count),
@@ -88,7 +91,7 @@ where
             .zip(stream_iter(capped_credits))
             .enumerate()
             .map(|(i, (bk, cred))| {
-                let ctx = ctx.clone();
+                let ctx = move_value_to_bucket_context.clone();
                 async move {
                     move_single_value_to_bucket(
                         ctx,
@@ -119,8 +122,7 @@ where
 
 #[derive(Step)]
 pub(crate) enum Step {
-    ComputeEqualityChecks,
-    CheckTimesCredit,
+    MoveValueToBucket,
     ModConvBreakdownKeyBits,
 }
 
