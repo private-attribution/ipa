@@ -98,6 +98,7 @@ where
                         usize::try_from(max_breakdown_key).unwrap(),
                         true,
                     )
+                    .await
                 }
             }),
     );
