@@ -320,18 +320,18 @@ where
 /// Note that unconverted fields are not upgraded, so they might need to be upgraded either before or
 /// after invoking this function.
 #[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
-pub fn convert_selected_bits<'inp, F, V, C, S, VS, R>(
+pub fn convert_selected_bits<'a, F, V, C, S, VS, R>(
     ctx: C,
     binary_shares: VS,
     bit_range: Range<u32>,
-) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>> + 'inp
+) -> impl Stream<Item = Result<(BitDecomposed<S>, R), Error>> + 'a
 where
     R: Send + 'static,
     F: PrimeField,
-    V: ToBitConversionTriples<Residual = R> + 'inp,
-    C: UpgradedContext<F, Share = S> + 'inp,
+    V: ToBitConversionTriples<Residual = R> + 'a,
+    C: UpgradedContext<F, Share = S> + 'a,
     S: LinearSecretSharing<F> + SecureMul<C>,
-    VS: Stream<Item = V> + Unpin + Send + 'inp,
+    VS: Stream<Item = V> + Unpin + Send + 'a,
     for<'u> UpgradeContext<'u, C, F, RecordId>:
         UpgradeToMalicious<'u, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>,
 {
