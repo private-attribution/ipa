@@ -118,7 +118,10 @@ pub(crate) mod test_executor {
         Fut: Future<Output = ()>,
     {
         tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
+            // IO driver is disabled to run our tests under Miri. If you need it, make sure you
+            // annotate this test with #[cfg(not(miri))]
+            // https://github.com/rust-lang/miri/issues/2057
+            .enable_time()
             .build()
             .unwrap()
             .block_on(f());
