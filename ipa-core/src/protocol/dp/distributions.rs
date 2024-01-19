@@ -65,8 +65,9 @@ impl From<BoxMuller> for RoundedBoxMuller {
 }
 /// Double Geometric Distribution
 ///
+
 /// Generates a sample from a geometric distribution with the given success probability.
-fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> isize {
+fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
     // Create a Bernoulli distribution with the specified success probability
     let bernoulli = Bernoulli::new(probability).expect("Invalid probability");
     // Generate Bernoulli random numbers until the first success
@@ -78,43 +79,46 @@ fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> isize {
     }
     attempts
 }
+
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
-fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: isize, rng: &mut R) -> isize {
+fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: u32, rng: &mut R) -> i32 {
     let success_probability = 1.0 - E.powf(-1.0 / s);
     let attempts1 = generate_geometric(success_probability, rng);
     let attempts2 = generate_geometric(success_probability, rng);
-    shift + attempts1 - attempts2
+    (shift + attempts1 - attempts2).try_into().unwrap()
+
 }
+
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
-fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: isize, rng: &mut R) -> isize {
+fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: u32, rng: &mut R) -> u32 {
     let mut reject = 1;
     let mut sample = 0; // Declare sample here
     while reject == 1 {
         sample = generate_double_geometric(s, n, rng); // Assign a value to sample inside the loop
-        if sample >= 0 && sample <= (2 * n) {
+        if sample >= 0 && sample <= ((2 * n)).try_into().unwrap()  {
             reject = 0;
         }
     }
-    sample // Return the final value of sample
+    sample.try_into().unwrap() // Return the final value of sample
 }
 /// Truncated Double Geometric distribution.
 #[derive(Debug)]
 pub struct TruncatedDoubleGeometric {
     s: f64,
-    shift: isize,
+    shift: u32,
 }
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
-    pub fn new(s: f64, shift: isize) -> Self {
+    pub fn new(s: f64, shift: u32) -> Self {
         Self { s, shift }
     }
     /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
-    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> isize {
+    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
         generate_truncated_double_geometric(self.s, self.shift, rng)
     }
 }
-impl Distribution<isize> for TruncatedDoubleGeometric {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> isize {
+impl Distribution<u32> for TruncatedDoubleGeometric {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
         self.sample(rng)
     }
 }
@@ -125,7 +129,6 @@ mod tests {
     use rand::{distributions::Distribution, thread_rng};
     use rand_core::RngCore;
 
-    #[allow(clippy::cast_precision_loss)]
     use super::*;
     #[test]
     fn dp_normal_distribution_sample_standard() {
@@ -180,12 +183,13 @@ mod tests {
             let sample = generate_geometric(p, &mut rng);
             *histogram.entry(sample).or_insert(0) += 1;
         }
+        #[allow(clippy::cast_precision_loss)]
         for x in 0..100 {
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             let expected_probability = (1.0 - p).powf(x as f64) * p;
-            // println!("x = {}, Observed Probability = {}, Expected Probability = {}", x, observed_probability, expected_probability);
+            println!("x = {}, Observed Probability = {}, Expected Probability = {}", x, observed_probability, expected_probability);
             assert!((observed_probability - expected_probability) <= 0.01);
         }
     }
@@ -198,7 +202,7 @@ mod tests {
         // Sample 100 values from the generate_truncated_double_geometric function
         for _ in 0..100 {
             let sample = generate_truncated_double_geometric(s, n, &mut rng);
-            assert!(sample > 0 && sample < 2 * n);
+            assert!(sample > 0 && sample < (2 * n).try_into().unwrap());
             samples.push(sample);
         }
         // Print the samples to the console
@@ -214,6 +218,7 @@ mod tests {
         let failure_prob = 1.0;
         let s = 1.0; // Set s to some value (e.g., 1.0)
         let n = 25; // Set n to some value (e.g., 25)
+        #[allow(clippy::cast_precision_loss)]
         let t = f64::sqrt(
             f64::powf(2.0 * (n as f64), 2.0) / (-2.0 * (f64::from(number_samples)))
                 * f64::ln(failure_prob / 2.0),
@@ -226,7 +231,7 @@ mod tests {
             samples.push(sample);
         }
         // Compute the sample mean
-        let sample_mean = samples.iter().sum::<isize>() as f64 / samples.len() as f64;
+        let sample_mean = samples.iter().sum::<u32>() as f64 / samples.len() as f64;
         // println!("sample_mean: {:?}", sample_mean);
         // Check that the sample mean is within some distance of the expected value
         let expected_mean = n as f64;
@@ -244,7 +249,7 @@ mod tests {
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
             let sample = generate_truncated_double_geometric(s, n, &mut rng);
-            assert!(sample >= 0 && sample <= (2 * n));
+            assert!(sample >= 0 && sample <= ((2 * n)).try_into().unwrap());
             samples.push(sample);
         }
         // Compute the observed probability for each value in the range [0, 2*n)
@@ -252,9 +257,10 @@ mod tests {
         for value in samples {
             *histogram.entry(value).or_insert(0) += 1;
         }
-        let mut sorted_keys: Vec<isize> = histogram.keys().copied().collect();
+        let mut sorted_keys: Vec<u32> = histogram.keys().copied().collect();
         sorted_keys.sort_unstable();
         // Compute the expected probability for each value in the range [0, 2*n]
+        #[allow(clippy::cast_precision_loss)]
         let normalizing_factor = (1.0 - E.powf(-epsilon))
             / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
 
@@ -263,8 +269,16 @@ mod tests {
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
-            let expected_probability =
-                normalizing_factor * E.powf(-epsilon * ((n - x).abs() as f64));
+            // let expected_probability =
+                // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
+            let mut expected_probability = 0.0;
+            if x <= n {
+                expected_probability =
+                normalizing_factor * E.powf(-epsilon * (n - x)  as f64);
+            } else {
+                expected_probability =
+                normalizing_factor * E.powf(-epsilon * (x - n)  as f64);
+            }
             // println!("x, prob: {}, {}",x,expected_probability);
             // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
             assert!(
