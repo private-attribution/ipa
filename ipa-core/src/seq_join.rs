@@ -601,6 +601,21 @@ mod test {
     }
 
     #[test]
+    fn size() {
+        run(|| async {
+            let mut count = 10_usize;
+            let capacity = NonZeroUsize::new(3).unwrap();
+            let mut values = seq_join(capacity, iter((0..count).map(|i| async move { i })));
+            assert_eq!((count, Some(count)), values.size_hint());
+
+            while values.next().await.is_some() {
+                count -= 1;
+                assert_eq!((count, Some(count)), values.size_hint());
+            }
+        });
+    }
+
+    #[test]
     fn out_of_order() {
         run(|| async {
             let capacity = NonZeroUsize::new(3).unwrap();
