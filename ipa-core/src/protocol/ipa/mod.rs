@@ -466,7 +466,16 @@ where
         .collect::<Vec<_>>()
 }
 
-#[cfg(all(test, any(unit_test, feature = "shuttle")))]
+#[cfg(all(
+    test,
+    any(
+        unit_test,
+        all(
+            any(feature = "shuttle", feature = "multi-threading"),
+            not(all(feature = "shuttle", feature = "multi-threading"))
+        )
+    )
+))]
 pub mod tests {
     use std::num::NonZeroU32;
 
