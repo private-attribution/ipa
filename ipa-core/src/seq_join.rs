@@ -585,46 +585,54 @@ mod test {
         assert_eq!((0..count).collect::<Vec<_>>(), values);
     }
 
-    #[tokio::test]
-    async fn within_capacity() {
-        immediate(2).await;
-        immediate(1).await;
-    }
-
-    #[tokio::test]
-    async fn over_capacity() {
-        immediate(10).await;
-    }
-
-    #[tokio::test]
-    async fn out_of_order() {
-        let capacity = NonZeroUsize::new(3).unwrap();
-        let barrier = tokio::sync::Barrier::new(2);
-        let unresolved: BoxFuture<'_, u32> = Box::pin(async {
-            barrier.wait().await;
-            0
+    #[test]
+    fn within_capacity() {
+        run(|| async {
+            immediate(2).await;
+            immediate(1).await;
         });
-        let it = once(unresolved)
-            .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        let mut seq_futures = seq_join(capacity, iter(it));
-
-        assert_eq!(
-            Some(Poll::Pending),
-            poll_immediate(&mut seq_futures).next().await
-        );
-        barrier.wait().await;
-        assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
     }
 
-    #[tokio::test]
-    async fn join_success() {
+    #[test]
+    fn over_capacity() {
+        run(|| async {
+            immediate(10).await;
+        });
+    }
+
+    #[test]
+    fn out_of_order() {
+        run(|| async {
+            let capacity = NonZeroUsize::new(3).unwrap();
+            let barrier = tokio::sync::Barrier::new(2);
+            let unresolved: BoxFuture<'_, u32> = Box::pin(async {
+                barrier.wait().await;
+                0
+            });
+            let it = once(unresolved)
+                .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
+            let mut seq_futures = seq_join(capacity, iter(it));
+
+            assert_eq!(
+                Some(Poll::Pending),
+                poll_immediate(&mut seq_futures).next().await
+            );
+            barrier.wait().await;
+            assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
+        });
+    }
+
+    #[test]
+    fn join_success() {
         fn f<T: Send>(v: T) -> impl Future<Output = Result<T, Infallible>> {
             lazy(move |_| Ok(v))
         }
 
-        let active = NonZeroUsize::new(10).unwrap();
-        let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
-        assert_eq!((1..5).collect::<Vec<_>>(), res);
+        run(|| async {
+            let active = NonZeroUsize::new(10).unwrap();
+            let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
+            assert_eq!((1..5).collect::<Vec<_>>(), res);
+        });
     }
 
     /// This test has to use multi-threaded runtime because early return causes `TryCollect` to be
