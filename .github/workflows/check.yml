@@ -164,12 +164,16 @@ jobs:
 
   miri:
     runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-gnu
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@nightly
     - name: Add Miri
       run: rustup component add miri
-    - name: Run seq_join tests with Miri
+    - name: Setup Miri
+      run: cargo miri setup
+    - name: Run seq_join tests
       run: cargo miri test --target $TARGET --lib seq_join --features "multi-threading"
 
   coverage:
