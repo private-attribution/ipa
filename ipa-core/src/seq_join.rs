@@ -110,7 +110,7 @@ pub trait SeqJoin {
         O: Send + 'static,
         E: Send + 'static,
     {
-        unsafe { multi_thread::parallel_join(iterable) }
+        unsafe { Box::pin(multi_thread::parallel_join(iterable)) }
     }
 
     /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
@@ -286,7 +286,6 @@ mod local {
 /// version, so this is what we want to use in release/prod mode.
 #[cfg(feature = "multi-threading")]
 mod multi_thread {
-    use futures::future::BoxFuture;
     use tracing::{Instrument, Span};
 
     use super::*;
@@ -418,11 +417,9 @@ mod multi_thread {
         }
     }
 
-    /// TODO: change it to impl Future once https://github.com/rust-lang/rust/pull/115822 is
-    /// available in stable Rust.
     pub(super) unsafe fn parallel_join<'fut, I, F, O, E>(
         iterable: I,
-    ) -> BoxFuture<'fut, Result<Vec<O>, E>>
+    ) -> impl Future<Output = Result<Vec<O>, E>> + Send + 'fut
     where
         I: IntoIterator<Item = F> + Send,
         F: Future<Output = Result<O, E>> + Send + 'fut,
@@ -443,14 +440,14 @@ mod multi_thread {
             scope
         };
 
-        Box::pin(async move {
+        async move {
             let mut result = Vec::with_capacity(scope.len());
             while let Some(item) = scope.next().await {
                 // join error is nothing we can do about
                 result.push(item.unwrap()?)
             }
             Ok(result)
-        })
+        }
     }
 }
 
@@ -750,7 +747,7 @@ mod test {
                 })
                 .collect::<Vec<_>>();
 
-            let mut f = unsafe { parallel_join(futures) };
+            let mut f = Box::pin(unsafe { parallel_join(futures) });
             poll_immediate(&mut f).await;
             start.wait().await;
 
