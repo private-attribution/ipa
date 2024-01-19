@@ -158,9 +158,11 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@nightly
       - name: Add Rust sources
-        run: rustup component add rust-src
+        run: rustup component add rust-src miri
       - name: Run tests with sanitizer
         run: RUSTFLAGS="-Z sanitizer=${{ matrix.sanitizer }} -Z sanitizer-memory-track-origins" cargo test -Z build-std --target $TARGET --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate ${{ matrix.features }}"
+      - name: Run seq_join tests with Miri
+        run: cargo test --target $TARGET --lib seq_join --features "multi-threading"
 
   coverage:
     name: Measure coverage
