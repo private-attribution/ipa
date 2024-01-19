@@ -35,6 +35,10 @@ pub fn assert_send<'a, O>(
 /// This will fail to resolve if the progress of any future depends on a future more
 /// than `active` items behind it in the input sequence.
 ///
+/// # Safety
+/// If multi-threading is enabled, forgetting the resulting future will cause use-after-free error. Do not leak it or
+/// prevent the future destructor from running.
+///
 /// [`try_join_all`]: futures::future::try_join_all
 /// [`Stream`]: futures::stream::Stream
 /// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
@@ -44,6 +48,11 @@ where
     F: Future<Output = O> + Send,
     O: Send + 'static,
 {
+    #[cfg(feature = "multi-threading")]
+    unsafe {
+        SequentialFutures::new(active, source)
+    }
+    #[cfg(not(feature = "multi-threading"))]
     SequentialFutures::new(active, source)
 }
 
@@ -84,6 +93,12 @@ pub trait SeqJoin {
     }
 
     /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
+    ///
+    /// # Safety
+    /// Forgetting the future returned from this function will cause use-after-free. This is a tradeoff between
+    /// performance and safety that allows us to use regular references instead of Arc pointers.
+    ///
+    /// Dropping the future is always safe.
     #[cfg(feature = "multi-threading")]
     fn parallel_join<'a, I, F, O, E>(
         &self,
@@ -95,7 +110,7 @@ pub trait SeqJoin {
         O: Send + 'static,
         E: Send + 'static,
     {
-        multi_thread::parallel_join(iterable)
+        unsafe { multi_thread::parallel_join(iterable) }
     }
 
     /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
@@ -340,7 +355,7 @@ mod multi_thread {
         F: IntoFuture,
         <<F as IntoFuture>::IntoFuture as Future>::Output: Send + 'static,
     {
-        pub fn new(active: NonZeroUsize, source: S) -> Self {
+        pub unsafe fn new(active: NonZeroUsize, source: S) -> Self {
             SequentialFutures {
                 spawner: unsafe { create_spawner() },
                 source: source.fuse(),
@@ -405,20 +420,22 @@ mod multi_thread {
 
     /// TODO: change it to impl Future once https://github.com/rust-lang/rust/pull/115822 is
     /// available in stable Rust.
-    pub(super) fn parallel_join<'fut, I, F, O, E>(iterable: I) -> BoxFuture<'fut, Result<Vec<O>, E>>
+    pub(super) unsafe fn parallel_join<'fut, I, F, O, E>(
+        iterable: I,
+    ) -> BoxFuture<'fut, Result<Vec<O>, E>>
     where
         I: IntoIterator<Item = F> + Send,
         F: Future<Output = Result<O, E>> + Send + 'fut,
         O: Send + 'static,
         E: Send + 'static,
     {
-        // TODO: implement spawner for shuttle
         let mut scope = {
             let iter = iterable.into_iter();
             let mut scope = unsafe { create_spawner() };
             for element in iter {
-                // it is important to make those cancellable.
-                // TODO: elaborate why
+                // it is important to make those cancellable to avoid deadlocks if one of the spawned future panics.
+                // If there is a dependency between futures, pending one will never complete.
+                // Cancellable futures will be cancelled when spawner is dropped which is the behavior we want.
                 scope.spawn_cancellable(element.instrument(Span::current()), || {
                     panic!("Future is cancelled.")
                 });
@@ -733,7 +750,7 @@ mod test {
                 })
                 .collect::<Vec<_>>();
 
-            let mut f = parallel_join(futures);
+            let mut f = unsafe { parallel_join(futures) };
             poll_immediate(&mut f).await;
             start.wait().await;
 
