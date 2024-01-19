@@ -74,8 +74,7 @@ where
         );
         let mut offset = BA7::BITS as usize;
 
-        self.sort_key.0.set(offset, self.is_trigger_bit.left());
-        self.sort_key.1.set(offset, self.is_trigger_bit.right());
+        self.sort_key.set(offset, self.is_trigger_bit.clone());
 
         offset += 1;
         expand_shared_array_in_place(&mut self.sort_key, &self.timestamp, offset);
@@ -262,15 +261,15 @@ impl<
         if i < bk_bits {
             BitConversionTriple::new(
                 role,
-                self.attributed_breakdown_key_bits.0.get(i).unwrap() == Boolean::ONE,
-                self.attributed_breakdown_key_bits.1.get(i).unwrap() == Boolean::ONE,
+                self.attributed_breakdown_key_bits.get(i).unwrap().left() == Boolean::ONE,
+                self.attributed_breakdown_key_bits.get(i).unwrap().right() == Boolean::ONE,
             )
         } else {
             let i = i - bk_bits;
             BitConversionTriple::new(
                 role,
-                self.capped_attributed_trigger_value.0.get(i).unwrap() == Boolean::ONE,
-                self.capped_attributed_trigger_value.1.get(i).unwrap() == Boolean::ONE,
+                self.capped_attributed_trigger_value.get(i).unwrap().left() == Boolean::ONE,
+                self.capped_attributed_trigger_value.get(i).unwrap().right() == Boolean::ONE,
             )
         }
     }

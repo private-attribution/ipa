@@ -988,7 +988,6 @@ pub mod tests {
 
         proptest! {
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn serde(timestamp in 0..u128::MAX, match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
                 serde_internal::<Fp31>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
                 serde_internal::<Fp32BitPrime>(timestamp, match_key, trigger_bit, breakdown_key, trigger_value, seed);
@@ -1129,9 +1128,9 @@ pub mod tests {
                 cap_one(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 14_421,
-                    bytes_sent: 47_100,
-                    indexed_prss: 19_137,
+                    records_sent: 14_397,
+                    bytes_sent: 47_004,
+                    indexed_prss: 19_113,
                     seq_prss: 1118,
                 },
             )
@@ -1144,9 +1143,9 @@ pub mod tests {
                 cap_three(),
                 SemiHonest,
                 PerfMetrics {
-                    records_sent: 21_756,
-                    bytes_sent: 76_440,
-                    indexed_prss: 28_146,
+                    records_sent: 21_732,
+                    bytes_sent: 76_344,
+                    indexed_prss: 28_122,
                     seq_prss: 1118,
                 },
             )
@@ -1159,9 +1158,9 @@ pub mod tests {
                 cap_one(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 35_163,
-                    bytes_sent: 130_068,
-                    indexed_prss: 72_447,
+                    records_sent: 35_115,
+                    bytes_sent: 129_876,
+                    indexed_prss: 72_375,
                     seq_prss: 1132,
                 },
             )
@@ -1174,9 +1173,9 @@ pub mod tests {
                 cap_three(),
                 Malicious,
                 PerfMetrics {
-                    records_sent: 53_865,
-                    bytes_sent: 204_876,
-                    indexed_prss: 109_734,
+                    records_sent: 53_817,
+                    bytes_sent: 204_684,
+                    indexed_prss: 109_662,
                     seq_prss: 1132,
                 },
             )

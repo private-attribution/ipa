@@ -16,6 +16,16 @@ impl Block for bool {
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub struct Boolean(bool);
 
+impl Boolean {
+    pub const TRUE: Boolean = Self(true);
+    pub const FALSE: Boolean = Self(false);
+
+    #[must_use]
+    pub fn as_u128(&self) -> u128 {
+        u128::from(bool::from(*self))
+    }
+}
+
 impl ExtendableField for Boolean {
     type ExtendedField = Gf32Bit;
 
@@ -139,7 +149,7 @@ impl Field for Boolean {
     const ONE: Boolean = Boolean(true);
 
     fn as_u128(&self) -> u128 {
-        bool::from(*self).into()
+        Boolean::as_u128(self)
     }
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {

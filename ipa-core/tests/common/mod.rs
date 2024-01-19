@@ -203,7 +203,7 @@ pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
 }
 
 pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQueryConfig) {
-    const INPUT_SIZE: usize = 10;
+    const INPUT_SIZE: usize = 100;
     // set to true to always keep the temp dir after test finishes
     let dir = TempDir::new_delete_on_drop();
     let path = dir.path();

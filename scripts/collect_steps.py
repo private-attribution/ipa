@@ -19,7 +19,7 @@ ARGS = [
     "--num-multi-bits",
     "3",
 ]
-QUERY_SIZE = 10
+QUERY_SIZE = 100
 # per_user_cap = 1 runs an optimized protocol, so 1 and anything larger than 1
 PER_USER_CAP = [1, 3]
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
