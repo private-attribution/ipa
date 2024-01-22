@@ -13,6 +13,10 @@ pub enum Error {
     BadEpsilon(f64),
     #[error("Valid values for DP-delta are within {:?}, got: {0}", f64::MIN_POSITIVE..1.0 - f64::MIN_POSITIVE)]
     BadDelta(f64),
+    #[error("Valid values for TruncatedDoubleGeometric are greater than {:?}, got: {0}", f64::MIN_POSITIVE)]
+    BadS(f64),
+    #[error("Valid values for success probability in Geometric are greater than {:?}, got: {0}", f64::MIN_POSITIVE)]
+    BadGeometricProb(f64),
 }
 
 /// Applies DP to the inputs in the clear using continuous Gaussian noise. Works with floats only, so
@@ -148,7 +152,7 @@ impl OPRFPaddingDp {
             truncated_double_geometric: TruncatedDoubleGeometric::new(
                 1.0 / new_epsilon,
                 smallest_n,
-            ),
+            )?,
         })
     }
 

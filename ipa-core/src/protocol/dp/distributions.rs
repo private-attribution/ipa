@@ -7,6 +7,8 @@ use rand::{
     distributions::{Bernoulli, Distribution, Uniform},
     Rng,
 };
+use crate::protocol::dp::insecure::Error;
+
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
 /// |a-b| < 10^(-precision).
 #[cfg(all(test, unit_test))]
@@ -63,9 +65,11 @@ impl From<BoxMuller> for RoundedBoxMuller {
         Self { inner: value }
     }
 }
-/// Double Geometric Distribution
-///
 
+///  What follows is the implementation of sampling from the Truncated Double Geometric distribution which in the
+///  process samples from Double Geometric and Geometric distributions.
+
+///  Geometric Distribution
 /// Generates a sample from a geometric distribution with the given success probability.
 fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
     // Create a Bernoulli distribution with the specified success probability
@@ -79,17 +83,82 @@ fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
     }
     attempts
 }
+#[derive(Debug)]
+pub struct Geometric {
+    probability: f64,
+}
+impl Geometric {
+    /// Creates a new `Geometric` distribution with the given success probability.
+    pub fn new(probability: f64) -> Result<Self,Error> {
+        if probability < f64::MIN_POSITIVE {
+            return Err(Error::BadGeometricProb(probability));
+        }
+        Ok(Self { probability })
+    }
+    /// Generates a sample from the `Geometric` distribution.
+    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
+        Self::generate_geometric(self.probability, rng)
+    }
+    /// Generates a sample from a geometric distribution with the given success probability.
+    fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
+    // Create a Bernoulli distribution with the specified success probability
+    let bernoulli = Bernoulli::new(probability).expect("Invalid probability");
+    // Generate Bernoulli random numbers until the first success
+    // let mut rng = rand::thread_rng();
+    let mut attempts = 0;
+    // let sample = ud.sample(rng);
+    while !bernoulli.sample(rng) {
+        attempts += 1;
+    }
+    attempts
+}
+}
+impl Distribution<u32> for Geometric {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
+        self.sample(rng)
+    }
+}
 
+/// Double Geometric
 /// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
 fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: u32, rng: &mut R) -> i32 {
     let success_probability = 1.0 - E.powf(-1.0 / s);
     let attempts1 = generate_geometric(success_probability, rng);
     let attempts2 = generate_geometric(success_probability, rng);
     (shift + attempts1 - attempts2).try_into().unwrap()
-
+}
+#[derive(Debug)]
+pub struct DoubleGeometric {
+    s: f64,
+    shift: u32,
+}
+impl DoubleGeometric {
+    /// Creates a new `DoubleGeometric` distribution with the given success probability and shift parameter.
+    pub fn new(s: f64, shift: u32) -> Result<Self,Error> {
+        if s < f64::MIN_POSITIVE {
+            return Err(Error::BadS(s));
+        }
+        Ok(Self { s, shift })
+    }
+    /// Generates a sample from the `DoubleGeometric` distribution.
+    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
+        Self::generate_double_geometric(self.s, self.shift, rng)
+    }
+    fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: u32, rng: &mut R) -> i32 {
+        let success_probability = 1.0 - E.powf(-1.0 / s);
+        let attempts1 = generate_geometric(success_probability, rng);
+        let attempts2 = generate_geometric(success_probability, rng);
+        (shift + attempts1 - attempts2).try_into().unwrap()
+    }
+}
+impl Distribution<i32> for DoubleGeometric {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
+        self.sample(rng)
+    }
 }
 
-/// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
+
+/// Generates a sample from a truncated double geometric distribution with the given success probability and shift parameter.
 fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: u32, rng: &mut R) -> u32 {
     let mut reject = 1;
     let mut sample = 0; // Declare sample here
@@ -109,12 +178,27 @@ pub struct TruncatedDoubleGeometric {
 }
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
-    pub fn new(s: f64, shift: u32) -> Self {
-        Self { s, shift }
+    pub fn new(s: f64, shift: u32) -> Result<Self,Error> {
+        if s < f64::MIN_POSITIVE {
+            return Err(Error::BadS(s));
+        }
+        Ok(Self { s, shift })
     }
     /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
     pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
         generate_truncated_double_geometric(self.s, self.shift, rng)
+    }
+    /// Generates a sample from a truncated double geometric distribution with the given success probability and shift parameter.
+    fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: u32, rng: &mut R) -> u32 {
+        let mut reject = 1;
+        let mut sample = 0; // Declare sample here
+        while reject == 1 {
+            sample = generate_double_geometric(s, n, rng); // Assign a value to sample inside the loop
+            if sample >= 0 && sample <= ((2 * n)).try_into().unwrap()  {
+                reject = 0;
+            }
+        }
+        sample.try_into().unwrap() // Return the final value of sample
     }
 }
 impl Distribution<u32> for TruncatedDoubleGeometric {
