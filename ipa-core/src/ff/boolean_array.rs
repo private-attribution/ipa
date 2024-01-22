@@ -284,6 +284,11 @@ macro_rules! boolean_array_impl {
             #[derive(Clone, Copy, PartialEq, Eq, Debug)]
             pub struct $name(pub(super) Store);
 
+            impl $name {
+                #[cfg(all(test, unit_test))]
+                const STORE_LEN: usize = bitvec::mem::elts::<u8>($bits);
+            }
+
             impl ArrayAccess for $name {
                 type Output = Boolean;
                 type Iter<'a> = BAIterator<'a>;
@@ -427,12 +432,26 @@ macro_rules! boolean_array_impl {
 
             #[cfg(all(test, unit_test))]
             mod tests {
+                use proptest::{
+                    prelude::{prop, Arbitrary, Strategy},
+                    proptest,
+                };
                 use rand::{thread_rng, Rng};
 
                 use super::*;
 
-                // Only small BAs expose this via `Field`.
-                const ONE: $name = $name(bitarr_one!($bits));
+                impl Arbitrary for $name {
+                    type Parameters = <[u8; $name::STORE_LEN] as Arbitrary>::Parameters;
+                    type Strategy = prop::strategy::Map<
+                        <[u8; $name::STORE_LEN] as Arbitrary>::Strategy,
+                        fn([u8; $name::STORE_LEN]) -> Self,
+                    >;
+
+                    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+                        <[u8; $name::STORE_LEN]>::arbitrary_with(args)
+                            .prop_map(|arr| $name(Store::from(arr)))
+                    }
+                }
 
                 #[test]
                 fn set_boolean_array() {
@@ -444,43 +463,28 @@ macro_rules! boolean_array_impl {
                     assert_eq!(ba.get(i), Some(a));
                 }
 
-                #[test]
-                fn iterate_boolean_array() {
-                    let bits = ONE;
-                    let iter = bits.iter();
-                    for (i, j) in iter.enumerate() {
-                        if i == 0 {
-                            assert_eq!(j, Boolean::ONE);
-                        } else {
-                            assert_eq!(j, Boolean::ZERO);
+                proptest! {
+                    #[test]
+                    fn iterate_boolean_array(a: $name) {
+                        let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(bool::from(b), a.0[i]);
+                            assert_eq!(iter.len(), $bits - 1 - i);
                         }
                     }
-                }
 
-                #[test]
-                fn iterate_secret_shared_boolean_array() {
+                    #[test]
+                    fn iterate_secret_shared_boolean_array(a: AdditiveShare<$name>) {
                     use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-                    let bits = AdditiveShare::new(ONE, ONE);
-                    let iter = bits.into_iter();
-                    assert_eq!(iter.len(), $bits);
-                    for (i, j) in iter.enumerate() {
-                        if i == 0 {
-                            assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
-                        } else {
-                            assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+                        let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, sb)) = iter.next() {
+                            let left = Boolean::from(a.left().0[i]);
+                            let right = Boolean::from(a.right().0[i]);
+                            assert_eq!(sb, AdditiveShare::new(left, right));
+                            assert_eq!(iter.len(), $bits - 1 - i);
                         }
-                    }
-                }
-
-                #[test]
-                fn iterate_secret_shared_boolean_array_len() {
-                    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-                    let bits = AdditiveShare::new(ONE, ONE);
-                    let mut iter = bits.into_iter();
-                    assert_eq!(iter.len(), $bits);
-                    for b in (0..$bits).rev() {
-                        iter.next().unwrap();
-                        assert_eq!(iter.len(), b);
                     }
                 }
 

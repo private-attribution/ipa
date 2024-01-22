@@ -624,21 +624,12 @@ macro_rules! bit_array_impl {
                     }
 
                     #[test]
-                    fn arrayacces_iter(a: $name) {
-                        let mut val = 0u128;
-                        for (i, b) in a.iter().enumerate() {
-                            val |= u128::from(b) << i;
-                        }
-                        assert_eq!(val, a.as_u128());
-                    }
-
-                    #[test]
-                    fn arrayacces_iter_len(a: $name) {
-                        let mut iter = a.iter();
+                    fn arrayaccess_iter(a: $name) {
+                        let mut iter = a.iter().enumerate();
                         assert_eq!(iter.len(), $bits);
-                        for i in (0..$bits).rev() {
-                            iter.next().unwrap();
-                            assert_eq!(iter.len(), i);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(u128::from(b), (a.as_u128() >> i) & 1);
+                            assert_eq!(iter.len(), $bits - 1 - i);
                         }
                     }
                 }
