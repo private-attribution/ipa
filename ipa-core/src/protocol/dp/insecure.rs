@@ -115,6 +115,7 @@ pub struct OPRFPaddingDp {
 }
 
 fn right_hand_side(n: i32, big_delta: i32, epsilon: f64) -> f64 {
+    // Computes the right hand side of equation (11) in https://arxiv.org/pdf/2110.08177.pdf
     let r = E.powf(-epsilon);
     let a = (1.0 - r) / (1.0 + r - 2.0 * (r.powi(n + 1)));
     let mut result = 0.0;
@@ -124,6 +125,9 @@ fn right_hand_side(n: i32, big_delta: i32, epsilon: f64) -> f64 {
     a * result
 }
 fn find_smallest_n(big_delta: i32, epsilon: f64, small_delta: f64) -> u32 {
+    // for a fixed set of DP parameters, finds the smallest n that satisfies equation (11)
+    // of https://arxiv.org/pdf/2110.08177.pdf.  This gives the narrowest TruncatedDoubleGeometric
+    // that will satisify the disired DP parameters.
     for n in big_delta.. {
         if small_delta >= right_hand_side(n, big_delta, epsilon) {
             return n as u32;
