@@ -7,6 +7,7 @@ use rand::{
     distributions::{Bernoulli, Distribution, Uniform},
     Rng,
 };
+
 use crate::protocol::dp::insecure::Error;
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
@@ -72,13 +73,13 @@ impl From<BoxMuller> for RoundedBoxMuller {
 ///  Geometric Distribution
 /// Generates a sample from a geometric distribution with the given success probability.
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Geometric {
     probability: f64,
 }
 impl Geometric {
     /// Creates a new `Geometric` distribution with the given success probability.
-    pub fn new(probability: f64) -> Result<Self,Error> {
+    pub fn new(probability: f64) -> Result<Self, Error> {
         if probability < f64::MIN_POSITIVE {
             return Err(Error::BadGeometricProb(probability));
         }
@@ -103,14 +104,14 @@ impl Distribution<u32> for Geometric {
 }
 
 /// Double Geometric
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct DoubleGeometric {
     shift: u32,
     geometric: Geometric,
 }
 impl DoubleGeometric {
     /// Creates a new `DoubleGeometric` distribution with the given success probability and shift parameter.
-    pub fn new(s: f64, shift: u32) -> Result<Self,Error> {
+    pub fn new(s: f64, shift: u32) -> Result<Self, Error> {
         if s < f64::MIN_POSITIVE {
             return Err(Error::BadS(s));
         }
@@ -135,23 +136,20 @@ impl Distribution<i32> for DoubleGeometric {
 }
 
 /// Truncated Double Geometric distribution.
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct TruncatedDoubleGeometric {
     shift: u32, // is truncated to [0, 2*shift]
     double_geometric: DoubleGeometric,
 }
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
-    pub fn new(s: f64, shift: u32) -> Result<Self,Error> {
+    pub fn new(s: f64, shift: u32) -> Result<Self, Error> {
         if s < f64::MIN_POSITIVE {
             return Err(Error::BadS(s));
         }
         Ok(Self {
             shift,
-            double_geometric: DoubleGeometric::new(
-                s,
-                shift,
-            )?,
+            double_geometric: DoubleGeometric::new(s, shift)?,
         })
     }
     /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
@@ -161,12 +159,11 @@ impl TruncatedDoubleGeometric {
         let mut sample = 0; // Declare sample here
         while reject == 1 {
             sample = self.double_geometric.sample(rng); // Assign a value to sample inside the loop
-            if sample >= 0 && sample <= ((2 * self.shift)).try_into().unwrap()  {
+            if sample >= 0 && sample <= (2 * self.shift).try_into().unwrap() {
                 reject = 0;
             }
         }
         sample.try_into().unwrap() // Return the final value of sample
-
     }
 }
 impl Distribution<u32> for TruncatedDoubleGeometric {
@@ -225,12 +222,12 @@ mod tests {
 
     /// Tests for Geometric
     #[test]
-    fn test_geometric_constructor(){
+    fn test_geometric_constructor() {
         // should fail for negative probability
-        let  p = -1.0;
+        let p = -1.0;
         let expected = Err(Error::BadGeometricProb(p));
         let actual = Geometric::new(p);
-        assert_eq!(expected,actual);
+        assert_eq!(expected, actual);
     }
     #[test]
     fn test_geometric_sample_dist() {
@@ -248,30 +245,30 @@ mod tests {
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
-            let expected_probability = (1.0 - p).powf(x as f64) * p;
-            println!("x = {}, Observed Probability = {}, Expected Probability = {}", x, observed_probability, expected_probability);
+            let expected_probability = (1.0 - p).powf(f64::from(x)) * p;
+            println!("x = {x}, Observed Probability = {observed_probability}, Expected Probability = {expected_probability}");
             assert!((observed_probability - expected_probability) <= 0.01);
         }
     }
     /// Tests for Double Geometric
     #[test]
-    fn test_double_geometric_constructor(){
+    fn test_double_geometric_constructor() {
         // should fail for negative s parameter
         let s = -1.0;
         let n = 25;
         let expected = Err(Error::BadS(s));
-        let actual = DoubleGeometric::new(s,n);
-        assert_eq!(expected,actual);
+        let actual = DoubleGeometric::new(s, n);
+        assert_eq!(expected, actual);
     }
     /// Tests for Truncated Double Geometric
     #[test]
-    fn test_truncated_double_geometric_constructor(){
+    fn test_truncated_double_geometric_constructor() {
         // should fail for negative s parameter
         let s = -1.0;
         let n = 25;
         let expected = Err(Error::BadS(s));
-        let actual = TruncatedDoubleGeometric::new(s,n);
-        assert_eq!(expected,actual);
+        let actual = TruncatedDoubleGeometric::new(s, n);
+        assert_eq!(expected, actual);
     }
     #[test]
     fn test_truncated_double_geometric() {
@@ -280,7 +277,8 @@ mod tests {
         let n = 25;
         let mut samples = Vec::new();
         // Sample 100 values from the generate_truncated_double_geometric function
-        let distribution = TruncatedDoubleGeometric::new(s,n).expect("Truncated Double Geometric not constructed properly");
+        let distribution = TruncatedDoubleGeometric::new(s, n)
+            .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
             let sample = distribution.sample(&mut rng);
             assert!(sample > 0 && sample < (2 * n).try_into().unwrap());
@@ -301,22 +299,23 @@ mod tests {
         let n = 25; // Set n to some value (e.g., 25)
         #[allow(clippy::cast_precision_loss)]
         let t = f64::sqrt(
-            f64::powf(2.0 * (n as f64), 2.0) / (-2.0 * (f64::from(number_samples)))
+            f64::powf(2.0 * (f64::from(n)), 2.0) / (-2.0 * (f64::from(number_samples)))
                 * f64::ln(failure_prob / 2.0),
         );
         println!("t: {t:?}");
         let mut samples = Vec::new();
         // Sample number_samples values from the generate_truncated_double_geometric function
-        let distribution = TruncatedDoubleGeometric::new(s,n).expect("Truncated Double Geometric not constructed properly");
+        let distribution = TruncatedDoubleGeometric::new(s, n)
+            .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..number_samples {
             let sample = distribution.sample(&mut rng);
             samples.push(sample);
         }
         // Compute the sample mean
-        let sample_mean = samples.iter().sum::<u32>() as f64 / samples.len() as f64;
+        let sample_mean = f64::from(samples.iter().sum::<u32>()) / samples.len() as f64;
         // println!("sample_mean: {:?}", sample_mean);
         // Check that the sample mean is within some distance of the expected value
-        let expected_mean = n as f64;
+        let expected_mean = f64::from(n);
         // println!("expected_mean: {:?}", expected_mean);
         (sample_mean >= expected_mean - t) && (sample_mean <= expected_mean + t)
     }
@@ -326,13 +325,14 @@ mod tests {
         let epsilon = 1.0;
         let s = 1.0 / epsilon;
         let n = 25;
-        let distribution = TruncatedDoubleGeometric::new(s,n).expect("failed to construct TruncatedDoubleGeometric");
+        let distribution = TruncatedDoubleGeometric::new(s, n)
+            .expect("failed to construct TruncatedDoubleGeometric");
         let num_samples = 100_000;
         let mut samples = Vec::new();
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
             let sample = distribution.sample(&mut rng);
-            assert!(sample <= ((2 * n)).try_into().unwrap());
+            assert!(sample <= (2 * n).try_into().unwrap());
             samples.push(sample);
         }
         // Compute the observed probability for each value in the range [0, 2*n)
@@ -345,7 +345,7 @@ mod tests {
         // Compute the expected probability for each value in the range [0, 2*n]
         #[allow(clippy::cast_precision_loss)]
         let normalizing_factor = (1.0 - E.powf(-epsilon))
-            / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * ((n + 1) as f64))); // 'A' in paper
+            / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * (f64::from(n + 1)))); // 'A' in paper
 
         for x in 0..=(2 * n) {
             // Compare the observed and expected probabilities for each value in the range [0, 2*n]
@@ -353,14 +353,12 @@ mod tests {
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             // let expected_probability =
-                // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
+            // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
             let mut _expected_probability = 0.0;
             if x <= n {
-                _expected_probability =
-                normalizing_factor * E.powf(-epsilon * (n - x)  as f64);
+                _expected_probability = normalizing_factor * E.powf(-epsilon * f64::from(n - x));
             } else {
-                _expected_probability =
-                normalizing_factor * E.powf(-epsilon * (x - n)  as f64);
+                _expected_probability = normalizing_factor * E.powf(-epsilon * f64::from(x - n));
             }
             // println!("x, prob: {}, {}",x,expected_probability);
             // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
@@ -370,5 +368,4 @@ mod tests {
             );
         }
     }
-
 }
