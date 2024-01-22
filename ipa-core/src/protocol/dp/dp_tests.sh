@@ -3,6 +3,10 @@
 # run as: ./dp_tests.sh
 set -e
 cargo test --no-run
+cargo test protocol::dp::distributions::tests::test_geometric_constructor
+cargo test protocol::dp::distributions::tests::test_double_geometric_constructor
+cargo test protocol::dp::distributions::tests::test_truncated_double_geometric_constructor
+cargo test protocol::dp::distributions::tests::dp_normal_distribution_sample_random
 cargo test protocol::dp::distributions::tests::dp_normal_distribution_sample_random
 cargo test protocol::dp::distributions::tests::dp_normal_distribution_sample_standard
 cargo test protocol::dp::distributions::tests::test_truncated_double_geometric

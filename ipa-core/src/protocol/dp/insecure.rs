@@ -7,7 +7,7 @@ use rand_core::{CryptoRng, RngCore};
 
 use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     #[error("Epsilon value must be greater than {}, got {0}", f64::MIN_POSITIVE)]
     BadEpsilon(f64),

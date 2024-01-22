@@ -72,7 +72,7 @@ impl From<BoxMuller> for RoundedBoxMuller {
 ///  Geometric Distribution
 /// Generates a sample from a geometric distribution with the given success probability.
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub struct Geometric {
     probability: f64,
 }
@@ -103,7 +103,7 @@ impl Distribution<u32> for Geometric {
 }
 
 /// Double Geometric
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub struct DoubleGeometric {
     shift: u32,
     geometric: Geometric,
@@ -135,7 +135,7 @@ impl Distribution<i32> for DoubleGeometric {
 }
 
 /// Truncated Double Geometric distribution.
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub struct TruncatedDoubleGeometric {
     shift: u32, // is truncated to [0, 2*shift]
     double_geometric: DoubleGeometric,
@@ -223,8 +223,15 @@ mod tests {
         check(&nd, &mut rng, 1_u8);
     }
 
-    /// Tests for Double Geometric
-    ///
+    /// Tests for Geometric
+    #[test]
+    fn test_geometric_constructor(){
+        // should fail for negative probability
+        let  p = -1.0;
+        let expected = Err(Error::BadGeometricProb(p));
+        let actual = Geometric::new(p);
+        assert_eq!(expected,actual);
+    }
     #[test]
     fn test_geometric_sample_dist() {
         let mut rng = rand::thread_rng();
@@ -245,6 +252,26 @@ mod tests {
             println!("x = {}, Observed Probability = {}, Expected Probability = {}", x, observed_probability, expected_probability);
             assert!((observed_probability - expected_probability) <= 0.01);
         }
+    }
+    /// Tests for Double Geometric
+    #[test]
+    fn test_double_geometric_constructor(){
+        // should fail for negative s parameter
+        let s = -1.0;
+        let n = 25;
+        let expected = Err(Error::BadS(s));
+        let actual = DoubleGeometric::new(s,n);
+        assert_eq!(expected,actual);
+    }
+    /// Tests for Truncated Double Geometric
+    #[test]
+    fn test_truncated_double_geometric_constructor(){
+        // should fail for negative s parameter
+        let s = -1.0;
+        let n = 25;
+        let expected = Err(Error::BadS(s));
+        let actual = TruncatedDoubleGeometric::new(s,n);
+        assert_eq!(expected,actual);
     }
     #[test]
     fn test_truncated_double_geometric() {
@@ -305,7 +332,7 @@ mod tests {
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
             let sample = distribution.sample(&mut rng);
-            assert!(sample >= 0 && sample <= ((2 * n)).try_into().unwrap());
+            assert!(sample <= ((2 * n)).try_into().unwrap());
             samples.push(sample);
         }
         // Compute the observed probability for each value in the range [0, 2*n)
@@ -327,18 +354,18 @@ mod tests {
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             // let expected_probability =
                 // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
-            let mut expected_probability = 0.0;
+            let mut _expected_probability = 0.0;
             if x <= n {
-                expected_probability =
+                _expected_probability =
                 normalizing_factor * E.powf(-epsilon * (n - x)  as f64);
             } else {
-                expected_probability =
+                _expected_probability =
                 normalizing_factor * E.powf(-epsilon * (x - n)  as f64);
             }
             // println!("x, prob: {}, {}",x,expected_probability);
             // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
             assert!(
-                (observed_probability - expected_probability).abs() <= 0.01,
+                (observed_probability - _expected_probability).abs() <= 0.01,
                 "Observed probability is not within 1% of expected probability"
             );
         }
