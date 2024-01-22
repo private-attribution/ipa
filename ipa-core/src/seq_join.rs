@@ -293,8 +293,7 @@ mod multi_thread {
     #[cfg(feature = "shuttle")]
     mod shuttle_spawner {
         use shuttle_crate::{
-            future,
-            future::{JoinError, JoinHandle},
+            future::{self, JoinError, JoinHandle},
         };
 
         use super::*;
@@ -334,7 +333,7 @@ mod multi_thread {
     }
 
     #[pin_project]
-    #[must_use = "Futures do nothing, unless polled"]
+    #[must_use = "Futures do nothing unless polled"]
     pub struct SequentialFutures<'fut, S, F>
     where
         S: Stream<Item = F> + Send + 'fut,
@@ -386,18 +385,18 @@ mod multi_thread {
                     // the behavior we want.
                     this.spawner
                         .spawn_cancellable(f.into_future().instrument(Span::current()), || {
-                            panic!("cancelled")
+                            panic!("SequentialFutures: spawned task cancelled")
                         });
                 } else {
                     break;
                 }
             }
 
-            // Poll spawner if it has work to do. If both source and spawner are empty, we're done
+            // Poll spawner if it has work to do. If both source and spawner are empty, we're done.
             if this.spawner.remaining() > 0 {
                 this.spawner.as_mut().poll_next(cx).map(|v| match v {
                     Some(Ok(v)) => Some(v),
-                    Some(Err(_)) => panic!("task is cancelled"),
+                    Some(Err(_)) => panic!("SequentialFutures: spawned task aborted"),
                     None => None,
                 })
             } else if this.source.is_done() {
@@ -434,7 +433,7 @@ mod multi_thread {
                 // If there is a dependency between futures, pending one will never complete.
                 // Cancellable futures will be cancelled when spawner is dropped which is the behavior we want.
                 scope.spawn_cancellable(element.instrument(Span::current()), || {
-                    panic!("Future is cancelled.")
+                    panic!("parallel_join: task cancelled")
                 });
             }
             scope
@@ -444,7 +443,7 @@ mod multi_thread {
             let mut result = Vec::with_capacity(scope.len());
             while let Some(item) = scope.next().await {
                 // join error is nothing we can do about
-                result.push(item.unwrap()?)
+                result.push(item.expect("parallel_join: received JoinError")?)
             }
             Ok(result)
         }
@@ -669,7 +668,7 @@ mod test {
     /// than one thread available.
     ///
     /// This behavior is only applicable when `seq_try_join_all` uses more than one thread, for
-    /// maintenance reasons, we use it even parallelism is turned off.
+    /// maintenance reasons, we use it even when parallelism is turned off.
     #[test]
     fn try_join_early_abort() {
         const ERROR: &str = "error message";
