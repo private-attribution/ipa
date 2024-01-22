@@ -354,16 +354,13 @@ mod tests {
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             // let expected_probability =
             // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
-            let mut _expected_probability = 0.0;
-            if x <= n {
-                _expected_probability = normalizing_factor * E.powf(-epsilon * f64::from(n - x));
-            } else {
-                _expected_probability = normalizing_factor * E.powf(-epsilon * f64::from(x - n));
-            }
+            let expected_probability = normalizing_factor * (if x<=n {E.powf(-epsilon * f64::from(n - x)) }
+            else {E.powf(-epsilon * f64::from(x - n))});
+
             // println!("x, prob: {}, {}",x,expected_probability);
             // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
             assert!(
-                (observed_probability - _expected_probability).abs() <= 0.01,
+                (observed_probability - expected_probability).abs() <= 0.01,
                 "Observed probability is not within 1% of expected probability"
             );
         }
