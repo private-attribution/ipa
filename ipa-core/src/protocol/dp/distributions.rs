@@ -71,18 +71,7 @@ impl From<BoxMuller> for RoundedBoxMuller {
 
 ///  Geometric Distribution
 /// Generates a sample from a geometric distribution with the given success probability.
-fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
-    // Create a Bernoulli distribution with the specified success probability
-    let bernoulli = Bernoulli::new(probability).expect("Invalid probability");
-    // Generate Bernoulli random numbers until the first success
-    // let mut rng = rand::thread_rng();
-    let mut attempts = 0;
-    // let sample = ud.sample(rng);
-    while !bernoulli.sample(rng) {
-        attempts += 1;
-    }
-    attempts
-}
+
 #[derive(Debug)]
 pub struct Geometric {
     probability: f64,
@@ -97,21 +86,15 @@ impl Geometric {
     }
     /// Generates a sample from the `Geometric` distribution.
     pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
-        Self::generate_geometric(self.probability, rng)
+        // Create a Bernoulli distribution with the specified success probability
+        let bernoulli = Bernoulli::new(self.probability).expect("Invalid probability");
+        // Generate Bernoulli random numbers until the first success
+        let mut attempts = 0;
+        while !bernoulli.sample(rng) {
+            attempts += 1;
+        }
+        attempts
     }
-    /// Generates a sample from a geometric distribution with the given success probability.
-    fn generate_geometric<R: Rng + ?Sized>(probability: f64, rng: &mut R) -> u32 {
-    // Create a Bernoulli distribution with the specified success probability
-    let bernoulli = Bernoulli::new(probability).expect("Invalid probability");
-    // Generate Bernoulli random numbers until the first success
-    // let mut rng = rand::thread_rng();
-    let mut attempts = 0;
-    // let sample = ud.sample(rng);
-    while !bernoulli.sample(rng) {
-        attempts += 1;
-    }
-    attempts
-}
 }
 impl Distribution<u32> for Geometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
@@ -120,16 +103,8 @@ impl Distribution<u32> for Geometric {
 }
 
 /// Double Geometric
-/// Generates a sample from a double geometric distribution with the given success probability and shift parameter.
-fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: u32, rng: &mut R) -> i32 {
-    let success_probability = 1.0 - E.powf(-1.0 / s);
-    let attempts1 = generate_geometric(success_probability, rng);
-    let attempts2 = generate_geometric(success_probability, rng);
-    (shift + attempts1 - attempts2).try_into().unwrap()
-}
 #[derive(Debug)]
 pub struct DoubleGeometric {
-    s: f64,
     shift: u32,
     geometric: Geometric,
 }
@@ -141,23 +116,16 @@ impl DoubleGeometric {
         }
         let success_probability = 1.0 - E.powf(-1.0 / s);
         Ok(Self {
-            s,
             shift,
             geometric: Geometric::new(success_probability)?,
         })
     }
-    /// Generates a sample from the `DoubleGeometric` distribution.
+    /// Generates a sample from the `DoubleGeometric` distribution
     pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
         // Self::generate_double_geometric(self.s, self.shift, rng)
         let attempts1 = self.geometric.sample(rng);
         let attempts2 = self.geometric.sample(rng);
         (self.shift + attempts1 - attempts2).try_into().unwrap()
-    }
-    fn generate_double_geometric<R: Rng + ?Sized>(s: f64, shift: u32, rng: &mut R) -> i32 {
-        let success_probability = 1.0 - E.powf(-1.0 / s);
-        let attempts1 = generate_geometric(success_probability, rng);
-        let attempts2 = generate_geometric(success_probability, rng);
-        (shift + attempts1 - attempts2).try_into().unwrap()
     }
 }
 impl Distribution<i32> for DoubleGeometric {
@@ -166,23 +134,9 @@ impl Distribution<i32> for DoubleGeometric {
     }
 }
 
-
-/// Generates a sample from a truncated double geometric distribution with the given success probability and shift parameter.
-fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: u32, rng: &mut R) -> u32 {
-    let mut reject = 1;
-    let mut sample = 0; // Declare sample here
-    while reject == 1 {
-        sample = generate_double_geometric(s, n, rng); // Assign a value to sample inside the loop
-        if sample >= 0 && sample <= ((2 * n)).try_into().unwrap()  {
-            reject = 0;
-        }
-    }
-    sample.try_into().unwrap() // Return the final value of sample
-}
 /// Truncated Double Geometric distribution.
 #[derive(Debug)]
 pub struct TruncatedDoubleGeometric {
-    s: f64,
     shift: u32, // is truncated to [0, 2*shift]
     double_geometric: DoubleGeometric,
 }
@@ -193,7 +147,6 @@ impl TruncatedDoubleGeometric {
             return Err(Error::BadS(s));
         }
         Ok(Self {
-            s,
             shift,
             double_geometric: DoubleGeometric::new(
                 s,
@@ -214,18 +167,6 @@ impl TruncatedDoubleGeometric {
         }
         sample.try_into().unwrap() // Return the final value of sample
 
-    }
-    /// Generates a sample from a truncated double geometric distribution with the given success probability and shift parameter.
-    fn generate_truncated_double_geometric<R: Rng + ?Sized>(s: f64, n: u32, rng: &mut R) -> u32 {
-        let mut reject = 1;
-        let mut sample = 0; // Declare sample here
-        while reject == 1 {
-            sample = generate_double_geometric(s, n, rng); // Assign a value to sample inside the loop
-            if sample >= 0 && sample <= ((2 * n)).try_into().unwrap()  {
-                reject = 0;
-            }
-        }
-        sample.try_into().unwrap() // Return the final value of sample
     }
 }
 impl Distribution<u32> for TruncatedDoubleGeometric {
@@ -285,13 +226,14 @@ mod tests {
     /// Tests for Double Geometric
     ///
     #[test]
-    fn test_generate_geometric_sample_dist() {
+    fn test_geometric_sample_dist() {
         let mut rng = rand::thread_rng();
         let p = 0.5; // success probability
+        let geometric = Geometric::new(p).expect("Geometric not constructed");
         let mut histogram = HashMap::new();
         let num_samples = 100_000;
         for _ in 0..num_samples {
-            let sample = generate_geometric(p, &mut rng);
+            let sample = geometric.sample(&mut rng);
             *histogram.entry(sample).or_insert(0) += 1;
         }
         #[allow(clippy::cast_precision_loss)]
@@ -305,14 +247,15 @@ mod tests {
         }
     }
     #[test]
-    fn test_generate_truncated_double_geometric() {
+    fn test_truncated_double_geometric() {
         let mut rng = rand::thread_rng();
         let s = 1.0;
         let n = 25;
         let mut samples = Vec::new();
         // Sample 100 values from the generate_truncated_double_geometric function
+        let distribution = TruncatedDoubleGeometric::new(s,n).expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
-            let sample = generate_truncated_double_geometric(s, n, &mut rng);
+            let sample = distribution.sample(&mut rng);
             assert!(sample > 0 && sample < (2 * n).try_into().unwrap());
             samples.push(sample);
         }
@@ -320,7 +263,7 @@ mod tests {
         println!("Samples from generate_truncated_geometric with s={s}, n={n}: {samples:?}");
     }
     #[test]
-    fn test_generate_truncated_double_geometric_hoffding() {
+    fn test_truncated_double_geometric_hoffding() {
         assert!(test_internal_generate_truncated_double_geometric_hoffding());
     }
     fn test_internal_generate_truncated_double_geometric_hoffding() -> bool {
@@ -337,8 +280,9 @@ mod tests {
         println!("t: {t:?}");
         let mut samples = Vec::new();
         // Sample number_samples values from the generate_truncated_double_geometric function
+        let distribution = TruncatedDoubleGeometric::new(s,n).expect("Truncated Double Geometric not constructed properly");
         for _ in 0..number_samples {
-            let sample = generate_truncated_double_geometric(s, n, &mut rng);
+            let sample = distribution.sample(&mut rng);
             samples.push(sample);
         }
         // Compute the sample mean
@@ -399,10 +343,5 @@ mod tests {
             );
         }
     }
-    #[test]
-    fn test_truncated_double_geometric() {
-        let mut rng = rand::thread_rng();
-        let distribution = TruncatedDoubleGeometric::new(1.0,25).expect("failed to construct TruncatedDoubleGeometric");
-        distribution.sample(&mut rng);
-    }
+
 }
