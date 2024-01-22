@@ -4,6 +4,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
+    error::Error,
     ff::{GaloisField, Serializable},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
@@ -26,6 +27,7 @@ where
     type Size = <<Replicated<CV> as Serializable>::Size as Add<
         <Replicated<BK> as Serializable>::Size,
     >>::Output;
+    type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
@@ -37,39 +39,18 @@ where
             .serialize(GenericArray::from_mut_slice(&mut buf[cv_sz..cv_sz + bk_sz]));
     }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         let cv_sz = <Replicated<CV> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
 
-        let value = Replicated::<CV>::deserialize(GenericArray::from_slice(&buf[..cv_sz]));
+        let value = Replicated::<CV>::deserialize(GenericArray::from_slice(&buf[..cv_sz]))
+            .map_err(|e| Error::ParseError(e.into()))?;
         let breakdown_key =
-            Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[cv_sz..cv_sz + bk_sz]));
-        Self {
+            Replicated::<BK>::deserialize(GenericArray::from_slice(&buf[cv_sz..cv_sz + bk_sz]))
+                .map_err(|e| Error::ParseError(e.into()))?;
+        Ok(Self {
             contribution_value: value,
             breakdown_key,
-        }
-    }
-}
-
-impl<CV: GaloisField, BK: GaloisField> SparseAggregateInputRow<CV, BK>
-where
-    SparseAggregateInputRow<CV, BK>: Serializable,
-{
-    /// Splits the given slice into chunks aligned with the size of this struct and returns an
-    /// iterator that produces deserialized instances.
-    ///
-    /// ## Panics
-    /// Panics if the slice buffer is not aligned with the size of this struct.
-    pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
-        assert_eq!(
-            0,
-            input.len() % <SparseAggregateInputRow<CV, BK> as Serializable>::Size::USIZE,
-            "input is not aligned"
-        );
-        input
-            .chunks(<SparseAggregateInputRow<CV, BK> as Serializable>::Size::USIZE)
-            .map(|chunk| {
-                SparseAggregateInputRow::<CV, BK>::deserialize(GenericArray::from_slice(chunk))
-            })
+        })
     }
 }

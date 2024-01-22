@@ -6,7 +6,12 @@ use crate::ff::Expand;
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
+    protocol::{
+        basics::{SecureMul, ShareKnownValue},
+        context::Context,
+        step::BitOpStep,
+        RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
 };
 
@@ -30,14 +35,13 @@ pub async fn compare_geq<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
-    XS::Element: Field + std::ops::Not<Output = XS::Element>,
+    XS::Element: Field,
+    AdditiveShare<XS::Element>: std::ops::Not<Output = AdditiveShare<XS::Element>>,
 {
     // we need to initialize carry to 1 for x>=y,
-    // since there are three shares 1+1+1 = 1 mod 2, so setting left = 1 and right = 1 works
-    let mut carry = AdditiveShare(XS::Element::ONE, XS::Element::ONE);
+    let mut carry = AdditiveShare::<XS::Element>::share_known_value(&ctx, XS::Element::ONE);
     // we don't care about the subtraction, we just want the carry
     let _ = subtraction_circuit(ctx, record_id, x, y, &mut carry).await;
     Ok(carry)
@@ -55,10 +59,10 @@ pub async fn compare_gt<C, XS, YS>(
 ) -> Result<AdditiveShare<XS::Element>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
-    XS::Element: Field + std::ops::Not<Output = XS::Element>,
+    XS::Element: Field,
+    AdditiveShare<XS::Element>: std::ops::Not<Output = AdditiveShare<XS::Element>>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<XS::Element>::ZERO;
@@ -80,13 +84,13 @@ pub async fn integer_sub<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     YS: SharedValue + CustomArray<Element = XS::Element>,
     XS: SharedValue + CustomArray + Field,
-    XS::Element: Field + std::ops::Not<Output = XS::Element>,
+    XS::Element: Field,
+    AdditiveShare<XS::Element>: std::ops::Not<Output = AdditiveShare<XS::Element>>,
 {
     // we need to initialize carry to 1 for a subtraction
-    let mut carry = AdditiveShare(XS::Element::ONE, XS::Element::ONE);
+    let mut carry = AdditiveShare::<XS::Element>::share_known_value(&ctx, XS::Element::ONE);
     subtraction_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
@@ -104,11 +108,11 @@ pub async fn integer_sat_sub<C, S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<S>: IntoIterator<Item = AdditiveShare<S::Element>>,
     S: CustomArray + Field,
-    S::Element: Field + std::ops::Not<Output = S::Element>,
+    S::Element: Field,
+    AdditiveShare<S::Element>: std::ops::Not<Output = AdditiveShare<S::Element>>,
 {
-    let mut carry = AdditiveShare(S::Element::ONE, S::Element::ONE);
+    let mut carry = AdditiveShare::<S::Element>::share_known_value(&ctx, S::Element::ONE);
     let result = subtraction_circuit(
         ctx.narrow(&Step::SaturatedSubtraction),
         record_id,
@@ -141,13 +145,13 @@ async fn subtraction_circuit<C, XS, YS>(
 ) -> Result<AdditiveShare<XS>, Error>
 where
     C: Context,
-    for<'a> &'a AdditiveShare<XS>: IntoIterator<Item = AdditiveShare<XS::Element>>,
     XS: SharedValue + CustomArray,
     YS: SharedValue + CustomArray<Element = XS::Element>,
-    XS::Element: Field + std::ops::Not<Output = XS::Element>,
+    XS::Element: Field,
+    AdditiveShare<XS::Element>: std::ops::Not<Output = AdditiveShare<XS::Element>>,
 {
     let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.into_iter().enumerate() {
+    for (i, v) in x.iter().enumerate() {
         result.set(
             i,
             bit_subtractor(
@@ -187,7 +191,8 @@ async fn bit_subtractor<C, S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     C: Context,
-    S: Field + std::ops::Not<Output = S>,
+    S: Field,
+    AdditiveShare<S>: std::ops::Not<Output = AdditiveShare<S>>,
 {
     let output = x + !(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry);
 
@@ -221,7 +226,10 @@ mod test {
             },
         },
         rand::thread_rng,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -233,25 +241,25 @@ mod test {
         assert_eq!(<Boolean>::ONE, !(<Boolean>::ZERO));
         assert_eq!(<Boolean>::ZERO, !(<Boolean>::ONE));
         assert_eq!(
-            AdditiveShare(<Boolean>::ZERO, <Boolean>::ZERO),
-            !AdditiveShare(<Boolean>::ONE, <Boolean>::ONE)
+            AdditiveShare::new(<Boolean>::ZERO, <Boolean>::ZERO),
+            !AdditiveShare::new(<Boolean>::ONE, <Boolean>::ONE)
         );
         assert_eq!(
-            AdditiveShare(
+            AdditiveShare::new(
                 <BA64>::expand(&<Boolean>::ZERO),
                 <BA64>::expand(&<Boolean>::ZERO)
             ),
-            !AdditiveShare(
+            !AdditiveShare::new(
                 <BA64>::expand(&<Boolean>::ONE),
                 <BA64>::expand(&<Boolean>::ONE)
             )
         );
         assert_eq!(
-            !AdditiveShare(
+            !AdditiveShare::new(
                 <BA64>::expand(&<Boolean>::ZERO),
                 <BA64>::expand(&<Boolean>::ZERO)
             ),
-            AdditiveShare(
+            AdditiveShare::new(
                 <BA64>::expand(&<Boolean>::ONE),
                 <BA64>::expand(&<Boolean>::ONE)
             )

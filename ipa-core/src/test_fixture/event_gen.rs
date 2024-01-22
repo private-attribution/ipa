@@ -432,7 +432,6 @@ mod tests {
 
         proptest! {
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn iter_test(rng_seed: u64, config in arb_config(), total_events in 1_usize..2000) {
                 does_not_exceed_config_maximums(rng_seed, &config, total_events);
             }

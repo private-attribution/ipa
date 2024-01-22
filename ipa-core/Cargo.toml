@@ -1,7 +1,7 @@
 [package]
 name = "ipa-core"
 version = "0.1.0"
-rust-version = "1.64.0"
+rust-version = "1.75.0"
 edition = "2021"
 
 [features]
@@ -132,7 +132,7 @@ sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
-tokio = { version = "1.28", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.28", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 # TODO: axum-server holds onto 0.24 and we can't upgrade until they do. Or we move away from axum-server
 tokio-rustls = { version = "0.24", optional = true }
 tokio-stream = "0.1.14"
@@ -155,7 +155,7 @@ cfg_aliases = "0.1.1"
 command-fds = "0.2.2"
 hex = "0.4"
 permutation = "0.4.1"
-proptest = "1"
+proptest = "1.4"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tempfile = "3"
 

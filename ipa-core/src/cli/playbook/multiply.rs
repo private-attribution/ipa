@@ -73,6 +73,10 @@ where
 
     // expect replicated shares to be sent back
     results
-        .map(|bytes| Replicated::<F>::from_byte_slice(&bytes).collect::<Vec<_>>())
+        .map(|bytes| {
+            Replicated::<F>::from_byte_slice(&bytes)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        })
         .reconstruct()
 }

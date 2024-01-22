@@ -532,7 +532,7 @@ mod test {
             let send_close = join(send, close);
             let (_, taken) = join(send_close, stream.collect::<Vec<_>>()).await;
             let flat = taken.into_iter().flatten().collect::<Vec<_>>();
-            let output = Fp31::deserialize(GenericArray::from_slice(&flat));
+            let output = Fp31::deserialize_unchecked(GenericArray::from_slice(&flat));
             assert_eq!(input, output);
         });
     }
@@ -548,7 +548,7 @@ mod test {
             let close_send = join(close, send);
             let (_, taken) = join(close_send, sender.as_stream().collect::<Vec<_>>()).await;
             let flat = taken.into_iter().flatten().collect::<Vec<_>>();
-            let output = Fp31::deserialize(GenericArray::from_slice(&flat));
+            let output = Fp31::deserialize_unchecked(GenericArray::from_slice(&flat));
             assert_eq!(input, output);
         });
     }
@@ -602,9 +602,10 @@ mod test {
             let close_send = join3(send_small, send_large, close);
             let (_, taken) = join(close_send, sender.as_stream().collect::<Vec<_>>()).await;
             let flat = taken.into_iter().flatten().collect::<Vec<_>>();
-            let small_out = Fp31::deserialize(GenericArray::from_slice(&flat[..1]));
+            let small_out = Fp31::deserialize_unchecked(GenericArray::from_slice(&flat[..1]));
             assert_eq!(small_out, small);
-            let large_out = Fp32BitPrime::deserialize(GenericArray::from_slice(&flat[1..]));
+            let large_out =
+                Fp32BitPrime::deserialize_unchecked(GenericArray::from_slice(&flat[1..]));
             assert_eq!(large_out, large);
         });
     }
@@ -629,7 +630,10 @@ mod test {
 
             let buf = output.into_iter().flatten().collect::<Vec<_>>();
             for (&v, b) in zip(values.iter(), buf.chunks(SZ)) {
-                assert_eq!(v, Fp32BitPrime::deserialize(GenericArray::from_slice(b)));
+                assert_eq!(
+                    v,
+                    Fp32BitPrime::deserialize_unchecked(GenericArray::from_slice(b))
+                );
             }
         });
     }
@@ -664,7 +668,7 @@ mod test {
 
             let buf = output.into_iter().flatten().collect::<Vec<_>>();
             for (&v, b) in zip(values.iter(), buf.chunks(SZ)) {
-                assert_eq!(v, Fp31::deserialize(GenericArray::from_slice(b)));
+                assert_eq!(v, Fp31::deserialize_unchecked(GenericArray::from_slice(b)));
             }
         });
     }

@@ -77,7 +77,7 @@ mod tests {
         let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
         sigma.shuffle(&mut rng_sigma);
 
-        let mut rho: Vec<u128> = (0..BATCHSIZE.try_into().unwrap()).collect();
+        let mut rho: Vec<u128> = (0..BATCHSIZE.into()).collect();
         rho.shuffle(&mut rng_rho);
 
         let mut expected_result = rho.clone();

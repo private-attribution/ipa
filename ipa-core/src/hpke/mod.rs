@@ -279,9 +279,9 @@ mod tests {
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), &info)?;
 
             // TODO: fix once array split is a thing.
-            Ok(XorReplicated::deserialize(GenericArray::from_slice(
-                &enc.ct[..MATCHKEY_LEN],
-            )))
+            Ok(XorReplicated::deserialize_infallible(
+                GenericArray::from_slice(&enc.ct[..MATCHKEY_LEN]),
+            ))
         }
 
         pub fn advance_epoch(&mut self) {
@@ -360,7 +360,6 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn arbitrary_ct_corruption(bad_byte in 0..23_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
@@ -374,7 +373,6 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
              fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
@@ -419,7 +417,6 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            #[allow(clippy::ignored_unit_patterns)] // https://github.com/proptest-rs/proptest/issues/371
             fn arbitrary_info_corruption(corrupted_info_field in 1..5,
                                          site_domain in "[a-z]{10}",
                                          helper_origin in "[a-z]{10}",

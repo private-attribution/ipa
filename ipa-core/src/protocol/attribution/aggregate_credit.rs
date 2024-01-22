@@ -8,9 +8,9 @@ use crate::{
     ff::{Gf2, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext, Validator},
+        ipa_prf::prf_sharding::bucket::move_single_value_to_bucket,
         modulus_conversion::convert_bits,
-        sort::{bitwise_to_onehot, generate_permutation::ShuffledPermutationWrapper},
-        step::BitOpStep,
+        sort::generate_permutation::ShuffledPermutationWrapper,
         BasicProtocols, RecordId,
     },
     secret_sharing::{
@@ -22,11 +22,6 @@ use crate::{
     },
     seq_join::seq_join,
 };
-
-/// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
-/// Below this number, it's more efficient to just do a ton of equality checks.
-/// This number was determined empirically on 27 Feb 2023
-const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -56,16 +51,9 @@ where
     ShuffledPermutationWrapper<S, C::UpgradedContext<F>>: DowngradeMalicious<Target = Vec<u32>>,
 {
     let m_ctx = validator.context();
-
-    if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
-        let res = simple_aggregate_credit(m_ctx, breakdown_keys, capped_credits, max_breakdown_key)
-            .await?;
-        Ok((validator, res))
-    } else {
-        Err(Error::Unsupported(
-            format!("query uses {max_breakdown_key} breakdown keys; only {SIMPLE_AGGREGATION_BREAK_EVEN_POINT} are supported")
-        ))
-    }
+    let res =
+        simple_aggregate_credit(m_ctx, breakdown_keys, capped_credits, max_breakdown_key).await?;
+    Ok((validator, res))
 }
 
 async fn simple_aggregate_credit<F, C, IC, IB, S>(
@@ -84,17 +72,10 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable + 'static,
 {
     let record_count = breakdown_keys.len();
-    // The number of records we compute is currently too high as the last row cannot have
-    // any credit associated with it.  TODO: don't compute that row when cap > 1.
-
-    let to_take = usize::try_from(max_breakdown_key).unwrap();
     let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
-    let equality_check_context = ctx
-        .narrow(&Step::ComputeEqualityChecks)
-        .set_total_records(record_count);
-    let check_times_credit_context = ctx
-        .narrow(&Step::CheckTimesCredit)
+    let move_value_to_bucket_context = ctx
+        .narrow(&Step::MoveValueToBucket)
         .set_total_records(record_count);
 
     let converted_bk = convert_bits(
@@ -110,23 +91,21 @@ where
             .zip(stream_iter(capped_credits))
             .enumerate()
             .map(|(i, (bk, cred))| {
-                let ceq = &equality_check_context;
-                let cmul = &check_times_credit_context;
+                let ctx = move_value_to_bucket_context.clone();
                 async move {
-                    let equality_checks = bitwise_to_onehot(ceq.clone(), i, &bk?).await?;
-                    ceq.try_join(equality_checks.into_iter().take(to_take).enumerate().map(
-                        |(check_idx, check)| {
-                            let step = BitOpStep::from(check_idx);
-                            let c = cmul.narrow(&step);
-                            let record_id = RecordId::from(i);
-                            let credit = &cred;
-                            async move { check.multiply(credit, c, record_id).await }
-                        },
-                    ))
+                    move_single_value_to_bucket(
+                        ctx,
+                        RecordId::from(i),
+                        bk.unwrap(),
+                        cred,
+                        usize::try_from(max_breakdown_key).unwrap(),
+                        true,
+                    )
                     .await
                 }
             }),
     );
+
     let aggregate = increments
         .try_fold(
             vec![S::ZERO; max_breakdown_key as usize],
@@ -143,8 +122,7 @@ where
 
 #[derive(Step)]
 pub(crate) enum Step {
-    ComputeEqualityChecks,
-    CheckTimesCredit,
+    MoveValueToBucket,
     ModConvBreakdownKeyBits,
 }
 

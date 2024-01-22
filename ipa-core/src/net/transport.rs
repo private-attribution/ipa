@@ -354,7 +354,7 @@ mod tests {
 
         let result: [_; 3] = join_all(clients.clone().map(|client| async move {
             let r = client.query_results(query_id).await.unwrap();
-            AdditiveShare::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+            AdditiveShare::<Fp31>::from_byte_slice_unchecked(&r).collect::<Vec<_>>()
         }))
         .await
         .try_into()
