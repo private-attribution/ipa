@@ -2,7 +2,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{curve_points::RP25519, ec_prime_field::Fp25519},
+    ff::{curve_points::RP25519, ec_prime_field::Fp25519, Invert},
     protocol::{
         basics::{Reveal, SecureMul},
         context::Context,
@@ -100,7 +100,7 @@ mod test {
     use rand::Rng;
 
     use crate::{
-        ff::{curve_points::RP25519, ec_prime_field::Fp25519},
+        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Invert},
         protocol::ipa_prf::prf_eval::compute_match_key_pseudonym,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
         test_executor::run,

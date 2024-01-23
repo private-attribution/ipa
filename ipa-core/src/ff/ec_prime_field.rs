@@ -7,7 +7,7 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
+    ff::{boolean_array::BA256, Field, Invert, Serializable},
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
@@ -23,12 +23,14 @@ pub struct Fp25519(<Self as SharedValue>::Storage);
 
 impl Fp25519 {
     pub const ONE: Self = Self(Scalar::ONE);
+}
 
+impl Invert for Fp25519 {
     ///allow invert for scalars, i.e. computes 1/a mod p
     ///# Panics
     /// Panics when self is zero
     #[must_use]
-    pub fn invert(&self) -> Fp25519 {
+    fn invert(&self) -> Self {
         assert_ne!(*self, Fp25519::ZERO);
         Fp25519(self.0.invert())
     }
@@ -224,7 +226,7 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{ec_prime_field::Fp25519, Serializable},
+        ff::{ec_prime_field::Fp25519, Invert, Serializable},
         secret_sharing::SharedValue,
     };
 

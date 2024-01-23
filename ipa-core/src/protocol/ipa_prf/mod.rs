@@ -25,6 +25,7 @@ use crate::{
 };
 
 mod boolean_ops;
+pub mod malicious_security;
 pub mod prf_eval;
 pub mod prf_sharding;
 
