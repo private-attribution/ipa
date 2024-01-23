@@ -167,6 +167,7 @@ pub use multi_thread::SequentialFutures;
 #[cfg(not(feature = "multi-threading"))]
 mod local {
     use std::{collections::VecDeque, marker::PhantomData};
+    use futures::stream::Fuse;
 
     use super::*;
 
@@ -200,7 +201,7 @@ mod local {
         #[must_use]
         fn take(self) -> F::Output {
             let ActiveItem::Resolved(v) = self else {
-                panic!("No value to take out");
+                unreachable!("take should be only called once.");
             };
 
             v
@@ -214,7 +215,7 @@ mod local {
         F: IntoFuture,
     {
         #[pin]
-        source: futures::stream::Fuse<S>,
+        source: Fuse<S>,
         active: VecDeque<ActiveItem<F>>,
         _marker: PhantomData<fn(&'unused ()) -> &'unused ()>,
     }
@@ -285,6 +286,7 @@ mod local {
 /// version, so this is what we want to use in release/prod mode.
 #[cfg(feature = "multi-threading")]
 mod multi_thread {
+    use futures::stream::Fuse;
     use tracing::{Instrument, Span};
 
     use super::*;
@@ -340,7 +342,7 @@ mod multi_thread {
         #[pin]
         spawner: Spawner<'fut, F::Output>,
         #[pin]
-        source: futures::stream::Fuse<S>,
+        source: Fuse<S>,
         capacity: usize,
     }
 
