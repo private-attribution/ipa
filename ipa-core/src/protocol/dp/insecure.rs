@@ -184,7 +184,7 @@ impl OPRFPaddingDp {
         Ok(Self {
             epsilon: new_epsilon,
             delta: new_delta,
-            sensitivity, new_sensitivity,
+            sensitivity: new_sensitivity,
             truncated_double_geometric: TruncatedDoubleGeometric::new(
                 1.0 / new_epsilon,
                 smallest_n,
