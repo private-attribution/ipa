@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 
 use std::f64::consts::E;
+
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
+
 use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -386,7 +388,7 @@ mod test {
     }
     #[test]
     fn test_oprf_padding_dp() {
-        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6,10);
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10);
 
         let mut rng = rand::thread_rng();
 
