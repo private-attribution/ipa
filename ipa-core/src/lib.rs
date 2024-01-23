@@ -112,19 +112,19 @@ pub(crate) mod test_executor {
         run(f);
     }
 
-    pub fn run<F, Fut>(f: F)
+    pub fn run<F, Fut, T>(f: F) -> T
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()>,
+        Fut: Future<Output = T>,
     {
         tokio::runtime::Builder::new_multi_thread()
-            // IO driver is disabled to run our tests under Miri. If you need it, make sure you
-            // annotate this test with #[cfg(not(miri))]
-            // https://github.com/rust-lang/miri/issues/2057
+            // enable_all() is common to use to build Tokio runtime, but it enables both IO and time drivers.
+            // IO driver is not compatible with Miri (https://github.com/rust-lang/miri/issues/2057) which we use to
+            // sanitize our tests, so this runtime only enables time driver.
             .enable_time()
             .build()
             .unwrap()
-            .block_on(f());
+            .block_on(f())
     }
 }
 

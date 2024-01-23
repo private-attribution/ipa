@@ -157,11 +157,10 @@ where
 {
 }
 
-#[cfg(feature = "multi-threading")]
-pub type SequentialFutures<'fut, S, F> = multi_thread::SequentialFutures<'fut, S, F>;
-
 #[cfg(not(feature = "multi-threading"))]
-pub type SequentialFutures<'unused, S, F> = local::SequentialFutures<'unused, S, F>;
+pub use local::SequentialFutures;
+#[cfg(feature = "multi-threading")]
+pub use multi_thread::SequentialFutures;
 
 /// Parallel and sequential join that use at most one thread. Good for unit testing and debugging,
 /// to get results in predictable order with fewer things happening at the same time.
@@ -292,9 +291,7 @@ mod multi_thread {
 
     #[cfg(feature = "shuttle")]
     mod shuttle_spawner {
-        use shuttle_crate::{
-            future::{self, JoinError, JoinHandle},
-        };
+        use shuttle_crate::future::{self, JoinError, JoinHandle};
 
         use super::*;
 
@@ -426,9 +423,8 @@ mod multi_thread {
         E: Send + 'static,
     {
         let mut scope = {
-            let iter = iterable.into_iter();
             let mut scope = unsafe { create_spawner() };
-            for element in iter {
+            for element in iterable {
                 // it is important to make those cancellable to avoid deadlocks if one of the spawned future panics.
                 // If there is a dependency between futures, pending one will never complete.
                 // Cancellable futures will be cancelled when spawner is dropped which is the behavior we want.
@@ -533,8 +529,8 @@ mod local_test {
     }
 
     /// A fully synchronous test with a synthetic stream, all the way to the end.
-    #[tokio::test]
-    async fn complete_stream() {
+    #[test]
+    fn complete_stream() {
         const VALUE: u32 = 20;
         const COUNT: usize = 7;
         let capacity = NonZeroUsize::new(3).unwrap();
@@ -708,18 +704,19 @@ mod test {
     }
 
     /// This test demonstrates that forgetting the future returned by `parallel_join` is not safe and will cause
-    /// use-after-free safety error.
+    /// use-after-free safety error. It spawns a few tasks that constantly try to access the `borrow_from_me` weak
+    /// reference while the main thread drops the owning reference. By proving that futures are able to see the weak
+    /// pointer unset, this test shows that same can happen for regular references and cause use-after-free.
     #[test]
     #[cfg(feature = "multi-threading")]
     fn parallel_join_forget_is_not_safe() {
-        use std::mem::ManuallyDrop;
-
         use futures::future::poll_immediate;
 
         use crate::{seq_join::multi_thread::parallel_join, sync::Arc};
 
         run(|| async {
             const N: usize = 24;
+            let borrowed_vec = Box::new([1, 2, 3]);
             let borrow_from_me = Arc::new(vec![1, 2, 3]);
             let start = Arc::new(tokio::sync::Barrier::new(N + 1));
             // counts how many tasks have accessed `borrow_from_me` after it was destroyed.
@@ -729,19 +726,27 @@ mod test {
             let futures = (0..N)
                 .map(|_| {
                     let borrowed = Arc::downgrade(&borrow_from_me);
+                    let regular_ref = &borrowed_vec;
                     let start = start.clone();
                     let bad_access = bad_accesses.clone();
                     async move {
                         start.wait().await;
-                        // at this point, the parent future is forgotten and borrowed should point to nothing
                         for _ in 0..100 {
                             if borrowed.upgrade().is_none() {
                                 bad_access.wait().await;
+                                // switch to `true` if you want to see the real corruption.
+                                #[allow(unreachable_code)]
+                                if false {
+                                    // this is a place where we can see the use-after-free.
+                                    // we avoid executing this block to appease sanitizers, but compiler happily
+                                    // allows us to follow this reference.
+                                    println!("{:?}", regular_ref);
+                                }
                                 break;
                             }
                             tokio::task::yield_now().await;
                         }
-                        Ok::<(), ()>(())
+                        Ok::<_, ()>(())
                     }
                 })
                 .collect::<Vec<_>>();
@@ -750,17 +755,29 @@ mod test {
             poll_immediate(&mut f).await;
             start.wait().await;
 
-            // forgetting f does not mean that futures spawned by `parallel_join` will be cancelled.
-            let guard = ManuallyDrop::new(f);
+            // the type of `f` above captures the lifetime for borrowed_vec. Leaking `f` allows `borrowed_vec` to be
+            // dropped, but that drop prohibits any subsequent manipulations with `f` pointer, irrespective of whether
+            // `f` is `&mut _` or `*mut _` (value already borrowed error).
+            // I am not sure I fully understand what is going on here (why borrowck allows me to leak the value, but
+            // then I can't drop it even if it is a raw pointer), but removing the lifetime from `f` type allows
+            // the test to pass.
+            //
+            // This is only required to do the proper cleanup and avoid memory leaks. Replacing this line with
+            // `mem::forget(f)` will lead to the same test outcome, but Miri will complain about memory leaks.
+            let f: _ = unsafe {
+                std::mem::transmute::<_, Pin<Box<dyn Future<Output = Result<Vec<()>, ()>> + Send>>>(
+                    Box::pin(f) as Pin<Box<dyn Future<Output = Result<Vec<()>, ()>>>>,
+                )
+            };
 
             // Async executor will still be polling futures and they will try to follow this pointer.
             drop(borrow_from_me);
+            drop(borrowed_vec);
 
             // this test should terminate because all tasks should access `borrow_from_me` at least once.
             bad_accesses.wait().await;
 
-            // do not leak memory
-            let _ = ManuallyDrop::into_inner(guard);
-        })
+            drop(f);
+        });
     }
 }
