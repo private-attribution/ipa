@@ -281,7 +281,7 @@ mod tests {
             .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
             let sample = distribution.sample(&mut rng);
-            assert!(sample > 0 && sample < (2 * n).try_into().unwrap());
+            assert!(sample < 2 * n); // sample >= 0 by u32 type
             samples.push(sample);
         }
         // Print the samples to the console
@@ -312,7 +312,7 @@ mod tests {
             samples.push(sample);
         }
         // Compute the sample mean
-        let sample_mean = f64::from(samples.iter().sum::<u32>()) / samples.len() as f64;
+        let sample_mean = f64::from(samples.iter().sum::<u32>()) / f64::from(number_samples);
         // println!("sample_mean: {:?}", sample_mean);
         // Check that the sample mean is within some distance of the expected value
         let expected_mean = f64::from(n);
@@ -332,7 +332,7 @@ mod tests {
         // Sample 1000 values from the generate_truncated_double_geometric function
         for _ in 0..num_samples {
             let sample = distribution.sample(&mut rng);
-            assert!(sample <= (2 * n).try_into().unwrap());
+            assert!(sample <= 2 * n);
             samples.push(sample);
         }
         // Compute the observed probability for each value in the range [0, 2*n)
@@ -354,11 +354,13 @@ mod tests {
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             // let expected_probability =
             // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
-            let expected_probability = normalizing_factor * (if x<=n {E.powf(-epsilon * f64::from(n - x)) }
-            else {E.powf(-epsilon * f64::from(x - n))});
+            let expected_probability = normalizing_factor
+                * (if x <= n {
+                    E.powf(-epsilon * f64::from(n - x))
+                } else {
+                    E.powf(-epsilon * f64::from(x - n))
+                });
 
-            // println!("x, prob: {}, {}",x,expected_probability);
-            // println!("Value: {}, Observed Probability: {:.4}, Expected Probability: {:.4}", x, observed_probability, expected_probability);
             assert!(
                 (observed_probability - expected_probability).abs() <= 0.01,
                 "Observed probability is not within 1% of expected probability"

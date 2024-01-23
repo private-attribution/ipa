@@ -25,4 +25,5 @@ cargo test protocol::dp::insecure::test::test_oprf_padding_dp
 cargo test protocol::dp::distributions::tests::test_truncated_double_geometric_sample_dist
 cargo test protocol::boolean::solved_bits::tests::malicious
 cargo test protocol::dp::insecure::test::test_find_smallest_n
+cargo test protocol::dp::insecure::test::test_pow_u32
 cargo test protocol::dp::insecure::test::output_differentially_private

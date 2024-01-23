@@ -2,6 +2,7 @@
 
 use std::f64::consts::E;
 
+
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
 
@@ -119,24 +120,49 @@ pub struct OPRFPaddingDp {
     delta: f64,
     truncated_double_geometric: TruncatedDoubleGeometric,
 }
+fn pow_u32(mut base: f64, mut exp: u32) -> f64 {
+    // To avoid type precision loss, we implemented pow for a u32 exponent
+    // like the algorithm here https://docs.rs/num-traits/0.2.15/src/num_traits/pow.rs.html#189
+    if exp == 0 {
+        return 1.0;
+    }
 
-fn right_hand_side(n: i32, big_delta: i32, epsilon: f64) -> f64 {
+    while exp & 1 == 0 {
+        base = base * base;
+        exp >>= 1;
+    }
+    if exp == 1 {
+        return base;
+    }
+
+    let mut acc = base;
+    while exp > 1 {
+        exp >>= 1;
+        base = base * base;
+        if exp & 1 == 1 {
+            acc *= base;
+        }
+    }
+    acc
+}
+
+fn right_hand_side(n: u32, big_delta: u32, epsilon: f64) -> f64 {
     // Computes the right hand side of equation (11) in https://arxiv.org/pdf/2110.08177.pdf
     let r = E.powf(-epsilon);
-    let a = (1.0 - r) / (1.0 + r - 2.0 * (r.powi(n + 1)));
+    let a = (1.0 - r) / (1.0 + r - 2.0 * (pow_u32(r, n + 1)));
     let mut result = 0.0;
     for k in n - big_delta + 1..=n {
-        result += r.powi(k);
+        result += pow_u32(r, k);
     }
     a * result
 }
-fn find_smallest_n(big_delta: i32, epsilon: f64, small_delta: f64) -> u32 {
+fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
     // for a fixed set of DP parameters, finds the smallest n that satisfies equation (11)
     // of https://arxiv.org/pdf/2110.08177.pdf.  This gives the narrowest TruncatedDoubleGeometric
     // that will satisify the disired DP parameters.
     for n in big_delta.. {
         if small_delta >= right_hand_side(n, big_delta, epsilon) {
-            return n as u32;
+            return n;
         }
     }
     panic!("No smallest n found for OPRF padding DP");
@@ -311,6 +337,13 @@ mod test {
     }
 
     /// Tests for OPRF Padding DP
+    #[test]
+    fn test_pow_u32() {
+        assert!(is_close(pow_u32(2.0, 4), 16.0, 5));
+        assert!(is_close(pow_u32(6.0, 3), 216.0, 5));
+        assert!(is_close(pow_u32(0.0, 0), 1.0, 5));
+    }
+
     #[test]
     fn test_find_smallest_n() {
         assert_eq!(find_smallest_n(1, 0.5, 1e-6), 25);
