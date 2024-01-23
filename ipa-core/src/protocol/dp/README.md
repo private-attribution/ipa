@@ -1,5 +1,8 @@
 # Padding Dummy Records for OPRF IPA
-
+For the OPRF IPA, if we are assuming a matchkey can occur at most $M$ times in a query, then using the replacement DP neighboring definition
+we should use $\Delta = 2 * M$ as the sensitivity for the noise.  Then to each of the cardinalities we will add Truncated Double Geometric
+noise for a decided $\epsilon, \delta$ and sensitivity $\Delta$.  The OPRFPaddingDp struct can be instantiated with these parameters and then
+used to sample how many dummy records to generate for each cardinality of matchkey (e.g. a random number of users with 1 matchkey, a random number of users with 2 matchkeys, ..., a random number of users with $M$ matchkeys).
 
 # Truncated Double Geometric (Discrete Laplace)
 To determine how many dummy elements to add we implement some of the non-negative DP distributions from this [paper](https://arxiv.org/abs/2110.08177) focusing initially on the Truncated Double Geometric.

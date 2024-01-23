@@ -1,11 +1,8 @@
 #![allow(dead_code)]
 
 use std::f64::consts::E;
-
-
 use rand::distributions::Distribution;
 use rand_core::{CryptoRng, RngCore};
-
 use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -118,6 +115,7 @@ impl DiscreteDp {
 pub struct OPRFPaddingDp {
     epsilon: f64,
     delta: f64,
+    sensitivity: u32, // $\Delta$
     truncated_double_geometric: TruncatedDoubleGeometric,
 }
 fn pow_u32(mut base: f64, mut exp: u32) -> f64 {
@@ -169,7 +167,8 @@ fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
 }
 
 impl OPRFPaddingDp {
-    pub fn new(new_epsilon: f64, new_delta: f64) -> Result<Self, Error> {
+    // See dp/README.md
+    pub fn new(new_epsilon: f64, new_delta: f64, new_sensitivity: u32) -> Result<Self, Error> {
         // make sure delta and epsilon are in range, i.e. >min and delta<1-min
         if new_epsilon < f64::MIN_POSITIVE {
             return Err(Error::BadEpsilon(new_epsilon));
@@ -180,11 +179,12 @@ impl OPRFPaddingDp {
         }
 
         // compute smallest shift needed to achieve this delta
-        let smallest_n = find_smallest_n(1, new_epsilon, new_delta);
+        let smallest_n = find_smallest_n(new_sensitivity, new_epsilon, new_delta);
 
         Ok(Self {
             epsilon: new_epsilon,
             delta: new_delta,
+            sensitivity, new_sensitivity,
             truncated_double_geometric: TruncatedDoubleGeometric::new(
                 1.0 / new_epsilon,
                 smallest_n,
@@ -386,7 +386,7 @@ mod test {
     }
     #[test]
     fn test_oprf_padding_dp() {
-        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6);
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6,10);
 
         let mut rng = rand::thread_rng();
 
