@@ -211,10 +211,10 @@ impl TryFrom<u128> for Fp25519 {
 
     fn try_from(v: u128) -> Result<Self, Self::Error> {
         let mut bits = [0u8; 32];
-        bits[..].copy_from_slice(&v.to_le_bytes());
-        let f: Fp25519 = Fp25519::ONE;
-        f.serialize((&mut bits).into());
-        Ok(f)
+        bits[..16].copy_from_slice(&v.to_le_bytes());
+        Ok(Fp25519::deserialize_infallible(GenericArray::from_slice(
+            &bits,
+        )))
     }
 }
 
