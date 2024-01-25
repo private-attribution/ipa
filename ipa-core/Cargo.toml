@@ -75,8 +75,7 @@ ipa-macros = { version = "*", path = "../ipa-macros" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"
-# TODO: migrate to crates.io once 0.9 is released: https://github.com/rmanoka/async-scoped/issues/27
-async-scoped = { git = "https://github.com/rmanoka/async-scoped.git", features = ["use-tokio"], optional = true }
+async-scoped = { version = "0.9.0", features = ["use-tokio"], optional = true }
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
 axum-server = { version = "0.5.1", optional = true, features = [
     "rustls",
