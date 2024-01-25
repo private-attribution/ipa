@@ -692,7 +692,6 @@ mod test {
 
     mod prop_test {
         use futures::TryStreamExt;
-        use generic_array::GenericArray;
         use proptest::prelude::*;
         use rand::{rngs::StdRng, SeedableRng};
 
@@ -703,12 +702,15 @@ mod test {
         prop_compose! {
             fn arb_expected_and_chunked_body(max_len: usize)
                                             (len in 0..=max_len)
-                                            (data in prop::collection::vec(any::<u8>(), len * <TestField as Serializable>::Size::USIZE), seed in any::<u64>())
+                                            (expected in prop::collection::vec(any::<TestField>(), len), seed in any::<u64>())
             -> (Vec<TestField>, Vec<Vec<u8>>, u64) {
-                let expected = data.chunks(<TestField as Serializable>::Size::USIZE)
-                    .map(|chunk| TestField::deserialize_unchecked(<GenericArray<u8, _>>::from_slice(chunk)))
-                    .collect();
-                (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
+                let mut bytes = Vec::with_capacity(expected.len() * <TestField as Serializable>::Size::USIZE);
+                for val in &expected {
+                    let mut buf = [0u8; <TestField as Serializable>::Size::USIZE].into();
+                    val.serialize(&mut buf);
+                    bytes.extend(buf.as_slice());
+                }
+                (expected, random_chunks(&bytes, &mut StdRng::seed_from_u64(seed)), seed)
             }
         }
 

@@ -225,11 +225,25 @@ macro_rules! field_impl {
 
         #[cfg(all(test, unit_test))]
         mod common_tests {
+            use std::ops::Range;
+
             use generic_array::GenericArray;
-            use proptest::proptest;
+            use proptest::{
+                prelude::{prop, Arbitrary, Strategy},
+                proptest,
+            };
 
             use super::*;
             use crate::ff::Serializable;
+
+            impl Arbitrary for $field {
+                type Parameters = ();
+                type Strategy = prop::strategy::Map<Range<u128>, fn(u128) -> Self>;
+
+                fn arbitrary_with(_args: ()) -> Self::Strategy {
+                    (0..u128::from(Self::PRIME)).prop_map($field::truncate_from as _)
+                }
+            }
 
             #[test]
             fn zero() {
