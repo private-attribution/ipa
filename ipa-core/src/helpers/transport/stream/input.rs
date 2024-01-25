@@ -669,11 +669,14 @@ mod test {
     // Helper for prop tests
     fn random_chunks<R: RngCore>(mut slice: &[u8], rng: &mut R) -> Vec<Vec<u8>> {
         let mut output = Vec::new();
+        if slice.is_empty() {
+            return output;
+        }
         loop {
             let len = slice.len();
-            let idx = rng.gen_range(1..len);
+            let idx = rng.gen_range(1..=len);
             match idx {
-                split_idx if split_idx == len - 1 => {
+                split_idx if split_idx == len => {
                     output.push(slice.to_vec());
                     break;
                 }
@@ -694,32 +697,16 @@ mod test {
         use rand::{rngs::StdRng, SeedableRng};
 
         use super::*;
-        use crate::ff::Fp32BitPrime;
+
+        type TestField = crate::ff::Fp32BitPrime;
 
         prop_compose! {
-            fn arb_size_in_bytes(field_size: usize, max_multiplier: usize)
-                                (multiplier in 1..max_multiplier)
-            -> usize {
-                field_size * multiplier
-            }
-        }
-
-        prop_compose! {
-            fn arb_aligned_bytes(size_in_bytes: usize, max_len: usize)
-                                (size_in_bytes in Just(size_in_bytes), len in 1..(max_len))
-                                (vec in prop::collection::vec(any::<u8>(), len * size_in_bytes))
-            -> Vec<u8> {
-                vec
-            }
-        }
-
-        prop_compose! {
-            fn arb_expected_and_chunked_body(max_multiplier: usize, max_len: usize)
-                                            (size_in_bytes in arb_size_in_bytes(<Fp32BitPrime as Serializable>::Size::USIZE, max_multiplier), max_len in Just(max_len))
-                                            (data in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
-            -> (Vec<Fp32BitPrime>, Vec<Vec<u8>>, u64) {
-                let expected = data.chunks(<Fp32BitPrime as Serializable>::Size::USIZE)
-                    .map(|chunk| Fp32BitPrime::deserialize_unchecked(<GenericArray<u8, _>>::from_slice(chunk)))
+            fn arb_expected_and_chunked_body(max_len: usize)
+                                            (len in 0..=max_len)
+                                            (data in prop::collection::vec(any::<u8>(), len * <TestField as Serializable>::Size::USIZE), seed in any::<u64>())
+            -> (Vec<TestField>, Vec<Vec<u8>>, u64) {
+                let expected = data.chunks(<TestField as Serializable>::Size::USIZE)
+                    .map(|chunk| TestField::deserialize_unchecked(<GenericArray<u8, _>>::from_slice(chunk)))
                     .collect();
                 (expected, random_chunks(&data, &mut StdRng::seed_from_u64(seed)), seed)
             }
@@ -728,11 +715,11 @@ mod test {
         proptest::proptest! {
             #[test]
             fn test_records_stream_works_with_any_chunks(
-                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(30, 100)
+                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     // flatten the chunks to compare with expected
-                    let collected_bytes = RecordsStream::<Fp32BitPrime, _>::from(chunked_bytes)
+                    let collected_bytes = RecordsStream::<TestField, _>::from(chunked_bytes)
                         .try_concat()
                         .await
                         .unwrap();
@@ -805,7 +792,7 @@ mod test {
 
         prop_compose! {
             fn random_items(max_len: usize, with_large: bool)
-                           (len in 1..=max_len)
+                           (len in 0..=max_len)
                            (items in prop::collection::vec(random_item(with_large), len))
             -> Vec<Vec<u8>> {
                 items
