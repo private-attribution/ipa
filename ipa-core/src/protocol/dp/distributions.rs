@@ -83,7 +83,9 @@ impl Geometric {
         if probability < f64::MIN_POSITIVE {
             return Err(Error::BadGeometricProb(probability));
         }
-        Ok(Self { bernoulli: Bernoulli::new(probability)? })
+        Ok(Self {
+            bernoulli: Bernoulli::new(probability)?,
+        })
     }
 }
 impl Distribution<u32> for Geometric {

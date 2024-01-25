@@ -2,8 +2,7 @@
 
 use std::f64::consts::E;
 
-use rand::distributions::Distribution;
-use rand::distributions::BernoulliError;
+use rand::distributions::{BernoulliError, Distribution};
 use rand_core::{CryptoRng, RngCore};
 
 use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
@@ -36,9 +35,8 @@ pub enum Error {
     BadSensitivity(u32),
 }
 impl From<BernoulliError> for Error {
-    fn from(_:BernoulliError) -> Self {
+    fn from(_: BernoulliError) -> Self {
         Error::BadGeometricProb(f64::NAN)
-
     }
 }
 
