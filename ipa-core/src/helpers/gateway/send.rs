@@ -143,12 +143,14 @@ impl GatewaySenders {
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => (Arc::clone(entry.get()), None),
             Entry::Vacant(entry) => {
-                const SPARE: Option<NonZeroUsize> = NonZeroUsize::new(64);
-                // a little trick - if number of records is indeterminate, set the capacity to 1.
-                // Any send will wake the stream reader then, effectively disabling buffering.
-                // This mode is clearly inefficient, so avoid using this mode.
+                // Spare buffer is not required when messages have uniform size and buffer is a
+                // multiple of that size.
+                const SPARE: usize = 0;
+                // a little trick - if number of records is indeterminate, set the capacity to one
+                // message.  Any send will wake the stream reader then, effectively disabling
+                // buffering.  This mode is clearly inefficient, so avoid using this mode.
                 let write_size = if total_records.is_indeterminate() {
-                    NonZeroUsize::new(1).unwrap()
+                    NonZeroUsize::new(M::Size::USIZE).unwrap()
                 } else {
                     // capacity is defined in terms of number of elements, while sender wants bytes
                     // so perform the conversion here
@@ -162,7 +164,7 @@ impl GatewaySenders {
 
                 let sender = Arc::new(GatewaySender::new(
                     channel_id.clone(),
-                    OrderingSender::new(write_size, SPARE.unwrap()),
+                    OrderingSender::new(write_size, SPARE),
                     total_records,
                 ));
                 entry.insert(Arc::clone(&sender));

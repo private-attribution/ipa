@@ -28,10 +28,10 @@ use crate::{
 struct State {
     /// A store of bytes to write into.
     buf: Vec<u8>,
-    /// The portion of the buffer that is marked "spare".
-    /// Once `written + spare` is greater than the buffer capacity,
-    /// data is available to the stream.
-    spare: NonZeroUsize,
+    /// The portion of the buffer that is marked "spare". Once `written + spare` is greater than
+    /// the buffer capacity, data is available to the stream. May be zero if messages are uniformly
+    /// sized.
+    spare: usize,
     /// How many bytes have been written and are available.
     written: usize,
     /// The sender is closed.
@@ -43,9 +43,9 @@ struct State {
 }
 
 impl State {
-    fn new(capacity: NonZeroUsize, spare: NonZeroUsize) -> Self {
+    fn new(capacity: NonZeroUsize, spare: usize) -> Self {
         Self {
-            buf: vec![0; capacity.get() + spare.get()],
+            buf: vec![0; capacity.get() + spare],
             spare,
             written: 0,
             closed: false,
@@ -71,31 +71,41 @@ impl State {
         }
     }
 
+    // See "Spare capacity configuration" in the `OrderingSender` documentation re: `spare` and
+    // deadlock avoidance.
+    //
+    // In the "spare capacity" mode, an assertion in this function could check that every message
+    // fits within the spare space, which would catch broken implementations as long as a
+    // maximally-sized message is sent during testing.
+    //
+    // It is harder to prove through assertions and/or static analysis that every message ever
+    // sent will be the same size, so we settle for a less strict check that should at least
+    // prevent reaching a deadlock.
     fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
-        assert!(
-            M::Size::USIZE < self.spare.get(),
-            "expect message size {:?} to be less than spare {:?}",
-            M::Size::USIZE,
-            self.spare.get()
-        );
-        let open = self.accept_writes();
-        let b = &mut self.buf[self.written..];
-        if open && M::Size::USIZE <= b.len() {
-            self.written += M::Size::USIZE;
-            m.serialize(GenericArray::from_mut_slice(&mut b[..M::Size::USIZE]));
-
-            if !self.accept_writes() {
-                Self::wake(&mut self.stream_ready);
-            }
-            Poll::Ready(())
-        } else {
+        if !self.accept_writes() {
             Self::save_waker(&mut self.write_ready, cx);
-            Poll::Pending
+            return Poll::Pending;
         }
+
+        let b = &mut self.buf[self.written..];
+        assert!(
+            M::Size::USIZE <= b.len(),
+            "expect message size {:?} to fit in available buffer; only {:?} of {:?} available",
+            M::Size::USIZE,
+            self.buf.capacity() - self.written,
+            self.buf.capacity(),
+        );
+        self.written += M::Size::USIZE;
+        m.serialize(GenericArray::from_mut_slice(&mut b[..M::Size::USIZE]));
+
+        if !self.accept_writes() {
+            Self::wake(&mut self.stream_ready);
+        }
+        Poll::Ready(())
     }
 
     fn take(&mut self, cx: &Context<'_>) -> Poll<Vec<u8>> {
-        if self.written > 0 && (self.written + self.spare.get() >= self.buf.len() || self.closed) {
+        if self.written > 0 && (self.written + self.spare >= self.buf.len() || self.closed) {
             let v = self.buf[..self.written].to_vec();
             self.written = 0;
 
@@ -119,7 +129,7 @@ impl State {
     ///
     /// [`write`]: Self::write
     fn accept_writes(&self) -> bool {
-        self.written + self.spare.get() < self.buf.len()
+        self.written + self.spare < self.buf.len()
     }
 }
 
@@ -274,8 +284,15 @@ impl Waiting {
 /// size chunks will be sent to the stream when it is used to buffer
 /// same-sized messages.
 ///
-/// The `spare` capacity determines the size of messages that can be sent;
-/// see [`send`] for details.
+/// # Spare capacity configuration
+///
+/// `OrderingSender` may be used in two ways:
+///  * To send messages of uniform size using a buffer that is a multiple of the message size. In
+///    this case, no spare capacity is required.
+///  * To send messages of varying size or with a buffer that is not a multiple of the message size.
+///    In this case, a deadlock could occur if the data already in the buffer does not reach the
+///    threshold for sending but an additional message does not fit. To avoid this, the `spare`
+///    capacity must be set at least as large as the largest message.
 ///
 /// [`new`]: OrderingSender::new
 /// [`send`]: OrderingSender::send
@@ -289,7 +306,7 @@ pub struct OrderingSender {
 impl OrderingSender {
     /// Make an `OrderingSender` with a capacity of `capacity` (in bytes).
     #[must_use]
-    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize) -> Self {
+    pub fn new(write_size: NonZeroUsize, spare: usize) -> Self {
         Self {
             next: AtomicUsize::new(0),
             state: Mutex::new(State::new(write_size, spare)),
@@ -297,22 +314,17 @@ impl OrderingSender {
         }
     }
 
-    /// Send a message, `m`, at the index `i`.  
+    /// Send a message, `m`, at the index `i`.
     /// This method blocks until all previous messages are sent and until sufficient
     /// space becomes available in the sender's buffer.
     ///
     /// # Panics
     ///
     /// Polling the future this method returns will panic if
-    /// * the message is larger than the spare capacity (see below), or
+    /// * the message could result in a deadlock (see [capacity]), or
     /// * the same index is provided more than once.
     ///
-    /// This code could deadlock if a message is larger than the spare capacity.
-    /// This occurs when a message cannot reliably be written to the buffer
-    /// because it would overflow the buffer.  The data already in the buffer
-    /// might not reach the threshold for sending, which means that progress
-    /// is impossible.  Polling the promise returned will panic if the spare
-    /// capacity is insufficient.
+    /// [capacity]: OrderingSender#spare-capacity-configuration
     pub fn send<M: Message>(&self, i: usize, m: M) -> Send<'_, M> {
         Send { i, m, sender: self }
     }
@@ -503,10 +515,7 @@ mod test {
     };
 
     fn sender() -> Arc<OrderingSender> {
-        Arc::new(OrderingSender::new(
-            NonZeroUsize::new(6).unwrap(),
-            NonZeroUsize::new(5).unwrap(),
-        ))
+        Arc::new(OrderingSender::new(NonZeroUsize::new(6).unwrap(), 5))
     }
 
     /// Writing a single value cannot be read until the stream closes.
@@ -681,7 +690,7 @@ mod test {
         run(|| async {
             let sender = Arc::new(OrderingSender::new(
                 NonZeroUsize::new(PARALLELISM * <Fp31 as Serializable>::Size::USIZE).unwrap(),
-                NonZeroUsize::new(5).unwrap(),
+                5,
             ));
 
             try_join_all((0..PARALLELISM).map(|i| {
@@ -715,8 +724,7 @@ mod test {
         run(|| async {
             const CAPACITY: usize = SZ + 1;
             const SPARE: usize = 2 * SZ;
-            let sender =
-                OrderingSender::new(CAPACITY.try_into().unwrap(), SPARE.try_into().unwrap());
+            let sender = OrderingSender::new(CAPACITY.try_into().unwrap(), SPARE);
 
             // enough bytes in the buffer to hold 2 items
             for i in 0..2 {
