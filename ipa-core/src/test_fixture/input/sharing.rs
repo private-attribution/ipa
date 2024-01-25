@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    ff::{boolean::Boolean, boolean_array::BA64, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::BA64, U128Conversions},
     protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
     report::{EventType, OprfReport},
@@ -67,9 +67,9 @@ where
 
 impl<BK, TV, TS> IntoShares<OPRFIPAInputRow<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: SharedValue + U128Conversions + IntoShares<Replicated<BK>>,
+    TV: SharedValue + U128Conversions + IntoShares<Replicated<TV>>,
+    TS: SharedValue + U128Conversions + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OPRFIPAInputRow<BK, TV, TS>; 3] {
         let is_trigger = Replicated::new(

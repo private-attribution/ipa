@@ -1,11 +1,23 @@
 use crate::{
     error::Error,
-    ff::Field,
-    protocol::{basics::SecureMul, context::Context, RecordId},
-    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
+    ff::{boolean::Boolean, Field},
+    protocol::{
+        basics::{mul::BooleanArrayMul, SecureMul},
+        context::Context,
+        RecordId,
+    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare, LinearRefOps},
 };
 
+/// Multiplexer.
+///
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
+/// If the arguments are vectors, all must have the same dimension and the
+/// operation is performed element-wise.
+///
+/// Each `condition` must be a share of either 0 or 1.
+/// Each `true_value` and `false_value` may be any type supporting multiplication.
+///
 /// # Errors
 /// If the protocol fails to execute.
 pub async fn if_else<F, C, S>(
@@ -18,7 +30,7 @@ pub async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: LinearSecretSharing<F> + SecureMul<C>,
+    S: SecureMul<C>,
     for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
     // If `condition` is a share of 1 (true), then
@@ -33,4 +45,46 @@ where
         + &condition
             .multiply(&(true_value - false_value), ctx, record_id)
             .await?)
+}
+
+/// Wide multiplexer.
+///
+/// Returns `true_value` if `condition` is a share of 1, else `false_value`.
+/// `condition` must be a single shared value. `true_value` and `false_value`
+/// may be vectors, in which case one or the other is selected in its entirety,
+/// depending on `condition`.
+///
+/// `condition` must be a share of either 0 or 1.
+/// `true_value` and `false_value` may be any type supporting multiplication,
+/// vectors of a type supporting multiplication, or a type convertible to
+/// one of those.
+///
+/// # Errors
+/// If the protocol fails to execute.
+pub async fn select<C, B>(
+    ctx: C,
+    record_id: RecordId,
+    condition: &AdditiveShare<Boolean>,
+    true_value: &B,
+    false_value: &B,
+) -> Result<B, Error>
+where
+    C: Context,
+    B: Clone + BooleanArrayMul,
+{
+    let false_value = false_value.clone().into();
+    let true_value = true_value.clone().into();
+    let condition = B::expand(condition).into();
+    // If `condition` is a share of 1 (true), then
+    //     false_value + condition * (true_value - false_value)
+    //   = false_value + true_value - false_value
+    //   = true_value
+    //
+    // If `condition` is a share of 0 (false), then
+    //     false_value + condition * (true_value - false_value)
+    //   = false_value + 0
+    //   = false_value
+    let product = B::multiply(ctx, record_id, &condition, &(true_value - &false_value)).await?;
+
+    Ok((false_value + &product).into())
 }

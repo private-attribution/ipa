@@ -6,8 +6,7 @@ use std::{
 use typenum::{U1, U4};
 
 use crate::{
-    error,
-    protocol::prss::FromRandomU128,
+    protocol::prss::FromRandom,
     secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
 
@@ -26,8 +25,7 @@ pub trait Field:
     SharedValue
     + Mul<Self, Output = Self>
     + MulAssign<Self>
-    + FromRandomU128
-    + TryFrom<u128, Error = error::Error>
+    + FromRandom
     + Into<Self::Storage>
     + Vectorizable<1>
     + FieldVectorizable<1, ArrayAlias = <Self as Vectorizable<1>>::Array>

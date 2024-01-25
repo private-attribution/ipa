@@ -6,7 +6,7 @@ use crate::{
     protocol::{
         basics::{reveal::Reveal, SecureMul},
         context::Context,
-        prss::SharedRandomness,
+        prss::{FromRandom, SharedRandomness},
         RecordId,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
@@ -47,7 +47,7 @@ pub(crate) enum Step {
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn check_zero<C: Context, F: Field>(
+pub async fn check_zero<C: Context, F: Field + FromRandom>(
     ctx: C,
     record_id: RecordId,
     v: &Replicated<F>,

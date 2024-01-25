@@ -20,7 +20,7 @@ use crate::{
     },
     helpers::Role,
     protocol::{
-        basics::{if_else, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         ipa_prf::boolean_ops::{
@@ -102,10 +102,13 @@ struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedVal
 
 impl<BK, TV, TS, SS> InputsRequiredFromPrevRow<BK, TV, TS, SS>
 where
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<BK>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul,
 {
     ///
     /// This function contains the main logic for the per-user attribution circuit.
@@ -466,10 +469,13 @@ where
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<BK>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
 {
     // Get the validator and context to use for Boolean multiplication operations
@@ -572,10 +578,13 @@ async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
 ) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
 where
     C: Context,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<BK>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -644,14 +653,13 @@ async fn breakdown_key_of_most_recent_source_event<C, BK>(
 ) -> Result<Replicated<BK>, Error>
 where
     C: Context,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + CustomArray<Element = Boolean>,
+    Replicated<BK>: BooleanArrayMul,
 {
-    let is_trigger_bit_array = Replicated::<BK>::expand(is_trigger_bit);
-
-    if_else(
+    select(
         ctx,
         record_id,
-        &is_trigger_bit_array,
+        is_trigger_bit,
         prev_row_breakdown_key_bits,
         cur_row_breakdown_key_bits,
     )
@@ -670,17 +678,16 @@ async fn timestamp_of_most_recent_source_event<C, TS>(
 ) -> Result<Replicated<TS>, Error>
 where
     C: Context,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<TS>: BooleanArrayMul,
 {
     match attribution_window_seconds {
         None => Ok(prev_row_timestamp_bits.clone()),
         Some(_) => {
-            let is_trigger_bit_array = Replicated::<TS>::expand(is_trigger_bit);
-
-            if_else(
+            select(
                 ctx,
                 record_id,
-                &is_trigger_bit_array,
+                is_trigger_bit,
                 prev_row_timestamp_bits,
                 cur_row_timestamp_bits,
             )
@@ -711,8 +718,9 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<TV>: BooleanArrayMul,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -740,12 +748,10 @@ where
         did_trigger_get_attributed.clone()
     };
 
-    let zero_out_flag_array = Replicated::<TV>::expand(&zero_out_flag);
-
-    if_else(
+    select(
         ctx,
         record_id,
-        &zero_out_flag_array,
+        &zero_out_flag,
         trigger_value,
         &Replicated::<TV>::ZERO,
     )
@@ -765,7 +771,7 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 ) -> Result<Replicated<Boolean>, Error>
 where
     C: Context,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -821,29 +827,25 @@ async fn compute_capped_trigger_value<C, TV>(
 ) -> Result<Replicated<TV>, Error>
 where
     C: Context,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<TV>: BooleanArrayMul,
 {
     let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
     let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
-    let is_saturated_array = Replicated::<TV>::expand(is_saturated);
-
-    let is_saturated_and_prev_row_not_saturated_array =
-        Replicated::<TV>::expand(is_saturated_and_prev_row_not_saturated);
-
-    let attributed_trigger_value_or_zero = if_else(
+    let attributed_trigger_value_or_zero = select(
         narrowed_ctx1,
         record_id,
-        &is_saturated_array,
+        is_saturated,
         &Replicated::new(<TV as SharedValue>::ZERO, <TV as SharedValue>::ZERO),
         attributed_trigger_value,
     )
     .await?;
 
-    if_else(
+    select(
         narrowed_ctx2,
         record_id,
-        &is_saturated_and_prev_row_not_saturated_array,
+        is_saturated_and_prev_row_not_saturated,
         prev_row_diff_to_cap,
         &attributed_trigger_value_or_zero,
     )
@@ -885,7 +887,7 @@ pub mod tests {
         trigger_value: u8,
     ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
     where
-        BK: SharedValue + U128Conversions + Field,
+        BK: SharedValue + U128Conversions,
     {
         oprf_test_input_with_timestamp(
             prf_of_match_key,
@@ -904,7 +906,7 @@ pub mod tests {
         timestamp: u32,
     ) -> PreShardedAndSortedOPRFTestInput<BK, BA3, BA20>
     where
-        BK: SharedValue + U128Conversions + Field,
+        BK: SharedValue + U128Conversions,
     {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
@@ -981,8 +983,8 @@ pub mod tests {
     impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
         for [&CappedAttributionOutputs<BK, TV>; 3]
     where
-        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+        BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+        TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     {
         fn reconstruct(&self) -> PreAggregationTestOutputInDecimal {
             let [s0, s1, s2] = self;

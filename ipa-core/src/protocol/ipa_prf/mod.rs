@@ -8,10 +8,11 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable,
+        boolean::Boolean, boolean_array::BA64, CustomArray, PrimeField, Serializable,
         U128Conversions,
     },
     protocol::{
+        basics::BooleanArrayMul,
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -171,10 +172,13 @@ where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<BK>: BooleanArrayMul,
+    Replicated<TS>: BooleanArrayMul,
+    Replicated<TV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
@@ -212,9 +216,9 @@ where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + CustomArray<Element = Boolean>,
+    TV: SharedValue + CustomArray<Element = Boolean>,
+    TS: SharedValue + CustomArray<Element = Boolean>,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {

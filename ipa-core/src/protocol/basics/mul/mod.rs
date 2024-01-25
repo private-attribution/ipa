@@ -1,8 +1,16 @@
+use std::ops::{Add, Sub};
+
 use async_trait::async_trait;
 
 use crate::{
     error::Error,
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA20, BA3, BA32, BA5, BA8},
+        Expand,
+    },
     protocol::{context::Context, RecordId},
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 #[cfg(feature = "descriptive-gate")]
@@ -39,3 +47,55 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
     where
         C: 'fut;
 }
+
+use semi_honest::multiply as semi_honest_mul;
+
+// The BooleanArrayMul trait is implemented for types like `Replicated<BA32>`. It hides the `N`
+// const parameter so that implementations parameterized with a Boolean array type parameter (e.g.
+// breakdown key type BK is BA8) can invoke vectorized multiply. Without this trait, those
+// implementations would need to specify the `N` const parameter, which is tricky, because you
+// can't supply an expression involving a type parameter (BK::BITS) as a const parameter.
+#[async_trait]
+pub trait BooleanArrayMul:
+    Expand<Input = Replicated<Boolean>> + From<Self::Vectorized> + Into<Self::Vectorized>
+{
+    type Vectorized: Send
+        + for<'a> Add<&'a Self::Vectorized, Output = Self::Vectorized>
+        + for<'a> Sub<&'a Self::Vectorized, Output = Self::Vectorized>;
+
+    async fn multiply<'fut, C>(
+        ctx: C,
+        record_id: RecordId,
+        a: &'fut Self::Vectorized,
+        b: &'fut Self::Vectorized,
+    ) -> Result<Self::Vectorized, Error>
+    where
+        C: Context + 'fut;
+}
+
+macro_rules! boolean_array_mul {
+    ($dim:expr, $vec:ty) => {
+        #[async_trait]
+        impl BooleanArrayMul for Replicated<$vec> {
+            type Vectorized = Replicated<Boolean, $dim>;
+
+            async fn multiply<'fut, C>(
+                ctx: C,
+                record_id: RecordId,
+                a: &'fut Self::Vectorized,
+                b: &'fut Self::Vectorized,
+            ) -> Result<Self::Vectorized, Error>
+            where
+                C: Context + 'fut,
+            {
+                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE).await
+            }
+        }
+    };
+}
+
+boolean_array_mul!(3, BA3);
+boolean_array_mul!(5, BA5);
+boolean_array_mul!(8, BA8);
+boolean_array_mul!(20, BA20);
+boolean_array_mul!(32, BA32);
