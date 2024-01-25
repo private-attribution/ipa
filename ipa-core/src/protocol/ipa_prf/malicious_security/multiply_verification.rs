@@ -105,9 +105,9 @@ where
     // record counter
     let mut counter = 0usize;
 
-    // generate evaluation points as multiples of `F::ONE`
-    let evaluation_points = (0..2 * recursion_factor + 1)
-        .map(|i| F::try_from(i as u128 + 1u128).unwrap())
+    // generate evaluation points `(F::0..F::(i)..)`
+    let evaluation_points = (0..2 * recursion_factor + 2)
+        .map(|i| F::try_from(i as u128).unwrap())
         .collect::<Vec<F>>();
 
     // iterate over recursions
@@ -144,7 +144,19 @@ where
             let sum_g = g[0..recursion_factor]
                 .iter()
                 .fold(F::ZERO, |acc, g| acc + *g);
-            debug_assert_eq!(sum_uv, sum_g)
+            debug_assert_eq!(sum_uv, sum_g);
+            // check interpolation
+            if !output.proofs.is_empty() {
+                let mut g_r_previous = F::ONE;
+                lagrange_evaluation(
+                    &evaluation_points[0..2 * recursion_factor],
+                    &output.proofs.last().unwrap(),
+                    std::slice::from_ref(&F::ZERO),
+                    std::slice::from_mut(&mut g_r_previous),
+                );
+                debug_assert_eq!(g_r_previous, output.proofs.last().unwrap()[0]);
+                debug_assert_eq!(g_r_previous, sum_uv);
+            }
         }
 
         // secret share g using prss_right
@@ -203,19 +215,17 @@ where
     // generate mask p[0] from prss_right and append to u
     // generate mask q[0] from prss_right and append to v
     // todo
-    let (final_evaluation_points, final_u, final_v) = {
-        let mut vec = Vec::<F>::with_capacity(2 * (u.len() + 1));
+    let (final_u, final_v) = {
         let mut vec_u = Vec::<F>::with_capacity(u.len() + 1);
         let mut vec_v = Vec::<F>::with_capacity(u.len() + 1);
-        vec = evaluation_points[0..2 * u.len() + 1].to_vec();
-        vec_u = u.to_vec();
-        vec_v = v.to_vec();
-        vec.push(F::ZERO);
         // add prss masks
         // todo
         vec_u.push(F::ONE);
         vec_v.push(F::ONE);
-        (vec, vec_u, vec_v)
+        // copy rest
+        vec_u.extend(&*u);
+        vec_v.extend(&*v);
+        (vec_u, vec_v)
     };
 
     // compute last g and add it to the proofs
@@ -223,21 +233,40 @@ where
         &final_u,
         &final_v,
         final_u.len(),
-        &final_evaluation_points,
+        &evaluation_points[..2 * u.len() + 2],
         &mut final_g,
     );
 
-    #[cfg(debug_assertions)]
-    {
-        let sum_uv = final_u
-            .iter()
-            .zip(final_v.iter())
-            .fold(F::ZERO, |acc, (u, v)| acc + *u * *v);
-        let sum_g = final_g[0..final_u.len()]
-            .iter()
-            .fold(F::ZERO, |acc, g| acc + *g);
-        debug_assert_eq!(sum_uv, sum_g)
-    }
+    // #[cfg(debug_assertions)]
+    // {
+    //     let sum_uv = final_u
+    //         .iter()
+    //         .zip(final_v.iter())
+    //         .fold(F::ZERO, |acc, (u, v)| acc + *u * *v);
+    //     let sum_g = final_g[0..final_u.len()]
+    //         .iter()
+    //         .fold(F::ZERO, |acc, g| acc + *g);
+    //     debug_assert_eq!(sum_uv, sum_g);
+    //
+    //     let sum_one = output.proofs[1][0..recursion_factor]
+    //         .iter()
+    //         .fold(F::ZERO, |acc, g| acc + *g);
+    //     assert_eq!(output.proofs[0][0],sum_one);
+    //
+    //     let length = output.proofs.last().unwrap().len()>>1;
+    //     let mut g_r_previous = F::ONE;
+    //     lagrange_evaluation(
+    //         &evaluation_points[0..2*recursion_factor],
+    //         &output.proofs[output.proofs.len()-2],
+    //         std::slice::from_ref(&F::ZERO),
+    //         std::slice::from_mut(&mut g_r_previous),
+    //     );
+    //     debug_assert_eq!(g_r_previous,output.proofs[output.proofs.len()-2][0]);
+    //     let sum_last = output.proofs.last().unwrap()[0..length]
+    //         .iter()
+    //         .fold(F::ZERO, |acc, g| acc + *g);
+    //     assert_eq!(g_r_previous,sum_last);
+    // }
 
     output.proofs.push(final_g);
 
@@ -296,9 +325,9 @@ where
     // compute recursion factor
     let recursion_factor = proof_right.proofs[0].len() >> 1;
 
-    // generate evaluation points as multiples of `F::ONE`
-    let evaluation_points = (0..2 * recursion_factor + 1)
-        .map(|i| F::try_from(i as u128 + 1u128).unwrap())
+    // generate evaluation points `(F::0..F::(i)..)`
+    let evaluation_points = (0..2 * recursion_factor + 2)
+        .map(|i| F::try_from(i as u128).unwrap())
         .collect::<Vec<F>>();
 
     // compute left part of the proof
@@ -327,41 +356,53 @@ where
         &mut g_r_right,
     );
 
-    // let mut g_r_left = vec![F::ONE; proof_left.proofs.len()+1];
-    // compute_g_r(
-    //     proof_left,
-    //     out_left,
-    //     &r_left,
-    //     recursion_factor,
-    //     &evaluation_points,
-    //     &mut g_r_left
-    // );
-
     // compute sum of proofs
+    // only sum the first `recursion_factor = proof.len()/2` many points,
+    // the other points are just to ensure the degree is `2*recursion_factor-1`
     g_r_right
         .iter_mut()
-        .zip(proof_right.proofs[0..recursion_factor].iter())
-        .for_each(|(x, proof)| *x -= proof.iter().fold(F::ZERO, |acc, x| acc + *x));
-    // g_r_left
-    //     .iter_mut()
-    //     .zip(proof_left.proofs[0..recursion_factor].iter())
-    //     .for_each(
-    //         |(x, proof)|
-    //             *x -= proof.iter().fold(F::ZERO, |acc, x| acc + *x)
+        .take(proof_right.proofs.len() - 1)
+        .zip(proof_right.proofs.iter())
+        .for_each(|(x, proof)| {
+            *x -= proof[0..proof.len() >> 1]
+                .iter()
+                .fold(F::ZERO, |acc, x| acc + *x)
+        });
+    // length of last proof
+    let length_last = proof_right.proofs[proof_right.proofs.len() - 1].len();
+    // compute sum of last proof, dont sum up masks, i.e. values at index 0
+    g_r_right[proof_right.proofs.len() - 1] -= proof_right.proofs[proof_right.proofs.len() - 1]
+        [1..length_last >> 1]
+        .iter()
+        .fold(F::ZERO, |acc, x| acc + *x);
+
+    // #[cfg(debug_assertions)]
+    // {
+    //     let length = proof_right.proofs.last().unwrap().len()>>1;
+    //     let mut g_r_previous= F::ONE;
+    //     lagrange_evaluation(
+    //         &evaluation_points[0..2*recursion_factor],
+    //         &proof_right.proofs[proof_right.proofs.len()-2],
+    //         std::slice::from_ref(&F::ZERO),
+    //         std::slice::from_mut(&mut g_r_previous),
     //     );
+    //     debug_assert_eq!(g_r_previous,proof_right.proofs[proof_right.proofs.len()-2][0]);
+    //     let sum_last = proof_right.proofs.last().unwrap()[0..length]
+    //         .iter()
+    //         .fold(F::ZERO, |acc, g| acc + *g);
+    //     assert_eq!(g_r_previous,sum_last);
+    // }
 
     // zero test
     // todo
-    g_r_right.iter().enumerate().for_each(|(i, x)| {
-        debug_assert_eq!((i, *x), (i, F::ZERO));
-        output &= *x == F::ZERO
-    });
-    // g_r_left.iter().for_each(
-    //     |x| {
-    //         debug_assert_eq!(*x,F::ZERO);
-    //         output &= *x==F::ZERO
-    //     }
-    // );
+    g_r_right[0..g_r_right.len() - 1]
+        .iter()
+        .enumerate()
+        .for_each(|(i, x)| {
+            debug_assert_eq!((i, *x), (i, F::ZERO));
+            output &= *x == F::ZERO
+        });
+
     debug_assert!(output);
     // final check:
     // generate q(0), p(0) masks using PRSS,
@@ -369,12 +410,15 @@ where
     let (p, q) = reconstruct_p_and_q(
         share_of_u,
         share_of_v,
+        &F::ONE,
+        &F::ONE,
         recursion_factor,
-        &evaluation_points[0..recursion_factor],
+        &evaluation_points,
         &r_right,
     );
     // reveal q(r), p(r) and g(r) and check p(r)*g(r)=G(r)
     // todo
+    debug_assert_eq!(p * q, g_r_right[g_r_right.len() - 1]);
     output &= p * q == g_r_right[g_r_right.len() - 1];
 
     Ok(output)
@@ -391,44 +435,30 @@ pub fn compute_g_r<F>(
 where
     F: Field + Invert,
 {
-    let last_proof_len = proof.proofs[proof.proofs.len() - 1].len();
     debug_assert_eq!(proof.proofs.len() + 1, g_r.len());
-    debug_assert_eq!(evaluation_points.len(), 2 * recursion_factor + 1);
+    debug_assert_eq!(evaluation_points.len(), 2 * recursion_factor + 2);
     debug_assert_eq!(random_points.len(), proof.proofs.len());
 
-    let mut iter_right = g_r.iter_mut().take(proof.proofs.len());
+    let mut iter_right = g_r.iter_mut();
     *iter_right.next().unwrap() = out.clone();
     iter_right
         .zip(proof.proofs.iter())
         .zip(random_points.iter())
         .for_each(|((g_r, g), r)| {
             lagrange_evaluation(
-                &evaluation_points[0..2 * recursion_factor],
+                &evaluation_points[0..g.len()],
                 &g,
                 std::slice::from_ref(r),
                 std::slice::from_mut(g_r),
             )
         });
-    // final evaluation points
-    let mut final_evaluation_points = evaluation_points.to_vec();
-    if final_evaluation_points.len() < last_proof_len {
-        final_evaluation_points.push(F::ZERO);
-    } else {
-        final_evaluation_points.truncate(last_proof_len);
-        final_evaluation_points[last_proof_len - 1] = F::ZERO;
-    }
-    // compute last g_r
-    lagrange_evaluation(
-        &final_evaluation_points,
-        &proof.proofs[proof.proofs.len() - 1],
-        std::slice::from_ref(&random_points[random_points.len() - 1]),
-        std::slice::from_mut(&mut g_r[g_r.len() - 1]),
-    )
 }
 
 pub fn reconstruct_p_and_q<F>(
     share_of_u: &mut Vec<F>,
     share_of_v: &mut Vec<F>,
+    mask_u: &F,
+    mask_v: &F,
     recursion_factor: usize,
     evaluation_points: &[F],
     random_points: &[F],
@@ -491,31 +521,29 @@ where
     );
 
     // final points
-    let (final_evaluation_points, final_share_of_u, final_share_of_v) = {
-        let mut vec = Vec::<F>::with_capacity(share_of_u.len() + 1);
+    let (final_share_of_u, final_share_of_v) = {
         let mut vec_u = Vec::<F>::with_capacity(share_of_u.len() + 1);
         let mut vec_v = Vec::<F>::with_capacity(share_of_u.len() + 1);
-        vec = evaluation_points[0..share_of_u.len()].to_vec();
-        vec_u = share_of_u.to_vec();
-        vec_v = share_of_v.to_vec();
-        vec.push(F::ZERO);
         // add prss masks
         // todo
-        vec_u.push(F::ONE);
-        vec_v.push(F::ONE);
-        (vec, vec_u, vec_v)
+        vec_u.push(*mask_u);
+        vec_v.push(*mask_v);
+        // copy rest
+        vec_u.extend(&*share_of_u);
+        vec_v.extend(&*share_of_v);
+        (vec_u, vec_v)
     };
 
     let mut p = F::ONE;
     let mut q = F::ONE;
     lagrange_evaluation(
-        &final_evaluation_points,
+        &evaluation_points[0..final_share_of_u.len()],
         &final_share_of_u,
         std::slice::from_ref(&random_points[random_points.len() - 1]),
         std::slice::from_mut(&mut p),
     );
     lagrange_evaluation(
-        &final_evaluation_points,
+        &evaluation_points[0..final_share_of_u.len()],
         &final_share_of_v,
         std::slice::from_ref(&random_points[random_points.len() - 1]),
         std::slice::from_mut(&mut q),
@@ -555,7 +583,7 @@ where
     // summand_of_g is represented by 2*recursion_factor many points.
     let mut summand_of_g = vec![F::ONE; 2 * recursion_factor];
 
-    // compute first recursion point many points of summand_of_g
+    // compute first recursion factor many points of summand_of_g
     summand_of_g
         .iter_mut()
         .take(recursion_factor)
@@ -712,8 +740,8 @@ mod test {
     fn debug_test() {
         let recursion_factor = 2usize;
         let mut rng = thread_rng();
-        let mut u = vec![Fp25519::ZERO; 4];
-        let mut v = vec![Fp25519::ZERO; 4];
+        let mut u = vec![Fp25519::ZERO; 8];
+        let mut v = vec![Fp25519::ZERO; 8];
         u.iter_mut().for_each(|x| *x = rng.gen());
         v.iter_mut().for_each(|x| *x = rng.gen());
         let out = u
@@ -721,10 +749,39 @@ mod test {
             .zip(v.iter())
             .fold(Fp25519::ZERO, |acc, (u, v)| acc + (*u * *v));
         let proof = generate_proof(&mut u.clone(), &mut v.clone(), recursion_factor);
-        let sum = proof.proofs[0][0..recursion_factor]
+        let sum = proof.proofs.clone()[0][0..recursion_factor]
             .iter()
             .fold(Fp25519::ZERO, |acc, g| acc + *g);
         assert_eq!(out, sum);
+        let mut g_r_one = Fp25519::ONE;
+        let evaluation_points = (0..2 * recursion_factor + 2)
+            .map(|i| Fp25519::try_from(i as u128).unwrap())
+            .collect::<Vec<Fp25519>>();
+        lagrange_evaluation(
+            &evaluation_points[0..2 * recursion_factor],
+            &proof.proofs[0],
+            std::slice::from_ref(&Fp25519::ZERO),
+            std::slice::from_mut(&mut g_r_one),
+        );
+        assert_eq!(g_r_one, proof.proofs[0][0]);
+        let sum_one = proof.proofs.clone()[1][0..recursion_factor]
+            .iter()
+            .fold(Fp25519::ZERO, |acc, g| acc + *g);
+        assert_eq!(g_r_one, sum_one);
+
+        // let length = proof.proofs.last().unwrap().len()>>1;
+        // let mut g_r_previous = Fp25519::ONE;
+        // lagrange_evaluation(
+        //     &evaluation_points[0..2*recursion_factor],
+        //     &proof.proofs[proof.proofs.len()-2],
+        //     std::slice::from_ref(&Fp25519::ZERO),
+        //     std::slice::from_mut(&mut g_r_previous),
+        // );
+        // debug_assert_eq!(g_r_previous,proof.proofs[proof.proofs.len()-2][0]);
+        // let sum_last = proof.proofs.last().unwrap()[0..length]
+        //     .iter()
+        //     .fold(Fp25519::ZERO, |acc, g| acc + *g);
+        // assert_eq!(g_r_previous,sum_last);
 
         assert!(verify_proof(&proof, &out, &out, &mut u, &mut v).unwrap());
     }
