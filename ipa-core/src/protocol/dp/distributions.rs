@@ -75,7 +75,7 @@ impl From<BoxMuller> for RoundedBoxMuller {
 
 #[derive(Debug, PartialEq)]
 pub struct Geometric {
-    probability: f64,
+    bernoulli: Bernoulli,
 }
 impl Geometric {
     /// Creates a new `Geometric` distribution with the given success probability.
@@ -83,23 +83,17 @@ impl Geometric {
         if probability < f64::MIN_POSITIVE {
             return Err(Error::BadGeometricProb(probability));
         }
-        Ok(Self { probability })
-    }
-    /// Generates a sample from the `Geometric` distribution.
-    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
-        // Create a Bernoulli distribution with the specified success probability
-        let bernoulli = Bernoulli::new(self.probability).expect("Invalid probability");
-        // Generate Bernoulli random numbers until the first success
-        let mut attempts = 0;
-        while !bernoulli.sample(rng) {
-            attempts += 1;
-        }
-        attempts
+        Ok(Self { bernoulli: Bernoulli::new(probability)? })
     }
 }
 impl Distribution<u32> for Geometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
-        self.sample(rng)
+        // self.sample(rng)
+        let mut attempts = 0;
+        while !self.bernoulli.sample(rng) {
+            attempts += 1;
+        }
+        attempts
     }
 }
 
@@ -121,24 +115,20 @@ impl DoubleGeometric {
             geometric: Geometric::new(success_probability)?,
         })
     }
-    /// Generates a sample from the `DoubleGeometric` distribution
-    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
-        // Self::generate_double_geometric(self.s, self.shift, rng)
-        let attempts1 = self.geometric.sample(rng);
-        let attempts2 = self.geometric.sample(rng);
-        (self.shift + attempts1 - attempts2).try_into().unwrap()
-    }
 }
 impl Distribution<i32> for DoubleGeometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
-        self.sample(rng)
+        // self.sample(rng)
+        let attempts1 = self.geometric.sample(rng);
+        let attempts2 = self.geometric.sample(rng);
+        (self.shift + attempts1 - attempts2).try_into().unwrap()
     }
 }
 
 /// Truncated Double Geometric distribution.
 #[derive(Debug, PartialEq)]
 pub struct TruncatedDoubleGeometric {
-    shift: u32, // is truncated to [0, 2*shift]
+    shift: u32,
     double_geometric: DoubleGeometric,
 }
 impl TruncatedDoubleGeometric {
@@ -147,28 +137,24 @@ impl TruncatedDoubleGeometric {
         if s < f64::MIN_POSITIVE {
             return Err(Error::BadS(s));
         }
+        if shift > 1_000_000 {
+            return Err(Error::BadShiftValue(shift));
+        }
         Ok(Self {
             shift,
             double_geometric: DoubleGeometric::new(s, shift)?,
         })
     }
-    /// Generates a sample from the `TruncatedDoubleGeometric` distribution.
-    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
-        // generate_truncated_double_geometric(self.s, self.shift, rng)
-        let mut reject = 1;
-        let mut sample = 0; // Declare sample here
-        while reject == 1 {
-            sample = self.double_geometric.sample(rng); // Assign a value to sample inside the loop
-            if sample >= 0 && sample <= (2 * self.shift).try_into().unwrap() {
-                reject = 0;
-            }
-        }
-        sample.try_into().unwrap() // Return the final value of sample
-    }
 }
 impl Distribution<u32> for TruncatedDoubleGeometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> u32 {
-        self.sample(rng)
+        // samples are truncated to be within [0, 2*shift]
+        loop {
+            let s = self.double_geometric.sample(rng);
+            if s >= 0 && s <= (2 * self.shift).try_into().unwrap() {
+                return s.try_into().unwrap();
+            }
+        }
     }
 }
 #[cfg(all(test, unit_test))]
@@ -229,6 +215,7 @@ mod tests {
         let actual = Geometric::new(p);
         assert_eq!(expected, actual);
     }
+
     #[test]
     fn test_geometric_sample_dist() {
         let mut rng = rand::thread_rng();

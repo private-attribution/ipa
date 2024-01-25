@@ -14,7 +14,7 @@ From Section 3.2 of the [paper](https://arxiv.org/abs/2110.08177) we recall the 
 $$M(X) = f(X) + z; \quad z \sim p_{DoubleGeometric}(n) $$
 $$\textrm{Pr}_{DoubleGeometric}(x|n) = Ae^{-\epsilon|n-x|}; \qquad x\in \{0,\ldots,2n\}$$
 
-For some normalizing constant $0<A<1$ and some $n \in \mathbb{N}$.
+For some normalizing constant $0 \lt A \lt 1$ and some $n \in \mathbb{N}$.
 As a probability this must sum to 1, which lets us solve for $A$.  Let $r=e^{-\epsilon}$.  Then we can rewrite as a classic geometric sequence as:
 $$1=\Big(2 A\sum_{k=0}^n e^{-k\epsilon}\Big) -A = A\Big( -1 + 2\sum_{k=0}^n r^k \Big)
 = A\Big( -1 + 2 \frac{1 - r^{n+1} }{1-r} \Big)

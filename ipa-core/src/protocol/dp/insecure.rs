@@ -3,6 +3,7 @@
 use std::f64::consts::E;
 
 use rand::distributions::Distribution;
+use rand::distributions::BernoulliError;
 use rand_core::{CryptoRng, RngCore};
 
 use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
@@ -23,6 +24,22 @@ pub enum Error {
         f64::MIN_POSITIVE
     )]
     BadGeometricProb(f64),
+    #[error(
+        "Shift value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow
+        in Double Geometric sample",
+    )]
+    BadShiftValue(u32),
+    #[error(
+        "Sensitivity value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow
+        in Double Geometric sample",
+    )]
+    BadSensitivity(u32),
+}
+impl From<BernoulliError> for Error {
+    fn from(_:BernoulliError) -> Self {
+        Error::BadGeometricProb(f64::NAN)
+
+    }
 }
 
 /// Applies DP to the inputs in the clear using continuous Gaussian noise. Works with floats only, so
@@ -113,7 +130,7 @@ impl DiscreteDp {
 
 ///  Non-negative DP noise for OPRF padding
 ///  Samples from a Truncated Double Geometric
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct OPRFPaddingDp {
     epsilon: f64,
     delta: f64,
@@ -178,6 +195,9 @@ impl OPRFPaddingDp {
 
         if !(f64::MIN_POSITIVE..=1.0 - f64::MIN_POSITIVE).contains(&new_delta) {
             return Err(Error::BadDelta(new_delta));
+        }
+        if new_sensitivity > 1_000_000 {
+            return Err(Error::BadSensitivity(new_sensitivity));
         }
 
         // compute smallest shift needed to achieve this delta
@@ -393,5 +413,16 @@ mod test {
         let mut rng = rand::thread_rng();
 
         oprf_padding.unwrap().sample(&mut rng);
+    }
+    fn test_oprf_padding_dp_constructor() {
+        let mut actual = OPRFPaddingDp::new(-1.0, 1e-6, 10); // (epsilon, delta, sensitivity)
+        let mut expected = Err(Error::BadEpsilon(-1.0));
+        assert_eq!(expected, Ok(actual));
+        actual = OPRFPaddingDp::new(1.0, -1e-6, 10); // (epsilon, delta, sensitivity)
+        expected = Err(Error::BadDelta(-1e-6));
+        assert_eq!(expected, Ok(actual));
+        actual = OPRFPaddingDp::new(1.0, -1e-6, 1_000_001); // (epsilon, delta, sensitivity)
+        expected = Err(Error::BadSensitivity(1_000_001));
+        assert_eq!(expected, Ok(actual));
     }
 }
