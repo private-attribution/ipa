@@ -272,6 +272,7 @@ macro_rules! boolean_array_impl {
             use super::*;
             use crate::{
                 ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
+                impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{ASIterator, AdditiveShare},
                     SharedValue,
@@ -317,6 +318,8 @@ macro_rules! boolean_array_impl {
                 type Storage = Store;
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<Store>::ZERO);
+
+                impl_shared_value_common!();
             }
 
             impl_serializable_trait!($name, $bits, Store, $deser_type);

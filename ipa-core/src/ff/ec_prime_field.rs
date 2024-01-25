@@ -8,6 +8,7 @@ use typenum::U32;
 
 use crate::{
     ff::{boolean_array::BA256, Field, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
@@ -39,6 +40,8 @@ impl SharedValue for Fp25519 {
     type Storage = Scalar;
     const BITS: u32 = 256;
     const ZERO: Self = Self(Scalar::ZERO);
+
+    impl_shared_value_common!();
 }
 
 ///conversion to Scalar struct of `curve25519_dalek`

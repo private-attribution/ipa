@@ -52,7 +52,6 @@ mod scheme;
 
 use std::{
     fmt::Debug,
-    iter::once,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
@@ -129,29 +128,45 @@ pub trait SharedValue:
 
     // Note the trait bound of `Vectorizable<1>` here, i.e., these
     // helpers only apply to arrays of a single element.
-    fn into_array<A>(self) -> A
+    fn into_array(self) -> <Self as Vectorizable<1>>::Array
     where
-        Self: Vectorizable<1, Array = A>,
-        A: SharedValueArray<Self>,
-    {
-        once(self).collect::<A>()
-    }
+        Self: Vectorizable<1>;
 
-    fn from_array<A>(array: &A) -> Self
+    fn from_array(array: &<Self as Vectorizable<1>>::Array) -> Self
     where
-        Self: Vectorizable<1, Array = A>,
-        A: SharedValueArray<Self>,
-    {
-        array.get(0)
-    }
+        Self: Vectorizable<1>;
 
-    fn from_array_mut<A>(array: &mut A) -> &mut Self
+    fn from_array_mut(array: &mut <Self as Vectorizable<1>>::Array) -> &mut Self
     where
-        Self: Vectorizable<1, Array = A>,
-        A: SharedValueArray<Self>,
-    {
-        array.get_mut(0)
-    }
+        Self: Vectorizable<1>;
+}
+
+#[macro_export]
+macro_rules! impl_shared_value_common {
+    () => {
+        // Note the trait bound of `Vectorizable<1>` here, i.e., these
+        // helpers only apply to arrays of a single element.
+        fn into_array(self) -> <Self as Vectorizable<1>>::Array
+        where
+            Self: Vectorizable<1>,
+        {
+            std::iter::once(self).collect()
+        }
+
+        fn from_array(array: &<Self as Vectorizable<1>>::Array) -> Self
+        where
+            Self: Vectorizable<1>,
+        {
+            *array.first()
+        }
+
+        fn from_array_mut(array: &mut <Self as Vectorizable<1>>::Array) -> &mut Self
+        where
+            Self: Vectorizable<1>,
+        {
+            array.first_mut()
+        }
+    };
 }
 
 // Note that we can either make `trait Vectorizable<N>: SharedValue`, or we can make `trait
@@ -226,12 +241,6 @@ pub trait SharedValueArray<V>:
     const ZERO: Self;
 
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self;
-
-    fn get(&self, index: usize) -> V;
-
-    fn get_mut(&mut self, index: usize) -> &mut V;
-
-    fn set(&mut self, index: usize, value: V);
 }
 
 // Some `SharedValue` types (and thus their arrays) implement `FromRandom`, but `RP25519` does not.

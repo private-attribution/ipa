@@ -13,7 +13,7 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 use super::ArrayAccess;
 use crate::{
     ff::{boolean_array::NonZeroPadding, Field, Serializable},
-    impl_serializable_trait,
+    impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
@@ -173,6 +173,8 @@ macro_rules! bit_array_impl {
                 type Storage = $store;
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
+
+                impl_shared_value_common!();
             }
 
             impl Vectorizable<1> for $name {

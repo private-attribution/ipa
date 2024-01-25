@@ -47,6 +47,16 @@ impl<V: SharedValue, const N: usize> PartialEq<StdArray<V, N>> for [V; N] {
     }
 }
 
+impl<V: SharedValue, const N: usize> StdArray<V, N> {
+    pub fn first(&self) -> &V {
+        &self.0[0]
+    }
+
+    pub fn first_mut(&mut self) -> &mut V {
+        &mut self.0[0]
+    }
+}
+
 impl<V: SharedValue, const N: usize> SharedValueArray<V> for StdArray<V, N>
 where
     Self: Serializable,
@@ -55,18 +65,6 @@ where
 
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self {
         Self(array::from_fn(f))
-    }
-
-    fn get(&self, index: usize) -> V {
-        self.0[index]
-    }
-
-    fn get_mut(&mut self, index: usize) -> &mut V {
-        &mut self.0[index]
-    }
-
-    fn set(&mut self, index: usize, value: V) {
-        self.0[index] = value;
     }
 }
 
@@ -433,18 +431,5 @@ mod test {
     #[allow(clippy::from_iter_instead_of_collect)]
     fn from_short_iter() {
         StdArray::<Fp32BitPrime, 32>::from_iter(iter::empty());
-    }
-
-    proptest! {
-        #[test]
-        fn get_set(mut a: StdArray<Fp32BitPrime, 1>, b: Fp32BitPrime, c: Fp32BitPrime) {
-            assert_eq!(a.get(0), a.0[0]);
-            a.set(0, b);
-            assert_eq!(a.get(0), b);
-            *a.get_mut(0) = c;
-            assert_eq!(a.get(0), c);
-            let from_fn = StdArray::<Fp32BitPrime, 1>::from_fn(|i| a.0[i]);
-            assert_eq!(from_fn, a);
-        }
     }
 }

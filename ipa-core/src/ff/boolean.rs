@@ -4,6 +4,7 @@ use typenum::U1;
 use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{
         replicated::malicious::ExtendableField, Block, FieldVectorizable, SharedValue, StdArray,
@@ -41,6 +42,8 @@ impl SharedValue for Boolean {
     type Storage = bool;
     const BITS: u32 = 1;
     const ZERO: Self = Self(false);
+
+    impl_shared_value_common!();
 }
 
 impl Vectorizable<1> for Boolean {

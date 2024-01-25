@@ -4,7 +4,8 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::Serializable,
+    ff::{FieldType, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
@@ -22,7 +23,6 @@ pub struct GreaterThanPrimeError<V: Display>(V, u128);
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
         use super::*;
-        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub struct $field(<Self as SharedValue>::Storage);
@@ -31,6 +31,8 @@ macro_rules! field_impl {
             type Storage = $store;
             const BITS: u32 = $bits;
             const ZERO: Self = $field(0);
+
+            impl_shared_value_common!();
         }
 
         impl Vectorizable<1> for $field {
