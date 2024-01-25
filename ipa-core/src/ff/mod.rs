@@ -82,7 +82,7 @@ pub trait Serializable: Sized {
 
 pub trait ArrayAccess {
     type Output;
-    type Iter<'a>: Iterator<Item = Self::Output> + ExactSizeIterator + Send
+    type Iter<'a>: ExactSizeIterator<Item = Self::Output> + Send
     where
         Self: 'a;
 

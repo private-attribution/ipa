@@ -15,6 +15,13 @@ use crate::{
     secret_sharing::{FieldArray, SharedValue, SharedValueArray},
 };
 
+/// Wrapper around `[V; N]`.
+///
+/// This wrapper serves two purposes:
+///  * It enables us to implement the `std::ops` traits, which the coherence rules
+///    don't let us implement for `[V; N]`.
+///  * It disables by-index access to individual elements of the array, which
+///    should never be necessary in properly vectorized code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StdArray<V: SharedValue, const N: usize>([V; N]);
 
@@ -76,14 +83,16 @@ impl<V: SharedValue, const N: usize> TryFrom<Vec<V>> for StdArray<V, N> {
 // Panics if the iterator terminates before producing N items.
 impl<V: SharedValue, const N: usize> FromIterator<V> for StdArray<V, N>
 where
-    Self: Serializable,
+    Self: Serializable, // required for `<Self as SharedValueArray>::ZERO`
 {
     fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         let mut res = Self::ZERO;
         let mut iter = iter.into_iter();
 
         for i in 0..N {
-            res.0[i] = iter.next().unwrap();
+            res.0[i] = iter
+                .next()
+                .unwrap_or_else(|| panic!("Expected iterator to produce {N} items, got only {i}"));
         }
 
         res
@@ -316,6 +325,8 @@ impl<V: SharedValue, const N: usize> Message for StdArray<V, N> where Self: Seri
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::iter;
+
     use proptest::{
         prelude::{prop, Arbitrary, Strategy},
         proptest,
@@ -408,6 +419,23 @@ mod test {
             assert_eq!(copy, expected);
         }
 
+        #[test]
+        #[allow(clippy::from_iter_instead_of_collect)]
+        fn from_iter(a: StdArray<Fp32BitPrime, 32>) {
+            let iter = a.0.iter().copied();
+            let copy = StdArray::<Fp32BitPrime, 32>::from_iter(iter);
+            assert_eq!(copy, a);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected iterator to produce 32 items, got only 0")]
+    #[allow(clippy::from_iter_instead_of_collect)]
+    fn from_short_iter() {
+        StdArray::<Fp32BitPrime, 32>::from_iter(iter::empty());
+    }
+
+    proptest! {
         #[test]
         fn get_set(mut a: StdArray<Fp32BitPrime, 1>, b: Fp32BitPrime, c: Fp32BitPrime) {
             assert_eq!(a.get(0), a.0[0]);
