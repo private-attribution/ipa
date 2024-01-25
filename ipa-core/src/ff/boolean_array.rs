@@ -7,7 +7,7 @@ use typenum::{U14, U2, U32, U8};
 
 use crate::{
     error::LengthError,
-    ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable},
+    ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
@@ -134,11 +134,9 @@ macro_rules! boolean_array_impl_small {
             const NAME: &'static str = stringify!($name);
 
             const ONE: Self = Self(bitarr_one!($bits));
+        }
 
-            fn as_u128(&self) -> u128 {
-                (*self).into()
-            }
-
+        impl U128Conversions for $name {
             fn truncate_from<T: Into<u128>>(v: T) -> Self {
                 let v = v.into();
                 let mut val = <Self as SharedValue>::ZERO;
@@ -147,6 +145,10 @@ macro_rules! boolean_array_impl_small {
                 }
 
                 val
+            }
+
+            fn as_u128(&self) -> u128 {
+                (*self).into()
             }
         }
 
@@ -188,7 +190,7 @@ macro_rules! boolean_array_impl_small {
 
         impl FromRandomU128 for $name {
             fn from_random_u128(src: u128) -> Self {
-                Field::truncate_from(src)
+                Self::truncate_from(src)
             }
         }
 

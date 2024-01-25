@@ -123,7 +123,7 @@ mod test {
 
     use super::multiply;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
         protocol::{
             basics::{SecureMul, ZeroPositions},
@@ -205,7 +205,7 @@ mod test {
 
     async fn multiply_sync<F>(world: &TestWorld, a: u128, b: u128) -> u128
     where
-        F: Field,
+        F: Field + U128Conversions,
         (F, F): Sized,
         Standard: Distribution<F>,
     {

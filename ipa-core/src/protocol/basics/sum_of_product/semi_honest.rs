@@ -87,7 +87,7 @@ impl<C: Context, F: Field> super::SumOfProducts<C> for Replicated<F> {
 mod test {
     use super::sum_of_products;
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Fp31, U128Conversions},
         protocol::{context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,

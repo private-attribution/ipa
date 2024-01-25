@@ -281,7 +281,7 @@ mod tests {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{Field, Fp31, Serializable},
+        ff::{Field, Fp31, Serializable, U128Conversions},
         helpers::{Direction, Role},
         protocol::{
             context::{
@@ -326,7 +326,7 @@ mod tests {
     /// Toy protocol to execute PRSS generation and send/receive logic
     async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> Replicated<F>
     where
-        F: Field,
+        F: Field + U128Conversions,
         Standard: Distribution<F>,
         C: Context,
         S: ReplicatedLeftValue<F>,

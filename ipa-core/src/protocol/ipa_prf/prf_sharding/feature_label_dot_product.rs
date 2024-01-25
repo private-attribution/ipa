@@ -346,7 +346,10 @@ where
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime},
+        ff::{
+            boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime,
+            U128Conversions,
+        },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },

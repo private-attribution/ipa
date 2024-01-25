@@ -4,13 +4,13 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::{FieldType, Serializable},
+    ff::{FieldType, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
-pub trait PrimeField: Field {
+pub trait PrimeField: Field + U128Conversions {
     type PrimeInteger: Into<u128>;
 
     const PRIME: Self::PrimeInteger;
@@ -47,10 +47,11 @@ macro_rules! field_impl {
             const NAME: &'static str = stringify!($field);
 
             const ONE: Self = $field(1);
+        }
 
+        impl U128Conversions for $field {
             fn as_u128(&self) -> u128 {
-                let int: Self::Storage = (*self).into();
-                int.into()
+                u128::from(self.0)
             }
 
             /// An infallible conversion from `u128` to this type.  This can be used to draw
@@ -67,7 +68,7 @@ macro_rules! field_impl {
 
         impl FromRandomU128 for $field {
             fn from_random_u128(src: u128) -> Self {
-                Field::truncate_from(src)
+                U128Conversions::truncate_from(src)
             }
         }
 

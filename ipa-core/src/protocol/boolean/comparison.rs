@@ -308,7 +308,7 @@ mod tests {
         greater_than_constant,
     };
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField, U128Conversions},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator,
             context::{Context, UpgradableContext, Validator},

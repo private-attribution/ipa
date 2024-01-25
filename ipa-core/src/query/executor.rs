@@ -147,7 +147,7 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Fp31, U128Conversions},
         query::ProtocolResult,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     };

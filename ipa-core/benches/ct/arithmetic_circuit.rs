@@ -3,7 +3,7 @@ use criterion::{
     BenchmarkId, Criterion, SamplingMode, Throughput,
 };
 use ipa_core::{
-    ff::{Field, Fp31, Fp32BitPrime},
+    ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
     protocol::{basics::SecureMul, context::SemiHonestContext},
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
     test_fixture::circuit,
@@ -18,7 +18,7 @@ fn do_benchmark<M, F, const N: usize>(
     depth: u16,
 ) where
     M: Measurement,
-    F: Field + FieldSimd<N>,
+    F: Field + FieldSimd<N> + U128Conversions,
     for<'a> Replicated<F, N>: SecureMul<SemiHonestContext<'a>>,
     [F; N]: IntoShares<Replicated<F, N>>,
     Standard: Distribution<F>,

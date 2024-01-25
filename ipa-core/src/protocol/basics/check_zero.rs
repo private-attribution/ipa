@@ -70,7 +70,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, PrimeField},
+        ff::{Fp31, PrimeField, U128Conversions},
         protocol::{basics::check_zero, context::Context, RecordId},
         rand::thread_rng,
         secret_sharing::{IntoShares, SharedValue},

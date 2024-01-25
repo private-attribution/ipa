@@ -37,15 +37,6 @@ pub trait Field:
 
     /// Multiplicative identity element
     const ONE: Self;
-
-    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
-    /// into this data type. This conversion is lossy. Callers are encouraged
-    /// to use `try_from` if the input is not known in advance.
-    fn truncate_from<T: Into<u128>>(v: T) -> Self;
-
-    /// Blanket implementation to represent the instance of this trait as 16 byte integer.
-    /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
-    fn as_u128(&self) -> u128;
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

@@ -350,7 +350,7 @@ pub mod test {
 
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, U128Conversions},
         protocol::{
             prss::{Endpoint, PrssIndex, SharedRandomness},
             step::{Gate, StepNarrow},

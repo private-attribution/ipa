@@ -3,7 +3,7 @@ use typenum::U1;
 
 use super::Gf32Bit;
 use crate::{
-    ff::{Field, Serializable},
+    ff::{Field, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{
@@ -158,12 +158,13 @@ impl From<bool> for Boolean {
     }
 }
 
-///implement Field because required by PRSS
 impl Field for Boolean {
     const NAME: &'static str = "Boolean";
 
     const ONE: Boolean = Boolean(true);
+}
 
+impl U128Conversions for Boolean {
     fn as_u128(&self) -> u128 {
         Boolean::as_u128(self)
     }
@@ -192,7 +193,7 @@ impl TryFrom<u128> for Boolean {
 
 impl FromRandomU128 for Boolean {
     fn from_random_u128(src: u128) -> Self {
-        Field::truncate_from(src)
+        Self::truncate_from(src)
     }
 }
 
