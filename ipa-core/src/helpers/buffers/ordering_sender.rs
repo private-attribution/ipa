@@ -30,7 +30,7 @@ struct State {
     buf: Vec<u8>,
     /// The portion of the buffer that is marked "spare". Once `written + spare` is greater than
     /// the buffer capacity, data is available to the stream. May be zero if messages are uniformly
-    /// sized.
+    /// sized and that size divides the buffer capacity.
     spare: usize,
     /// How many bytes have been written and are available.
     written: usize,
@@ -82,6 +82,11 @@ impl State {
     // sent will be the same size, so we settle for a less strict check that should at least
     // prevent reaching a deadlock.
     fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
+        debug_assert!(
+            self.spare != 0 || self.buf.capacity() % M::Size::USIZE == 0,
+            "invalid spare capacity for OrderingSender (see docs)",
+        );
+
         if !self.accept_writes() {
             Self::save_waker(&mut self.write_ready, cx);
             return Poll::Pending;
@@ -492,23 +497,28 @@ impl<B: Borrow<OrderingSender> + Unpin> Stream for OrderedStream<B> {
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
-    use std::{future::poll_fn, iter::zip, num::NonZeroUsize, pin::pin};
+    use std::{
+        future::poll_fn,
+        iter::zip,
+        num::NonZeroUsize,
+        pin::{pin, Pin},
+    };
 
     use futures::{
-        future::{join, join3, join_all},
+        future::{join, join3, join_all, poll_immediate, try_join_all},
         stream::StreamExt,
-        FutureExt,
+        Future, FutureExt,
     };
-    use futures_util::future::{poll_immediate, try_join_all};
     use generic_array::GenericArray;
-    use rand::Rng;
+    use rand::{seq::SliceRandom, Rng};
     #[cfg(feature = "shuttle")]
     use shuttle::future as tokio;
     use typenum::Unsigned;
 
     use super::OrderingSender;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, Serializable},
+        helpers::Message,
         rand::thread_rng,
         sync::Arc,
         test_executor::run,
@@ -598,6 +608,145 @@ mod test {
         });
     }
 
+    type BoxedSendFn = Box<
+        dyn for<'a> FnOnce(
+            &'a OrderingSender,
+            &mut usize,
+        ) -> Pin<Box<dyn Future<Output = ()> + 'a>>,
+    >;
+
+    // Given a message, returns a closure that sends the message and increments an associated record index.
+    fn send_fn<M: Message>(m: M) -> BoxedSendFn {
+        Box::new(|s: &OrderingSender, i: &mut usize| {
+            let fut = s.send(*i, m).boxed();
+            *i += 1;
+            fut
+        })
+    }
+
+    #[test]
+    fn spare_config() {
+        const SZ: usize = <<Fp32BitPrime as Serializable>::Size as Unsigned>::USIZE;
+        run(|| async {
+            const COUNT: usize = 4;
+            const CAPACITY: usize = COUNT * SZ;
+
+            // Case 1: Sending equal sized records with no spare capacity
+            let sender = OrderingSender::new(CAPACITY.try_into().unwrap(), 0);
+
+            for i in 0..COUNT {
+                sender
+                    .send(i, Fp32BitPrime::truncate_from(u128::try_from(i).unwrap()))
+                    .await;
+            }
+
+            // buffer is now full.
+            let mut f = pin!(sender.send(
+                COUNT,
+                Fp32BitPrime::truncate_from(u128::try_from(COUNT).unwrap())
+            ));
+            assert_eq!(None, poll_immediate(&mut f).await);
+
+            drop(poll_fn(|ctx| sender.take_next(ctx)).await);
+
+            // now we can send again.
+            assert_eq!(Some(()), poll_immediate(f).await);
+
+            for i in (COUNT + 1)..(2 * COUNT) {
+                sender
+                    .send(i, Fp32BitPrime::truncate_from(u128::try_from(i).unwrap()))
+                    .await;
+            }
+
+            // spare has enough capacity, but buffer is considered full.
+            let mut f = pin!(sender.send(2 * COUNT, Fp32BitPrime::truncate_from(2_u128)));
+            assert_eq!(None, poll_immediate(&mut f).await);
+
+            // Case 2: Sending unequal sized records with sufficient spare capacity
+            let sender = OrderingSender::new(CAPACITY.try_into().unwrap(), 4);
+
+            let mut messages = vec![
+                send_fn(Fp32BitPrime::truncate_from(400_u128)),
+                send_fn(Fp32BitPrime::truncate_from(401_u128)),
+                send_fn(Gf20Bit::truncate_from(302_u128)),
+                send_fn(Gf20Bit::truncate_from(303_u128)),
+                send_fn(Gf9Bit::truncate_from(204_u128)),
+            ];
+            messages.shuffle(&mut thread_rng());
+
+            let mut i = 0;
+            for send_fn in messages {
+                (send_fn)(&sender, &mut i).await;
+            }
+
+            // spare has enough capacity, but buffer is considered full.
+            let mut f = pin!(sender.send(i, Fp32BitPrime::truncate_from(2_u128)));
+            assert_eq!(None, poll_immediate(&mut f).await);
+
+            drop(poll_fn(|ctx| sender.take_next(ctx)).await);
+            assert_eq!(Some(()), poll_immediate(f).await);
+        });
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "expect message size 4 to fit in available buffer; only 2 of 16 available"
+    )]
+    fn invalid_no_spare() {
+        run(|| async {
+            // Sending unequal size messages with no spare capacity is invalid.
+            let sender = OrderingSender::new(16.try_into().unwrap(), 0);
+
+            let messages = vec![
+                send_fn(Fp32BitPrime::truncate_from(400_u128)),
+                send_fn(Fp32BitPrime::truncate_from(401_u128)),
+                send_fn(Gf9Bit::truncate_from(202_u128)),
+                send_fn(Fp32BitPrime::truncate_from(403_u128)),
+                send_fn(Fp32BitPrime::truncate_from(404_u128)),
+            ];
+
+            let mut i = 0;
+            for send_fn in messages {
+                (send_fn)(&sender, &mut i).await;
+            }
+        });
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "invalid spare capacity for OrderingSender (see docs)")]
+    fn invalid_no_spare_assertion() {
+        run(|| async {
+            // When there is no spare capacity, the message size must divide the capacity.
+            let sender = OrderingSender::new(16.try_into().unwrap(), 0);
+            sender.send(0, Gf20Bit::truncate_from(0_u128)).await;
+        });
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "expect message size 4 to fit in available buffer; only 3 of 18 available"
+    )]
+    fn insufficient_spare() {
+        run(|| async {
+            // When messages sizes are not uniform, the spare capacity must fit the largest message.
+            let sender = OrderingSender::new(16.try_into().unwrap(), 2);
+
+            let messages = vec![
+                send_fn(Fp32BitPrime::truncate_from(400_u128)),
+                send_fn(Gf20Bit::truncate_from(301_u128)),
+                send_fn(Fp32BitPrime::truncate_from(402_u128)),
+                send_fn(Fp32BitPrime::truncate_from(403_u128)),
+                send_fn(Fp32BitPrime::truncate_from(404_u128)),
+            ];
+
+            let mut i = 0;
+            for send_fn in messages {
+                (send_fn)(&sender, &mut i).await;
+            }
+        });
+    }
+
     /// Messages can be any size.  The sender doesn't care.
     #[test]
     fn mixed_size() {
@@ -649,7 +798,6 @@ mod test {
 
     /// Shuffle `count` indices.
     pub fn shuffle_indices(count: usize) -> Vec<usize> {
-        use rand::seq::SliceRandom;
         let mut indices = (0..count).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
         indices
