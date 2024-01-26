@@ -228,6 +228,7 @@ where
 }
 
 #[cfg(all(test, unit_test))]
+#[cfg_attr(coverage, allow(unused_imports))]
 mod test {
     use std::{
         array,
@@ -390,6 +391,7 @@ mod test {
         });
     }
 
+    #[cfg(not(coverage))]
     const BENCH_COUNT: usize = 131_072;
 
     #[test]
