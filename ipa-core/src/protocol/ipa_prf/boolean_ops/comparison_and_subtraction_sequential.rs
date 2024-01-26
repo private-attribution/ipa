@@ -394,6 +394,7 @@ mod test {
 
     #[test]
     #[ignore] // benchmark
+    #[cfg(not(coverage))]
     fn semi_honest_compare_gt_novec() {
         run(|| async move {
             let world = TestWorld::default();
@@ -440,6 +441,7 @@ mod test {
 
     #[test]
     #[ignore] // benchmark
+    #[cfg(not(coverage))]
     fn semi_honest_compare_gt_vec() {
         run(|| async move {
             const N: usize = 256;

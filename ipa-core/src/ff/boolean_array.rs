@@ -461,6 +461,13 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl std::ops::Mul<Boolean> for $name {
+                type Output = Self;
+                fn mul(self, rhs: Boolean) -> Self::Output {
+                    std::ops::Mul::mul(self, &rhs)
+                }
+            }
+
             impl From<$name> for Store {
                 fn from(v: $name) -> Self {
                     v.0
@@ -619,6 +626,16 @@ macro_rules! boolean_array_impl {
                             assert_eq!(iter.len(), $bits - 1 - i);
                         }
                     }
+
+                    #[test]
+                    fn owned_iterator(a: $name) {
+                        let mut iter = a.into_iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(bool::from(b), a.0[i]);
+                            assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
                 }
 
                 #[test]
@@ -721,5 +738,81 @@ where
 
     fn build(self) -> Self::Array {
         self.array
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use rand::{thread_rng, Rng};
+
+    use super::*;
+
+    // It does not seem worth running these tests for every BA type, although
+    // it would be worth writing a version for the largest BA type (which
+    // requires replacing truncate_from).
+
+    #[test]
+    #[allow(clippy::clone_on_copy, clippy::op_ref)]
+    pub fn add_sub() {
+        let mut rng = thread_rng();
+        let a = rng.gen::<u128>();
+        let b = rng.gen::<u128>();
+
+        let xor = BA8::truncate_from(a ^ b);
+
+        let a = BA8::truncate_from(a);
+        let b = BA8::truncate_from(b);
+
+        assert_eq!(&a + &b, xor);
+        assert_eq!(&a + b.clone(), xor);
+        assert_eq!(a.clone() + &b, xor);
+        assert_eq!(a.clone() + b.clone(), xor);
+
+        let mut tmp = a.clone();
+        tmp += &b;
+        assert_eq!(tmp, xor);
+
+        let mut tmp = a.clone();
+        tmp += b;
+        assert_eq!(tmp, xor);
+
+        // Sub not implemented yet for &BA
+        //assert_eq!(&a - &b, xor);
+        //assert_eq!(&a - b.clone(), xor);
+        assert_eq!(a.clone() - &b, xor);
+        assert_eq!(a.clone() - b.clone(), xor);
+
+        let mut tmp = a.clone();
+        tmp -= &b;
+        assert_eq!(tmp, xor);
+
+        let mut tmp = a.clone();
+        tmp -= b;
+        assert_eq!(tmp, xor);
+
+        assert_eq!(-a, a);
+        assert_eq!(a + (-a), BA8::ZERO);
+    }
+
+    #[test]
+    #[allow(clippy::clone_on_copy, clippy::op_ref)]
+    pub fn mul() {
+        let mut rng = thread_rng();
+        let a = rng.gen::<u128>();
+        let b = rng.gen::<u128>();
+        let c = rng.gen::<Boolean>();
+
+        let prod = BA8::truncate_from(a & b);
+
+        let mut a = BA8::truncate_from(a);
+        let b = BA8::truncate_from(b);
+
+        a *= b;
+        assert_eq!(a, prod);
+
+        assert_eq!(a * Boolean::from(false), BA8::ZERO);
+        assert_eq!(a * Boolean::from(true), a);
+        assert_eq!(a * c, if bool::from(c) { a } else { BA8::ZERO });
+        assert_eq!(a * &c, if bool::from(c) { a } else { BA8::ZERO });
     }
 }
