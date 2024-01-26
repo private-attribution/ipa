@@ -1,1 +1,2 @@
-pub mod multiply_verification;
+pub mod quadratic_proofs;
+pub mod verify_multiply;
