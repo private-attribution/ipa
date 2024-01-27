@@ -1,8 +1,11 @@
 use futures_util::future;
 use generic_array::{ArrayLength, GenericArray};
+use hkdf::Hkdf;
+use sha2::Sha256;
+use typenum::Unsigned;
 
 use crate::{
-    ff::{Error, Field, Invert},
+    ff::{Error, Field, Invert, Serializable},
     protocol::{context::Context, prss::SharedRandomness, RecordId},
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
@@ -81,43 +84,29 @@ where
                 )
             });
 
-        // #[cfg(debug_assertions)]
-        // {
-        //     let sum_uv = u
-        //         .iter()
-        //         .zip(v.iter())
-        //         .fold(F::ZERO, |acc, (u, v)| acc + *u * *v);
-        //     let sum_g = g[0..recursion_factor]
-        //         .iter()
-        //         .fold(F::ZERO, |acc, g| acc + *g);
-        //     debug_assert_eq!(sum_uv, sum_g);
-        //     // check interpolation
-        //     if !output.proofs.is_empty() {
-        //         let mut g_r_previous = F::ONE;
-        //         lagrange_evaluation(
-        //             &evaluation_points[0..2 * recursion_factor],
-        //             &output.proofs.last().unwrap(),
-        //             std::slice::from_ref(&F::ZERO),
-        //             std::slice::from_mut(&mut g_r_previous),
-        //         );
-        //         debug_assert_eq!(g_r_previous, output.proofs.last().unwrap()[0]);
-        //         debug_assert_eq!(g_r_previous, sum_uv);
-        //     }
-        // }
+        // compute secret share g_left (i.e. part of the proof recovered by right party) using prss_right
+        let mut g_left = vec![F::ZERO; g.len()];
+        g_left.iter_mut().for_each(|g| {
+            // get prss
+            // todo replace `F::ONE` with actual prss value
 
-        // secret share g using prss_right
-        // todo
+            // compute `g_left`
+            *g = F::ONE;
+        });
 
-        // add secret share of g to the proofs
-        // todo
-        g.iter_mut().for_each(|x| *x += F::ZERO - F::ONE);
+        // compute secret share `g_right` by computing `g_right=g-g_left`
+        // since `g` already contains `g`, we just need to subtract `g_left`
+        g.iter_mut()
+            .zip(g_left.iter())
+            .for_each(|(g_right, g_left)| *g_right -= *g_left);
+
+        // compute random point `r` via `Fiat-Shamir` hash
+        // generate `r` as `hash(g_right) + hash(g_right)`
+        let mut r = F::ZERO;
+        compute_r_prover(&g, &g_left, &mut r);
+
+        // add `g_right` to proof
         output.proofs.push(g);
-
-        // compute random point r via `Fiat-Shamir` hash
-        // generate r as hash(g+prss_right) xor hash(prss_right)
-        // r is not allowed to be in evaluation_points[0..recursion_factor]
-        // todo
-        let r = F::ZERO;
 
         // evaluate p, q to get new u, v
         // u, v are split into chunks to represent p(evaluation_points), q(evaluation_points)
@@ -185,39 +174,22 @@ where
         &mut final_g,
     );
 
-    // #[cfg(debug_assertions)]
-    // {
-    //     let sum_uv = final_u
-    //         .iter()
-    //         .zip(final_v.iter())
-    //         .fold(F::ZERO, |acc, (u, v)| acc + *u * *v);
-    //     let sum_g = final_g[0..final_u.len()]
-    //         .iter()
-    //         .fold(F::ZERO, |acc, g| acc + *g);
-    //     debug_assert_eq!(sum_uv, sum_g);
-    //
-    //     let sum_one = output.proofs[1][0..recursion_factor]
-    //         .iter()
-    //         .fold(F::ZERO, |acc, g| acc + *g);
-    //     assert_eq!(output.proofs[0][0],sum_one);
-    //
-    //     let length = output.proofs.last().unwrap().len()>>1;
-    //     let mut g_r_previous = F::ONE;
-    //     lagrange_evaluation(
-    //         &evaluation_points[0..2*recursion_factor],
-    //         &output.proofs[output.proofs.len()-2],
-    //         std::slice::from_ref(&F::ZERO),
-    //         std::slice::from_mut(&mut g_r_previous),
-    //     );
-    //     debug_assert_eq!(g_r_previous,output.proofs[output.proofs.len()-2][0]);
-    //     let sum_last = output.proofs.last().unwrap()[0..length]
-    //         .iter()
-    //         .fold(F::ZERO, |acc, g| acc + *g);
-    //     assert_eq!(g_r_previous,sum_last);
-    // }
+    // generate last secret share
+    let mut g_left = vec![F::ZERO; final_g.len()];
+    g_left.iter_mut().for_each(|g| {
+        // get prss
+        // todo replace `F::ONE` with actual prss value
+
+        // compute `g_left`
+        *g = F::ONE;
+    });
+
     // add secret share of g to the proofs
     // todo
-    final_g.iter_mut().for_each(|x| *x += F::ZERO - F::ONE);
+    final_g
+        .iter_mut()
+        .zip(g_left.iter())
+        .for_each(|(g_right, g_left)| *g_right -= *g_left);
 
     output.proofs.push(final_g);
 
@@ -231,7 +203,7 @@ where
 pub fn verify_proof<F>(
     //ctx: C,
     proof_right: &NIDZKP<F>,
-    out: (&F, &F),
+    out: &F,
     share_of_u: (&mut Vec<F>, &mut Vec<F>),
     share_of_v: (&mut Vec<F>, &mut Vec<F>),
 ) -> Result<bool, Error>
@@ -245,10 +217,10 @@ where
     // check that there is at least one recursion
     debug_assert!(proof_right.proofs.len() > 1);
     // compute recursion factor
-    let recursion_factor = proof_right.proofs[0].len() >> 1;
+    let r_f = proof_right.proofs[0].len() >> 1;
 
     // generate evaluation points `(F::0..F::(i)..)`
-    let evaluation_points = (0..2 * recursion_factor + 2)
+    let e_p = (0..2 * r_f + 2)
         .map(|i| F::try_from(i as u128).unwrap())
         .collect::<Vec<F>>();
 
@@ -264,19 +236,36 @@ where
         // todo
         .for_each(|x| proof_left.proofs.push(vec![F::ONE; x.len()]));
 
-    // first, compute r's using hashing and out
-    // todo
-    let r_right = vec![F::ZERO; proof_right.proofs.len()];
-    let r_left = vec![F::ZERO; proof_left.proofs.len()];
+    // declarations
+    let mut r_right = vec![F::ZERO; proof_right.proofs.len()];
+    let mut r_left = vec![F::ZERO; proof_left.proofs.len()];
     let mut g_r_right = vec![F::ONE; proof_right.proofs.len() + 1];
     let mut g_r_left = vec![F::ONE; proof_left.proofs.len() + 1];
 
-    // then compute g_r using lagrange_evaluation
-    for (r, g_r, proof) in [
-        (&r_right, &mut g_r_right, proof_right),
-        (&r_left, &mut g_r_left, proof_left),
+    // dummy fs:
+    r_left
+        .iter_mut()
+        .zip(r_right.iter_mut())
+        .zip(proof_left.proofs.iter().zip(proof_right.proofs.iter()))
+        .for_each(|((r_left, r_right), (proof_left, proof_right))| {
+            compute_r_prover(&proof_left, &proof_right, r_left);
+            *r_right = *r_left;
+        });
+
+    for (r, g_r, proof, g_r_0) in [
+        (&r_right, &mut g_r_right, proof_right, out),
+        (&r_left, &mut g_r_left, proof_left, &F::ZERO),
     ] {
-        compute_g_r(proof, out.1, r, recursion_factor, &evaluation_points, g_r);
+        // compute r's using fiat+shamir
+        // todo replace dummy fs above with `compute_r_verifier`
+
+        // last `r` is not allowed to be in `evaluation_points[0..recursion_factor]`
+        // therefore, we use `compute_final_r`
+        //
+        // todo
+
+        // then compute g_r using lagrange_evaluation
+        compute_g_r(proof, g_r_0, r, r_f, &e_p, g_r);
 
         // compute `g_r = g_r-sum g(x)`
         compute_sums_gr_gm(proof, g_r);
@@ -288,33 +277,34 @@ where
     // dummy debug zero test:
     g_r_right[0..g_r_right.len() - 1]
         .iter()
-        .zip(g_r_right[0..g_r_right.len() - 1].iter())
+        .zip(g_r_left[0..g_r_left.len() - 1].iter())
         .enumerate()
         .for_each(|(i, (x_right, x_left))| {
-            debug_assert_eq!((i, *x_right), (i, *x_left));
-            output &= *x_right - *x_left == F::ZERO
+            debug_assert_eq!(
+                (i, x_right, x_left, *x_right + *x_left),
+                (i, x_right, x_left, F::ZERO)
+            );
+            output &= *x_right + *x_left == F::ZERO
         });
 
     debug_assert!(output);
     // final check:
     // generate q(0), p(0) masks using PRSS,
     // compute polynomials p,q recursively
-    let (p, q) = reconstruct_p_and_q(
-        share_of_u,
-        share_of_v,
-        (&F::ONE, &F::ONE),
-        recursion_factor,
-        &evaluation_points,
-        (&r_left[..], &r_right[..]),
-    );
+    // add masks to left, i.e. "0",
+    let p_left = polynomial_compression(share_of_u.0, &F::ONE, r_f, &e_p[0..r_f + 1], &r_left);
+    let q_left = polynomial_compression(share_of_v.0, &F::ONE, r_f, &e_p[0..r_f + 1], &r_left);
+    let p_right = polynomial_compression(share_of_u.1, &F::ZERO, r_f, &e_p[0..r_f + 1], &r_right);
+    let q_right = polynomial_compression(share_of_v.1, &F::ZERO, r_f, &e_p[0..r_f + 1], &r_right);
+
     // reveal q(r), p(r) and g(r) and verify p(r)*g(r)=G(r)
     // todo
     // dummy debug verify:
     debug_assert_eq!(
-        (p.left() + p.right()) * (q.left() + q.right()),
+        (p_left + p_right) * (q_left + q_right),
         g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1]
     );
-    output &= (p.left() + p.right()) * (q.left() + q.right())
+    output &= (p_left + p_right) * (q_left + q_right)
         == g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1];
 
     Ok(output)
@@ -325,7 +315,7 @@ where
 /// These `g(x)` are only the first half of points used to represent `g`,
 /// the second half of points guarantee that `g` has degree `2*recursion_factor-1`
 /// the sums are later verified to be zero which is one of the two equations checked by the verifiers
-pub fn compute_sums_gr_gm<F>(proof: &NIDZKP<F>, g_r: &mut [F]) -> ()
+fn compute_sums_gr_gm<F>(proof: &NIDZKP<F>, g_r: &mut [F]) -> ()
 where
     F: Field,
 {
@@ -345,7 +335,7 @@ where
     g_r[proof.proofs.len() - 1] += proof.proofs[proof.proofs.len() - 1][0];
 }
 
-pub fn compute_g_r<F>(
+fn compute_g_r<F>(
     proof: &NIDZKP<F>,
     out: &F,
     random_points: &[F],
@@ -375,126 +365,80 @@ where
         });
 }
 
-pub fn reconstruct_p_and_q<F>(
-    share_of_u: (&mut Vec<F>, &mut Vec<F>),
-    share_of_v: (&mut Vec<F>, &mut Vec<F>),
-    masks: (&F, &F),
-    recursion_factor: usize,
-    evaluation_points: &[F],
-    random_points: (&[F], &[F]),
-) -> (AdditiveShare<F>, AdditiveShare<F>)
+/// the `polynomial_compression` function
+/// given a vector `share`,
+/// recursively shrink the vector
+/// by treating chunks of the vector as degree `recursion_factor -1` polynomials
+/// and evaluate the polynomial on the `random_points`
+/// until each `random_point` has been used and `share` collapsed to a single element
+/// the polynomials are represented by points on the polynomial at the `evaluation_points`
+/// mask is the `0` point during the last recursion
+fn polynomial_compression<F>(share: &mut Vec<F>, mask: &F, r_f: usize, e_p: &[F], r_p: &[F]) -> F
 where
     F: Field + Invert,
 {
-    // check length
-    debug_assert_eq!(share_of_u.0.len(), share_of_v.1.len());
-    debug_assert_eq!(share_of_u.0.len(), share_of_u.1.len());
-    debug_assert_eq!(share_of_v.0.len(), share_of_v.1.len());
-    debug_assert_eq!(random_points.0.len(), random_points.1.len());
     // check that field is large enough to hold evaluation points
-    debug_assert!(F::BITS > usize::BITS - recursion_factor.leading_zeros() + 1);
-
-    let mut p_r = (&mut F::ONE, &mut F::ONE);
-    let mut q_r = (&mut F::ONE, &mut F::ONE);
+    debug_assert!(F::BITS > usize::BITS - r_f.leading_zeros() + 1);
+    debug_assert_eq!(e_p.len(), r_f + 1);
 
     // iterate over recursions
-    for r in random_points
-        .0
-        .iter()
-        .zip(random_points.1.iter())
-        .take(random_points.0.len() - 1)
-    {
+    for r in r_p.iter().take(r_p.len() - 1) {
+        // check whether there are too many random points,
+        // which leads to unnecessary compression
+        debug_assert!(share.len() > r_f);
+
         // fill u and v with zeros such that it is a multiple of the recursion factor
-        let coset = share_of_u.0.len() % recursion_factor;
+        let coset = share.len() % r_f;
         if coset != 0 {
-            share_of_u.0.extend(std::iter::repeat(F::ZERO).take(coset));
-            share_of_u.1.extend(std::iter::repeat(F::ZERO).take(coset));
-            share_of_v.0.extend(std::iter::repeat(F::ZERO).take(coset));
-            share_of_v.1.extend(std::iter::repeat(F::ZERO).take(coset));
+            share.extend(std::iter::repeat(F::ZERO).take(coset));
         }
 
-        // amount of polynomials `p`, `q`, i.e. amount of `summand_of_g`
-        let s = share_of_u.0.len() / recursion_factor;
+        // amount of polynomials in `share`
+        let s = share.len() / r_f;
 
-        // compute u_new, v_new for next iteration
-        for (share, r) in [
-            (&mut *share_of_u.0, r.0),
-            (&mut *share_of_u.1, r.1),
-            (&mut *share_of_v.0, r.0),
-            (&mut *share_of_v.1, r.1),
-        ] {
-            // compute `p(r)` when `share = share_of_u`
-            // compute `q(r)` when `share = share_of_v`
+        let mut share_new = vec![F::ONE; s];
 
-            let mut share_new = vec![F::ONE; s];
-
-            // `share` is split into chunks of size `recursion_factor`
-            // to represent the polynomials `p`, `q`
-            // which are represented by `recursion_factor` many values in `u`, `v`
-            // we then Lagrange evaluate `p`, `q` to compute `p(r)`, `q(r)`
-            share_new
-                .iter_mut()
-                .zip(share.chunks(recursion_factor))
-                .for_each(|(u, chunk)| {
-                    lagrange_evaluation(
-                        &evaluation_points[0..recursion_factor],
-                        chunk,
-                        std::slice::from_ref(r),
-                        std::slice::from_mut(u),
-                    );
-                });
-            // reassign u_new, v_new for next iteration
-            *share = share_new;
-            share.truncate(s);
-        }
-    }
-    // final shares, compute p, q
-    for (share, mask, p_or_q, r) in [
-        (
-            share_of_u.0,
-            masks.0,
-            &mut *p_r.0,
-            random_points.0[random_points.0.len() - 1],
-        ),
-        (
-            share_of_v.0,
-            masks.1,
-            &mut *q_r.0,
-            random_points.0[random_points.0.len() - 1],
-        ),
-        (
-            share_of_u.1,
-            &F::ZERO,
-            &mut *p_r.1,
-            random_points.1[random_points.1.len() - 1],
-        ),
-        (
-            share_of_v.1,
-            &F::ZERO,
-            &mut *q_r.1,
-            random_points.1[random_points.1.len() - 1],
-        ),
-    ] {
-        let final_share = {
-            let mut vec = Vec::<F>::with_capacity(share.len() + 1);
-            // add prss mask
-            vec.push(*mask);
-            // copy rest
-            vec.extend(&*share);
-            vec
-        };
-        lagrange_evaluation(
-            &evaluation_points[0..final_share.len()],
-            &final_share,
-            std::slice::from_ref(&r),
-            std::slice::from_mut(p_or_q),
-        );
+        // `share` is split into chunks of size `recursion_factor`
+        // to represent the polynomials
+        // which are represented by `recursion_factor` many values in `share`
+        // we then Lagrange evaluate it on the next `random_point` to compute new elements in `share`
+        share_new
+            .iter_mut()
+            .zip(share.chunks(r_f))
+            .for_each(|(u, chunk)| {
+                lagrange_evaluation(
+                    &e_p[0..r_f],
+                    chunk,
+                    std::slice::from_ref(r),
+                    std::slice::from_mut(u),
+                );
+            });
+        // reassign new `share` for next iteration
+        *share = share_new;
+        share.truncate(s);
     }
 
-    return (
-        AdditiveShare::new(*p_r.0, *p_r.1),
-        AdditiveShare::new(*q_r.0, *q_r.1),
+    debug_assert!(share.len() <= r_f);
+
+    // final shares, compute output
+    let mut output = F::ONE;
+
+    let final_share = {
+        let mut vec = Vec::<F>::with_capacity(share.len() + 1);
+        // add prss mask
+        vec.push(*mask);
+        // copy rest
+        vec.extend(&*share);
+        vec
+    };
+    lagrange_evaluation(
+        &e_p[0..final_share.len()],
+        &final_share,
+        std::slice::from_ref(r_p.last().unwrap()),
+        std::slice::from_mut(&mut output),
     );
+
+    return output;
 }
 
 /// computes `summand_of_g = p*q` and adds it to `g`
@@ -546,6 +490,71 @@ where
     g.iter_mut()
         .zip(summand_of_g.iter())
         .for_each(|(x, y)| *x += *y);
+}
+
+/// computes random challenge `r` from `proof_right`
+/// since the verifier has only access to `proof_right`,
+/// further, he computes all `r` at once
+/// he needs to receive `fiat_shamir(proof_left)` from the other verifier
+/// `r` is computed has `fiat_shamir(proof_left)+fiat_shamir(proof_right)`
+/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
+// todo: make it async
+fn compute_r_verifier<F>(proof_right: &NIDZKP<F>, r: &mut [F]) -> ()
+where
+    F: Field,
+{
+    debug_assert_eq!(proof_right.proofs.len(), r.len());
+    r.iter_mut()
+        .zip(proof_right.proofs.iter())
+        .for_each(|(r, proof)| {
+            fiat_shamir(proof, r);
+
+            // send and receive r
+            // todo replace `F::ZERO` with actual received `r`
+            let r_received = F::ZERO;
+            *r += r_received;
+        });
+}
+
+/// computes random challenge `r` from `proof_part_left` and `proof_part_right`
+/// since only the prover has access to both parts, only he can compute `r` this way
+/// further, the prover computes `r` one by one rather than all `r` at once
+/// `r` is computed has `fiat_shamir(proof_part_left)+fiat_shamir(proof_part_right)`
+/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
+fn compute_r_prover<F>(proof_left: &[F], proof_right: &[F], r: &mut F) -> ()
+where
+    F: Field,
+{
+    fiat_shamir(proof_left, r);
+    fiat_shamir(proof_right, r);
+}
+
+/// the Fiat-Shamir core function
+/// it takes a commitment, which is for `NIDZKP` the actual proof
+/// and computes a vector of random points by hashing the individual proofs parts
+/// this function only computes `r` for a single proof part
+/// `fiat_shamir` takes an input `r` and adds the generated value to `r`
+fn fiat_shamir<F>(proof: &[F], r: &mut F) -> ()
+where
+    F: Field,
+{
+    // serialize proof const SIZE: usize = <F as Serializable>::Size::USIZE;
+    let mut ikm = Vec::<u8>::with_capacity(proof.len() * <F as Serializable>::Size::USIZE);
+    proof.iter().for_each(|f| {
+        let mut buf = vec![0u8; <F as Serializable>::Size::USIZE];
+        f.serialize(GenericArray::from_mut_slice(&mut buf));
+        ikm.extend(buf)
+    });
+
+    // compute `r` from `hash` of the proof
+    let hk = Hkdf::<Sha256>::new(None, &ikm);
+    // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
+    // however, deserialize might fail for some fields so we use `from_random_128` instead
+    // therefore fields beyond `F::Size()>16` don't further reduce the cheating probability of the prover
+    let mut hash = [0u8; 16];
+    // hash length is a valid length so expand does not fail
+    hk.expand(&[], &mut hash).unwrap();
+    *r += F::from_random_u128(u128::from_le_bytes(hash));
 }
 
 /// lagrange evaluation
@@ -616,7 +625,7 @@ mod test {
     use crate::{
         ff::{ec_prime_field::Fp25519, FieldType::Fp31},
         protocol::ipa_prf::malicious_security::quadratic_proofs::{
-            generate_proof, lagrange_evaluation, verify_proof,
+            generate_proof, lagrange_evaluation, polynomial_compression, verify_proof,
         },
         secret_sharing::SharedValue,
     };
@@ -674,6 +683,52 @@ mod test {
     }
 
     #[test]
+    fn polynomial_compression_test() {
+        let recursion_factor = 2usize;
+        let mut rng = thread_rng();
+        let evaluation_points = (0..recursion_factor + 1)
+            .map(|i| Fp25519::try_from(i as u128).unwrap())
+            .collect::<Vec<Fp25519>>();
+        // random mask
+        let mask = rng.gen::<Fp25519>();
+        // random points (i.e. verifier challenge points)
+        let mut r = vec![Fp25519::ZERO; 3];
+        r.iter_mut().for_each(|x| *x = rng.gen());
+        // random shares of u
+        let u = (&mut vec![Fp25519::ZERO; 8], &mut vec![Fp25519::ZERO; 8]);
+        u.0.iter_mut().for_each(|x| *x = rng.gen());
+        u.0.iter_mut().for_each(|x| *x = rng.gen());
+
+        // u in the clear
+        let mut u_in_the_clear =
+            u.0.iter()
+                .zip(u.1.iter())
+                .map(|(u0, u1)| *u0 + *u1)
+                .collect::<Vec<Fp25519>>();
+
+        // compute reconstruct on shares
+        let p0 = polynomial_compression(u.0, &mask, recursion_factor, &evaluation_points, &r);
+        let p1 = polynomial_compression(
+            u.1,
+            &Fp25519::ZERO,
+            recursion_factor,
+            &evaluation_points,
+            &r,
+        );
+
+        // compute it on the clear, left and right is supposed to be the same
+        let p = polynomial_compression(
+            &mut u_in_the_clear,
+            &mask,
+            recursion_factor,
+            &evaluation_points,
+            &r,
+        );
+
+        assert_eq!((mask, p0 + p1), (mask, p));
+    }
+
+    #[test]
     fn debug_test() {
         let recursion_factor = 2usize;
         let mut rng = thread_rng();
@@ -681,49 +736,28 @@ mod test {
         let v = (&mut vec![Fp25519::ZERO; 8], &mut vec![Fp25519::ZERO; 8]);
         u.1.iter_mut().for_each(|x| *x = rng.gen());
         v.1.iter_mut().for_each(|x| *x = rng.gen());
-        let out_left =
+        u.0.iter_mut().for_each(|x| *x = rng.gen());
+        v.0.iter_mut().for_each(|x| *x = rng.gen());
+        let u_in_the_clear =
             u.0.iter()
-                .zip(v.0.iter())
-                .fold(Fp25519::ZERO, |acc, (u, v)| acc + (*u * *v));
-        let out_right =
-            u.1.iter()
+                .zip(u.1.iter())
+                .map(|(u0, u1)| *u0 + *u1)
+                .collect::<Vec<Fp25519>>();
+        let v_in_the_clear =
+            v.0.iter()
                 .zip(v.1.iter())
-                .fold(Fp25519::ZERO, |acc, (u, v)| acc + (*u * *v));
-        let proof = generate_proof(&mut u.1.clone(), &mut v.1.clone(), recursion_factor);
-        // let sum_right = proof.proofs.clone()[0][0..recursion_factor]
-        //     .iter()
-        //     .fold(Fp25519::ZERO, |acc, g| acc + *g);
-        // assert_eq!(out_right, sum_right);
-        // let mut g_r_one = Fp25519::ONE;
-        // let evaluation_points = (0..2 * recursion_factor + 2)
-        //     .map(|i| Fp25519::try_from(i as u128).unwrap())
-        //     .collect::<Vec<Fp25519>>();
-        // lagrange_evaluation(
-        //     &evaluation_points[0..2 * recursion_factor],
-        //     &proof.proofs[0],
-        //     std::slice::from_ref(&Fp25519::ZERO),
-        //     std::slice::from_mut(&mut g_r_one),
-        // );
-        // assert_eq!(g_r_one, proof.proofs[0][0]);
-        // let sum_one = proof.proofs.clone()[1][0..recursion_factor]
-        //     .iter()
-        //     .fold(Fp25519::ZERO, |acc, g| acc + *g);
-        // assert_eq!(g_r_one, sum_one);
+                .map(|(v0, v1)| *v0 + *v1)
+                .collect::<Vec<Fp25519>>();
+        let out = u_in_the_clear
+            .iter()
+            .zip(v_in_the_clear.iter())
+            .fold(Fp25519::ZERO, |acc, (u, v)| acc + (*u * *v));
+        let proof = generate_proof(
+            &mut u_in_the_clear.clone(),
+            &mut v_in_the_clear.clone(),
+            recursion_factor,
+        );
 
-        // let length = proof.proofs.last().unwrap().len()>>1;
-        // let mut g_r_previous = Fp25519::ONE;
-        // lagrange_evaluation(
-        //     &evaluation_points[0..2*recursion_factor],
-        //     &proof.proofs[proof.proofs.len()-2],
-        //     std::slice::from_ref(&Fp25519::ZERO),
-        //     std::slice::from_mut(&mut g_r_previous),
-        // );
-        // debug_assert_eq!(g_r_previous,proof.proofs[proof.proofs.len()-2][0]);
-        // let sum_last = proof.proofs.last().unwrap()[0..length]
-        //     .iter()
-        //     .fold(Fp25519::ZERO, |acc, g| acc + *g);
-        // assert_eq!(g_r_previous,sum_last);
-
-        assert!(verify_proof(&proof, (&out_left, &out_right), u, v).unwrap());
+        assert!(verify_proof(&proof, &out, u, v).unwrap());
     }
 }
