@@ -6,7 +6,10 @@ use typenum::Unsigned;
 
 use crate::{
     ff::{Error, Field, Invert, Serializable},
-    protocol::{context::Context, prss::SharedRandomness, RecordId},
+    protocol::{
+        context::Context, ipa_prf::malicious_security::lagrange::lagrange_evaluation,
+        prss::SharedRandomness, RecordId,
+    },
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
 
@@ -557,130 +560,18 @@ where
     *r += F::from_random_u128(u128::from_le_bytes(hash));
 }
 
-/// lagrange evaluation
-/// given points `(x_0,y_0),...,(x_n,y_0)` on a polynomial `p`
-/// and points `p_0,...,p_m`
-/// compute `result_0=result_0*p(p_0),...,result_m=result_m*p(p_m)`
-/// It uses the lagrange method to compute the points `https://en.wikipedia.org/wiki/Lagrange_polynomial`
-/// further, rather than outputting `p(p_k)`, we set `result_k=result_k*p(p_k)`
-/// which fits better to how we use `p(p_k)`
-pub fn lagrange_evaluation<F>(x: &[F], y: &[F], p: &[F], result: &mut [F]) -> ()
-where
-    F: Field + Invert,
-{
-    debug_assert_eq!(x.len(), y.len());
-    debug_assert_eq!(p.len(), result.len());
-    #[cfg(debug_assertions)]
-    {
-        for i in 0..x.len() {
-            for j in 0..x.len() {
-                debug_assert_eq!((i, j, x[i] - x[j] != F::ZERO || j == i), (i, j, true))
-            }
-        }
-    }
-
-    // compute denominators:
-    let mut denominator = vec![F::ONE; x.len()];
-    for i in 0..x.len() {
-        if i > 0 {
-            for j in 0..i {
-                denominator[i] *= x[i] - x[j];
-            }
-        }
-        if i + 1 < x.len() {
-            for j in i + 1..x.len() {
-                denominator[i] *= x[i] - x[j];
-            }
-        }
-        denominator[i] = denominator[i].invert();
-    }
-
-    for k in 0..p.len() {
-        // evaluate polynomial on point p_k, i.e. compute `p(p_k)` use Lagrange formula
-        let mut sum = F::ZERO;
-        for i in 0..x.len() {
-            let mut basis_polynomial = denominator[i] * y[i];
-            if i > 0 {
-                for j in 0..i {
-                    basis_polynomial *= p[k] - x[j];
-                }
-            }
-            if i + 1 < x.len() {
-                for j in i + 1..x.len() {
-                    basis_polynomial *= p[k] - x[j];
-                }
-            }
-            sum += basis_polynomial;
-        }
-        // compute "result_k = result_k * p(p_k)"
-        result[k] *= sum;
-    }
-}
-
 #[cfg(all(test, unit_test))]
 
 mod test {
     use rand::{thread_rng, Rng};
 
     use crate::{
-        ff::{ec_prime_field::Fp25519, FieldType::Fp31},
+        ff::ec_prime_field::Fp25519,
         protocol::ipa_prf::malicious_security::quadratic_proofs::{
-            generate_proof, lagrange_evaluation, polynomial_compression, verify_proof,
+            generate_proof, polynomial_compression, verify_proof,
         },
         secret_sharing::SharedValue,
     };
-
-    #[test]
-    fn lagrange_evaluation_fp25519() {
-        let mut rng = thread_rng();
-        let evaluation_points_size = rng.gen::<usize>() % 100;
-        let mut evaluation_points = vec![Fp25519::ONE; evaluation_points_size];
-        evaluation_points
-            .iter_mut()
-            .for_each(|x| *x = rng.gen::<Fp25519>());
-        let mut y_values = vec![Fp25519::ONE; evaluation_points_size];
-        y_values.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
-        let mut evaluated_y = vec![Fp25519::ONE; evaluation_points_size];
-        lagrange_evaluation(
-            &evaluation_points,
-            &y_values,
-            &evaluation_points,
-            &mut evaluated_y,
-        );
-
-        // test evaluation at interpolation points
-        assert_eq!(evaluated_y, y_values);
-
-        // sample random polynomial in monomial form of degree `evaluation_points_size`
-        let mut polynomial = vec![Fp25519::ONE; evaluation_points_size];
-        polynomial
-            .iter_mut()
-            .for_each(|x| *x = rng.gen::<Fp25519>());
-        // add random point to evaluation points
-        evaluation_points.push(rng.gen::<Fp25519>());
-
-        // evaluate polynomial at evaluation_points
-        let mut y_values = vec![Fp25519::ZERO; evaluation_points_size + 1];
-        evaluation_points.iter().for_each(|x_value| {
-            let mut base = Fp25519::ONE;
-            polynomial.iter().for_each(|coefficient| {
-                y_values.iter_mut().for_each(|y| *y = *coefficient * base);
-                base *= *x_value
-            })
-        });
-
-        // lagrange evaluate at random point
-        evaluated_y[0] = Fp25519::ONE;
-        lagrange_evaluation(
-            &evaluation_points[0..evaluation_points_size],
-            &y_values[0..evaluation_points_size],
-            std::slice::from_ref(&evaluation_points[evaluation_points_size]),
-            std::slice::from_mut(&mut evaluated_y[0]),
-        );
-
-        // check equality
-        assert_eq!(y_values[evaluation_points_size], evaluated_y[0]);
-    }
 
     #[test]
     fn polynomial_compression_test() {
