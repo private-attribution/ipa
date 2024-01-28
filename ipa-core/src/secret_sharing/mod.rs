@@ -71,7 +71,6 @@ pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 use crate::{
     error::LengthError,
     ff::{AddSub, AddSubAssign, Field, Fp32BitPrime, Serializable},
-    helpers::Message,
     protocol::prss::FromRandom,
 };
 
@@ -103,23 +102,17 @@ pub trait Block: Sized + Copy + Debug {
     type Size: ArrayLength;
 }
 
+pub trait Sendable: Send + Debug + Serializable + 'static {}
+
+impl<V: SharedValue> Sendable for V {}
+
 /// Trait for types that are input to our additive secret sharing scheme.
 ///
 /// Additive secret sharing requires an addition operation. In cases where arithmetic secret sharing
 /// (capable of supporting addition and multiplication) is desired, the `Field` trait extends
 /// `SharedValue` to require multiplication.
 pub trait SharedValue:
-    Clone
-    + Copy
-    + Eq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + Additive
-    + Serializable
-    + Vectorizable<1>
-    + 'static
+    Clone + Copy + Eq + Debug + Send + Sync + Sized + Additive + Sendable + Vectorizable<1> + 'static
 {
     type Storage: Block;
 
@@ -225,6 +218,7 @@ pub trait SharedValueArray<V>:
     + Send
     + Sync
     + Sized
+    + Sendable
     + TryFrom<Vec<V>, Error = LengthError>
     + FromIterator<V>
     + IntoIterator<Item = V>
@@ -237,7 +231,6 @@ pub trait SharedValueArray<V>:
     + for<'a> Sub<&'a Self, Output = Self>
     + SubAssign<Self>
     + for<'a> SubAssign<&'a Self>
-    + Message
 {
     const ZERO: Self;
 

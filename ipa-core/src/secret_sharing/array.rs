@@ -11,9 +11,8 @@ use typenum::{U1, U32};
 use crate::{
     error::LengthError,
     ff::{Field, Fp32BitPrime, Serializable},
-    helpers::Message,
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{FieldArray, SharedValue, SharedValueArray},
+    secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
 
 /// Wrapper around `[V; N]`.
@@ -58,9 +57,11 @@ impl<V: SharedValue, const N: usize> StdArray<V, N> {
     }
 }
 
+impl<V: SharedValue, const N: usize> Sendable for StdArray<V, N> where Self: Serializable {}
+
 impl<V: SharedValue, const N: usize> SharedValueArray<V> for StdArray<V, N>
 where
-    Self: Serializable,
+    Self: Sendable,
 {
     const ZERO: Self = Self([V::ZERO; N]);
 
@@ -69,8 +70,7 @@ where
     }
 }
 
-impl<F: Field, const N: usize> FieldArray<F> for StdArray<F, N> where Self: FromRandom + Serializable
-{}
+impl<F: Field, const N: usize> FieldArray<F> for StdArray<F, N> where Self: FromRandom + Sendable {}
 
 impl<V: SharedValue, const N: usize> TryFrom<Vec<V>> for StdArray<V, N> {
     type Error = LengthError;
@@ -88,7 +88,7 @@ impl<V: SharedValue, const N: usize> TryFrom<Vec<V>> for StdArray<V, N> {
 // Panics if the iterator terminates before producing N items.
 impl<V: SharedValue, const N: usize> FromIterator<V> for StdArray<V, N>
 where
-    Self: Serializable, // required for `<Self as SharedValueArray>::ZERO`
+    Self: Sendable, // required for `<Self as SharedValueArray>::ZERO`
 {
     fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         let mut res = Self::ZERO;
@@ -325,8 +325,6 @@ where
         Ok(StdArray(res))
     }
 }
-
-impl<V: SharedValue, const N: usize> Message for StdArray<V, N> where Self: Serializable {}
 
 #[cfg(all(test, unit_test))]
 mod test {

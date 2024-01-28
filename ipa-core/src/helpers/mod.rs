@@ -65,7 +65,7 @@ use crate::{
         Role::{H1, H2, H3},
     },
     protocol::{step::Gate, RecordId},
-    secret_sharing::SharedValue,
+    secret_sharing::Sendable,
 };
 
 // TODO work with ArrayLength only
@@ -426,10 +426,11 @@ impl Debug for ChannelId {
 }
 
 /// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
+///
+/// Infrastructure's `Message` trait corresponds to IPA's `Sendable` trait.
 pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
-/// Any shared value can be send as a message
-impl<V: SharedValue> Message for V {}
+impl<V: Sendable> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
