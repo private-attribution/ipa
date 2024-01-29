@@ -170,7 +170,7 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
 
-    use rand::{distributions::Distribution, thread_rng,SeedableRng, rngs::StdRng};
+    use rand::{distributions::Distribution, rngs::StdRng, thread_rng, SeedableRng};
     use rand_core::RngCore;
 
     use super::*;
@@ -300,7 +300,7 @@ mod tests {
         for _ in 0..100 {
             let s = double_geometric.sample(&mut rng);
             if !(s >= 0 && s <= (double_geometric.shift).try_into().unwrap()) {
-                count_number_to_reject +=1;
+                count_number_to_reject += 1;
             }
             samples_double_geometric.push(s);
         }
