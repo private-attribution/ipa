@@ -262,7 +262,9 @@ mod test {
         y_values.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
         let points_size = rng.gen::<usize>() % 100;
         let mut points_random = vec![Fp25519::ONE; points_size];
-        points_random.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
+        points_random
+            .iter_mut()
+            .for_each(|y| *y = rng.gen::<Fp25519>());
 
         for evaluation_points in [&evaluation_points_random, &evaluation_points_canonical] {
             // non-precomputed

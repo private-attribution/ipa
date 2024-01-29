@@ -7,8 +7,13 @@ use typenum::Unsigned;
 use crate::{
     ff::{Error, Field, Invert, Serializable},
     protocol::{
-        context::Context, ipa_prf::malicious_security::lagrange::lagrange_evaluation,
-        prss::SharedRandomness, RecordId,
+        context::Context,
+        ipa_prf::malicious_security::lagrange::{
+            compute_lagrange_base, compute_lagrange_denominator, generate_evaluation_points,
+            lagrange_evaluation, lagrange_evaluation_precomputed,
+        },
+        prss::SharedRandomness,
+        RecordId,
     },
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
 };
@@ -30,7 +35,7 @@ where
 }
 
 /// generates recursive proof for sum_i u_i*v_i = out over field F
-/// `recursion_factor` determines how much the inputs are compressed during each recursion
+/// `r_f`, i.e. recursion factor, determines how much the inputs are compressed during each recursion
 /// it is also the degree of polynomials p and q
 /// this proof is sent to the party on the left
 /// it is therefore the "right proof" of the party on the left
@@ -39,7 +44,7 @@ pub fn generate_proof<F>(
     //ctx: C,
     u: &mut Vec<F>,
     v: &mut Vec<F>,
-    recursion_factor: usize,
+    r_f: usize,
 ) -> NIDZKP<F>
 where
     F: Field + Invert,
@@ -48,7 +53,7 @@ where
     // check length
     debug_assert_eq!(u.len(), v.len());
     // check that field is large enough to hold evaluation points
-    debug_assert!(F::BITS > usize::BITS - recursion_factor.leading_zeros() + 1);
+    debug_assert!(F::BITS > usize::BITS - r_f.leading_zeros() + 1);
 
     let mut output = NIDZKP {
         proofs: Vec::with_capacity(1),
@@ -57,35 +62,39 @@ where
     // record counter
     let mut counter = 0usize;
 
-    // generate evaluation points `(F::0..F::(i)..)`
-    let evaluation_points = (0..2 * recursion_factor + 2)
-        .map(|i| F::try_from(i as u128).unwrap())
-        .collect::<Vec<F>>();
+    // precomputation for Lagrange
+    let mut evaluation_points = vec![F::ZERO; 2 * r_f];
+    generate_evaluation_points(&mut evaluation_points);
+    // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
+    let mut denominators = vec![F::ONE; r_f];
+    compute_lagrange_denominator(&evaluation_points[0..r_f], &mut denominators);
+    let mut base_canonical = vec![vec![F::ONE; r_f]; r_f];
+    compute_lagrange_base(
+        &evaluation_points[r_f..2 * r_f],
+        &evaluation_points[0..r_f],
+        &denominators,
+        &mut base_canonical,
+    );
 
     // iterate over recursions
-    while u.len() > recursion_factor {
+    while u.len() >= r_f {
         // fill u and v with zeros such that it is a multiple of the recursion factor
-        u.extend(std::iter::repeat(F::ZERO).take(u.len() % recursion_factor));
-        v.extend(std::iter::repeat(F::ZERO).take(u.len() % recursion_factor));
+        let coset = u.len() % r_f;
+        if coset != 0 {
+            u.extend(std::iter::repeat(F::ZERO).take(coset));
+            v.extend(std::iter::repeat(F::ZERO).take(coset));
+        }
 
         // amount of polynomials `p`, `q`, i.e. amount of `summand_of_g`
-        let s = u.len() / recursion_factor;
+        let s = u.len() / r_f;
 
         // define `g` which is represented by `2*recursion_factor` many points.
-        let mut g = vec![F::ZERO; 2 * recursion_factor];
+        let mut g = vec![F::ZERO; 2 * r_f];
 
         // compute `g` which is the sum of `summand_of_g`
-        u.chunks(recursion_factor)
-            .zip(v.chunks(recursion_factor))
-            .for_each(|(u, v)| {
-                compute_summand_of_g(
-                    u,
-                    v,
-                    recursion_factor,
-                    &evaluation_points[0..2 * recursion_factor],
-                    &mut g,
-                )
-            });
+        u.chunks(r_f)
+            .zip(v.chunks(r_f))
+            .for_each(|(u, v)| compute_summand_of_g(u, v, r_f, &base_canonical, &mut g));
 
         // compute secret share g_left (i.e. part of the proof recovered by right party) using prss_right
         let mut g_left = vec![F::ZERO; g.len()];
@@ -111,35 +120,28 @@ where
         // add `g_right` to proof
         output.proofs.push(g);
 
+        // precompute Lagrange base for `r`
+        let mut base_r = vec![vec![F::ONE; r_f]; 1usize];
+        compute_lagrange_base(
+            &std::slice::from_ref(&r),
+            &evaluation_points[0..r_f],
+            &denominators,
+            &mut base_r,
+        );
+
         // evaluate p, q to get new u, v
         // u, v are split into chunks to represent p(evaluation_points), q(evaluation_points)
         // lagrange_evaluation is used to compute p(r), q(r) from p(evaluation_points), q(evaluation_points)
         // compute p(r) using u
         let mut u_new = vec![F::ONE; s];
-        u_new
-            .iter_mut()
-            .zip(u.chunks(recursion_factor))
-            .for_each(|(u, chunk)| {
-                lagrange_evaluation(
-                    &evaluation_points[0..recursion_factor],
-                    chunk,
-                    std::slice::from_ref(&r),
-                    std::slice::from_mut(u),
-                )
-            });
+        u_new.iter_mut().zip(u.chunks(r_f)).for_each(|(u, chunk)| {
+            lagrange_evaluation_precomputed(&chunk, &base_r, std::slice::from_mut(u));
+        });
         // compute q(r) using v
         let mut v_new = vec![F::ONE; s];
-        v_new
-            .iter_mut()
-            .zip(v.chunks(recursion_factor))
-            .for_each(|(v, chunk)| {
-                lagrange_evaluation(
-                    &evaluation_points[0..recursion_factor],
-                    chunk,
-                    std::slice::from_ref(&r),
-                    std::slice::from_mut(v),
-                )
-            });
+        v_new.iter_mut().zip(v.chunks(r_f)).for_each(|(v, chunk)| {
+            lagrange_evaluation_precomputed(&chunk, &base_r, std::slice::from_mut(v));
+        });
         // reassign u_new, v_new for next iteration
         *u = u_new;
         *v = v_new;
@@ -148,16 +150,15 @@ where
     }
 
     // define last g
-    // since we add masks, the degree of g might be larger
-    let mut final_g = vec![F::ZERO; 2 * u.len() + 2];
+    let mut final_g = vec![F::ZERO; 2 * r_f];
 
     // generate final `evaluation_points`
     // generate mask p[0] from prss_right and append to u
     // generate mask q[0] from prss_right and append to v
     // todo
     let (final_u, final_v) = {
-        let mut vec_u = Vec::<F>::with_capacity(u.len() + 1);
-        let mut vec_v = Vec::<F>::with_capacity(u.len() + 1);
+        let mut vec_u = Vec::<F>::with_capacity(r_f);
+        let mut vec_v = Vec::<F>::with_capacity(r_f);
         // add prss masks
         // todo
         vec_u.push(F::ONE);
@@ -165,6 +166,12 @@ where
         // copy rest
         vec_u.extend(&*u);
         vec_v.extend(&*v);
+        // fill u and v with zeros such that it is a multiple of the recursion factor
+        let coset = vec_u.len() % r_f;
+        if coset != 0 {
+            vec_u.extend(std::iter::repeat(F::ZERO).take(coset));
+            vec_v.extend(std::iter::repeat(F::ZERO).take(coset));
+        }
         (vec_u, vec_v)
     };
 
@@ -173,7 +180,7 @@ where
         &final_u,
         &final_v,
         final_u.len(),
-        &evaluation_points[..2 * u.len() + 2],
+        &base_canonical,
         &mut final_g,
     );
 
@@ -222,10 +229,9 @@ where
     // compute recursion factor
     let r_f = proof_right.proofs[0].len() >> 1;
 
-    // generate evaluation points `(F::0..F::(i)..)`
-    let e_p = (0..2 * r_f + 2)
-        .map(|i| F::try_from(i as u128).unwrap())
-        .collect::<Vec<F>>();
+    // evaluation points for Lagrange
+    let mut e_p = vec![F::ZERO; 2 * r_f];
+    generate_evaluation_points(&mut e_p);
 
     // compute left part of the proof
     // todo
@@ -274,6 +280,32 @@ where
         compute_sums_gr_gm(proof, g_r);
     }
 
+    // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
+    let mut denominators = vec![F::ONE; r_f];
+    compute_lagrange_denominator(&e_p[0..r_f], &mut denominators);
+    // generate q(0), p(0) masks using PRSS,
+    // compute polynomials p,q recursively
+    // add masks to left, i.e. "0",
+    // compute both, p,q at once since Langrage precomputation is base on `r` which is identical
+    let (p_left, q_left) = polynomial_compression(
+        (share_of_u.0, share_of_v.0),
+        &F::ONE,
+        r_f,
+        &e_p[0..r_f],
+        &denominators,
+        &r_left,
+    );
+    let (p_right, q_right) = polynomial_compression(
+        (share_of_u.1, share_of_v.1),
+        &F::ZERO,
+        r_f,
+        &e_p[0..r_f],
+        &denominators,
+        &r_right,
+    );
+
+    // todo consolidate zero checks
+
     // zero test
     // check that all sums `g_r == 0`
     // todo
@@ -292,13 +324,6 @@ where
 
     debug_assert!(output);
     // final check:
-    // generate q(0), p(0) masks using PRSS,
-    // compute polynomials p,q recursively
-    // add masks to left, i.e. "0",
-    let p_left = polynomial_compression(share_of_u.0, &F::ONE, r_f, &e_p[0..r_f + 1], &r_left);
-    let q_left = polynomial_compression(share_of_v.0, &F::ONE, r_f, &e_p[0..r_f + 1], &r_left);
-    let p_right = polynomial_compression(share_of_u.1, &F::ZERO, r_f, &e_p[0..r_f + 1], &r_right);
-    let q_right = polynomial_compression(share_of_v.1, &F::ZERO, r_f, &e_p[0..r_f + 1], &r_right);
 
     // reveal q(r), p(r) and g(r) and verify p(r)*g(r)=G(r)
     // todo
@@ -350,7 +375,7 @@ where
     F: Field + Invert,
 {
     debug_assert_eq!(proof.proofs.len() + 1, g_r.len());
-    debug_assert_eq!(evaluation_points.len(), 2 * recursion_factor + 2);
+    debug_assert_eq!(evaluation_points.len(), 2 * recursion_factor);
     debug_assert_eq!(random_points.len(), proof.proofs.len());
 
     let mut iter_right = g_r.iter_mut();
@@ -376,119 +401,138 @@ where
 /// until each `random_point` has been used and `share` collapsed to a single element
 /// the polynomials are represented by points on the polynomial at the `evaluation_points`
 /// mask is the `0` point during the last recursion
-fn polynomial_compression<F>(share: &mut Vec<F>, mask: &F, r_f: usize, e_p: &[F], r_p: &[F]) -> F
+fn polynomial_compression<F>(
+    share: (&mut Vec<F>, &mut Vec<F>),
+    mask: &F,
+    r_f: usize,
+    e_p: &[F],
+    denominators: &[F],
+    r_p: &[F],
+) -> (F, F)
 where
     F: Field + Invert,
 {
     // check that field is large enough to hold evaluation points
     debug_assert!(F::BITS > usize::BITS - r_f.leading_zeros() + 1);
-    debug_assert_eq!(e_p.len(), r_f + 1);
+    debug_assert_eq!(e_p.len(), r_f);
+    debug_assert_eq!(e_p.len(), denominators.len());
+    debug_assert_eq!(share.0.len(), share.1.len());
 
     // iterate over recursions
     for r in r_p.iter().take(r_p.len() - 1) {
         // check whether there are too many random points,
         // which leads to unnecessary compression
-        debug_assert!(share.len() > r_f);
+        debug_assert!(share.0.len() >= r_f);
 
         // fill u and v with zeros such that it is a multiple of the recursion factor
-        let coset = share.len() % r_f;
+        let coset = share.0.len() % r_f;
         if coset != 0 {
-            share.extend(std::iter::repeat(F::ZERO).take(coset));
+            share.0.extend(std::iter::repeat(F::ZERO).take(coset));
+            share.1.extend(std::iter::repeat(F::ZERO).take(coset));
         }
 
         // amount of polynomials in `share`
-        let s = share.len() / r_f;
+        let s = share.0.len() / r_f;
 
-        let mut share_new = vec![F::ONE; s];
+        let mut share_new_0 = vec![F::ONE; s];
+        let mut share_new_1 = vec![F::ONE; s];
+
+        // precompute Lagrange base for `r`
+        let mut base_r = vec![vec![F::ONE; r_f]; 1usize];
+        compute_lagrange_base(
+            std::slice::from_ref(r),
+            &e_p[0..r_f],
+            &denominators,
+            &mut base_r,
+        );
 
         // `share` is split into chunks of size `recursion_factor`
         // to represent the polynomials
         // which are represented by `recursion_factor` many values in `share`
         // we then Lagrange evaluate it on the next `random_point` to compute new elements in `share`
-        share_new
+        share_new_0
             .iter_mut()
-            .zip(share.chunks(r_f))
+            .zip(share.0.chunks(r_f))
             .for_each(|(u, chunk)| {
-                lagrange_evaluation(
-                    &e_p[0..r_f],
-                    chunk,
-                    std::slice::from_ref(r),
-                    std::slice::from_mut(u),
-                );
+                lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(u));
+            });
+        share_new_1
+            .iter_mut()
+            .zip(share.1.chunks(r_f))
+            .for_each(|(u, chunk)| {
+                lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(u));
             });
         // reassign new `share` for next iteration
-        *share = share_new;
-        share.truncate(s);
+        *share.0 = share_new_0;
+        *share.1 = share_new_1;
+        share.0.truncate(s);
+        share.1.truncate(s);
     }
 
-    debug_assert!(share.len() <= r_f);
+    debug_assert!(share.0.len() < r_f);
 
     // final shares, compute output
-    let mut output = F::ONE;
+    let mut output_0 = F::ONE;
+    let mut output_1 = F::ONE;
 
-    let final_share = {
-        let mut vec = Vec::<F>::with_capacity(share.len() + 1);
+    let (final_share_0, final_share_1) = {
+        let mut vec_0 = Vec::<F>::with_capacity(r_f);
+        let mut vec_1 = Vec::<F>::with_capacity(r_f);
         // add prss mask
-        vec.push(*mask);
+        vec_0.push(*mask);
+        vec_1.push(*mask);
         // copy rest
-        vec.extend(&*share);
-        vec
+        vec_0.extend(&*share.0);
+        vec_1.extend(&*share.1);
+        // fill u and v with zeros such that it is a multiple of the recursion factor
+        vec_0.extend(std::iter::repeat(F::ZERO).take(vec_0.len() % r_f));
+        vec_1.extend(std::iter::repeat(F::ZERO).take(vec_1.len() % r_f));
+        (vec_0, vec_1)
     };
-    lagrange_evaluation(
-        &e_p[0..final_share.len()],
-        &final_share,
+
+    // precompute Lagrange base for `r`
+    let mut base_r = vec![vec![F::ONE; r_f]; 1usize];
+    compute_lagrange_base(
         std::slice::from_ref(r_p.last().unwrap()),
-        std::slice::from_mut(&mut output),
+        &e_p[0..r_f],
+        &denominators,
+        &mut base_r,
     );
 
-    return output;
+    lagrange_evaluation_precomputed(&final_share_0, &base_r, std::slice::from_mut(&mut output_0));
+    lagrange_evaluation_precomputed(&final_share_1, &base_r, std::slice::from_mut(&mut output_1));
+
+    return (output_0, output_1);
 }
 
 /// computes `summand_of_g = p*q` and adds it to `g`
 /// polynomials `p` and `q` are represented by value `u`, `v`
 /// which are the evaluations of `p,q` at `evaluation_points[0..recursion_factor]`
 /// `g` is represented by its evaluation at `evaluation_points`
-fn compute_summand_of_g<F>(
-    u: &[F],
-    v: &[F],
-    recursion_factor: usize,
-    evaluation_points: &[F],
-    g: &mut [F],
-) -> ()
+fn compute_summand_of_g<F>(u: &[F], v: &[F], r_f: usize, base: &Vec<Vec<F>>, g: &mut [F]) -> ()
 where
     F: Field + Invert,
 {
     // check lengths
     debug_assert_eq!(u.len(), v.len());
-    debug_assert_eq!(evaluation_points.len(), 2usize * recursion_factor);
-    debug_assert_eq!(evaluation_points.len(), g.len());
+    debug_assert_eq!(base.len(), u.len());
 
     // define summand of g, g = sum of summand_of_g
     // summand_of_g is represented by 2*recursion_factor many points.
-    let mut summand_of_g = vec![F::ONE; 2 * recursion_factor];
+    let mut summand_of_g = vec![F::ONE; 2 * r_f];
 
     // compute first recursion factor many points of summand_of_g
     summand_of_g
         .iter_mut()
-        .take(recursion_factor)
+        .take(r_f)
         .enumerate()
         .for_each(|(i, x)| *x = u[i] * v[i]);
 
     // compute summand_of_g = 1*u for rest of points
-    lagrange_evaluation(
-        &evaluation_points[0..recursion_factor],
-        u,
-        &evaluation_points[recursion_factor..2 * recursion_factor],
-        &mut summand_of_g[recursion_factor..2 * recursion_factor],
-    );
+    lagrange_evaluation_precomputed(u, &base, &mut summand_of_g[r_f..2 * r_f]);
 
     // compute summand_of_g = u*v for rest of points
-    lagrange_evaluation(
-        &evaluation_points[0..recursion_factor],
-        v,
-        &evaluation_points[recursion_factor..2 * recursion_factor],
-        &mut summand_of_g[recursion_factor..2 * recursion_factor],
-    );
+    lagrange_evaluation_precomputed(v, &base, &mut summand_of_g[r_f..2 * r_f]);
     // add summand_of_g to g
     g.iter_mut()
         .zip(summand_of_g.iter())
@@ -567,8 +611,9 @@ mod test {
 
     use crate::{
         ff::ec_prime_field::Fp25519,
-        protocol::ipa_prf::malicious_security::quadratic_proofs::{
-            generate_proof, polynomial_compression, verify_proof,
+        protocol::ipa_prf::malicious_security::{
+            lagrange::compute_lagrange_denominator,
+            quadratic_proofs::{generate_proof, polynomial_compression, verify_proof},
         },
         secret_sharing::SharedValue,
     };
@@ -577,13 +622,13 @@ mod test {
     fn polynomial_compression_test() {
         let recursion_factor = 2usize;
         let mut rng = thread_rng();
-        let evaluation_points = (0..recursion_factor + 1)
+        let evaluation_points = (0..recursion_factor)
             .map(|i| Fp25519::try_from(i as u128).unwrap())
             .collect::<Vec<Fp25519>>();
         // random mask
         let mask = rng.gen::<Fp25519>();
-        // random points (i.e. verifier challenge points)
-        let mut r = vec![Fp25519::ZERO; 3];
+        // random points (i.e. verifier challenge points), need `1 + log 8`, `1` is needed for mask
+        let mut r = vec![Fp25519::ZERO; 4];
         r.iter_mut().for_each(|x| *x = rng.gen());
         // random shares of u
         let u = (&mut vec![Fp25519::ZERO; 8], &mut vec![Fp25519::ZERO; 8]);
@@ -597,26 +642,39 @@ mod test {
                 .map(|(u0, u1)| *u0 + *u1)
                 .collect::<Vec<Fp25519>>();
 
+        // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
+        let mut denominators = vec![Fp25519::ONE; recursion_factor];
+        compute_lagrange_denominator(&evaluation_points[0..recursion_factor], &mut denominators);
+
         // compute reconstruct on shares
-        let p0 = polynomial_compression(u.0, &mask, recursion_factor, &evaluation_points, &r);
-        let p1 = polynomial_compression(
-            u.1,
+        let (p0, q0) = polynomial_compression(
+            (&mut u.0.clone(), u.0),
+            &mask,
+            recursion_factor,
+            &evaluation_points,
+            &denominators,
+            &r,
+        );
+        let (p1, q1) = polynomial_compression(
+            (&mut u.1.clone(), u.1),
             &Fp25519::ZERO,
             recursion_factor,
             &evaluation_points,
+            &denominators,
             &r,
         );
 
         // compute it on the clear, left and right is supposed to be the same
-        let p = polynomial_compression(
-            &mut u_in_the_clear,
+        let (p, q) = polynomial_compression(
+            (&mut u_in_the_clear.clone(), &mut u_in_the_clear),
             &mask,
             recursion_factor,
             &evaluation_points,
+            &denominators,
             &r,
         );
 
-        assert_eq!((mask, p0 + p1), (mask, p));
+        assert_eq!((mask, p0 + p1, q0 + q1), (mask, p, q));
     }
 
     #[test]
