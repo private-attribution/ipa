@@ -9,6 +9,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::{U1, U32};
 
 use crate::{
+    error::LengthError,
     ff::{Field, Fp32BitPrime, Serializable},
     helpers::Message,
     protocol::prss::{FromRandom, FromRandomU128},
@@ -72,9 +73,15 @@ impl<F: Field, const N: usize> FieldArray<F> for StdArray<F, N> where Self: From
 {}
 
 impl<V: SharedValue, const N: usize> TryFrom<Vec<V>> for StdArray<V, N> {
-    type Error = ();
+    type Error = LengthError;
     fn try_from(value: Vec<V>) -> Result<Self, Self::Error> {
-        value.try_into().map(Self).map_err(|_| ())
+        match value.try_into() {
+            Ok(arr) => Ok(Self(arr)),
+            Err(vec) => Err(LengthError {
+                expected: N,
+                actual: vec.len(),
+            }),
+        }
     }
 }
 

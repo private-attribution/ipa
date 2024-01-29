@@ -69,6 +69,7 @@ use replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing};
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 
 use crate::{
+    error::LengthError,
     ff::{AddSub, AddSubAssign, Field, Fp32BitPrime, Serializable},
     helpers::Message,
     protocol::prss::FromRandom,
@@ -224,7 +225,7 @@ pub trait SharedValueArray<V>:
     + Send
     + Sync
     + Sized
-    + TryFrom<Vec<V>, Error = ()>
+    + TryFrom<Vec<V>, Error = LengthError>
     + FromIterator<V>
     + IntoIterator<Item = V>
     + Add<Self, Output = Self>
