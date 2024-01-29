@@ -1,116 +1,15 @@
 use std::{
     collections::VecDeque,
     future::IntoFuture,
+    marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures::{
-    stream::{iter, Iter as StreamIter, TryCollect},
-    Future, Stream, StreamExt, TryStreamExt,
-};
-use pin_project::pin_project;
+use futures::stream::Fuse;
 
-use crate::exact::ExactSizeStream;
-
-/// This helper function might be necessary to convince the compiler that
-/// the return value from [`seq_try_join_all`] implements `Send`.
-/// Use this if you get higher-ranked lifetime errors that mention `std::marker::Send`.
-///
-/// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
-pub fn assert_send<'a, O>(
-    fut: impl Future<Output = O> + Send + 'a,
-) -> impl Future<Output = O> + Send + 'a {
-    fut
-}
-
-/// Sequentially join futures from a stream.
-///
-/// This function polls futures in strict sequence.
-/// If any future blocks, up to `active - 1` futures after it will be polled so
-/// that they make progress.
-///
-/// # Deadlocks
-///
-/// This will fail to resolve if the progress of any future depends on a future more
-/// than `active` items behind it in the input sequence.
-///
-/// [`try_join_all`]: futures::future::try_join_all
-/// [`Stream`]: futures::stream::Stream
-/// [`StreamExt::buffered`]: futures::stream::StreamExt::buffered
-pub fn seq_join<S, F, O>(active: NonZeroUsize, source: S) -> SequentialFutures<S, F>
-where
-    S: Stream<Item = F> + Send,
-    F: Future<Output = O>,
-{
-    SequentialFutures {
-        source: source.fuse(),
-        active: VecDeque::with_capacity(active.get()),
-    }
-}
-
-/// The `SeqJoin` trait wraps `seq_try_join_all`, providing the `active` parameter
-/// from the provided context so that the value can be made consistent.
-pub trait SeqJoin {
-    /// Perform a sequential join of the futures from the provided iterable.
-    /// This uses [`seq_join`], with the current state of the associated object
-    /// being used to determine the number of active items to track (see [`active_work`]).
-    ///
-    /// A rough rule of thumb for how to decide between this and [`parallel_join`] is
-    /// that this should be used whenever you are iterating over different records.
-    /// [`parallel_join`] is better suited to smaller batches, such as iterating over
-    /// the bits of a value for a single record.
-    ///
-    /// Note that the join functions from the [`futures`] crate, such as [`join3`],
-    /// are also parallel and can be used where you have a small, fixed number of tasks.
-    ///
-    /// Be especially careful if you use the random bits generator with this.
-    /// The random bits generator can produce values out of sequence.
-    /// You might need to use [`parallel_join`] for that.
-    ///
-    /// [`active_work`]: Self::active_work
-    /// [`parallel_join`]: Self::parallel_join
-    /// [`join3`]: futures::future::join3
-    fn try_join<I, F, O, E>(&self, iterable: I) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
-    where
-        I: IntoIterator<Item = F> + Send,
-        I::IntoIter: Send,
-        F: Future<Output = Result<O, E>>,
-    {
-        seq_try_join_all(self.active_work(), iterable)
-    }
-
-    /// Join multiple tasks in parallel.  Only do this if you can't use a sequential join.
-    fn parallel_join<I>(&self, iterable: I) -> futures::future::TryJoinAll<I::Item>
-    where
-        I: IntoIterator,
-        I::Item: futures::future::TryFuture,
-    {
-        #[allow(clippy::disallowed_methods)] // Just in this one place.
-        futures::future::try_join_all(iterable)
-    }
-
-    /// The amount of active work that is concurrently permitted.
-    fn active_work(&self) -> NonZeroUsize;
-}
-
-type SeqTryJoinAll<I, F> = SequentialFutures<StreamIter<<I as IntoIterator>::IntoIter>, F>;
-
-/// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
-/// This awaits all the provided futures in order,
-/// aborting early if any future returns `Result::Err`.
-pub fn seq_try_join_all<I, F, O, E>(
-    active: NonZeroUsize,
-    source: I,
-) -> TryCollect<SeqTryJoinAll<I, F>, Vec<O>>
-where
-    I: IntoIterator<Item = F> + Send,
-    I::IntoIter: Send,
-    F: Future<Output = Result<O, E>>,
-{
-    seq_join(active, iter(source)).try_collect()
-}
+use super::*;
 
 enum ActiveItem<F: IntoFuture> {
     Pending(Pin<Box<F::IntoFuture>>),
@@ -142,7 +41,7 @@ impl<F: IntoFuture> ActiveItem<F> {
     #[must_use]
     fn take(self) -> F::Output {
         let ActiveItem::Resolved(v) = self else {
-            panic!("No value to take out");
+            unreachable!("take should be only called once.");
         };
 
         v
@@ -150,17 +49,32 @@ impl<F: IntoFuture> ActiveItem<F> {
 }
 
 #[pin_project]
-pub struct SequentialFutures<S, F>
+pub struct SequentialFutures<'unused, S, F>
 where
     S: Stream<Item = F> + Send,
     F: IntoFuture,
 {
     #[pin]
-    source: futures::stream::Fuse<S>,
+    source: Fuse<S>,
     active: VecDeque<ActiveItem<F>>,
+    _marker: PhantomData<fn(&'unused ()) -> &'unused ()>,
 }
 
-impl<S, F> Stream for SequentialFutures<S, F>
+impl<S, F> SequentialFutures<'_, S, F>
+where
+    S: Stream<Item = F> + Send,
+    F: IntoFuture,
+{
+    pub fn new(active: NonZeroUsize, source: S) -> Self {
+        Self {
+            source: source.fuse(),
+            active: VecDeque::with_capacity(active.get()),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S, F> Stream for SequentialFutures<'_, S, F>
 where
     S: Stream<Item = F> + Send,
     F: IntoFuture,
@@ -207,18 +121,9 @@ where
     }
 }
 
-impl<S, F> ExactSizeStream for SequentialFutures<S, F>
-where
-    S: Stream<Item = F> + Send + ExactSizeStream,
-    F: IntoFuture,
-{
-}
-
 #[cfg(all(test, unit_test))]
-mod test {
+mod local_test {
     use std::{
-        convert::Infallible,
-        iter::once,
         num::NonZeroUsize,
         ptr::null,
         sync::{Arc, Mutex},
@@ -226,78 +131,13 @@ mod test {
     };
 
     use futures::{
-        future::{lazy, BoxFuture},
-        stream::{iter, poll_fn, poll_immediate, repeat_with},
-        Future, StreamExt,
+        future::lazy,
+        stream::{poll_fn, repeat_with},
+        StreamExt,
     };
 
-    use crate::seq_join::{seq_join, seq_try_join_all};
-
-    async fn immediate(count: u32) {
-        let capacity = NonZeroUsize::new(3).unwrap();
-        let values = seq_join(capacity, iter((0..count).map(|i| async move { i })))
-            .collect::<Vec<_>>()
-            .await;
-        assert_eq!((0..count).collect::<Vec<_>>(), values);
-    }
-
-    #[tokio::test]
-    async fn within_capacity() {
-        immediate(2).await;
-        immediate(1).await;
-    }
-
-    #[tokio::test]
-    async fn over_capacity() {
-        immediate(10).await;
-    }
-
-    #[tokio::test]
-    async fn out_of_order() {
-        let capacity = NonZeroUsize::new(3).unwrap();
-        let barrier = tokio::sync::Barrier::new(2);
-        let unresolved: BoxFuture<'_, u32> = Box::pin(async {
-            barrier.wait().await;
-            0
-        });
-        let it = once(unresolved)
-            .chain((1..4_u32).map(|i| -> BoxFuture<'_, u32> { Box::pin(async move { i }) }));
-        let mut seq_futures = seq_join(capacity, iter(it));
-
-        assert_eq!(
-            Some(Poll::Pending),
-            poll_immediate(&mut seq_futures).next().await
-        );
-        barrier.wait().await;
-        assert_eq!(vec![0, 1, 2, 3], seq_futures.collect::<Vec<_>>().await);
-    }
-
-    #[tokio::test]
-    async fn join_success() {
-        fn f<T: Send>(v: T) -> impl Future<Output = Result<T, Infallible>> {
-            lazy(move |_| Ok(v))
-        }
-
-        let active = NonZeroUsize::new(10).unwrap();
-        let res = seq_try_join_all(active, (1..5).map(f)).await.unwrap();
-        assert_eq!((1..5).collect::<Vec<_>>(), res);
-    }
-
-    #[tokio::test]
-    async fn try_join_early_abort() {
-        const ERROR: &str = "error message";
-        fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
-            lazy(move |_| match i {
-                1 => Ok(1),
-                2 => Err(ERROR),
-                _ => panic!("should have aborted earlier"),
-            })
-        }
-
-        let active = NonZeroUsize::new(10).unwrap();
-        let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
-        assert_eq!(err, ERROR);
-    }
+    use super::*;
+    use crate::test_executor::run;
 
     fn fake_waker() -> Waker {
         use std::task::{RawWaker, RawWakerVTable};
@@ -406,5 +246,23 @@ mod test {
         let res = joined.poll_next_unpin(&mut cx);
         assert_count(&produced_r, 0);
         assert!(matches!(res, Poll::Ready(None)));
+    }
+
+    #[test]
+    fn try_join_early_abort() {
+        const ERROR: &str = "error message";
+        fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
+            lazy(move |_| match i {
+                1 => Ok(1),
+                2 => Err(ERROR),
+                _ => panic!("should have aborted earlier"),
+            })
+        }
+
+        run(|| async {
+            let active = NonZeroUsize::new(10).unwrap();
+            let err = seq_try_join_all(active, (1..=3).map(f)).await.unwrap_err();
+            assert_eq!(err, ERROR);
+        });
     }
 }

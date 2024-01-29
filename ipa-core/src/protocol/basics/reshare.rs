@@ -42,7 +42,7 @@ use crate::{
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<C: Context, B: RecordBinding>: Sized {
+pub trait Reshare<C: Context, B: RecordBinding>: Sized + 'static {
     async fn reshare<'fut>(
         &self,
         ctx: C,

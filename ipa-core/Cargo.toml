@@ -61,6 +61,8 @@ step-trace = ["descriptive-gate"]
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
 descriptive-gate = []
 compact-gate = ["ipa-macros/compact-gate"]
+# Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
+multi-threading = ["async-scoped"]
 
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
@@ -73,6 +75,7 @@ ipa-macros = { version = "*", path = "../ipa-macros" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"
+async-scoped = { version = "0.9.0", features = ["use-tokio"], optional = true }
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
 axum-server = { version = "0.5.1", optional = true, features = [
     "rustls",
@@ -132,7 +135,7 @@ sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
-tokio = { version = "1.28", features = ["fs", "rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.35", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 # TODO: axum-server holds onto 0.24 and we can't upgrade until they do. Or we move away from axum-server
 tokio-rustls = { version = "0.24", optional = true }
 tokio-stream = "0.1.14"
