@@ -11,28 +11,28 @@ To determine how many dummy elements to add we implement some of the non-negativ
 ## Definition of Truncated Double Geometric
 From Section 3.2 of the [paper](https://arxiv.org/abs/2110.08177) we recall the definition of the Truncated Double Geometric mechanism and distribuiton. Consider a mechanism using this distribution:
 
-$$M(X) = f(X) + z; \quad z \sim p_{DoubleGeometric}(n) $$
+$$M(X) = f(X) + z; \quad z \sim p_{DoubleGeometric}(n)$$
 $$\textrm{Pr}_{DoubleGeometric}(x|n) = Ae^{-\epsilon|n-x|}; \qquad x\in \{0,\ldots,2n\}$$
 
 For some normalizing constant $0 \lt A \lt 1$ and some $n \in \mathbb{N}$.
 As a probability this must sum to 1, which lets us solve for $A$.  Let $r=e^{-\epsilon}$.  Then we can rewrite as a classic geometric sequence as:
 $$1=\Big(2 A\sum_{k=0}^n e^{-k\epsilon}\Big) -A = A\Big( -1 + 2\sum_{k=0}^n r^k \Big)
 = A\Big( -1 + 2 \frac{1 - r^{n+1} }{1-r} \Big)
-= A\Big( \frac{1 + r - 2r^{n+1} }{1-r} \Big) \nonumber $$
-$$\Rightarrow \quad A = \frac{1-r}{1 + r - 2r^{n+1} } = \frac{1-e^{-\epsilon}}{1 + e^{-\epsilon} - 2e^{-\epsilon(n+1)}} $$
+= A\Big( \frac{1 + r - 2r^{n+1} }{1-r} \Big) \nonumber$$
+$$\Rightarrow \quad A = \frac{1-r}{1 + r - 2r^{n+1} } = \frac{1-e^{-\epsilon}}{1 + e^{-\epsilon} - 2e^{-\epsilon(n+1)}}$$
 
 
 If we have sensitivity $\Delta \in \mathbb{Z}^+$, then we need $\delta$ to cover the tail as:
-$$ \delta \geq A \sum_{k=n-\Delta+1}^n  e^{-k \epsilon} $$
+$$\delta \geq A \sum_{k=n-\Delta+1}^n  e^{-k \epsilon}$$
 
 
 For the common case of $\Delta=1$, such as in counting queries of users, at equality this simplifies (see appendix A of the cited paper) to:
-$$ \delta = Ae^{-n \epsilon} = Ar^n = \frac{r^n(1-r)}{1 + r -2r^{n+1}} $$
-$$\Rightarrow  \quad n = \Big\lceil -\frac{1}{\epsilon}\ ln \Big(\frac{\delta (1 + r)}{1-r + 2r\delta}\Big) \Big\rceil $$
+$$\delta = Ae^{-n \epsilon} = Ar^n = \frac{r^n(1-r)}{1 + r -2r^{n+1}}$$
+$$\Rightarrow  \quad n = \Big\lceil -\frac{1}{\epsilon}\ ln \Big(\frac{\delta (1 + r)}{1-r + 2r\delta}\Big) \Big\rceil$$
 
 
 The geometric distribution is unwieldy analytically beyond $\Delta=1$ so we instead compute $n$ numerically.  We do this by letting
-$$ RHS = A \sum_{k=n-\Delta+1}^n  e^{-k \epsilon} $$
+$$RHS = A \sum_{k=n-\Delta+1}^n  e^{-k \epsilon}$$
 and then for a fixed set of DP parameters $\varepsilon$, $\delta$, $\Delta$ we find the smallest $n$ that makes this RHS larger than $\delta$. This gives the narrowest Truncated Double Geometric that provides this level of DP for the given parameters.
 
 
