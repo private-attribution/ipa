@@ -262,10 +262,15 @@ mod tests {
     #[test]
     fn test_truncated_double_geometric_constructor() {
         // should fail for negative s parameter
-        let s = -1.0;
-        let n = 25;
-        let expected = Err(Error::BadS(s));
-        let actual = TruncatedDoubleGeometric::new(s, n);
+        let mut s = -1.0;
+        let mut n = 25;
+        let mut expected = Err(Error::BadS(s));
+        let mut actual = TruncatedDoubleGeometric::new(s, n);
+        assert_eq!(expected, actual);
+        s = 2.0;
+        n = 3_000_000;
+        expected = Err(Error::BadShiftValue(n));
+        actual = TruncatedDoubleGeometric::new(s, n);
         assert_eq!(expected, actual);
     }
     #[test]
@@ -287,9 +292,7 @@ mod tests {
     }
     #[test]
     fn test_truncated_double_geometric_loop() {
-        // let seed = [0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0];
         let mut rng = StdRng::seed_from_u64(2);
-        // let mut rng = StdRng::from_seed(seed);
         let s = 60.0;
         let n = 5;
         let mut samples_double_geometric = Vec::new();
