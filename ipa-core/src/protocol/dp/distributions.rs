@@ -113,7 +113,7 @@ impl DoubleGeometric {
         if s < f64::MIN_POSITIVE {
             return Err(Error::BadS(s));
         }
-        if shift  > 1_000_000 {
+        if shift > 1_000_000 {
             return Err(Error::BadSensitivity(shift));
         }
         let success_probability = 1.0 - E.powf(-1.0 / s);
@@ -170,8 +170,7 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
 
-    use rand::{distributions::Distribution, thread_rng,SeedableRng, rngs::StdRng
-    };
+    use rand::{distributions::Distribution, thread_rng,SeedableRng, rngs::StdRng};
     use rand_core::RngCore;
 
     use super::*;
@@ -295,12 +294,12 @@ mod tests {
         let mut samples_truncated_double_geometric = Vec::new();
 
         // Sample 100 values from the double_geometric function
-        let double_geometric = DoubleGeometric::new(s, n)
-        .expect("Double Geometric not constructed properly");
+        let double_geometric =
+            DoubleGeometric::new(s, n).expect("Double Geometric not constructed properly");
         let mut count_number_to_reject = 0;
         for _ in 0..100 {
             let s = double_geometric.sample(&mut rng);
-            if !(s >= 0 && s <= (double_geometric.shift).try_into().unwrap()){
+            if !(s >= 0 && s <= (double_geometric.shift).try_into().unwrap()) {
                 count_number_to_reject +=1;
             }
             samples_double_geometric.push(s);
