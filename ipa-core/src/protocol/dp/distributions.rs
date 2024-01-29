@@ -128,7 +128,7 @@ impl Distribution<i32> for DoubleGeometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
         let attempts1 = self.geometric.sample(rng);
         let attempts2 = self.geometric.sample(rng);
-        (self.shift + attempts1 - attempts2).try_into().unwrap()
+        (self.shift as i32) + (attempts1 as i32) - (attempts2 as i32)
     }
 }
 
@@ -277,7 +277,7 @@ mod tests {
             .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
             let sample = distribution.sample(&mut rng);
-            assert!(sample < 2 * n); // sample >= 0 by u32 type
+            assert!(sample <= 2 * n); // sample >= 0 by u32 type
             samples.push(sample);
         }
         // Print the samples to the console
@@ -305,13 +305,14 @@ mod tests {
             samples_double_geometric.push(s);
         }
         assert!(count_number_to_reject > 0);
+        println!("Number of samples to reject {count_number_to_reject}");
         println!("Samples from double_geometric with s={s}, n={n}: {samples_double_geometric:?}");
         rng = StdRng::seed_from_u64(2);
         let truncated_double_geometric = TruncatedDoubleGeometric::new(s, n)
             .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
             let sample = truncated_double_geometric.sample(&mut rng);
-            assert!(sample < 2 * n); // sample >= 0 by u32 type
+            assert!(sample <= 2 * n); // sample >= 0 by u32 type
             samples_truncated_double_geometric.push(sample);
         }
         // Print the samples to the console
