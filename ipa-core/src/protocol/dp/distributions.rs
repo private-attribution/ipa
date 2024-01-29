@@ -128,7 +128,9 @@ impl Distribution<i32> for DoubleGeometric {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> i32 {
         let attempts1 = self.geometric.sample(rng);
         let attempts2 = self.geometric.sample(rng);
-        (self.shift as i32) + (attempts1 as i32) - (attempts2 as i32)
+        <u32 as TryInto<i32>>::try_into(self.shift).unwrap()
+            + <u32 as TryInto<i32>>::try_into(attempts1).unwrap()
+            - <u32 as TryInto<i32>>::try_into(attempts2).unwrap()
     }
 }
 
