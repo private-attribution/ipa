@@ -605,9 +605,10 @@ where
 }
 
 #[cfg(all(test, unit_test))]
-
 mod test {
+    use futures_util::try_join;
     use rand::{thread_rng, Rng};
+    use ipa_macros::Step;
 
     use crate::{
         ff::ec_prime_field::Fp25519,
@@ -617,6 +618,15 @@ mod test {
         },
         secret_sharing::SharedValue,
     };
+    use crate::helpers::{Direction, ReceivingEnd, SendingEnd};
+    use crate::protocol::context::Context;
+    use crate::protocol::ipa_prf::malicious_security::quadratic_proofs::NIDZKP;
+    use crate::protocol::RecordId;
+    use crate::secret_sharing::IntoShares;
+    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+    use crate::test_executor::run;
+    use crate::test_fixture::{Runner, TestWorld};
 
     #[test]
     fn polynomial_compression_test() {
@@ -708,5 +718,182 @@ mod test {
         );
 
         assert!(verify_proof(&proof, &out, u, v).unwrap());
+    }
+
+    // /// helper function for test
+    // impl IntoShares<AdditiveShare<Fp25519>> for Fp25519 {
+    //     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<Fp25519>; 3] {
+    //         self.share_with(rng)
+    //     }
+    // }
+
+    /// helper function for test
+    fn helper_fn_generate_proof<C> (ctx: C, r_f: usize, u_and_v: &Vec<AdditiveShare<Fp25519>>) -> (Fp25519, NIDZKP<Fp25519>)
+    where
+        C: Context
+    {
+        // collect vectors
+        let mut u = u_and_v.iter().map(|u_and_v|u_and_v.left()).collect::<Vec<_>>();
+        let mut v = u_and_v.iter().map(|u_and_v|u_and_v.right()).collect::<Vec<_>>();
+
+        // compute out statement for proof
+        let out = u_and_v.iter()
+            .fold(Fp25519::ZERO,|acc,u_and_v| acc+u_and_v.left()*u_and_v.right());
+
+        let proof = generate_proof(&mut u, &mut v, r_f);
+
+        (out,proof)
+    }
+
+    #[derive(Step)]
+    pub(crate) enum Step {
+        TestRight,
+        TestLeft,
+    }
+
+    /// helper function for test, allows to send proofs and secret shares
+    async fn helper_fn_send_and_receive_proofs_and_shares<C>(
+        ctx: C,
+        r_f: usize,
+        out: &Fp25519,
+        proof: &NIDZKP<Fp25519>,
+        u_and_v: &Vec<AdditiveShare<Fp25519>>
+    )-> (Fp25519, NIDZKP<Fp25519>, Vec<Fp25519>, Vec<Fp25519>, Vec<Fp25519>, Vec<Fp25519>)
+    where
+        C: Context
+    {
+        let length = u_and_v.len();
+        let proof_length = proof.proofs.iter()
+            .fold(0usize,|acc, x| acc + x.len());
+
+        // use identical shares to send to the right, todo use random shares
+        let u_share_left = (0..length).map(|x| Fp25519::try_from(x as u128).unwrap()).collect::<Vec<_>>();
+        let v_share_left = (0..length).map(|x| Fp25519::try_from(x as u128).unwrap()).collect::<Vec<_>>();
+        // shares sent to the left:
+        let u_share_right = u_and_v.iter().zip(u_share_left.iter())
+            .map(|(x,y)|x.left()+*y).collect::<Vec<_>>();
+        let v_share_right = u_and_v.iter().zip(v_share_left.iter())
+            .map(|(x,y)|x.right()+*y).collect::<Vec<_>>();
+
+        // record size
+        let l_left = 1+proof_length+2*length;//2*length;//;
+        let l_right = 2*length;
+
+        // let mut proof_right_vec = vec![Fp25519::ZERO;proof_length];
+        let mut out_right=Fp25519::ZERO;
+        let mut proof_right = proof.clone();
+        let mut u_left = vec![Fp25519::ZERO;length];
+        let mut u_right = vec![Fp25519::ZERO;length];
+        let mut v_left = vec![Fp25519::ZERO;length];
+        let mut v_right = vec![Fp25519::ZERO;length];
+
+        // set up channels
+        let send_channel_left: SendingEnd<Fp25519> = ctx
+            .narrow(&Step::TestLeft)
+            .set_total_records(l_left)
+            .send_channel(ctx.role().peer(Direction::Left));
+        // let send_channel_right: SendingEnd<Fp25519> = ctx
+        //     .narrow(&Step::TestRight)
+        //     .set_total_records(l_right)
+        //     .send_channel(ctx.role().peer(Direction::Right));
+        // set up receive channel
+        let receive_channel_right: ReceivingEnd<Fp25519> = ctx
+            .narrow(&Step::TestLeft)
+            .set_total_records(l_left)//)
+            .recv_channel(ctx.role().peer(Direction::Right));
+        // let receive_channel_left: ReceivingEnd<Fp25519> = ctx
+        //     .narrow(&Step::TestRight)
+        //     .set_total_records(l_right)
+        //     .recv_channel(ctx.role().peer(Direction::Left));
+
+        let mut tk = 0;
+        for (i, x)
+        in std::iter::once(out)
+            .chain(proof.proofs.iter().flatten())
+            .chain(u_share_right.iter())
+            .chain(v_share_right.iter())
+            .enumerate() {
+            tk+=1;
+        };
+        assert_eq!(tk, 2*length+proof_length+1);
+
+        // send to left
+        for (i, x)
+        in std::iter::once(out)
+        // u_share_right.iter()
+        //     .chain(proof.proofs[0].iter())
+            .chain(proof.proofs.iter().flatten())
+            .chain(u_share_right.iter())
+            .chain(v_share_right.iter())
+            .enumerate() {
+            send_channel_left.send(RecordId::from(i), *x).await.unwrap();
+        };
+
+        // // send to right
+        // for (i, x)
+        // in u_share_left.iter().chain(v_share_left.iter()).enumerate() {
+        //     send_channel_right.send(RecordId::from(i), *x).await.unwrap();
+        // };
+
+
+        // receive from right
+        for (i, x)
+        in std::iter::once(&mut out_right)
+        // u_right.iter_mut()
+        //     .chain(proof_right.proofs[0].iter_mut())
+            .chain(proof_right.proofs.iter_mut().flatten())
+            .chain(u_right.iter_mut())
+            .chain(v_right.iter_mut())
+            .enumerate() {
+            *x = receive_channel_right.receive(RecordId::from(i)).await.unwrap();
+        };
+
+        // receive from left
+        // for (i, x)
+        // in u_left.iter_mut().chain(v_left.iter_mut()).enumerate() {
+        //     *x = receive_channel_left.receive(RecordId::from(i)).await.unwrap();
+        // }
+
+        // output
+        (out_right,proof_right,u_left,u_right,v_left,v_right)
+    }
+
+    #[test]
+    fn proof_verification_test()
+    {
+        run(|| async move {
+            let world = TestWorld::default();
+
+            let mut rng = thread_rng();
+            let mut u_and_v = vec![Fp25519::ZERO; 3];
+            u_and_v.iter_mut().for_each(|x| *x = rng.gen());
+
+            let result = world
+                .semi_honest(
+                    u_and_v.into_iter(),
+                    |ctx, input| async move {
+                        // compute proof
+                        let (out,proof) = helper_fn_generate_proof(ctx.clone(),2usize,&input);
+                        let (out_right,
+                            proof_right,
+                            mut u_left,
+                            mut u_right,
+                            mut v_left,
+                            mut v_right) =
+                            helper_fn_send_and_receive_proofs_and_shares(ctx, 2usize, &out, &proof, &input).await;
+                        // verify proof
+                        verify_proof(
+                            &proof_right,
+                            &out_right,
+                            (&mut u_left,&mut u_right),
+                            (&mut v_left,&mut v_right)).unwrap()
+                    }
+                )
+                .await;
+
+            assert!(result[0]);
+            assert!(result[1]);
+            assert!(result[2]);
+        });
     }
 }
