@@ -285,7 +285,7 @@ where
     compute_lagrange_denominator(&e_p[0..r_f], &mut denominators);
     // generate q(0), p(0) masks using PRSS,
     // compute polynomials p,q recursively
-    // add masks to left, i.e. "0",
+    // add masks to left, i.e. ".0",
     // compute both, p,q at once since Langrage precomputation is base on `r` which is identical
     let (p_left, q_left) = polynomial_compression(
         (share_of_u.0, share_of_v.0),
@@ -606,27 +606,30 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use futures_util::try_join;
-    use rand::{thread_rng, Rng};
+    use futures::StreamExt;
+    use futures_util::stream;
     use ipa_macros::Step;
+    use rand::{thread_rng, Rng};
 
     use crate::{
         ff::ec_prime_field::Fp25519,
-        protocol::ipa_prf::malicious_security::{
-            lagrange::compute_lagrange_denominator,
-            quadratic_proofs::{generate_proof, polynomial_compression, verify_proof},
+        helpers::{Direction, ReceivingEnd, SendingEnd},
+        protocol::{
+            context::Context,
+            ipa_prf::malicious_security::{
+                lagrange::compute_lagrange_denominator,
+                quadratic_proofs::{generate_proof, polynomial_compression, verify_proof, NIDZKP},
+            },
+            RecordId,
         },
-        secret_sharing::SharedValue,
+        secret_sharing::{
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue,
+        },
+        seq_join::seq_join,
+        test_executor::run,
+        test_fixture::{Runner, TestWorld},
     };
-    use crate::helpers::{Direction, ReceivingEnd, SendingEnd};
-    use crate::protocol::context::Context;
-    use crate::protocol::ipa_prf::malicious_security::quadratic_proofs::NIDZKP;
-    use crate::protocol::RecordId;
-    use crate::secret_sharing::IntoShares;
-    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
-    use crate::test_executor::run;
-    use crate::test_fixture::{Runner, TestWorld};
 
     #[test]
     fn polynomial_compression_test() {
@@ -687,62 +690,33 @@ mod test {
         assert_eq!((mask, p0 + p1, q0 + q1), (mask, p, q));
     }
 
-    #[test]
-    fn debug_test() {
-        let recursion_factor = 2usize;
-        let mut rng = thread_rng();
-        let u = (&mut vec![Fp25519::ZERO; 8], &mut vec![Fp25519::ZERO; 8]);
-        let v = (&mut vec![Fp25519::ZERO; 8], &mut vec![Fp25519::ZERO; 8]);
-        u.1.iter_mut().for_each(|x| *x = rng.gen());
-        v.1.iter_mut().for_each(|x| *x = rng.gen());
-        u.0.iter_mut().for_each(|x| *x = rng.gen());
-        v.0.iter_mut().for_each(|x| *x = rng.gen());
-        let u_in_the_clear =
-            u.0.iter()
-                .zip(u.1.iter())
-                .map(|(u0, u1)| *u0 + *u1)
-                .collect::<Vec<Fp25519>>();
-        let v_in_the_clear =
-            v.0.iter()
-                .zip(v.1.iter())
-                .map(|(v0, v1)| *v0 + *v1)
-                .collect::<Vec<Fp25519>>();
-        let out = u_in_the_clear
-            .iter()
-            .zip(v_in_the_clear.iter())
-            .fold(Fp25519::ZERO, |acc, (u, v)| acc + (*u * *v));
-        let proof = generate_proof(
-            &mut u_in_the_clear.clone(),
-            &mut v_in_the_clear.clone(),
-            recursion_factor,
-        );
-
-        assert!(verify_proof(&proof, &out, u, v).unwrap());
-    }
-
-    // /// helper function for test
-    // impl IntoShares<AdditiveShare<Fp25519>> for Fp25519 {
-    //     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<Fp25519>; 3] {
-    //         self.share_with(rng)
-    //     }
-    // }
-
     /// helper function for test
-    fn helper_fn_generate_proof<C> (ctx: C, r_f: usize, u_and_v: &Vec<AdditiveShare<Fp25519>>) -> (Fp25519, NIDZKP<Fp25519>)
+    fn helper_fn_generate_proof<C>(
+        ctx: C,
+        r_f: usize,
+        u_and_v: &Vec<AdditiveShare<Fp25519>>,
+    ) -> (Fp25519, NIDZKP<Fp25519>)
     where
-        C: Context
+        C: Context,
     {
         // collect vectors
-        let mut u = u_and_v.iter().map(|u_and_v|u_and_v.left()).collect::<Vec<_>>();
-        let mut v = u_and_v.iter().map(|u_and_v|u_and_v.right()).collect::<Vec<_>>();
+        let mut u = u_and_v
+            .iter()
+            .map(|u_and_v| u_and_v.left())
+            .collect::<Vec<_>>();
+        let mut v = u_and_v
+            .iter()
+            .map(|u_and_v| u_and_v.right())
+            .collect::<Vec<_>>();
 
         // compute out statement for proof
-        let out = u_and_v.iter()
-            .fold(Fp25519::ZERO,|acc,u_and_v| acc+u_and_v.left()*u_and_v.right());
+        let out = u_and_v.iter().fold(Fp25519::ZERO, |acc, u_and_v| {
+            acc + u_and_v.left() * u_and_v.right()
+        });
 
         let proof = generate_proof(&mut u, &mut v, r_f);
 
-        (out,proof)
+        (out, proof)
     }
 
     #[derive(Step)]
@@ -757,110 +731,137 @@ mod test {
         r_f: usize,
         out: &Fp25519,
         proof: &NIDZKP<Fp25519>,
-        u_and_v: &Vec<AdditiveShare<Fp25519>>
-    )-> (Fp25519, NIDZKP<Fp25519>, Vec<Fp25519>, Vec<Fp25519>, Vec<Fp25519>, Vec<Fp25519>)
+        u_and_v: &Vec<AdditiveShare<Fp25519>>,
+    ) -> (
+        Fp25519,
+        NIDZKP<Fp25519>,
+        Vec<Fp25519>,
+        Vec<Fp25519>,
+        Vec<Fp25519>,
+        Vec<Fp25519>,
+    )
     where
-        C: Context
+        C: Context,
     {
         let length = u_and_v.len();
-        let proof_length = proof.proofs.iter()
-            .fold(0usize,|acc, x| acc + x.len());
+        let proof_length = proof.proofs.iter().fold(0usize, |acc, x| acc + x.len());
 
         // use identical shares to send to the right, todo use random shares
-        let u_share_left = (0..length).map(|x| Fp25519::try_from(x as u128).unwrap()).collect::<Vec<_>>();
-        let v_share_left = (0..length).map(|x| Fp25519::try_from(x as u128).unwrap()).collect::<Vec<_>>();
+        let u_share_left = (0..length)
+            .map(|x| Fp25519::try_from(0usize as u128).unwrap())
+            .collect::<Vec<_>>();
+        let v_share_left = (0..length)
+            .map(|x| Fp25519::try_from(0usize as u128).unwrap())
+            .collect::<Vec<_>>();
         // shares sent to the left:
-        let u_share_right = u_and_v.iter().zip(u_share_left.iter())
-            .map(|(x,y)|x.left()+*y).collect::<Vec<_>>();
-        let v_share_right = u_and_v.iter().zip(v_share_left.iter())
-            .map(|(x,y)|x.right()+*y).collect::<Vec<_>>();
+        let u_share_right = u_and_v
+            .iter()
+            .zip(u_share_left.iter())
+            .map(|(x, y)| x.left() + *y)
+            .collect::<Vec<_>>();
+        let v_share_right = u_and_v
+            .iter()
+            .zip(v_share_left.iter())
+            .map(|(x, y)| x.right() + *y)
+            .collect::<Vec<_>>();
 
         // record size
-        let l_left = 1+proof_length+2*length;//2*length;//;
-        let l_right = 2*length;
+        let l_left = 1 + proof_length + 2 * length; //2*length;//;
+        let l_right = 2 * length;
 
         // let mut proof_right_vec = vec![Fp25519::ZERO;proof_length];
-        let mut out_right=Fp25519::ZERO;
+        let mut out_right = Fp25519::ZERO;
         let mut proof_right = proof.clone();
-        let mut u_left = vec![Fp25519::ZERO;length];
-        let mut u_right = vec![Fp25519::ZERO;length];
-        let mut v_left = vec![Fp25519::ZERO;length];
-        let mut v_right = vec![Fp25519::ZERO;length];
+        let mut u_left = vec![Fp25519::ZERO; length];
+        let mut u_right = vec![Fp25519::ZERO; length];
+        let mut v_left = vec![Fp25519::ZERO; length];
+        let mut v_right = vec![Fp25519::ZERO; length];
 
+        // set up context
+        let ctx_left = ctx.narrow(&Step::TestLeft).set_total_records(l_left);
+        let ctx_right = ctx.narrow(&Step::TestRight).set_total_records(l_right);
         // set up channels
-        let send_channel_left: SendingEnd<Fp25519> = ctx
-            .narrow(&Step::TestLeft)
-            .set_total_records(l_left)
-            .send_channel(ctx.role().peer(Direction::Left));
-        // let send_channel_right: SendingEnd<Fp25519> = ctx
-        //     .narrow(&Step::TestRight)
-        //     .set_total_records(l_right)
-        //     .send_channel(ctx.role().peer(Direction::Right));
-        // set up receive channel
-        let receive_channel_right: ReceivingEnd<Fp25519> = ctx
-            .narrow(&Step::TestLeft)
-            .set_total_records(l_left)//)
-            .recv_channel(ctx.role().peer(Direction::Right));
-        // let receive_channel_left: ReceivingEnd<Fp25519> = ctx
-        //     .narrow(&Step::TestRight)
-        //     .set_total_records(l_right)
-        //     .recv_channel(ctx.role().peer(Direction::Left));
+        let send_channel_left: &SendingEnd<Fp25519> =
+            &ctx_left.send_channel(ctx.role().peer(Direction::Left));
+        let send_channel_right: &SendingEnd<Fp25519> =
+            &ctx_right.send_channel(ctx.role().peer(Direction::Right));
+        let receive_channel_right: &ReceivingEnd<Fp25519> =
+            &ctx_left.recv_channel(ctx.role().peer(Direction::Right));
+        let receive_channel_left: &ReceivingEnd<Fp25519> =
+            &ctx_right.recv_channel(ctx.role().peer(Direction::Left));
 
         let mut tk = 0;
-        for (i, x)
-        in std::iter::once(out)
+        for (i, x) in std::iter::once(out)
             .chain(proof.proofs.iter().flatten())
             .chain(u_share_right.iter())
             .chain(v_share_right.iter())
-            .enumerate() {
-            tk+=1;
-        };
-        assert_eq!(tk, 2*length+proof_length+1);
+            .enumerate()
+        {
+            tk += 1;
+        }
+        assert_eq!(tk, 2 * length + proof_length + 1);
 
-        // send to left
-        for (i, x)
-        in std::iter::once(out)
-        // u_share_right.iter()
-        //     .chain(proof.proofs[0].iter())
-            .chain(proof.proofs.iter().flatten())
-            .chain(u_share_right.iter())
-            .chain(v_share_right.iter())
-            .enumerate() {
-            send_channel_left.send(RecordId::from(i), *x).await.unwrap();
-        };
+        // send to left, receive on the right
+        seq_join(
+            ctx_left.active_work(),
+            stream::iter(
+                std::iter::once(out)
+                    .chain(proof.proofs.iter().flatten())
+                    .chain(u_share_right.iter())
+                    .chain(v_share_right.iter())
+                    .enumerate()
+                    .map(|(i, x)| async move {
+                        send_channel_left.send(RecordId::from(i), *x).await.unwrap();
+                        receive_channel_right
+                            .receive(RecordId::from(i))
+                            .await
+                            .unwrap()
+                    }),
+            ),
+        )
+        .collect::<Vec<_>>()
+        .await
+        .iter()
+        .zip(
+            std::iter::once(&mut out_right)
+                .chain(proof_right.proofs.iter_mut().flatten())
+                .chain(u_right.iter_mut())
+                .chain(v_right.iter_mut()),
+        )
+        .for_each(|(x, y)| *y = *x);
 
-        // // send to right
-        // for (i, x)
-        // in u_share_left.iter().chain(v_share_left.iter()).enumerate() {
-        //     send_channel_right.send(RecordId::from(i), *x).await.unwrap();
-        // };
-
-
-        // receive from right
-        for (i, x)
-        in std::iter::once(&mut out_right)
-        // u_right.iter_mut()
-        //     .chain(proof_right.proofs[0].iter_mut())
-            .chain(proof_right.proofs.iter_mut().flatten())
-            .chain(u_right.iter_mut())
-            .chain(v_right.iter_mut())
-            .enumerate() {
-            *x = receive_channel_right.receive(RecordId::from(i)).await.unwrap();
-        };
-
-        // receive from left
-        // for (i, x)
-        // in u_left.iter_mut().chain(v_left.iter_mut()).enumerate() {
-        //     *x = receive_channel_left.receive(RecordId::from(i)).await.unwrap();
-        // }
+        // send to right, receive on the left
+        seq_join(
+            ctx_right.active_work(),
+            stream::iter(
+                u_share_left
+                    .iter()
+                    .chain(v_share_left.iter())
+                    .enumerate()
+                    .map(|(i, x)| async move {
+                        send_channel_right
+                            .send(RecordId::from(i), *x)
+                            .await
+                            .unwrap();
+                        receive_channel_left
+                            .receive(RecordId::from(i))
+                            .await
+                            .unwrap()
+                    }),
+            ),
+        )
+        .collect::<Vec<_>>()
+        .await
+        .iter()
+        .zip(u_left.iter_mut().chain(v_left.iter_mut()))
+        .for_each(|(x, y)| *y = *x);
 
         // output
-        (out_right,proof_right,u_left,u_right,v_left,v_right)
+        (out_right, proof_right, u_left, u_right, v_left, v_right)
     }
 
     #[test]
-    fn proof_verification_test()
-    {
+    fn proof_verification_test() {
         run(|| async move {
             let world = TestWorld::default();
 
@@ -869,26 +870,23 @@ mod test {
             u_and_v.iter_mut().for_each(|x| *x = rng.gen());
 
             let result = world
-                .semi_honest(
-                    u_and_v.into_iter(),
-                    |ctx, input| async move {
-                        // compute proof
-                        let (out,proof) = helper_fn_generate_proof(ctx.clone(),2usize,&input);
-                        let (out_right,
-                            proof_right,
-                            mut u_left,
-                            mut u_right,
-                            mut v_left,
-                            mut v_right) =
-                            helper_fn_send_and_receive_proofs_and_shares(ctx, 2usize, &out, &proof, &input).await;
-                        // verify proof
-                        verify_proof(
-                            &proof_right,
-                            &out_right,
-                            (&mut u_left,&mut u_right),
-                            (&mut v_left,&mut v_right)).unwrap()
-                    }
-                )
+                .semi_honest(u_and_v.into_iter(), |ctx, input| async move {
+                    // compute proof
+                    let (out, proof) = helper_fn_generate_proof(ctx.clone(), 2usize, &input);
+                    let (out_right, proof_right, mut u_left, mut u_right, mut v_left, mut v_right) =
+                        helper_fn_send_and_receive_proofs_and_shares(
+                            ctx, 2usize, &out, &proof, &input,
+                        )
+                        .await;
+                    // verify proof
+                    verify_proof(
+                        &proof_right,
+                        &out_right,
+                        (&mut u_left, &mut u_right),
+                        (&mut v_left, &mut v_right),
+                    )
+                    .unwrap()
+                })
                 .await;
 
             assert!(result[0]);
