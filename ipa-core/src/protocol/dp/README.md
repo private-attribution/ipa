@@ -38,7 +38,7 @@ and then for a fixed set of DP parameters $\varepsilon$, $\delta$, $\Delta$ we f
 
 ## Sampling from a Truncated Double Geometric
 The process of drawing a sample from a Truncated Double Geometric will be done by sampling from a series of distributions
-1. We will assume access to samples from a Bernoulli distribiton as provided by the `rand` crate
+1. We will assume access to samples from a Bernoulli distribution as provided by the `rand` crate
 2. We will use this to implement sampling from a geometric distribution
 3. We will use the geometric distribution to implement sampling from a double geometric distribution
 4. We will use rejection sampleing from a double geometric to sample from a truncated double geometric.
