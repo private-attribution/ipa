@@ -30,6 +30,7 @@ pub(crate) enum Step {
     HashFromLeft,
     HashFromRight,
     PQFromLeft,
+    TwoOutOfTwoZeroCheck,
 }
 
 /// Non-Interactive Distributed Zero Knowledge Proof

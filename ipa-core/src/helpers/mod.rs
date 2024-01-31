@@ -246,9 +246,9 @@ pub enum Direction {
 }
 
 /// implements negation for `Direction`
-impl std::ops::Neg for Direction {
+impl std::ops::Not for Direction {
     type Output = Self;
-    fn neg(self) -> Self {
+    fn not(self) -> Self {
         match self {
             Left => Right,
             Right => Left,
@@ -458,6 +458,26 @@ impl Serializable for PublicKey {
 }
 
 impl Message for PublicKey {}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hash(pub(crate) [u8; 32]);
+
+impl Serializable for Hash {
+    type Size = typenum::U32;
+    type DeserializationError = Infallible;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf.copy_from_slice(&self.0);
+    }
+
+    fn deserialize(
+        buf: &GenericArray<u8, Self::Size>,
+    ) -> std::result::Result<Self, Self::DeserializationError> {
+        Ok(Hash(buf.into_array()))
+    }
+}
+
+impl Message for Hash {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {

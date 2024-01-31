@@ -1,5 +1,3 @@
-use std::ops::Neg;
-
 use futures_util::{stream, TryStreamExt};
 use generic_array::GenericArray;
 use hkdf::Hkdf;
@@ -37,7 +35,7 @@ where
     // set up context
     let ctx_new = &(ctx.set_total_records(r_d.len()));
     // set up channels
-    let send_channel: &SendingEnd<F> = &ctx_new.send_channel(ctx.role().peer(direction.neg()));
+    let send_channel: &SendingEnd<F> = &ctx_new.send_channel(ctx.role().peer(!direction));
     let receive_channel: &ReceivingEnd<F> = &ctx_new.recv_channel(ctx.role().peer(direction));
 
     let _ = seq_join(
