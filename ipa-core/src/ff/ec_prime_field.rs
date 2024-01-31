@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{cmp::Ordering, convert::Infallible};
 
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
@@ -33,6 +33,20 @@ impl Invert for Fp25519 {
     fn invert(&self) -> Self {
         assert_ne!(*self, Fp25519::ZERO);
         Fp25519(self.0.invert())
+    }
+}
+/// PartialOrd
+/// be careful using it because of wrap around
+/// needed for checking whether value falls in range
+impl PartialOrd for Fp25519 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.0.as_bytes() < other.0.as_bytes() {
+            Some(Ordering::Less)
+        } else if self.0.as_bytes() > other.0.as_bytes() {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
     }
 }
 
@@ -288,5 +302,19 @@ mod test {
         let a = rng.gen::<Fp25519>();
         let ia = a.invert();
         assert_eq!(a * ia, Fp25519(Scalar::ONE));
+    }
+
+    #[test]
+    fn partial_order_25519() {
+        let mut rng = thread_rng();
+        let a = rng.gen::<u128>();
+        let b = rng.gen::<u128>();
+        if a < b {
+            assert!(Fp25519::try_from(a).unwrap() < Fp25519::try_from(b).unwrap())
+        } else if a > b {
+            assert!(Fp25519::try_from(a).unwrap() > Fp25519::try_from(b).unwrap())
+        } else {
+            assert_eq!(Fp25519::try_from(a).unwrap(), Fp25519::try_from(b).unwrap())
+        }
     }
 }

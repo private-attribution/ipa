@@ -245,6 +245,17 @@ pub enum Direction {
     Right,
 }
 
+/// implements negation for `Direction`
+impl std::ops::Neg for Direction {
+    type Output = Self;
+    fn neg(self) -> Self {
+        match self {
+            Left => Right,
+            Right => Left,
+        }
+    }
+}
+
 impl Role {
     const H1_STR: &'static str = "H1";
     const H2_STR: &'static str = "H2";

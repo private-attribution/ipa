@@ -1,22 +1,36 @@
-use futures_util::future;
+use futures_util::{future, future::try_join, stream, TryStreamExt};
 use generic_array::{ArrayLength, GenericArray};
 use hkdf::Hkdf;
+use ipa_macros::Step;
 use sha2::Sha256;
 use typenum::Unsigned;
 
 use crate::{
-    ff::{Error, Field, Invert, Serializable},
+    error::Error,
+    ff::{Field, Invert, Serializable},
+    helpers::{Direction, ReceivingEnd, SendingEnd},
     protocol::{
         context::Context,
-        ipa_prf::malicious_security::lagrange::{
-            compute_lagrange_base, compute_lagrange_denominator, generate_evaluation_points,
-            lagrange_evaluation, lagrange_evaluation_precomputed,
+        ipa_prf::malicious_security::{
+            fiat_shamir::{compute_r_prover, compute_r_verifier},
+            lagrange::{
+                compute_lagrange_base, compute_lagrange_denominator, generate_evaluation_points,
+                lagrange_evaluation, lagrange_evaluation_precomputed,
+            },
         },
         prss::SharedRandomness,
         RecordId,
     },
     secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    seq_join::seq_join,
 };
+
+#[derive(Step)]
+pub(crate) enum Step {
+    HashFromLeft,
+    HashFromRight,
+    PQFromLeft,
+}
 
 /// Non-Interactive Distributed Zero Knowledge Proof
 /// a `NIDZKP` which is computed over multiple recursions , is a vector of `g` polynomials
@@ -31,7 +45,7 @@ pub struct NIDZKP<F>
 where
     F: Field,
 {
-    proofs: Vec<Vec<F>>,
+    pub(crate) proofs: Vec<Vec<F>>,
 }
 
 /// generates recursive proof for sum_i u_i*v_i = out over field F
@@ -114,8 +128,7 @@ where
 
         // compute random point `r` via `Fiat-Shamir` hash
         // generate `r` as `hash(g_right) + hash(g_right)`
-        let mut r = F::ZERO;
-        compute_r_prover(&g, &g_left, &mut r);
+        let mut r = compute_r_prover(&g, &g_left);
 
         // add `g_right` to proof
         output.proofs.push(g);
@@ -208,18 +221,16 @@ where
 
 /// verify proof
 /// needs interaction to compute the hashes, i.e. random points
-// need to change it to async once prss is incorporated
-// todo
-pub fn verify_proof<F>(
-    //ctx: C,
+pub async fn verify_proof<C, F>(
+    ctx: C,
     proof_right: &NIDZKP<F>,
     out: &F,
     share_of_u: (&mut Vec<F>, &mut Vec<F>),
     share_of_v: (&mut Vec<F>, &mut Vec<F>),
 ) -> Result<bool, Error>
 where
-    //C: Context,
-    F: Field + Invert,
+    C: Context,
+    F: Field + Invert + PartialOrd,
 {
     // setup output
     let mut output = true;
@@ -251,34 +262,54 @@ where
     let mut g_r_right = vec![F::ONE; proof_right.proofs.len() + 1];
     let mut g_r_left = vec![F::ONE; proof_left.proofs.len() + 1];
 
-    // dummy fs:
-    r_left
-        .iter_mut()
-        .zip(r_right.iter_mut())
-        .zip(proof_left.proofs.iter().zip(proof_right.proofs.iter()))
-        .for_each(|((r_left, r_right), (proof_left, proof_right))| {
-            compute_r_prover(&proof_left, &proof_right, r_left);
-            *r_right = *r_left;
-        });
+    // compute r_right
+    compute_r_verifier(
+        ctx.narrow(&Step::HashFromRight),
+        proof_right,
+        Direction::Right,
+        &mut r_right,
+        &mut r_left,
+    )
+    .await?;
+    // compute r_left
+    compute_r_verifier(
+        ctx.narrow(&Step::HashFromLeft),
+        proof_left,
+        Direction::Left,
+        &mut r_left,
+        &mut r_right,
+    )
+    .await?;
 
-    for (r, g_r, proof, g_r_0) in [
-        (&r_right, &mut g_r_right, proof_right, out),
-        (&r_left, &mut g_r_left, proof_left, &F::ZERO),
-    ] {
-        // compute r's using fiat+shamir
-        // todo replace dummy fs above with `compute_r_verifier`
-
-        // last `r` is not allowed to be in `evaluation_points[0..recursion_factor]`
-        // therefore, we use `compute_final_r`
-        //
-        // todo
-
-        // then compute g_r using lagrange_evaluation
-        compute_g_r(proof, g_r_0, r, r_f, &e_p, g_r);
-
-        // compute `g_r = g_r-sum g(x)`
-        compute_sums_gr_gm(proof, g_r);
+    // last `r` is not allowed to be in `evaluation_points[0..recursion_factor]`
+    // otherwise inputs are leaked when sending `p(r)`, `q(r)`
+    // this reduces min-entropy of r by at most half
+    let threshold = F::try_from(r_f as u128 + 1).unwrap();
+    if r_right[proof_right.proofs.len() - 1] < threshold {
+        r_right[proof_right.proofs.len() - 1] += threshold;
     }
+    if r_left[proof_right.proofs.len() - 1] < threshold {
+        r_left[proof_right.proofs.len() - 1] += threshold;
+    }
+
+    // for (r, g_r, proof, g_r_0) in [
+    //     (&r_right, &mut g_r_right, proof_right, out),
+    //     (&r_left, &mut g_r_left, proof_left, &F::ZERO),
+    // ] {
+    //     // then compute g_r using lagrange_evaluation
+    //     compute_g_r(proof, g_r_0, r, r_f, &e_p, g_r);
+    //
+    //     // compute `g_r = g_r-sum g(x)`
+    //     compute_sums_gr_gm(proof, g_r);
+    // }
+
+    // then compute g_r using lagrange_evaluation
+    compute_g_r(proof_right, out, &r_right, r_f, &e_p, &mut g_r_right);
+    compute_g_r(proof_left, &F::ZERO, &r_left, r_f, &e_p, &mut g_r_left);
+
+    // compute `g_r = g_r-sum g(x)`
+    compute_sums_gr_gm(proof_right, &mut g_r_right);
+    compute_sums_gr_gm(proof_left, &mut g_r_left);
 
     // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
     let mut denominators = vec![F::ONE; r_f];
@@ -304,6 +335,29 @@ where
         &r_right,
     );
 
+    // compute p(r)*g(r)
+    // set up context
+    let ctx_new = &(ctx.narrow(&Step::PQFromLeft).set_total_records(2usize));
+    // set up channels
+    let send_channel: &SendingEnd<F> = &ctx_new.send_channel(ctx.role().peer(Direction::Right));
+    let receive_channel: &ReceivingEnd<F> = &ctx_new.recv_channel(ctx.role().peer(Direction::Left));
+    let p_q_received = seq_join(
+        ctx_new.active_work(),
+        stream::iter(
+            std::iter::once(p_left)
+                .chain(std::iter::once(q_left))
+                .enumerate()
+                .map(|(i, x)| async move {
+                    send_channel.send(RecordId::from(i), x).await?;
+                    receive_channel.receive(RecordId::from(i)).await
+                }),
+        ),
+    )
+    .try_collect::<Vec<_>>()
+    .await?;
+    // subtract from `g_r`
+    g_r_right[g_r_left.len() - 1] -= (p_right + p_q_received[0]) * (q_right + p_q_received[0]);
+
     // todo consolidate zero checks
 
     // zero test
@@ -323,17 +377,13 @@ where
         });
 
     debug_assert!(output);
-    // final check:
-
-    // reveal q(r), p(r) and g(r) and verify p(r)*g(r)=G(r)
-    // todo
-    // dummy debug verify:
-    debug_assert_eq!(
-        (p_left + p_right) * (q_left + q_right),
-        g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1]
-    );
-    output &= (p_left + p_right) * (q_left + q_right)
-        == g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1];
+    // // dummy debug verify:
+    // debug_assert_eq!(
+    //     (p_left + p_right) * (q_left + q_right),
+    //     g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1]
+    // );
+    // output &= (p_left + p_right) * (q_left + q_right)
+    //     == g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1];
 
     Ok(output)
 }
@@ -537,71 +587,6 @@ where
     g.iter_mut()
         .zip(summand_of_g.iter())
         .for_each(|(x, y)| *x += *y);
-}
-
-/// computes random challenge `r` from `proof_right`
-/// since the verifier has only access to `proof_right`,
-/// further, he computes all `r` at once
-/// he needs to receive `fiat_shamir(proof_left)` from the other verifier
-/// `r` is computed has `fiat_shamir(proof_left)+fiat_shamir(proof_right)`
-/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
-// todo: make it async
-fn compute_r_verifier<F>(proof_right: &NIDZKP<F>, r: &mut [F]) -> ()
-where
-    F: Field,
-{
-    debug_assert_eq!(proof_right.proofs.len(), r.len());
-    r.iter_mut()
-        .zip(proof_right.proofs.iter())
-        .for_each(|(r, proof)| {
-            fiat_shamir(proof, r);
-
-            // send and receive r
-            // todo replace `F::ZERO` with actual received `r`
-            let r_received = F::ZERO;
-            *r += r_received;
-        });
-}
-
-/// computes random challenge `r` from `proof_part_left` and `proof_part_right`
-/// since only the prover has access to both parts, only he can compute `r` this way
-/// further, the prover computes `r` one by one rather than all `r` at once
-/// `r` is computed has `fiat_shamir(proof_part_left)+fiat_shamir(proof_part_right)`
-/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
-fn compute_r_prover<F>(proof_left: &[F], proof_right: &[F], r: &mut F) -> ()
-where
-    F: Field,
-{
-    fiat_shamir(proof_left, r);
-    fiat_shamir(proof_right, r);
-}
-
-/// the Fiat-Shamir core function
-/// it takes a commitment, which is for `NIDZKP` the actual proof
-/// and computes a vector of random points by hashing the individual proofs parts
-/// this function only computes `r` for a single proof part
-/// `fiat_shamir` takes an input `r` and adds the generated value to `r`
-fn fiat_shamir<F>(proof: &[F], r: &mut F) -> ()
-where
-    F: Field,
-{
-    // serialize proof const SIZE: usize = <F as Serializable>::Size::USIZE;
-    let mut ikm = Vec::<u8>::with_capacity(proof.len() * <F as Serializable>::Size::USIZE);
-    proof.iter().for_each(|f| {
-        let mut buf = vec![0u8; <F as Serializable>::Size::USIZE];
-        f.serialize(GenericArray::from_mut_slice(&mut buf));
-        ikm.extend(buf)
-    });
-
-    // compute `r` from `hash` of the proof
-    let hk = Hkdf::<Sha256>::new(None, &ikm);
-    // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
-    // however, deserialize might fail for some fields so we use `from_random_128` instead
-    // therefore fields beyond `F::Size()>16` don't further reduce the cheating probability of the prover
-    let mut hash = [0u8; 16];
-    // hash length is a valid length so expand does not fail
-    hk.expand(&[], &mut hash).unwrap();
-    *r += F::from_random_u128(u128::from_le_bytes(hash));
 }
 
 #[cfg(all(test, unit_test))]
@@ -875,16 +860,22 @@ mod test {
                     let (out, proof) = helper_fn_generate_proof(ctx.clone(), 2usize, &input);
                     let (out_right, proof_right, mut u_left, mut u_right, mut v_left, mut v_right) =
                         helper_fn_send_and_receive_proofs_and_shares(
-                            ctx, 2usize, &out, &proof, &input,
+                            ctx.clone(),
+                            2usize,
+                            &out,
+                            &proof,
+                            &input,
                         )
                         .await;
                     // verify proof
                     verify_proof(
+                        ctx,
                         &proof_right,
                         &out_right,
                         (&mut u_left, &mut u_right),
                         (&mut v_left, &mut v_right),
                     )
+                    .await
                     .unwrap()
                 })
                 .await;
