@@ -7,6 +7,7 @@ mod reshare;
 mod reveal;
 mod share_known_value;
 pub mod sum_of_product;
+pub mod validate;
 
 pub use check_zero::check_zero;
 pub use if_else::if_else;
