@@ -1,8 +1,6 @@
-use futures_util::{future, future::try_join, stream, TryStreamExt};
-use generic_array::{ArrayLength, GenericArray};
-use hkdf::Hkdf;
+use futures_util::{stream, TryStreamExt};
+use generic_array::ArrayLength;
 use ipa_macros::Step;
-use sha2::Sha256;
 use typenum::Unsigned;
 
 use crate::{
@@ -10,6 +8,7 @@ use crate::{
     ff::{Field, Invert, Serializable},
     helpers::{Direction, ReceivingEnd, SendingEnd},
     protocol::{
+        basics::two_out_of_two_zero_check::two_out_of_two_zero_check,
         context::Context,
         ipa_prf::malicious_security::{
             fiat_shamir::{compute_r_prover, compute_r_verifier},
@@ -74,9 +73,6 @@ where
         proofs: Vec::with_capacity(1),
     };
 
-    // record counter
-    let mut counter = 0usize;
-
     // precomputation for Lagrange
     let mut evaluation_points = vec![F::ZERO; 2 * r_f];
     generate_evaluation_points(&mut evaluation_points);
@@ -122,10 +118,10 @@ where
         });
 
         // compute secret share `g_right` by computing `g_right=g-g_left`
-        // since `g` already contains `g`, we just need to subtract `g_left`
+        // we just need to subtract `g_left`
         g.iter_mut()
             .zip(g_left.iter())
-            .for_each(|(g_right, g_left)| *g_right -= *g_left);
+            .for_each(|(g, g_left)| *g -= *g_left);
 
         // compute random point `r` via `Fiat-Shamir` hash
         // generate `r` as `hash(g_right) + hash(g_right)`
@@ -233,9 +229,6 @@ where
     C: Context,
     F: Field + Invert + PartialOrd,
 {
-    // setup output
-    let mut output = true;
-
     // check that there is at least one recursion
     debug_assert!(proof_right.proofs.len() > 1);
     // compute recursion factor
@@ -246,16 +239,14 @@ where
     generate_evaluation_points(&mut e_p);
 
     // compute left part of the proof
+    let mut proof_left = proof_right.clone();
+    // add prss value to proof
     // todo
-    let proof_left = &mut NIDZKP {
-        proofs: Vec::with_capacity(proof_right.proofs.len()),
-    };
-    proof_right
+    proof_left
         .proofs
-        .iter()
-        // add prss value to proof
-        // todo
-        .for_each(|x| proof_left.proofs.push(vec![F::ONE; x.len()]));
+        .iter_mut()
+        .flatten()
+        .for_each(|x| *x = F::ONE);
 
     // declarations
     let mut r_right = vec![F::ZERO; proof_right.proofs.len()];
@@ -275,7 +266,7 @@ where
     // compute r_left
     compute_r_verifier(
         ctx.narrow(&Step::HashFromLeft),
-        proof_left,
+        &proof_left,
         Direction::Left,
         &mut r_left,
         &mut r_right,
@@ -293,24 +284,13 @@ where
         r_left[proof_right.proofs.len() - 1] += threshold;
     }
 
-    // for (r, g_r, proof, g_r_0) in [
-    //     (&r_right, &mut g_r_right, proof_right, out),
-    //     (&r_left, &mut g_r_left, proof_left, &F::ZERO),
-    // ] {
-    //     // then compute g_r using lagrange_evaluation
-    //     compute_g_r(proof, g_r_0, r, r_f, &e_p, g_r);
-    //
-    //     // compute `g_r = g_r-sum g(x)`
-    //     compute_sums_gr_gm(proof, g_r);
-    // }
-
     // then compute g_r using lagrange_evaluation
     compute_g_r(proof_right, out, &r_right, r_f, &e_p, &mut g_r_right);
-    compute_g_r(proof_left, &F::ZERO, &r_left, r_f, &e_p, &mut g_r_left);
+    compute_g_r(&proof_left, &F::ZERO, &r_left, r_f, &e_p, &mut g_r_left);
 
     // compute `g_r = g_r-sum g(x)`
     compute_sums_gr_gm(proof_right, &mut g_r_right);
-    compute_sums_gr_gm(proof_left, &mut g_r_left);
+    compute_sums_gr_gm(&proof_left, &mut g_r_left);
 
     // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
     let mut denominators = vec![F::ONE; r_f];
@@ -359,34 +339,16 @@ where
     // subtract from `g_r`
     g_r_right[g_r_left.len() - 1] -= (p_right + p_q_received[0]) * (q_right + p_q_received[0]);
 
-    // todo consolidate zero checks
-
     // zero test
     // check that all sums `g_r == 0`
-    // todo
-    // dummy debug zero test:
-    g_r_right[0..g_r_right.len() - 1]
-        .iter()
-        .zip(g_r_left[0..g_r_left.len() - 1].iter())
-        .enumerate()
-        .for_each(|(i, (x_right, x_left))| {
-            debug_assert_eq!(
-                (i, x_right, x_left, *x_right + *x_left),
-                (i, x_right, x_left, F::ZERO)
-            );
-            output &= *x_right + *x_left == F::ZERO
-        });
-
-    debug_assert!(output);
-    // // dummy debug verify:
-    // debug_assert_eq!(
-    //     (p_left + p_right) * (q_left + q_right),
-    //     g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1]
-    // );
-    // output &= (p_left + p_right) * (q_left + q_right)
-    //     == g_r_right[g_r_right.len() - 1] + g_r_left[g_r_left.len() - 1];
-
-    Ok(output)
+    // swap inputs g_r_left and g_r_right, since prover for left is on the left
+    // so we need to send it to the other verifier on the right
+    two_out_of_two_zero_check(
+        ctx.narrow(&Step::TwoOutOfTwoZeroCheck),
+        &g_r_right,
+        &g_r_left,
+    )
+    .await
 }
 
 /// replaces `g_previous(r)` with `g_previous(r)-sum_(x in evaluation_points) g_current(x)`
@@ -601,6 +563,7 @@ mod test {
         ff::ec_prime_field::Fp25519,
         helpers::{Direction, ReceivingEnd, SendingEnd},
         protocol::{
+            basics::two_out_of_two_zero_check::two_out_of_two_zero_check,
             context::Context,
             ipa_prf::malicious_security::{
                 lagrange::compute_lagrange_denominator,
@@ -616,6 +579,12 @@ mod test {
         test_executor::run,
         test_fixture::{Runner, TestWorld},
     };
+
+    #[derive(Step)]
+    pub(crate) enum Step {
+        TestRight,
+        TestLeft,
+    }
 
     #[test]
     fn polynomial_compression_test() {
@@ -700,15 +669,7 @@ mod test {
             acc + u_and_v.left() * u_and_v.right()
         });
 
-        let proof = generate_proof(&mut u, &mut v, r_f);
-
-        (out, proof)
-    }
-
-    #[derive(Step)]
-    pub(crate) enum Step {
-        TestRight,
-        TestLeft,
+        (out, generate_proof(&mut u, &mut v, r_f))
     }
 
     /// helper function for test, allows to send proofs and secret shares
@@ -775,17 +736,6 @@ mod test {
             &ctx_left.recv_channel(ctx.role().peer(Direction::Right));
         let receive_channel_left: &ReceivingEnd<Fp25519> =
             &ctx_right.recv_channel(ctx.role().peer(Direction::Left));
-
-        let mut tk = 0;
-        for (i, x) in std::iter::once(out)
-            .chain(proof.proofs.iter().flatten())
-            .chain(u_share_right.iter())
-            .chain(v_share_right.iter())
-            .enumerate()
-        {
-            tk += 1;
-        }
-        assert_eq!(tk, 2 * length + proof_length + 1);
 
         // send to left, receive on the right
         seq_join(
@@ -859,6 +809,7 @@ mod test {
                 .semi_honest(u_and_v.into_iter(), |ctx, input| async move {
                     // compute proof
                     let (out, proof) = helper_fn_generate_proof(ctx.clone(), 2usize, &input);
+                    // send proofs, generate shares
                     let (out_right, proof_right, mut u_left, mut u_right, mut v_left, mut v_right) =
                         helper_fn_send_and_receive_proofs_and_shares(
                             ctx.clone(),
@@ -868,6 +819,7 @@ mod test {
                             &input,
                         )
                         .await;
+
                     // verify proof
                     verify_proof(
                         ctx,

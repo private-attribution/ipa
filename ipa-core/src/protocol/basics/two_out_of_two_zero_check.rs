@@ -14,6 +14,8 @@ use crate::{
 };
 
 /// two out of two zero check
+/// (similar to checking the consistency between shares with the difference
+/// that shares sum to zero rather than being identical)
 /// each of the helpers has two vectors, left and right
 /// this check verifies that for each position in the vector
 /// the element of left helper right and right helper left sum to zero
@@ -25,11 +27,11 @@ use crate::{
 /// but might not be sufficient for other applications
 ///
 /// The left helper simply hashes the vector and sends it to the right,
-/// the right helper hashes his vector and compares it to the received hash
+/// the right helper negates his vector, hashes it and compares it to the received hash
 pub async fn two_out_of_two_zero_check<C, S>(
     ctx: C,
-    input_left: &Vec<S>,
-    input_right: &Vec<S>,
+    input_left: &[S],
+    input_right: &[S],
 ) -> Result<bool, Error>
 where
     C: Context,
@@ -53,7 +55,7 @@ where
             .iter()
             .map(|x| {
                 let mut buf = vec![0u8; <S as Serializable>::Size::USIZE];
-                x.serialize(GenericArray::from_mut_slice(&mut buf));
+                x.neg().serialize(GenericArray::from_mut_slice(&mut buf));
                 buf
             })
             .flatten()
@@ -99,6 +101,8 @@ fn compute_hash(input: &[u8]) -> [u8; 32] {
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::ops::Neg;
+
     use rand::{thread_rng, Rng};
 
     use crate::{
@@ -122,7 +126,7 @@ mod test {
 
             let result = world
                 .semi_honest(r.into_iter(), |ctx, input| async move {
-                    let r_right = input.iter().map(|x| x.right()).collect::<Vec<_>>();
+                    let r_right = input.iter().map(|x| x.neg().right()).collect::<Vec<_>>();
                     let r_left = input.iter().map(|x| x.left()).collect::<Vec<_>>();
 
                     two_out_of_two_zero_check(ctx, &r_left, &r_right)
