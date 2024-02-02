@@ -84,19 +84,22 @@ where
     debug_assert_eq!(u.len(), v.len());
     // check that field is large enough to hold evaluation points
     debug_assert!(F::BITS > usize::BITS - r_f.leading_zeros() + 1);
+    // record, used as counter for PRSS
+    let mut record = 0usize;
 
     // proof length
     let proof_length =
         (f64::from_bits(u.len() as u64).log(f64::from_bits(r_f as u64))).ceil() as usize + 1usize;
     // get masks from PRSS
-    let mask_p = (F::ONE, F::ONE);
-    let mask_q = (F::ONE, F::ONE);
+    let mask_p = ctx.prss().generate_fields(RecordId::from(record)); //(F::ONE, F::ONE);
+    record += 1;
+    let mask_q = ctx.prss().generate_fields(RecordId::from(record));
     // proof from the prover on the left, i.e. generated via `PRSS.left` rather than receiving it from the left
     let mut output_left = NIDZKP {
         proofs: Vec::with_capacity(proof_length),
-        // generate mask p(0) from `PRSS.left`
+        // set mask p(0) from `PRSS.left`
         mask_p: mask_p.0,
-        // generate mask q(0) from `PRSS.left`
+        // set mask q(0) from `PRSS.left`
         mask_q: mask_q.0,
     };
     // right part of this helpers own proof, to be sent to the left
@@ -142,19 +145,24 @@ where
 
         // compute secret share g_left (i.e. part of the proof recovered by right party) using prss_right
         let mut output_g_left = Vec::<F>::with_capacity(g.len());
+        // `own_g_left` is needed for hash, i.e. "Fiat-Shamir" `r`:
+        let mut own_g_left = Vec::<F>::with_capacity(g.len());
         g.iter_mut().for_each(|g| {
             // get prss
-            // todo
+            record += 1;
+            let (left, right) = ctx.prss().generate_fields(RecordId::from(record));
             // push `PRSS.left` to `output_g_left`
-            output_g_left.push(F::ONE);
+            output_g_left.push(left);
+            // own_g_left:
+            own_g_left.push(right);
             // compute secret share `own_g_right` by computing `own_g_right=g-own_g_left`
             // we just need to subtract `own_g_left`, which comes from `PRSS.right`
-            *g -= F::ONE;
+            *g -= right;
         });
 
         // compute random point `r` via `Fiat-Shamir` hash
-        // generate `r` as `hash(g_right) + hash(g_right)`
-        let r = compute_r_prover(&g, &output_g_left);
+        // generate `r` as `hash(g_right) + hash(g_left)`
+        let r = compute_r_prover(&g, &own_g_left);
 
         // add `g` to proofs
         output_left.proofs.push(output_g_left);
@@ -224,12 +232,13 @@ where
     let mut output_g_left = Vec::<F>::with_capacity(final_g.len());
     final_g.iter_mut().for_each(|g| {
         // get prss
-        // todo
+        record += 1;
+        let (left, right) = ctx.prss().generate_fields(RecordId::from(record));
         // push `PRSS.left` to `output_g_left`
-        output_g_left.push(F::ONE);
+        output_g_left.push(left);
         // compute secret share `own_g_right` by computing `own_g_right=g-own_g_left`
         // we just need to subtract `own_g_left`, which comes from `PRSS.right`
-        *g -= F::ONE;
+        *g -= right;
     });
 
     // finalize proofs
