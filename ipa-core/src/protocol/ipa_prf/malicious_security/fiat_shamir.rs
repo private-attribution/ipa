@@ -145,9 +145,13 @@ mod test {
                     let r_left = input.iter().map(|x| x.left()).collect::<Vec<_>>();
                     let proof_right = NIDZKP::<Fp25519> {
                         proofs: r_right.chunks(r_f).map(|x| x.to_vec()).collect::<Vec<_>>(),
+                        mask_p: Fp25519::ZERO,
+                        mask_q: Fp25519::ZERO,
                     };
                     let proof_left = NIDZKP::<Fp25519> {
                         proofs: r_left.chunks(r_f).map(|x| x.to_vec()).collect::<Vec<_>>(),
+                        mask_p: Fp25519::ONE,
+                        mask_q: Fp25519::ONE,
                     };
                     let mut fs_verifier_left = vec![Fp25519::ZERO; proof_left.proofs.len()];
                     let mut fs_verifier_right = vec![Fp25519::ZERO; proof_left.proofs.len()];
