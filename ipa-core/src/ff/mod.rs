@@ -119,5 +119,6 @@ where
 }
 
 pub trait Invert {
+    #[must_use]
     fn invert(&self) -> Self;
 }

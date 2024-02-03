@@ -25,6 +25,8 @@ use crate::{
 };
 
 mod boolean_ops;
+
+#[cfg(all(test, unit_test))]
 pub mod malicious_security;
 pub mod prf_eval;
 pub mod prf_sharding;

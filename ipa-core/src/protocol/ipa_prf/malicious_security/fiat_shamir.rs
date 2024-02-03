@@ -34,7 +34,7 @@ where
     let send_channel: &SendingEnd<F> = &ctx_new.send_channel(ctx.role().peer(!direction));
     let receive_channel: &ReceivingEnd<F> = &ctx_new.recv_channel(ctx.role().peer(direction));
 
-    let _ = seq_join(
+    seq_join(
         ctx_new.active_work(),
         stream::iter(r_d.iter_mut().zip(proof.proofs.iter()).enumerate().map(
             |(i, (x, proof))| async move {
@@ -109,15 +109,27 @@ mod test {
 
             let result = world
                 .semi_honest(r.into_iter(), |ctx, input| async move {
-                    let r_right = input.iter().map(|x| x.right()).collect::<Vec<_>>();
-                    let r_left = input.iter().map(|x| x.left()).collect::<Vec<_>>();
+                    let r_right = input
+                        .iter()
+                        .map(ReplicatedSecretSharing::right)
+                        .collect::<Vec<_>>();
+                    let r_left = input
+                        .iter()
+                        .map(ReplicatedSecretSharing::left)
+                        .collect::<Vec<_>>();
                     let proof_right = NIDZKP::<Fp25519> {
-                        proofs: r_right.chunks(r_f).map(|x| x.to_vec()).collect::<Vec<_>>(),
+                        proofs: r_right
+                            .chunks(r_f)
+                            .map(<[Fp25519]>::to_vec)
+                            .collect::<Vec<_>>(),
                         mask_p: Fp25519::ZERO,
                         mask_q: Fp25519::ZERO,
                     };
                     let proof_left = NIDZKP::<Fp25519> {
-                        proofs: r_left.chunks(r_f).map(|x| x.to_vec()).collect::<Vec<_>>(),
+                        proofs: r_left
+                            .chunks(r_f)
+                            .map(<[Fp25519]>::to_vec)
+                            .collect::<Vec<_>>(),
                         mask_p: Fp25519::ONE,
                         mask_q: Fp25519::ONE,
                     };
@@ -148,7 +160,7 @@ mod test {
                         .iter_mut()
                         .zip(proof_left.proofs.iter().zip(proof_right.proofs.iter()))
                         .for_each(|(r_prover, (p_left, p_right))| {
-                            *r_prover = fiat_shamir_prover(&p_left, &p_right)
+                            *r_prover = fiat_shamir_prover(p_left, p_right);
                         });
 
                     (fs_prover, fs_verifier_left, fs_verifier_right)

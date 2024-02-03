@@ -1,13 +1,10 @@
-use bitvec::view::BitViewSized;
 use futures::StreamExt;
 use futures_util::{stream, TryStreamExt};
-use generic_array::ArrayLength;
 use ipa_macros::Step;
-use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, Invert, Serializable},
+    ff::{Field, Invert},
     helpers::{Direction, ReceivingEnd, SendingEnd},
     protocol::{
         basics::validate_replicated_shares::validate_sum_to_zero,
@@ -22,7 +19,6 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::ReplicatedSecretSharing,
     seq_join::seq_join,
 };
 
@@ -41,7 +37,7 @@ pub(crate) enum Step {
 /// the length of the left share, `g_left`, determines the degree of the polynomial
 /// for a low communication rate, i.e. `log (amount of multiplications)`,
 /// the length needs to be constant in the amount of multiplications
-/// length might be different across recursions (therefore used Vec instead of GenArray)
+/// length might be different across recursions (therefore used `Vec` instead of `GenericArray`)
 /// the "left proof" also contains non-zero masks, `mask_p` and `mask_q`.
 /// For the "right proof" both masks are zero.
 ///
@@ -69,7 +65,14 @@ where
 /// it remains with the party and is the input `proof_left` to the proof verification
 /// the outputs includes the two masks for the proofs, i.e. `mask_p`, `mask_q`
 ///
-/// This function uses `ctx` only for generating random values using PRSS
+/// This function uses `ctx` for generating random values using PRSS
+/// and sending the right part of the proof to the left
+///
+/// # Errors
+/// propagates errors from send and receive
+///
+/// # Panics
+/// Does not panic
 pub async fn generate_proof<C, F>(
     ctx: C,
     u: &mut Vec<F>,
@@ -88,8 +91,12 @@ where
     let mut record = 0usize;
 
     // proof length
-    let proof_length =
-        (f64::from_bits(u.len() as u64).log(f64::from_bits(r_f as u64))).ceil() as usize + 1usize;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let proof_length = (u.len() as f64).log(r_f as f64).ceil() as usize + 1usize;
     // get masks from PRSS
     let mask_p = ctx.prss().generate_fields(RecordId::from(record)); //(F::ONE, F::ONE);
     record += 1;
@@ -110,18 +117,13 @@ where
     };
 
     // precomputation for Lagrange
-    let mut evaluation_points = vec![F::ZERO; 2 * r_f];
-    generate_evaluation_points(&mut evaluation_points);
+    let mut e_p = vec![F::ZERO; 2 * r_f];
+    generate_evaluation_points(&mut e_p);
     // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
-    let mut denominators = vec![F::ONE; r_f];
-    compute_lagrange_denominator(&evaluation_points[0..r_f], &mut denominators);
-    let mut base_canonical = vec![vec![F::ONE; r_f]; r_f];
-    compute_lagrange_base(
-        &evaluation_points[r_f..2 * r_f],
-        &evaluation_points[0..r_f],
-        &denominators,
-        &mut base_canonical,
-    );
+    let mut ds = vec![F::ONE; r_f];
+    compute_lagrange_denominator(&e_p[0..r_f], &mut ds);
+    let mut base = vec![vec![F::ONE; r_f]; r_f];
+    compute_lagrange_base(&e_p[r_f..2 * r_f], &e_p[0..r_f], &ds, &mut base);
 
     // iterate over recursions
     while u.len() >= r_f {
@@ -133,7 +135,7 @@ where
         }
 
         // amount of polynomials `p`, `q`, i.e. amount of `summand_of_g`
-        let s = u.len() / r_f;
+        let length = u.len() / r_f;
 
         // define `g` which is represented by `2*recursion_factor` many points.
         let mut g = vec![F::ZERO; 2 * r_f];
@@ -141,13 +143,13 @@ where
         // compute `g` which is the sum of `summand_of_g`
         u.chunks(r_f)
             .zip(v.chunks(r_f))
-            .for_each(|(u, v)| compute_summand_of_g(u, v, r_f, &base_canonical, &mut g));
+            .for_each(|(u, v)| compute_summand_of_g(u, v, r_f, &base, &mut g));
 
         // compute secret share g_left (i.e. part of the proof recovered by right party) using prss_right
         let mut output_g_left = Vec::<F>::with_capacity(g.len());
         // `own_g_left` is needed for hash, i.e. "Fiat-Shamir" `r`:
         let mut own_g_left = Vec::<F>::with_capacity(g.len());
-        g.iter_mut().for_each(|g| {
+        for g in &mut g {
             // get prss
             record += 1;
             let (left, right) = ctx.prss().generate_fields(RecordId::from(record));
@@ -158,7 +160,7 @@ where
             // compute secret share `own_g_right` by computing `own_g_right=g-own_g_left`
             // we just need to subtract `own_g_left`, which comes from `PRSS.right`
             *g -= right;
-        });
+        }
 
         // compute random point `r` via `Fiat-Shamir` hash
         // generate `r` as `hash(g_right) + hash(g_left)`
@@ -170,31 +172,26 @@ where
 
         // precompute Lagrange base for `r`
         let mut base_r = vec![vec![F::ONE; r_f]; 1usize];
-        compute_lagrange_base(
-            &std::slice::from_ref(&r),
-            &evaluation_points[0..r_f],
-            &denominators,
-            &mut base_r,
-        );
+        compute_lagrange_base(std::slice::from_ref(&r), &e_p[0..r_f], &ds, &mut base_r);
 
         // evaluate p, q to get new u, v
         // u, v are split into chunks to represent p(evaluation_points), q(evaluation_points)
         // lagrange_evaluation is used to compute p(r), q(r) from p(evaluation_points), q(evaluation_points)
         // compute p(r) using u
-        let mut u_new = vec![F::ONE; s];
+        let mut u_new = vec![F::ONE; length];
         u_new.iter_mut().zip(u.chunks(r_f)).for_each(|(u, chunk)| {
-            lagrange_evaluation_precomputed(&chunk, &base_r, std::slice::from_mut(u));
+            lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(u));
         });
         // compute q(r) using v
-        let mut v_new = vec![F::ONE; s];
+        let mut v_new = vec![F::ONE; length];
         v_new.iter_mut().zip(v.chunks(r_f)).for_each(|(v, chunk)| {
-            lagrange_evaluation_precomputed(&chunk, &base_r, std::slice::from_mut(v));
+            lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(v));
         });
         // reassign u_new, v_new for next iteration
         *u = u_new;
         *v = v_new;
-        u.truncate(s);
-        v.truncate(s);
+        u.truncate(length);
+        v.truncate(length);
     }
 
     // define last g
@@ -220,17 +217,11 @@ where
     };
 
     // compute last g and add it to the proofs
-    compute_summand_of_g(
-        &final_u,
-        &final_v,
-        final_u.len(),
-        &base_canonical,
-        &mut final_g,
-    );
+    compute_summand_of_g(&final_u, &final_v, final_u.len(), &base, &mut final_g);
 
     // generate last secret share
     let mut output_g_left = Vec::<F>::with_capacity(final_g.len());
-    final_g.iter_mut().for_each(|g| {
+    for g in &mut final_g {
         // get prss
         record += 1;
         let (left, right) = ctx.prss().generate_fields(RecordId::from(record));
@@ -239,16 +230,51 @@ where
         // compute secret share `own_g_right` by computing `own_g_right=g-own_g_left`
         // we just need to subtract `own_g_left`, which comes from `PRSS.right`
         *g -= right;
-    });
+    }
 
     // finalize proofs
     own_proof_right.proofs.push(final_g);
     output_left.proofs.push(output_g_left);
 
-    return Ok((
+    Ok((
         output_left,
         send_and_receive_proof(ctx, &own_proof_right).await?,
-    ));
+    ))
+}
+
+/// computes `summand_of_g = p*q` and adds it to `g`
+/// polynomials `p` and `q` are represented by value `u`, `v`
+/// which are the evaluations of `p,q` at `evaluation_points[0..recursion_factor]`
+/// `g` is represented by its evaluation at `evaluation_points`
+/// invoked by `generate_proof`
+fn compute_summand_of_g<F>(u: &[F], v: &[F], r_f: usize, base: &Vec<Vec<F>>, g: &mut [F])
+where
+    F: Field + Invert,
+{
+    // check lengths
+    debug_assert_eq!(u.len(), v.len());
+    debug_assert_eq!(base.len(), u.len());
+
+    // define summand of g, g = sum of summand_of_g
+    // summand_of_g is represented by 2*recursion_factor many points.
+    let mut summand_of_g = vec![F::ONE; 2 * r_f];
+
+    // compute first recursion factor many points of summand_of_g
+    summand_of_g
+        .iter_mut()
+        .take(r_f)
+        .enumerate()
+        .for_each(|(i, x)| *x = u[i] * v[i]);
+
+    // compute summand_of_g = 1*u for rest of points
+    lagrange_evaluation_precomputed(u, base, &mut summand_of_g[r_f..2 * r_f]);
+
+    // compute summand_of_g = u*v for rest of points
+    lagrange_evaluation_precomputed(v, base, &mut summand_of_g[r_f..2 * r_f]);
+    // add summand_of_g to g
+    g.iter_mut()
+        .zip(summand_of_g.iter())
+        .for_each(|(x, y)| *x += *y);
 }
 
 /// sends proof to left and receive from the right
@@ -258,7 +284,7 @@ where
     C: Context,
     F: Field,
 {
-    debug_assert!(proof_send.proofs.len() > 0);
+    debug_assert!(!proof_send.proofs.is_empty());
     let mut proof_received = proof_send.clone();
     let proof_length = proof_send
         .proofs
@@ -319,7 +345,12 @@ where
 /// when the proof from the helper party on the left verifies
 ///
 /// needs interaction to compute the hashes, i.e. random points
-/// context is only used for sending messages, not for generating randomness using PRSS
+/// context is used for sending messages, not for generating randomness using PRSS
+///
+/// # Errors
+/// propagates errors from send and receive
+/// # Panics
+/// when recursion factor exceeds a 128 bit value
 pub async fn verify_proof<C, F>(
     ctx: C,
     proof_left: &NIDZKP<F>,
@@ -360,7 +391,7 @@ where
     // compute r_left
     fiat_shamir_verifier(
         ctx.narrow(&Step::HashFromLeft),
-        &proof_left,
+        proof_left,
         Direction::Left,
         &mut r_left,
         &mut r_right,
@@ -380,11 +411,11 @@ where
 
     // then compute g_r using lagrange_evaluation
     compute_g_r(proof_right, out, &r_right, r_f, &e_p, &mut g_r_right);
-    compute_g_r(&proof_left, &F::ZERO, &r_left, r_f, &e_p, &mut g_r_left);
+    compute_g_r(proof_left, &F::ZERO, &r_left, r_f, &e_p, &mut g_r_left);
 
     // compute `g_r = g_r-sum g(x)`
     compute_sums_gr_gm(proof_right, &mut g_r_right);
-    compute_sums_gr_gm(&proof_left, &mut g_r_left);
+    compute_sums_gr_gm(proof_left, &mut g_r_left);
 
     // precomputation for interpolation of `u`, `v`, i.e. degree `recursion_factor-1` polynomial
     let mut denominators = vec![F::ONE; r_f];
@@ -394,7 +425,8 @@ where
     // add masks to left, i.e. ".0",
     // compute both, p,q at once since Langrage precomputation is base on `r` which is identical
     let (p_left, q_left) = polynomial_compression(
-        (share_of_u.0, share_of_v.0),
+        share_of_u.0,
+        share_of_v.0,
         (&proof_left.mask_p, &proof_left.mask_q),
         r_f,
         &e_p[0..r_f],
@@ -404,7 +436,8 @@ where
 
     debug_assert_eq!((proof_right.mask_p, proof_right.mask_q), (F::ZERO, F::ZERO));
     let (p_right, q_right) = polynomial_compression(
-        (share_of_u.1, share_of_v.1),
+        share_of_u.1,
+        share_of_v.1,
         (&proof_right.mask_p, &proof_right.mask_q),
         r_f,
         &e_p[0..r_f],
@@ -452,7 +485,7 @@ where
 /// These `g(x)` are only the first half of points used to represent `g`,
 /// the second half of points guarantee that `g` has degree `2*recursion_factor-1`
 /// the sums are later verified to be zero which is one of the two equations checked by the verifiers
-fn compute_sums_gr_gm<F>(proof: &NIDZKP<F>, g_r: &mut [F]) -> ()
+fn compute_sums_gr_gm<F>(proof: &NIDZKP<F>, g_r: &mut [F])
 where
     F: Field,
 {
@@ -464,7 +497,7 @@ where
         .for_each(|(x, proof)| {
             *x -= proof[0..proof.len() >> 1]
                 .iter()
-                .fold(F::ZERO, |acc, x| acc + *x)
+                .fold(F::ZERO, |acc, x| acc + *x);
         });
 
     // remove the mask from the sum for the last proof,
@@ -479,8 +512,7 @@ fn compute_g_r<F>(
     recursion_factor: usize,
     evaluation_points: &[F],
     g_r: &mut [F],
-) -> ()
-where
+) where
     F: Field + Invert,
 {
     debug_assert_eq!(proof.proofs.len() + 1, g_r.len());
@@ -488,22 +520,22 @@ where
     debug_assert_eq!(random_points.len(), proof.proofs.len());
 
     let mut iter_right = g_r.iter_mut();
-    *iter_right.next().unwrap() = out.clone();
+    *iter_right.next().unwrap() = *out;
     iter_right
         .zip(proof.proofs.iter())
         .zip(random_points.iter())
         .for_each(|((g_r, g), r)| {
             lagrange_evaluation(
                 &evaluation_points[0..g.len()],
-                &g,
+                g,
                 std::slice::from_ref(r),
                 std::slice::from_mut(g_r),
-            )
+            );
         });
 }
 
 /// the `polynomial_compression` function
-/// given a vector `share`,
+/// given two vectors `share_left`, `share_right`,
 /// recursively shrink the vector
 /// by treating chunks of the vector as degree `recursion_factor -1` polynomials
 /// and evaluate the polynomial on the `random_points`
@@ -511,7 +543,8 @@ where
 /// the polynomials are represented by points on the polynomial at the `evaluation_points`
 /// mask is the `0` point during the last recursion
 fn polynomial_compression<F>(
-    share: (&mut Vec<F>, &mut Vec<F>),
+    share_left: &mut Vec<F>,
+    share_right: &mut Vec<F>,
     mask: (&F, &F),
     r_f: usize,
     e_p: &[F],
@@ -525,23 +558,23 @@ where
     debug_assert!(F::BITS > usize::BITS - r_f.leading_zeros() + 1);
     debug_assert_eq!(e_p.len(), r_f);
     debug_assert_eq!(e_p.len(), denominators.len());
-    debug_assert_eq!(share.0.len(), share.1.len());
+    debug_assert_eq!(share_left.len(), share_right.len());
 
     // iterate over recursions
     for r in r_p.iter().take(r_p.len() - 1) {
         // check whether there are too many random points,
         // which leads to unnecessary compression
-        debug_assert!(share.0.len() >= r_f);
+        debug_assert!(share_left.len() >= r_f);
 
         // fill u and v with zeros such that it is a multiple of the recursion factor
-        let coset = share.0.len() % r_f;
+        let coset = share_left.len() % r_f;
         if coset != 0 {
-            share.0.extend(std::iter::repeat(F::ZERO).take(coset));
-            share.1.extend(std::iter::repeat(F::ZERO).take(coset));
+            share_left.extend(std::iter::repeat(F::ZERO).take(coset));
+            share_right.extend(std::iter::repeat(F::ZERO).take(coset));
         }
 
         // amount of polynomials in `share`
-        let s = share.0.len() / r_f;
+        let s = share_left.len() / r_f;
 
         let mut share_new_0 = vec![F::ONE; s];
         let mut share_new_1 = vec![F::ONE; s];
@@ -551,7 +584,7 @@ where
         compute_lagrange_base(
             std::slice::from_ref(r),
             &e_p[0..r_f],
-            &denominators,
+            denominators,
             &mut base_r,
         );
 
@@ -561,24 +594,24 @@ where
         // we then Lagrange evaluate it on the next `random_point` to compute new elements in `share`
         share_new_0
             .iter_mut()
-            .zip(share.0.chunks(r_f))
+            .zip(share_left.chunks(r_f))
             .for_each(|(u, chunk)| {
                 lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(u));
             });
         share_new_1
             .iter_mut()
-            .zip(share.1.chunks(r_f))
+            .zip(share_right.chunks(r_f))
             .for_each(|(u, chunk)| {
                 lagrange_evaluation_precomputed(chunk, &base_r, std::slice::from_mut(u));
             });
         // reassign new `share` for next iteration
-        *share.0 = share_new_0;
-        *share.1 = share_new_1;
-        share.0.truncate(s);
-        share.1.truncate(s);
+        *share_left = share_new_0;
+        *share_right = share_new_1;
+        share_left.truncate(s);
+        share_right.truncate(s);
     }
 
-    debug_assert!(share.0.len() < r_f);
+    debug_assert!(share_left.len() < r_f);
 
     // final shares, compute output
     let mut output_0 = F::ONE;
@@ -591,8 +624,8 @@ where
         vec_0.push(*mask.0);
         vec_1.push(*mask.1);
         // copy rest
-        vec_0.extend(&*share.0);
-        vec_1.extend(&*share.1);
+        vec_0.extend(&*share_left);
+        vec_1.extend(&*share_right);
         // fill u and v with zeros such that it is a multiple of the recursion factor
         vec_0.extend(std::iter::repeat(F::ZERO).take(vec_0.len() % r_f));
         vec_1.extend(std::iter::repeat(F::ZERO).take(vec_1.len() % r_f));
@@ -604,48 +637,14 @@ where
     compute_lagrange_base(
         std::slice::from_ref(r_p.last().unwrap()),
         &e_p[0..r_f],
-        &denominators,
+        denominators,
         &mut base_r,
     );
 
     lagrange_evaluation_precomputed(&final_share_0, &base_r, std::slice::from_mut(&mut output_0));
     lagrange_evaluation_precomputed(&final_share_1, &base_r, std::slice::from_mut(&mut output_1));
 
-    return (output_0, output_1);
-}
-
-/// computes `summand_of_g = p*q` and adds it to `g`
-/// polynomials `p` and `q` are represented by value `u`, `v`
-/// which are the evaluations of `p,q` at `evaluation_points[0..recursion_factor]`
-/// `g` is represented by its evaluation at `evaluation_points`
-fn compute_summand_of_g<F>(u: &[F], v: &[F], r_f: usize, base: &Vec<Vec<F>>, g: &mut [F]) -> ()
-where
-    F: Field + Invert,
-{
-    // check lengths
-    debug_assert_eq!(u.len(), v.len());
-    debug_assert_eq!(base.len(), u.len());
-
-    // define summand of g, g = sum of summand_of_g
-    // summand_of_g is represented by 2*recursion_factor many points.
-    let mut summand_of_g = vec![F::ONE; 2 * r_f];
-
-    // compute first recursion factor many points of summand_of_g
-    summand_of_g
-        .iter_mut()
-        .take(r_f)
-        .enumerate()
-        .for_each(|(i, x)| *x = u[i] * v[i]);
-
-    // compute summand_of_g = 1*u for rest of points
-    lagrange_evaluation_precomputed(u, &base, &mut summand_of_g[r_f..2 * r_f]);
-
-    // compute summand_of_g = u*v for rest of points
-    lagrange_evaluation_precomputed(v, &base, &mut summand_of_g[r_f..2 * r_f]);
-    // add summand_of_g to g
-    g.iter_mut()
-        .zip(summand_of_g.iter())
-        .for_each(|(x, y)| *x += *y);
+    (output_0, output_1)
 }
 
 #[cfg(all(test, unit_test))]
@@ -659,7 +658,6 @@ mod test {
         ff::ec_prime_field::Fp25519,
         helpers::{Direction, ReceivingEnd, SendingEnd},
         protocol::{
-            basics::validate_replicated_shares::validate_sum_to_zero,
             context::Context,
             ipa_prf::malicious_security::{
                 lagrange::compute_lagrange_denominator,
@@ -712,9 +710,10 @@ mod test {
 
         // compute reconstruct on shares
         let (p0, q0) =
-            polynomial_compression((&mut u.0.clone(), u.0), mask, r_f, &e_p, &denominators, &r);
+            polynomial_compression(&mut u.0.clone(), u.0, mask, r_f, &e_p, &denominators, &r);
         let (p1, q1) = polynomial_compression(
-            (&mut u.1.clone(), u.1),
+            &mut u.1.clone(),
+            u.1,
             (&Fp25519::ZERO, &Fp25519::ZERO),
             r_f,
             &e_p,
@@ -724,7 +723,8 @@ mod test {
 
         // compute it on the clear, left and right is supposed to be the same
         let (p, q) = polynomial_compression(
-            (&mut u_in_the_clear.clone(), &mut u_in_the_clear),
+            &mut u_in_the_clear.clone(),
+            &mut u_in_the_clear,
             mask,
             r_f,
             &e_p,
@@ -739,7 +739,7 @@ mod test {
     async fn helper_fn_generate_proof<C>(
         ctx: C,
         r_f: usize,
-        u_and_v: &Vec<AdditiveShare<Fp25519>>,
+        u_and_v: &[AdditiveShare<Fp25519>],
     ) -> (Fp25519, (NIDZKP<Fp25519>, NIDZKP<Fp25519>))
     where
         C: Context,
@@ -747,11 +747,11 @@ mod test {
         // collect vectors
         let mut u = u_and_v
             .iter()
-            .map(|u_and_v| u_and_v.left())
+            .map(ReplicatedSecretSharing::left)
             .collect::<Vec<_>>();
         let mut v = u_and_v
             .iter()
-            .map(|u_and_v| u_and_v.right())
+            .map(ReplicatedSecretSharing::right)
             .collect::<Vec<_>>();
 
         // compute out statement for proof
@@ -765,10 +765,9 @@ mod test {
     /// helper function for test, allows to send proofs and secret shares
     async fn helper_fn_send_and_receive_shares<C>(
         ctx: C,
-        r_f: usize,
         out: &Fp25519,
-        u_and_v: &Vec<AdditiveShare<Fp25519>>,
-        u_and_v_left: &Vec<AdditiveShare<Fp25519>>,
+        u_and_v: &[AdditiveShare<Fp25519>],
+        u_and_v_left: &[AdditiveShare<Fp25519>],
     ) -> (
         Fp25519,
         Vec<Fp25519>,
@@ -780,8 +779,14 @@ mod test {
         C: Context,
     {
         // use random shares
-        let u_share_left = u_and_v_left.iter().map(|x| x.left()).collect::<Vec<_>>();
-        let v_share_left = u_and_v_left.iter().map(|x| x.right()).collect::<Vec<_>>();
+        let u_share_left = u_and_v_left
+            .iter()
+            .map(ReplicatedSecretSharing::left)
+            .collect::<Vec<_>>();
+        let v_share_left = u_and_v_left
+            .iter()
+            .map(ReplicatedSecretSharing::right)
+            .collect::<Vec<_>>();
 
         // shares sent to the left:
         let u_share_right = u_and_v
@@ -903,7 +908,6 @@ mod test {
                         let (out_right, mut u_left, mut u_right, mut v_left, mut v_right) =
                             helper_fn_send_and_receive_shares(
                                 ctx.clone(),
-                                2usize,
                                 &out,
                                 &input,
                                 &input_left,
@@ -920,7 +924,7 @@ mod test {
                             (&mut v_left, &mut v_right),
                         )
                         .await
-                        .unwrap()
+                        .unwrap();
                     },
                 )
                 .await;

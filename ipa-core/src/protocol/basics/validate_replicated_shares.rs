@@ -20,6 +20,9 @@ use crate::{
 ///
 /// The left helper simply hashes the vector and sends it to the right,
 /// the right helper negates his vector, hashes it and compares it to the received hash
+///
+/// # Errors
+/// propagates errors from send and receive
 pub async fn validate_replicated_shares<C, S>(
     ctx: C,
     input_left: &[S],
@@ -30,7 +33,7 @@ where
     S: SharedValue,
 {
     // compute hash of `left.neg` and `right`
-    let hash_left = compute_hash(&input_left);
+    let hash_left = compute_hash(input_left);
 
     // set up context
     let ctx_new = &(ctx.set_total_records(1usize));
@@ -39,9 +42,9 @@ where
     let receive_channel: &ReceivingEnd<Hash> =
         &ctx_new.recv_channel(ctx.role().peer(Direction::Left));
 
-    let (_, hash_right) = try_join(
+    let ((), hash_right) = try_join(
         // send hash
-        send_channel.send(RecordId::from(0usize), compute_hash(&input_right)),
+        send_channel.send(RecordId::from(0usize), compute_hash(input_right)),
         receive_channel.receive(RecordId::from(0usize)),
     )
     .await?;
@@ -67,6 +70,9 @@ where
 ///
 /// The left helper simply hashes the vector and sends it to the right,
 /// the right helper negates his vector, hashes it and compares it to the received hash
+///
+/// # Errors
+/// propagates errors from `validate_replicated_shares`
 pub async fn validate_sum_to_zero<C, S>(
     ctx: C,
     input_left: &[S],
@@ -99,7 +105,7 @@ mod test {
     };
 
     #[test]
-    fn two_out_of_two_zero_check_test() {
+    fn validate_sum_to_zero_test() {
         run(|| async move {
             let world = TestWorld::default();
             let mut rng = thread_rng();
@@ -111,10 +117,13 @@ mod test {
 
             let _ = world
                 .semi_honest(r.into_iter(), |ctx, input| async move {
-                    let r_right = input.iter().map(|x| x.neg().right()).collect::<Vec<_>>();
-                    let r_left = input.iter().map(|x| x.left()).collect::<Vec<_>>();
+                    let r_right = input.iter().map(|x| x.right().neg()).collect::<Vec<_>>();
+                    let r_left = input
+                        .iter()
+                        .map(ReplicatedSecretSharing::left)
+                        .collect::<Vec<_>>();
 
-                    validate_sum_to_zero(ctx, &r_left, &r_right).await.unwrap()
+                    validate_sum_to_zero(ctx, &r_left, &r_right).await.unwrap();
                 })
                 .await;
         });

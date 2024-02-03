@@ -35,23 +35,17 @@ impl Invert for Fp25519 {
         Fp25519(self.0.invert())
     }
 }
-/// PartialOrd
+/// `PartialOrd`
 /// be careful using it because of wrap around
 /// needed for checking whether value falls in range
 impl PartialOrd for Fp25519 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut a_be = self.0.as_bytes().clone();
-        let mut b_be = other.0.as_bytes().clone();
+        let mut a_be = *self.0.as_bytes();
+        let mut b_be = *other.0.as_bytes();
         a_be.reverse();
         b_be.reverse();
         // I am not sure whether `<`, `>` is constant time
-        if a_be < b_be {
-            Some(Ordering::Less)
-        } else if a_be > b_be {
-            Some(Ordering::Greater)
-        } else {
-            Some(Ordering::Equal)
-        }
+        Some(a_be.cmp(&b_be))
     }
 }
 

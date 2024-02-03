@@ -2,6 +2,9 @@ use crate::ff::{Field, Invert};
 
 /// function for generating canonical evaluation points
 /// overwrites `evaluation_points`
+///
+/// # Panics
+/// Panics when field size is too small for evaluation points
 pub fn generate_evaluation_points<F>(evaluation_points: &mut [F])
 where
     F: Field,
@@ -18,6 +21,9 @@ where
 /// computes the lagrange denominators for the base polynomials
 /// the denominators change for different evaluation points
 /// the function multiplies the denominators to `denominators`, i.e. input `F::ONE`
+///
+/// # Panics
+/// Panics when there are identical evaluation points, i.e. division by zero
 pub fn compute_lagrange_denominator<F>(evaluation_points: &[F], denominators: &mut [F])
 where
     F: Field + Invert,
@@ -31,8 +37,8 @@ where
                 assert_eq!(
                     (i.0, j.0, true),
                     (i.0, j.0, *i.1 - *j.1 != F::ZERO || j.0 == i.0)
-                )
-            })
+                );
+            });
         });
     }
     // compute denominators:
@@ -45,26 +51,25 @@ where
                 .enumerate()
                 .filter(|&j| j.0 != i.0)
                 .for_each(|j| *d *= *i.1 - *j.1);
-            *d = d.invert()
+            *d = d.invert();
         });
 }
 
 /// computes the lagrange base polynomials, see `https://en.wikipedia.org/wiki/Lagrange_polynomial`
-/// for correctness, the denominators need to be consistent with the evaluation_points
+/// for correctness, the denominators need to be consistent with the `evaluation_points`
 /// overwrites `base`
-pub fn compute_lagrange_base<F>(
-    points: &[F],
-    evaluation_points: &[F],
-    denominators: &[F],
-    base: &mut Vec<Vec<F>>,
-) where
+///
+/// # Panics
+/// Does not panic
+pub fn compute_lagrange_base<F>(points: &[F], e_p: &[F], ds: &[F], base: &mut Vec<Vec<F>>)
+where
     F: Field,
 {
-    debug_assert_eq!(evaluation_points.len(), denominators.len());
+    debug_assert_eq!(e_p.len(), ds.len());
     #[cfg(debug_assertions)]
     {
         for base in base.iter() {
-            assert_eq!(evaluation_points.len(), base.len());
+            assert_eq!(e_p.len(), base.len());
         }
     }
     debug_assert_eq!(points.len(), base.len());
@@ -75,11 +80,10 @@ pub fn compute_lagrange_base<F>(
         .zip(base.iter_mut())
         .for_each(|(point, base)| {
             // set up the denominators
-            base.copy_from_slice(denominators);
+            base.copy_from_slice(ds);
             // compute the nominator
             base.iter_mut().enumerate().for_each(|b| {
-                evaluation_points
-                    .iter()
+                e_p.iter()
                     .enumerate()
                     .filter(|&j| j.0 != b.0)
                     .for_each(|j| {
@@ -100,7 +104,7 @@ where
     debug_assert_eq!(base.len(), result.len());
     #[cfg(debug_assertions)]
     {
-        for base in base.iter() {
+        for base in base {
             debug_assert_eq!(y.len(), base.len());
         }
     }
@@ -111,7 +115,7 @@ where
             *result *= base
                 .iter()
                 .zip(y.iter())
-                .fold(F::ZERO, |acc, (base, y)| acc + *base * *y)
+                .fold(F::ZERO, |acc, (base, y)| acc + *base * *y);
         });
 }
 
@@ -122,6 +126,9 @@ where
 /// It follows the lagrange method to compute the points `https://en.wikipedia.org/wiki/Lagrange_polynomial`
 /// further, rather than outputting `p(p_k)`, we set `result_k=result_k*p(p_k)`
 /// which fits better to how we use `p(p_k)`
+///
+/// # Panics
+/// Panics when there are identical evaluation points, i.e. division by zero
 pub fn lagrange_evaluation<F>(x: &[F], y: &[F], p: &[F], result: &mut [F])
 where
     F: Field + Invert,
@@ -132,7 +139,7 @@ where
     {
         for i in 0..x.len() {
             for j in 0..x.len() {
-                debug_assert_eq!((i, j, x[i] - x[j] != F::ZERO || j == i), (i, j, true))
+                assert_eq!((i, j, x[i] - x[j] != F::ZERO || j == i), (i, j, true));
             }
         }
     }
@@ -159,13 +166,13 @@ where
         for i in 0..x.len() {
             let mut basis_polynomial = denominators[i] * y[i];
             if i > 0 {
-                for j in 0..i {
-                    basis_polynomial *= p[k] - x[j];
+                for j in x.iter().take(i) {
+                    basis_polynomial *= p[k] - *j;
                 }
             }
             if i + 1 < x.len() {
-                for j in i + 1..x.len() {
-                    basis_polynomial *= p[k] - x[j];
+                for j in x.iter().skip(i + 1) {
+                    basis_polynomial *= p[k] - *j;
                 }
             }
             sum += basis_polynomial;
@@ -175,6 +182,7 @@ where
     }
 }
 
+#[cfg(all(test, unit_test))]
 mod test {
     use rand::{thread_rng, Rng};
 
@@ -224,15 +232,15 @@ mod test {
 
         // evaluate polynomial p at evaluation_points and random point using monomial base
         let mut y_values = vec![Fp25519::ZERO; e_p_size + 1];
-        e_p.iter().for_each(|x_value| {
+        for x_value in &e_p {
             // monomial base, i.e. `x^k`
             let mut base = Fp25519::ONE;
             // evaluate p via `sum coefficient_k * x^k`
-            p.iter().for_each(|coefficient| {
+            for coefficient in &p {
                 y_values.iter_mut().for_each(|y| *y = *coefficient * base);
-                base *= *x_value
-            })
-        });
+                base *= *x_value;
+            }
+        }
 
         // lagrange evaluate p at random point
         let mut e_y = Fp25519::ONE;

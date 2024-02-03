@@ -18,11 +18,11 @@ impl Serializable for Hash {
     type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        *buf = self.0.clone();
+        *buf = self.0;
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        Ok(Hash(buf.clone()))
+        Ok(Hash(*buf))
     }
 }
 
@@ -37,16 +37,18 @@ where
     // set up hash
     let mut sha = Sha256::new();
     // set state
-    input.iter().for_each(|x| {
+    for x in input {
         let mut buf = vec![0u8; <S as Serializable>::Size::USIZE];
         x.serialize(GenericArray::from_mut_slice(&mut buf));
         sha.update(buf);
-    });
+    }
     // compute hash
     Hash(*GenericArray::<u8, U32>::from_slice(&sha.finalize()[0..32]))
 }
 
 /// This function allows to hash a vector of field elements into a single field element
+/// # Panics
+/// does not panic
 pub fn hash_to_field<F>(input: &[F]) -> F
 where
     F: Field,
@@ -54,11 +56,11 @@ where
     // set up hash
     let mut sha = Sha256::new();
     // set state
-    input.iter().for_each(|x| {
+    for x in input {
         let mut buf = vec![0u8; <F as Serializable>::Size::USIZE];
         x.serialize(GenericArray::from_mut_slice(&mut buf));
         sha.update(buf);
-    });
+    }
     // compute hash as a field element
     // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
     // however, deserialize might fail for some fields so we use `from_random_128` instead
