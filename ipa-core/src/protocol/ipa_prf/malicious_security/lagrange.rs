@@ -2,7 +2,7 @@ use crate::ff::{Field, Invert};
 
 /// function for generating canonical evaluation points
 /// overwrites `evaluation_points`
-pub fn generate_evaluation_points<F>(evaluation_points: &mut [F]) -> ()
+pub fn generate_evaluation_points<F>(evaluation_points: &mut [F])
 where
     F: Field,
 {
@@ -18,7 +18,7 @@ where
 /// computes the lagrange denominators for the base polynomials
 /// the denominators change for different evaluation points
 /// the function multiplies the denominators to `denominators`, i.e. input `F::ONE`
-pub fn compute_lagrange_denominator<F>(evaluation_points: &[F], denominators: &mut [F]) -> ()
+pub fn compute_lagrange_denominator<F>(evaluation_points: &[F], denominators: &mut [F])
 where
     F: Field + Invert,
 {
@@ -26,36 +26,30 @@ where
     // check that differences are non-zero
     #[cfg(debug_assertions)]
     {
-        for i in 0..evaluation_points.len() {
-            for j in 0..evaluation_points.len() {
-                debug_assert_eq!(
-                    (
-                        i,
-                        j,
-                        evaluation_points[i] - evaluation_points[j] != F::ZERO || j == i
-                    ),
-                    (i, j, true)
+        evaluation_points.iter().enumerate().for_each(|i| {
+            evaluation_points.iter().enumerate().for_each(|j| {
+                assert_eq!(
+                    (i.0, j.0, true),
+                    (i.0, j.0, *i.1 - *j.1 != F::ZERO || j.0 == i.0)
                 )
-            }
-        }
+            })
+        });
     }
     // compute denominators:
-    for i in 0..evaluation_points.len() {
-        if i > 0 {
-            for j in 0..i {
-                denominators[i] *= evaluation_points[i] - evaluation_points[j];
-            }
-        }
-        if i + 1 < evaluation_points.len() {
-            for j in i + 1..evaluation_points.len() {
-                denominators[i] *= evaluation_points[i] - evaluation_points[j];
-            }
-        }
-        denominators[i] = denominators[i].invert();
-    }
+    denominators
+        .iter_mut()
+        .zip(evaluation_points.iter().enumerate())
+        .for_each(|(d, i)| {
+            evaluation_points
+                .iter()
+                .enumerate()
+                .filter(|&j| j.0 != i.0)
+                .for_each(|j| *d *= *i.1 - *j.1);
+            *d = d.invert()
+        });
 }
 
-/// computes the lagrange base polynomials
+/// computes the lagrange base polynomials, see `https://en.wikipedia.org/wiki/Lagrange_polynomial`
 /// for correctness, the denominators need to be consistent with the evaluation_points
 /// overwrites `base`
 pub fn compute_lagrange_base<F>(
@@ -63,15 +57,14 @@ pub fn compute_lagrange_base<F>(
     evaluation_points: &[F],
     denominators: &[F],
     base: &mut Vec<Vec<F>>,
-) -> ()
-where
+) where
     F: Field,
 {
     debug_assert_eq!(evaluation_points.len(), denominators.len());
     #[cfg(debug_assertions)]
     {
         for base in base.iter() {
-            debug_assert_eq!(evaluation_points.len(), base.len());
+            assert_eq!(evaluation_points.len(), base.len());
         }
     }
     debug_assert_eq!(points.len(), base.len());
@@ -84,25 +77,23 @@ where
             // set up the denominators
             base.copy_from_slice(denominators);
             // compute the nominator
-            for i in 0..evaluation_points.len() {
-                if i > 0 {
-                    for j in 0..i {
-                        base[i] *= *point - evaluation_points[j];
-                    }
-                }
-                if i + 1 < evaluation_points.len() {
-                    for j in i + 1..evaluation_points.len() {
-                        base[i] *= *point - evaluation_points[j];
-                    }
-                }
-            }
+            base.iter_mut().enumerate().for_each(|b| {
+                evaluation_points
+                    .iter()
+                    .enumerate()
+                    .filter(|&j| j.0 != b.0)
+                    .for_each(|j| {
+                        *b.1 *= *point - *j.1;
+                    });
+            });
         });
 }
 
 /// precomputed lagrange evaluation
 /// evaluates polynomial using base polynomials
+/// the base polynomials are tied to specific evaluation points
 /// multiplies `result` with input `result`, i.e. use input `F::ONE`
-pub fn lagrange_evaluation_precomputed<F>(y: &[F], base: &Vec<Vec<F>>, result: &mut [F]) -> ()
+pub fn lagrange_evaluation_precomputed<F>(y: &[F], base: &Vec<Vec<F>>, result: &mut [F])
 where
     F: Field,
 {
@@ -125,13 +116,13 @@ where
 }
 
 /// lagrange evaluation
-/// given points `(x_0,y_0),...,(x_n,y_0)` on a polynomial `p`
-/// and points `p_0,...,p_m`
-/// compute `result_0=result_0*p(p_0),...,result_m=result_m*p(p_m)`
-/// It uses the lagrange method to compute the points `https://en.wikipedia.org/wiki/Lagrange_polynomial`
+/// given points `(x_0,y_0),...,(x_n,y_n)` on a polynomial `p` and points `p_0,...,p_m`
+/// the function computes `p` evaluated on points `p_0,...,p_m`
+///
+/// It follows the lagrange method to compute the points `https://en.wikipedia.org/wiki/Lagrange_polynomial`
 /// further, rather than outputting `p(p_k)`, we set `result_k=result_k*p(p_k)`
 /// which fits better to how we use `p(p_k)`
-pub fn lagrange_evaluation<F>(x: &[F], y: &[F], p: &[F], result: &mut [F]) -> ()
+pub fn lagrange_evaluation<F>(x: &[F], y: &[F], p: &[F], result: &mut [F])
 where
     F: Field + Invert,
 {
@@ -197,97 +188,134 @@ mod test {
     };
 
     #[test]
-    fn lagrange_evaluation_fp25519() {
+    fn consistency_at_evaluation_points_test() {
+        // use random evaluation points
         let mut rng = thread_rng();
-        let evaluation_points_size = rng.gen::<usize>() % 100;
-        let mut evaluation_points = vec![Fp25519::ONE; evaluation_points_size];
-        evaluation_points
-            .iter_mut()
-            .for_each(|x| *x = rng.gen::<Fp25519>());
-        let mut y_values = vec![Fp25519::ONE; evaluation_points_size];
-        y_values.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
-        let mut evaluated_y = vec![Fp25519::ONE; evaluation_points_size];
-        lagrange_evaluation(
-            &evaluation_points,
-            &y_values,
-            &evaluation_points,
-            &mut evaluated_y,
-        );
+        let e_p_size = rng.gen::<usize>() % 20;
+        let mut e_p = vec![Fp25519::ONE; e_p_size];
+        e_p.iter_mut().for_each(|x| *x = rng.gen::<Fp25519>());
 
-        // test evaluation at interpolation points
-        assert_eq!(evaluated_y, y_values);
+        // generate random polynomial q
+        // which is represented by points on q
+        // where the x coordinates are the evaluation points
+        let mut q = vec![Fp25519::ONE; e_p_size];
+        q.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
 
-        // sample random polynomial in monomial form of degree `evaluation_points_size`
-        let mut polynomial = vec![Fp25519::ONE; evaluation_points_size];
-        polynomial
-            .iter_mut()
-            .for_each(|x| *x = rng.gen::<Fp25519>());
+        // check consistency of q at the interpolation points
+        let mut e_y = vec![Fp25519::ONE; e_p_size];
+        lagrange_evaluation(&e_p, &q, &e_p, &mut e_y);
+        assert_eq!(e_y, q);
+    }
+
+    #[test]
+    fn consistency_with_monomial_base_polynomial_test() {
+        // use random evaluation points
+        let mut rng = thread_rng();
+        let e_p_size = rng.gen::<usize>() % 20;
+        let mut e_p = vec![Fp25519::ONE; e_p_size];
+        e_p.iter_mut().for_each(|x| *x = rng.gen::<Fp25519>());
+
+        // sample random polynomial p in monomial form, i.e. `sum coefficient_k * x^k`,
+        // of degree `evaluation_points_size`
+        let mut p = vec![Fp25519::ONE; e_p_size];
+        p.iter_mut().for_each(|x| *x = rng.gen::<Fp25519>());
         // add random point to evaluation points
-        evaluation_points.push(rng.gen::<Fp25519>());
+        e_p.push(rng.gen::<Fp25519>());
 
-        // evaluate polynomial at evaluation_points
-        let mut y_values = vec![Fp25519::ZERO; evaluation_points_size + 1];
-        evaluation_points.iter().for_each(|x_value| {
+        // evaluate polynomial p at evaluation_points and random point using monomial base
+        let mut y_values = vec![Fp25519::ZERO; e_p_size + 1];
+        e_p.iter().for_each(|x_value| {
+            // monomial base, i.e. `x^k`
             let mut base = Fp25519::ONE;
-            polynomial.iter().for_each(|coefficient| {
+            // evaluate p via `sum coefficient_k * x^k`
+            p.iter().for_each(|coefficient| {
                 y_values.iter_mut().for_each(|y| *y = *coefficient * base);
                 base *= *x_value
             })
         });
 
-        // lagrange evaluate at random point
-        evaluated_y[0] = Fp25519::ONE;
+        // lagrange evaluate p at random point
+        let mut e_y = Fp25519::ONE;
         lagrange_evaluation(
-            &evaluation_points[0..evaluation_points_size],
-            &y_values[0..evaluation_points_size],
-            std::slice::from_ref(&evaluation_points[evaluation_points_size]),
-            std::slice::from_mut(&mut evaluated_y[0]),
+            &e_p[0..e_p_size],
+            &y_values[0..e_p_size],
+            std::slice::from_ref(&e_p[e_p_size]),
+            std::slice::from_mut(&mut e_y),
         );
 
-        // check equality
-        assert_eq!(y_values[evaluation_points_size], evaluated_y[0]);
+        // check equality between "monomial evaluation" and "Lagrange evaluation"
+        assert_eq!(y_values[e_p_size], e_y);
     }
 
     #[test]
-    fn lagrange_precomputed_test() {
+    fn lagrange_precomputed_canonical_test() {
         let mut rng = thread_rng();
-        let evaluation_points_size = rng.gen::<usize>() % 100;
-        let mut evaluation_points_random = vec![Fp25519::ONE; evaluation_points_size];
-        evaluation_points_random
-            .iter_mut()
-            .for_each(|x| *x = rng.gen::<Fp25519>());
-        let mut evaluation_points_canonical = vec![Fp25519::ONE; evaluation_points_size];
-        generate_evaluation_points(&mut evaluation_points_canonical);
-        let mut y_values = vec![Fp25519::ONE; evaluation_points_size];
-        y_values.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
-        let points_size = rng.gen::<usize>() % 100;
-        let mut points_random = vec![Fp25519::ONE; points_size];
-        points_random
-            .iter_mut()
-            .for_each(|y| *y = rng.gen::<Fp25519>());
 
-        for evaluation_points in [&evaluation_points_random, &evaluation_points_canonical] {
-            // non-precomputed
-            let mut evaluated_y = vec![Fp25519::ONE; points_size];
-            lagrange_evaluation(
-                &evaluation_points,
-                &y_values,
-                &points_random,
-                &mut evaluated_y,
-            );
+        // generate canonical evaluation points
+        let e_p_size = rng.gen::<usize>() % 20;
+        let mut e_p = vec![Fp25519::ONE; e_p_size];
+        generate_evaluation_points(&mut e_p);
 
-            // precomputed
-            let mut evaluated_y_precomputed = vec![Fp25519::ONE; points_size];
-            let mut denominators = vec![Fp25519::ONE; evaluation_points_size];
-            compute_lagrange_denominator(&evaluation_points, &mut denominators);
-            let mut base = vec![vec![Fp25519::ONE; evaluation_points_size]; points_size];
-            compute_lagrange_base(&points_random, &evaluation_points, &denominators, &mut base);
-            lagrange_evaluation_precomputed(&y_values, &base, &mut evaluated_y_precomputed);
+        // random polynomial p
+        let mut q = vec![Fp25519::ONE; e_p_size];
+        q.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
 
-            evaluated_y
-                .iter()
-                .zip(evaluated_y_precomputed.iter())
-                .for_each(|(x, y)| assert_eq!(*x, *y));
-        }
+        // generate random points
+        let r_p_size = rng.gen::<usize>() % 20;
+        let mut r_p = vec![Fp25519::ONE; r_p_size];
+        r_p.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
+
+        // non-precomputed
+        let mut evaluated_q = vec![Fp25519::ONE; r_p_size];
+        lagrange_evaluation(&e_p, &q, &r_p, &mut evaluated_q);
+
+        // precomputed
+        let mut evaluated_q_precomputed = vec![Fp25519::ONE; r_p_size];
+        let mut denominators = vec![Fp25519::ONE; e_p_size];
+        compute_lagrange_denominator(&e_p, &mut denominators);
+        let mut base = vec![vec![Fp25519::ONE; e_p_size]; r_p_size];
+        compute_lagrange_base(&r_p, &e_p, &denominators, &mut base);
+        lagrange_evaluation_precomputed(&q, &base, &mut evaluated_q_precomputed);
+
+        evaluated_q
+            .iter()
+            .zip(evaluated_q_precomputed.iter())
+            .for_each(|(x, y)| assert_eq!(*x, *y));
+    }
+
+    #[test]
+    fn lagrange_precomputed_random_test() {
+        let mut rng = thread_rng();
+
+        // generate random evaluation points
+        let e_p_size = rng.gen::<usize>() % 20;
+        let mut e_p_r = vec![Fp25519::ONE; e_p_size];
+        e_p_r.iter_mut().for_each(|x| *x = rng.gen::<Fp25519>());
+
+        // generate random polynomial
+        let mut q = vec![Fp25519::ONE; e_p_size];
+        q.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
+
+        // generate random points
+        let p_size = rng.gen::<usize>() % 20;
+        let mut r_p = vec![Fp25519::ONE; p_size];
+        r_p.iter_mut().for_each(|y| *y = rng.gen::<Fp25519>());
+
+        // non-precomputed
+        let mut evaluated_q = vec![Fp25519::ONE; p_size];
+        lagrange_evaluation(&e_p_r, &q, &r_p, &mut evaluated_q);
+
+        // precomputed
+        let mut evaluated_q_precomputed = vec![Fp25519::ONE; p_size];
+        let mut denominators = vec![Fp25519::ONE; e_p_size];
+        compute_lagrange_denominator(&e_p_r, &mut denominators);
+        let mut base = vec![vec![Fp25519::ONE; e_p_size]; p_size];
+        compute_lagrange_base(&r_p, &e_p_r, &denominators, &mut base);
+        lagrange_evaluation_precomputed(&q, &base, &mut evaluated_q_precomputed);
+
+        evaluated_q
+            .iter()
+            .zip(evaluated_q_precomputed.iter())
+            .for_each(|(x, y)| assert_eq!(*x, *y));
     }
 }
