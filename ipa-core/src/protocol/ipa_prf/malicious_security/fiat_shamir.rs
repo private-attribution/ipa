@@ -1,25 +1,21 @@
 use futures_util::{stream, TryStreamExt};
-use generic_array::GenericArray;
-use hkdf::Hkdf;
-use sha2::Sha256;
-use typenum::Unsigned;
 
 use crate::{
     error::Error,
-    ff::{Field, Serializable},
-    helpers::{Direction, ReceivingEnd, SendingEnd},
+    ff::Field,
+    helpers::{hashing::hash_to_field, Direction, ReceivingEnd, SendingEnd},
     protocol::{context::Context, ipa_prf::malicious_security::quadratic_proofs::NIDZKP, RecordId},
     seq_join::seq_join,
 };
 
 /// computes random challenge `r` from `proof_direction`
 /// since the verifier has only access to one side of the proof,
-/// he needs to receive `fiat_shamir(proof_direction.neg())` from the other verifier
+/// he needs to receive `fiat_shamir(proof_!direction)` from the other verifier
 /// `r` is computed has `fiat_shamir(proof_left)+fiat_shamir(proof_right)`
 /// further, he computes all `r` at once
-/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
+/// `fiat_shamir_prover` takes as input `r` and adds the generated `r` to input `r`
 // todo: make it async
-pub async fn compute_r_verifier<C, F>(
+pub async fn fiat_shamir_verifier<C, F>(
     ctx: C,
     proof: &NIDZKP<F>,
     direction: Direction,
@@ -43,7 +39,7 @@ where
         stream::iter(r_d.iter_mut().zip(proof.proofs.iter()).enumerate().map(
             |(i, (x, proof))| async move {
                 // hash
-                let temp = fiat_shamir(proof);
+                let temp = hash_to_field(proof);
                 // keep hash
                 *x += temp;
                 // send hash
@@ -66,39 +62,11 @@ where
 /// since only the prover has access to both parts, only he can compute `r` this way
 /// further, the prover computes `r` one by one rather than all `r` at once
 /// `r` is computed has `fiat_shamir(proof_part_left)+fiat_shamir(proof_part_right)`
-/// `compute_r_prover` takes as input `r` and adds the generated `r` to input `r`
-pub fn compute_r_prover<F>(proof_left: &[F], proof_right: &[F]) -> F
+pub fn fiat_shamir_prover<F>(proof_left: &[F], proof_right: &[F]) -> F
 where
     F: Field,
 {
-    fiat_shamir(proof_left) + fiat_shamir(proof_right)
-}
-
-/// the Fiat-Shamir core function
-/// it takes a commitment, which is for `NIDZKP` the actual proof
-/// and computes a vector of random points by hashing the individual proofs parts
-/// this function only computes `r` for a single proof part
-fn fiat_shamir<F>(proof: &[F]) -> F
-where
-    F: Field,
-{
-    // serialize proof const SIZE: usize = <F as Serializable>::Size::USIZE;
-    let mut ikm = Vec::<u8>::with_capacity(proof.len() * <F as Serializable>::Size::USIZE);
-    proof.iter().for_each(|f| {
-        let mut buf = vec![0u8; <F as Serializable>::Size::USIZE];
-        f.serialize(GenericArray::from_mut_slice(&mut buf));
-        ikm.extend(buf)
-    });
-
-    // compute `r` from `hash` of the proof
-    let hk = Hkdf::<Sha256>::new(None, &ikm);
-    // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
-    // however, deserialize might fail for some fields so we use `from_random_128` instead
-    // therefore fields beyond `F::Size()>16` don't further reduce the cheating probability of the prover
-    let mut hash = [0u8; 16];
-    // hash length is a valid length so expand does not fail
-    hk.expand(&[], &mut hash).unwrap();
-    F::from_random_u128(u128::from_le_bytes(hash))
+    hash_to_field(proof_left) + hash_to_field(proof_right)
 }
 
 #[cfg(all(test, unit_test))]
@@ -112,7 +80,7 @@ mod test {
         protocol::{
             context::Context,
             ipa_prf::malicious_security::{
-                fiat_shamir::{compute_r_prover, compute_r_verifier},
+                fiat_shamir::{fiat_shamir_prover, fiat_shamir_verifier},
                 quadratic_proofs::NIDZKP,
             },
         },
@@ -157,7 +125,7 @@ mod test {
                     let mut fs_verifier_right = vec![Fp25519::ZERO; proof_left.proofs.len()];
                     let mut fs_prover = vec![Fp25519::ZERO; proof_left.proofs.len()];
                     // compute hashes verifier
-                    compute_r_verifier(
+                    fiat_shamir_verifier(
                         ctx.narrow(&Step::TestHashFromRight),
                         &proof_right,
                         Direction::Right,
@@ -166,7 +134,7 @@ mod test {
                     )
                     .await
                     .unwrap();
-                    compute_r_verifier(
+                    fiat_shamir_verifier(
                         ctx.narrow(&Step::TestHashFromLeft),
                         &proof_left,
                         Direction::Left,
@@ -180,7 +148,7 @@ mod test {
                         .iter_mut()
                         .zip(proof_left.proofs.iter().zip(proof_right.proofs.iter()))
                         .for_each(|(r_prover, (p_left, p_right))| {
-                            *r_prover = compute_r_prover(&p_left, &p_right)
+                            *r_prover = fiat_shamir_prover(&p_left, &p_right)
                         });
 
                     (fs_prover, fs_verifier_left, fs_verifier_right)

@@ -10,10 +10,10 @@ use crate::{
     ff::{Field, Invert, Serializable},
     helpers::{Direction, ReceivingEnd, SendingEnd},
     protocol::{
-        basics::two_out_of_two_zero_check::two_out_of_two_zero_check,
+        basics::validate_replicated_shares::validate_sum_to_zero,
         context::Context,
         ipa_prf::malicious_security::{
-            fiat_shamir::{compute_r_prover, compute_r_verifier},
+            fiat_shamir::{fiat_shamir_prover, fiat_shamir_verifier},
             lagrange::{
                 compute_lagrange_base, compute_lagrange_denominator, generate_evaluation_points,
                 lagrange_evaluation, lagrange_evaluation_precomputed,
@@ -162,7 +162,7 @@ where
 
         // compute random point `r` via `Fiat-Shamir` hash
         // generate `r` as `hash(g_right) + hash(g_left)`
-        let r = compute_r_prover(&g, &own_g_left);
+        let r = fiat_shamir_prover(&g, &own_g_left);
 
         // add `g` to proofs
         output_left.proofs.push(output_g_left);
@@ -327,7 +327,7 @@ pub async fn verify_proof<C, F>(
     out: &F,
     share_of_u: (&mut Vec<F>, &mut Vec<F>),
     share_of_v: (&mut Vec<F>, &mut Vec<F>),
-) -> Result<bool, Error>
+) -> Result<(), Error>
 where
     C: Context,
     F: Field + Invert + PartialOrd,
@@ -349,7 +349,7 @@ where
     let mut g_r_left = vec![F::ONE; proof_left.proofs.len() + 1];
 
     // compute r_right
-    compute_r_verifier(
+    fiat_shamir_verifier(
         ctx.narrow(&Step::HashFromRight),
         proof_right,
         Direction::Right,
@@ -358,7 +358,7 @@ where
     )
     .await?;
     // compute r_left
-    compute_r_verifier(
+    fiat_shamir_verifier(
         ctx.narrow(&Step::HashFromLeft),
         &proof_left,
         Direction::Left,
@@ -439,7 +439,7 @@ where
     // check that all sums `g_r == 0`
     // swap inputs g_r_left and g_r_right, since prover for left is on the left
     // so we need to send it to the other verifier on the right
-    two_out_of_two_zero_check(
+    validate_sum_to_zero(
         ctx.narrow(&Step::TwoOutOfTwoZeroCheck),
         &g_r_right,
         &g_r_left,
@@ -659,7 +659,7 @@ mod test {
         ff::ec_prime_field::Fp25519,
         helpers::{Direction, ReceivingEnd, SendingEnd},
         protocol::{
-            basics::two_out_of_two_zero_check::two_out_of_two_zero_check,
+            basics::validate_replicated_shares::validate_sum_to_zero,
             context::Context,
             ipa_prf::malicious_security::{
                 lagrange::compute_lagrange_denominator,
@@ -892,7 +892,7 @@ mod test {
             let mut u_and_v_left = vec![Fp25519::ZERO; 3];
             u_and_v_left.iter_mut().for_each(|x| *x = rng.gen());
 
-            let result = world
+            let _ = world
                 .semi_honest(
                     (u_and_v.into_iter(), u_and_v_left.into_iter()),
                     |ctx, (input, input_left)| async move {
@@ -924,10 +924,6 @@ mod test {
                     },
                 )
                 .await;
-
-            assert!(result[0]);
-            assert!(result[1]);
-            assert!(result[2]);
         });
     }
 }

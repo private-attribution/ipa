@@ -40,9 +40,14 @@ impl Invert for Fp25519 {
 /// needed for checking whether value falls in range
 impl PartialOrd for Fp25519 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.0.as_bytes() < other.0.as_bytes() {
+        let mut a_be = self.0.as_bytes().clone();
+        let mut b_be = other.0.as_bytes().clone();
+        a_be.reverse();
+        b_be.reverse();
+        // I am not sure whether `<`, `>` is constant time
+        if a_be < b_be {
             Some(Ordering::Less)
-        } else if self.0.as_bytes() > other.0.as_bytes() {
+        } else if a_be > b_be {
             Some(Ordering::Greater)
         } else {
             Some(Ordering::Equal)
@@ -219,13 +224,14 @@ impl FromRandomU128 for Fp25519 {
     }
 }
 
-///implement `TryFrom` since required by Field
+/// implement `TryFrom` since required by Field
+/// use with care, e.g. in testing only
 impl TryFrom<u128> for Fp25519 {
     type Error = crate::error::Error;
 
     fn try_from(v: u128) -> Result<Self, Self::Error> {
         let mut bits = [0u8; 32];
-        bits[..16].copy_from_slice(&v.to_le_bytes());
+        bits[0..16].copy_from_slice(&v.to_le_bytes());
         Ok(Fp25519::deserialize_infallible(GenericArray::from_slice(
             &bits,
         )))
@@ -306,15 +312,16 @@ mod test {
 
     #[test]
     fn partial_order_25519() {
-        let mut rng = thread_rng();
-        let a = rng.gen::<u128>();
-        let b = rng.gen::<u128>();
-        if a < b {
-            assert!(Fp25519::try_from(a).unwrap() < Fp25519::try_from(b).unwrap())
-        } else if a > b {
-            assert!(Fp25519::try_from(a).unwrap() > Fp25519::try_from(b).unwrap())
-        } else {
-            assert_eq!(Fp25519::try_from(a).unwrap(), Fp25519::try_from(b).unwrap())
+        for _ in 0..100 {
+            let mut rng = thread_rng();
+            let a = rng.gen::<u128>();
+            let b = rng.gen::<u128>();
+            assert_eq!(
+                a.partial_cmp(&b),
+                Fp25519::try_from(a)
+                    .unwrap()
+                    .partial_cmp(&Fp25519::try_from(b).unwrap())
+            );
         }
     }
 }

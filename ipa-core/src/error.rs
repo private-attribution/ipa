@@ -60,6 +60,8 @@ pub enum Error {
     Unsupported(String),
     #[error("Decompressing invalid elliptic curve point: {0}")]
     DecompressingInvalidCurvePoint(String),
+    #[error("Shares are inconsistent")]
+    InconsistentShares,
 }
 
 impl Default for Error {
