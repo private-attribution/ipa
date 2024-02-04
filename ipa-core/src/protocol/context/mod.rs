@@ -4,7 +4,7 @@ pub mod semi_honest;
 pub mod upgrade;
 pub mod validator;
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
@@ -27,6 +27,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sync::Arc,
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness

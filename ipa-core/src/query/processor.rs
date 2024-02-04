@@ -1,7 +1,6 @@
 use std::{
     collections::hash_map::Entry,
     fmt::{Debug, Formatter},
-    sync::Arc,
 };
 
 use futures::{future::try_join, stream};
@@ -19,6 +18,7 @@ use crate::{
         state::{QueryState, QueryStatus, RemoveQuery, RunningQueries, StateError},
         CompletionHandle, ProtocolResult,
     },
+    sync::Arc,
 };
 
 /// `Processor` accepts and tracks requests to initiate new queries on this helper party

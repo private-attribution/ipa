@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
 use axum::{routing::get, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
     helpers::Transport,
     net::{http_serde::query::status, server::Error, HttpTransport},
+    sync::Arc,
 };
 
 async fn handler(
