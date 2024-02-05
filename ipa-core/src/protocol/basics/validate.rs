@@ -23,6 +23,7 @@ use crate::{
     helpers::{Direction, Message},
     protocol::{context::Context, RecordId},
     secret_sharing::{replicated::ReplicatedSecretSharing, SharedValue},
+    seq_join::assert_send,
 };
 
 type HashFunction = Sha256;
@@ -37,7 +38,7 @@ impl Serializable for HashValue {
     type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        buf.copy_from_slice(self.0.as_slice())
+        buf.copy_from_slice(self.0.as_slice());
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
@@ -47,42 +48,42 @@ impl Serializable for HashValue {
 
 impl Message for HashValue {}
 
-struct ReplicatedValidatorFinalization<C> {
-    f: Pin<Box<dyn Future<Output = Result<(), Error>>>>,
-    ctx: C,
+impl From<HashFunction> for HashValue {
+    fn from(value: HashFunction) -> Self {
+        // Ugh: The version of sha2 we currently use doesn't use the same GenericArray version as we do.
+        HashValue(GenericArray::from(<HashOutputArray>::from(
+            value.finalize_fixed(),
+        )))
+    }
 }
 
-impl<C: Context + 'static> ReplicatedValidatorFinalization<C> {
-    fn new(active: ReplicatedValidatorActive<C>) -> Self {
+struct ReplicatedValidatorFinalization {
+    f: Pin<Box<dyn Future<Output = Result<(), Error>>>>,
+}
+
+impl ReplicatedValidatorFinalization {
+    fn new<C: Context + 'static>(active: ReplicatedValidatorActive<C>) -> Self {
         let ReplicatedValidatorActive {
             ctx,
             left_hash,
             right_hash,
         } = active;
-        // Ugh: The version of sha2 we currently use doesn't use the same GenericArray version as we do.
-        let left_hash = HashValue(GenericArray::from(<HashOutputArray>::from(
-            left_hash.finalize_fixed(),
-        )));
-        let right_hash = HashValue(GenericArray::from(<HashOutputArray>::from(
-            right_hash.finalize_fixed(),
-        )));
+        let left_hash = HashValue::from(left_hash);
+        let right_hash = HashValue::from(right_hash);
         let left_peer = ctx.role().peer(Direction::Left);
-        let right_peer = ctx.role().peer(Direction::Left);
-        let ctx_ref = &ctx;
+        let right_peer = ctx.role().peer(Direction::Right);
 
-        let f = Box::pin(async move {
+        let f = Box::pin(assert_send(async move {
             try_join(
-                ctx_ref
-                    .send_channel(left_peer)
+                ctx.send_channel(left_peer)
                     .send(RecordId::FIRST, left_hash.clone()),
-                ctx_ref
-                    .send_channel(right_peer)
+                ctx.send_channel(right_peer)
                     .send(RecordId::FIRST, right_hash.clone()),
             )
             .await?;
             let (left_recvd, right_recvd) = try_join(
-                ctx_ref.recv_channel(left_peer).receive(RecordId::FIRST),
-                ctx_ref.recv_channel(right_peer).receive(RecordId::FIRST),
+                ctx.recv_channel(left_peer).receive(RecordId::FIRST),
+                ctx.recv_channel(right_peer).receive(RecordId::FIRST),
             )
             .await?;
             if left_hash == left_recvd && right_hash == right_recvd {
@@ -90,8 +91,8 @@ impl<C: Context + 'static> ReplicatedValidatorFinalization<C> {
             } else {
                 Err(Error::Internal) // TODO add a code
             }
-        });
-        Self { f, ctx }
+        }));
+        Self { f }
     }
 
     fn poll(&mut self, cx: &mut TaskContext<'_>) -> Poll<Result<(), Error>> {
@@ -126,16 +127,16 @@ impl<C: Context + 'static> ReplicatedValidatorActive<C> {
         self.right_hash.update(buf.as_slice());
     }
 
-    fn finalize(self) -> ReplicatedValidatorFinalization<C> {
+    fn finalize(self) -> ReplicatedValidatorFinalization {
         ReplicatedValidatorFinalization::new(self)
     }
 }
 
 enum ReplicatedValidatorState<C> {
     /// While the validator is waiting, it holds a context reference.
-    Pending(Option<ReplicatedValidatorActive<C>>),
+    Pending(Option<Box<ReplicatedValidatorActive<C>>>),
     /// After the validator has taken all of its inputs, it holds a future.
-    Finalizing(ReplicatedValidatorFinalization<C>),
+    Finalizing(ReplicatedValidatorFinalization),
 }
 
 impl<C: Context + 'static> ReplicatedValidatorState<C> {
@@ -178,7 +179,9 @@ impl<C: Context + 'static, T: Stream, S, V> ReplicatedValidator<C, T, S, V> {
     pub fn new(ctx: C, s: T) -> Self {
         Self {
             input: s.fuse(),
-            state: ReplicatedValidatorState::Pending(Some(ReplicatedValidatorActive::new(ctx))),
+            state: ReplicatedValidatorState::Pending(Some(Box::new(
+                ReplicatedValidatorActive::new(ctx),
+            ))),
             _marker: PhantomData,
         }
     }
@@ -214,5 +217,68 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.input.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::iter::repeat_with;
+
+    use futures::stream::{iter as stream_iter, Stream, StreamExt, TryStreamExt};
+
+    use crate::{
+        error::Error,
+        ff::Fp31,
+        helpers::Direction,
+        protocol::{basics::validate::ReplicatedValidator, context::Context, RecordId},
+        rand::{thread_rng, Rng},
+        secret_sharing::{
+            replicated::{
+                semi_honest::AdditiveShare as SemiHonestReplicated, ReplicatedSecretSharing,
+            },
+            SharedValue,
+        },
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+
+    fn assert_stream<S: Stream<Item = Result<T, Error>>, T>(s: S) -> S {
+        s
+    }
+
+    /// Successfully validate some shares.
+    #[tokio::test]
+    pub async fn simple() {
+        let mut rng = thread_rng();
+        let world = TestWorld::default();
+
+        let input = repeat_with(|| rng.gen::<Fp31>())
+            .take(10)
+            .collect::<Vec<_>>();
+        let result = world
+            .semi_honest(input.into_iter(), |ctx, shares| async move {
+                let ctx = ctx.set_total_records(shares.len());
+                let s = stream_iter(shares).map(|x| Ok(x));
+                let vs = ReplicatedValidator::new(ctx.narrow("validate"), s);
+                let sum = assert_stream(vs)
+                    .try_fold(Fp31::ZERO, |sum, value| async move {
+                        Ok(sum + value.left() - value.right())
+                    })
+                    .await?;
+                // This value should sum to zero now, so replicate the value.
+                // (We don't care here that this reveals our share to other helpers, it's just a test.)
+                ctx.send_channel(ctx.role().peer(Direction::Right))
+                    .send(RecordId::FIRST, sum)
+                    .await?;
+                let left = ctx
+                    .recv_channel(ctx.role().peer(Direction::Left))
+                    .receive(RecordId::FIRST)
+                    .await?;
+                Ok(SemiHonestReplicated::new(left, sum))
+            })
+            .await
+            .map(Result::<_, Error>::unwrap)
+            .reconstruct();
+
+        assert_eq!(Fp31::ZERO, result);
     }
 }
