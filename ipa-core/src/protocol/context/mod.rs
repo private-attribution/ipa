@@ -4,7 +4,7 @@ pub mod semi_honest;
 pub mod upgrade;
 pub mod validator;
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
@@ -152,9 +152,7 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
 pub struct Base<'a> {
-    /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
-    /// may operate with raw references and be more efficient
-    inner: Arc<Inner<'a>>,
+    inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
 }
@@ -197,7 +195,7 @@ impl<'a> Context for Base<'a> {
         Gate: StepNarrow<S>,
     {
         Self {
-            inner: Arc::clone(&self.inner),
+            inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
         }
@@ -205,7 +203,7 @@ impl<'a> Context for Base<'a> {
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         Self {
-            inner: Arc::clone(&self.inner),
+            inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
         }
@@ -253,14 +251,15 @@ impl<'a> SeqJoin for Base<'a> {
     }
 }
 
+#[derive(Clone)]
 struct Inner<'a> {
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
 }
 
 impl<'a> Inner<'a> {
-    fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
-        Arc::new(Self { prss, gateway })
+    fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self { prss, gateway }
     }
 }
 
