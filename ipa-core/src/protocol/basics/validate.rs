@@ -58,7 +58,7 @@ impl From<HashFunction> for HashValue {
 }
 
 struct ReplicatedValidatorFinalization {
-    f: Pin<Box<dyn Future<Output = Result<(), Error>>>>,
+    f: Pin<Box<(dyn Future<Output = Result<(), Error>> + Send)>>,
 }
 
 impl ReplicatedValidatorFinalization {
