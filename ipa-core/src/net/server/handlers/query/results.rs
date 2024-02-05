@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
 use axum::{routing::get, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
     helpers::Transport,
     net::{http_serde, server::Error, HttpTransport},
+    sync::Arc,
 };
 
 /// Handles the completion of the query by blocking the sender until query is completed.

@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
 use axum::{response::IntoResponse, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
     net::{http_serde, server::ClientIdentity, HttpTransport},
     query::PrepareQueryError,
+    sync::Arc,
 };
 
 /// Called by whichever peer helper is the leader for an individual query, to initiatialize

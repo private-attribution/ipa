@@ -27,6 +27,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sync::Arc,
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
