@@ -8,7 +8,6 @@ use rand::{
     Rng,
 };
 
-
 use crate::protocol::dp::insecure::Error;
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
@@ -260,11 +259,12 @@ mod tests {
     #[test]
     fn test_double_geometric_constructor() {
         // should fail for negative s parameter
-        let s = -1.0;
-        let n = 25;
-        let expected = Err(Error::BadS(s));
-        let actual = DoubleGeometric::new(s, n);
-        assert_eq!(expected, actual);
+        let mut s = -1.0;
+        let mut n = 25;
+        assert_eq!(Err(Error::BadS(s)), DoubleGeometric::new(s, n));
+        s = 3.0;
+        n = 3_000_000;
+        assert_eq!(Err(Error::BadSensitivity(n)), DoubleGeometric::new(s, n));
     }
     /// Tests for Truncated Double Geometric
     #[test]
@@ -272,12 +272,13 @@ mod tests {
         // should fail for negative s parameter
         let mut s = -1.0;
         let mut n = 25;
-        let mut actual = TruncatedDoubleGeometric::new(s, n);
-        assert_eq!(Err(Error::BadS(s)), actual);
+        assert_eq!(Err(Error::BadS(s)), TruncatedDoubleGeometric::new(s, n));
         s = 2.0;
         n = 3_000_000;
-        actual = TruncatedDoubleGeometric::new(s, n);
-        assert_eq!(Err(Error::BadShiftValue(n)), actual);
+        assert_eq!(
+            Err(Error::BadShiftValue(n)),
+            TruncatedDoubleGeometric::new(s, n)
+        );
     }
     #[test]
     fn test_truncated_double_geometric() {
@@ -387,15 +388,16 @@ mod tests {
         // Compute the expected probability for each value in the range [0, 2*n]
         #[allow(clippy::cast_precision_loss)]
         let r = E.powf(-epsilon);
-        let normalizing_factor = (1.0 - r)
-            / (1.0 + r - 2.0 * E.powf(-epsilon * (f64::from(n + 1)))); // 'A' in paper
+        let normalizing_factor =
+            (1.0 - r) / (1.0 + r - 2.0 * E.powf(-epsilon * (f64::from(n + 1)))); // 'A' in paper
 
         for x in 0..=(2 * n) {
             // Compare the observed and expected probabilities for each value in the range [0, 2*n]
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
-            let expected_probability = normalizing_factor * E.powf(-epsilon * ((f64::from(n) - f64::from(x)).abs()));
+            let expected_probability =
+                normalizing_factor * E.powf(-epsilon * ((f64::from(n) - f64::from(x)).abs()));
             assert!(
                 (observed_probability - expected_probability).abs() <= 0.01,
                 "Observed probability is not within 1% of expected probability"
