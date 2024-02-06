@@ -77,7 +77,7 @@ impl<V: SharedValue + ExtendableField> LinearSecretSharing<V> for AdditiveShare<
 /// when the protocol is done.  This should not be used directly.
 #[async_trait]
 pub trait Downgrade: Send {
-    type Target: Send;
+    type Target: Send + 'static;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 

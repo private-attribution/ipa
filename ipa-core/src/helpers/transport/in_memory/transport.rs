@@ -5,7 +5,6 @@ use std::{
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
-    sync::{Arc, Weak},
     task::{Context, Poll},
 };
 
@@ -29,6 +28,7 @@ use crate::{
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     protocol::{step::Gate, QueryId},
+    sync::{Arc, Weak},
 };
 
 type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
@@ -575,10 +575,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_consume_ordering_sender() {
-        let tx = Arc::new(OrderingSender::new(
-            NonZeroUsize::new(2).unwrap(),
-            NonZeroUsize::new(2).unwrap(),
-        ));
+        let tx = Arc::new(OrderingSender::new(NonZeroUsize::new(2).unwrap(), 2));
         let rx = Arc::clone(&tx).as_rc_stream();
         let network = InMemoryNetwork::default();
         let transport1 = network.transport(HelperIdentity::ONE);

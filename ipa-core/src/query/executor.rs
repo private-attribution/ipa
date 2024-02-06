@@ -2,7 +2,6 @@ use std::{
     fmt::Debug,
     future::{ready, Future},
     pin::Pin,
-    sync::Arc,
 };
 
 use ::tokio::sync::oneshot;
@@ -33,6 +32,7 @@ use crate::{
         runner::{IpaQuery, OprfIpaQuery, QueryResult, SparseAggregateQuery},
         state::RunningQuery,
     },
+    sync::Arc,
 };
 
 pub trait Result: Send + Debug {
