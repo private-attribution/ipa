@@ -8,6 +8,7 @@ use rand::{
     Rng,
 };
 
+
 use crate::protocol::dp::insecure::Error;
 
 /// Returns `true` iff `a` and `b` are close to each other. `a` and `b` are considered close if
@@ -17,6 +18,7 @@ pub fn is_close(a: f64, b: f64, precision: u8) -> bool {
     (a - b).abs()
         < (2.0_f64.powf((a.abs() + 1.0).log2().ceil()) / 10.0_f64.powi(i32::from(precision)))
 }
+
 /// Normal distribution based on [`Box-Muller`] transform.
 ///
 /// [`Box-Muller`]: https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
@@ -38,6 +40,7 @@ impl Distribution<f64> for BoxMuller {
         n * self.std + self.mean
     }
 }
+
 /// Rounded Normal distribution based on [`Box-Muller`] transform.
 ///
 /// [`Box-Muller`]: https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
@@ -143,6 +146,8 @@ pub struct TruncatedDoubleGeometric {
 
 impl TruncatedDoubleGeometric {
     /// Creates a new `TruncatedDoubleGeometric` distribution with the given success probability and shift parameter.
+    /// This uses rejection sampling to ensure that values produced are always strictly positive and
+    /// in the range `[0, 2*shift]`.
     pub fn new(s: f64, shift: u32) -> Result<Self, Error> {
         if s < f64::MIN_POSITIVE {
             return Err(Error::BadS(s));
@@ -168,6 +173,7 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
         }
     }
 }
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
@@ -239,13 +245,15 @@ mod tests {
             *histogram.entry(sample).or_insert(0) += 1;
         }
         #[allow(clippy::cast_precision_loss)]
-        for x in 0..100 {
+        const ITERAIONS: u32 = 100;
+        const TOLERANCE: f64 = 0.01;
+        for x in 0..ITERAIONS {
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
             let expected_probability = (1.0 - p).powf(f64::from(x)) * p;
             println!("x = {x}, Observed Probability = {observed_probability}, Expected Probability = {expected_probability}");
-            assert!((observed_probability - expected_probability) <= 0.01);
+            assert!((observed_probability - expected_probability) <= TOLERANCE);
         }
     }
     /// Tests for Double Geometric
@@ -264,14 +272,12 @@ mod tests {
         // should fail for negative s parameter
         let mut s = -1.0;
         let mut n = 25;
-        let mut expected = Err(Error::BadS(s));
         let mut actual = TruncatedDoubleGeometric::new(s, n);
-        assert_eq!(expected, actual);
+        assert_eq!(Err(Error::BadS(s)), actual);
         s = 2.0;
         n = 3_000_000;
-        expected = Err(Error::BadShiftValue(n));
         actual = TruncatedDoubleGeometric::new(s, n);
-        assert_eq!(expected, actual);
+        assert_eq!(Err(Error::BadShiftValue(n)), actual);
     }
     #[test]
     fn test_truncated_double_geometric() {
@@ -380,23 +386,16 @@ mod tests {
         sorted_keys.sort_unstable();
         // Compute the expected probability for each value in the range [0, 2*n]
         #[allow(clippy::cast_precision_loss)]
-        let normalizing_factor = (1.0 - E.powf(-epsilon))
-            / (1.0 + E.powf(-epsilon) - 2.0 * E.powf(-epsilon * (f64::from(n + 1)))); // 'A' in paper
+        let r = E.powf(-epsilon);
+        let normalizing_factor = (1.0 - r)
+            / (1.0 + r - 2.0 * E.powf(-epsilon * (f64::from(n + 1)))); // 'A' in paper
 
         for x in 0..=(2 * n) {
             // Compare the observed and expected probabilities for each value in the range [0, 2*n]
             let observed_probability = histogram
                 .get(&x)
                 .map_or(0.0, |count| f64::from(*count) / f64::from(num_samples));
-            // let expected_probability =
-            // normalizing_factor * E.powf(-epsilon * ((n - x) as i32 ).abs() as f64);
-            let expected_probability = normalizing_factor
-                * (if x <= n {
-                    E.powf(-epsilon * f64::from(n - x))
-                } else {
-                    E.powf(-epsilon * f64::from(x - n))
-                });
-
+            let expected_probability = normalizing_factor * E.powf(-epsilon * ((f64::from(n) - f64::from(x)).abs()));
             assert!(
                 (observed_probability - expected_probability).abs() <= 0.01,
                 "Observed probability is not within 1% of expected probability"
