@@ -48,7 +48,7 @@ ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
 # It's impossible to generate the exact set of steps that are executed in the actual
 # protocol without executing the protocol or analyzing the code statically.
 DEPTH_DYNAMIC_STEPS = [
-    "ipa::protocol::attribution::InteractionPatternStep",
+    "ipa_core::protocol::attribution::InteractionPatternStep",
 ]
 MAXIMUM_DEPTH = 32
 
