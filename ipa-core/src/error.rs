@@ -36,6 +36,8 @@ pub enum Error {
     MaliciousSecurityCheckFailed,
     #[error("malicious reveal failed")]
     MaliciousRevealFailed,
+    #[error("share values were inconsistent between helpers")]
+    InconsistentShares,
     #[error("problem during IO: {0}")]
     Io(#[from] std::io::Error),
     // TODO remove if this https://github.com/awslabs/shuttle/pull/109 gets approved
