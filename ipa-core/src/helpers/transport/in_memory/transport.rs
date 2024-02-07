@@ -5,7 +5,6 @@ use std::{
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
-    sync::{Arc, Weak},
     task::{Context, Poll},
 };
 
@@ -29,6 +28,7 @@ use crate::{
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
     protocol::{step::Gate, QueryId},
+    sync::{Arc, Weak},
 };
 
 type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
