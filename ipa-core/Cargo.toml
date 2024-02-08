@@ -63,6 +63,10 @@ descriptive-gate = []
 compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
+# Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
+# RUSTFLAGS="--cfg tokio_unstable" cargo run ... --features="tokio-console ...".
+# Note that if there are other flags enabled on your platform in .cargo/config.toml, you need to include them as well.
+tokio-console = ["console-subscriber"]
 
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
@@ -88,6 +92,7 @@ bytes = "1.4"
 clap = { version = "4.3.2", optional = true, features = ["derive"] }
 comfy-table = { version = "7.0", optional = true }
 config = "0.14"
+console-subscriber = {  version = "0.2", optional = true }
 criterion = { version = "0.5.1", optional = true, default-features = false, features = [
     "async_tokio",
     "plotters",
@@ -135,7 +140,7 @@ sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
-tokio = { version = "1.35", features = ["fs", "rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.35", features = ["fs", "rt", "rt-multi-thread", "macros", "tracing"] }
 # TODO: axum-server holds onto 0.24 and we can't upgrade until they do. Or we move away from axum-server
 tokio-rustls = { version = "0.24", optional = true }
 tokio-stream = "0.1.14"
