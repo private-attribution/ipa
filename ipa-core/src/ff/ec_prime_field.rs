@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{cmp::Ordering, convert::Infallible};
 
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
@@ -7,7 +7,7 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
+    ff::{boolean_array::BA256, Field, Invert, Serializable},
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, SharedValue},
 };
@@ -23,14 +23,29 @@ pub struct Fp25519(<Self as SharedValue>::Storage);
 
 impl Fp25519 {
     pub const ONE: Self = Self(Scalar::ONE);
+}
 
+impl Invert for Fp25519 {
     ///allow invert for scalars, i.e. computes 1/a mod p
     ///# Panics
     /// Panics when self is zero
     #[must_use]
-    pub fn invert(&self) -> Fp25519 {
+    fn invert(&self) -> Self {
         assert_ne!(*self, Fp25519::ZERO);
         Fp25519(self.0.invert())
+    }
+}
+/// `PartialOrd`
+/// be careful using it because of wrap around
+/// needed for checking whether value falls in range
+impl PartialOrd for Fp25519 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let mut a_be = *self.0.as_bytes();
+        let mut b_be = *other.0.as_bytes();
+        a_be.reverse();
+        b_be.reverse();
+        // I am not sure whether `<`, `>` is constant time
+        Some(a_be.cmp(&b_be))
     }
 }
 
@@ -203,16 +218,17 @@ impl FromRandomU128 for Fp25519 {
     }
 }
 
-///implement `TryFrom` since required by Field
+/// implement `TryFrom` since required by Field
+/// use with care, e.g. in testing only
 impl TryFrom<u128> for Fp25519 {
     type Error = crate::error::Error;
 
     fn try_from(v: u128) -> Result<Self, Self::Error> {
         let mut bits = [0u8; 32];
-        bits[..].copy_from_slice(&v.to_le_bytes());
-        let f: Fp25519 = Fp25519::ONE;
-        f.serialize((&mut bits).into());
-        Ok(f)
+        bits[0..16].copy_from_slice(&v.to_le_bytes());
+        Ok(Fp25519::deserialize_infallible(GenericArray::from_slice(
+            &bits,
+        )))
     }
 }
 
@@ -224,7 +240,7 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{ec_prime_field::Fp25519, Serializable},
+        ff::{ec_prime_field::Fp25519, Invert, Serializable},
         secret_sharing::SharedValue,
     };
 
@@ -286,5 +302,20 @@ mod test {
         let a = rng.gen::<Fp25519>();
         let ia = a.invert();
         assert_eq!(a * ia, Fp25519(Scalar::ONE));
+    }
+
+    #[test]
+    fn partial_order_25519() {
+        for _ in 0..100 {
+            let mut rng = thread_rng();
+            let a = rng.gen::<u128>();
+            let b = rng.gen::<u128>();
+            assert_eq!(
+                a.partial_cmp(&b),
+                Fp25519::try_from(a)
+                    .unwrap()
+                    .partial_cmp(&Fp25519::try_from(b).unwrap())
+            );
+        }
     }
 }

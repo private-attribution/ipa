@@ -9,6 +9,7 @@ use generic_array::GenericArray;
 mod buffers;
 mod error;
 mod gateway;
+pub mod hashing;
 pub(crate) mod prss_protocol;
 mod transport;
 
@@ -243,6 +244,16 @@ pub struct RoleAssignment {
 pub enum Direction {
     Left,
     Right,
+}
+
+impl std::ops::Not for Direction {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            Left => Right,
+            Right => Left,
+        }
+    }
 }
 
 impl Role {

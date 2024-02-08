@@ -117,3 +117,8 @@ where
 {
     type Element = <S as ArrayAccess>::Output;
 }
+
+pub trait Invert {
+    #[must_use]
+    fn invert(&self) -> Self;
+}
