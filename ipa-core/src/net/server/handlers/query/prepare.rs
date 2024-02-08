@@ -11,7 +11,7 @@ use crate::{
 /// processing of that query.
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    _from: Extension<ClientIdentity>, // require that client is an authenticated helper
+    _: Extension<ClientIdentity>, // require that client is an authenticated helper
     req: http_serde::query::prepare::Request,
 ) -> Result<(), PrepareQueryError> {
     Arc::clone(&transport).prepare_query(req.data).await
