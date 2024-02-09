@@ -246,7 +246,6 @@ mod tests {
             *histogram.entry(sample).or_insert(0) += 1;
         }
         #[allow(clippy::cast_precision_loss)]
-
         for x in 0..ITERAIONS {
             let observed_probability = histogram
                 .get(&x)
