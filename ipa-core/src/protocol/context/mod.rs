@@ -27,7 +27,6 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
-    sync::Arc,
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -291,18 +290,13 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
-    trait AsReplicatedTestOnly<F: Field> {
+    trait ReplicatedLeftValue<F: Field> {
         fn l(&self) -> F;
-        fn r(&self) -> F;
     }
 
-    impl<F: Field> AsReplicatedTestOnly<F> for Replicated<F> {
+    impl<F: Field> ReplicatedLeftValue<F> for Replicated<F> {
         fn l(&self) -> F {
             (self as &Replicated<F>).left()
-        }
-
-        fn r(&self) -> F {
-            (self as &Replicated<F>).right()
         }
     }
 
@@ -310,13 +304,9 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: ExtendableField> AsReplicatedTestOnly<F::ExtendedField> for MaliciousReplicated<F> {
+    impl<F: ExtendableField> ReplicatedLeftValue<F::ExtendedField> for MaliciousReplicated<F> {
         fn l(&self) -> F::ExtendedField {
             (self as &MaliciousReplicated<F>).rx().left()
-        }
-
-        fn r(&self) -> F::ExtendedField {
-            (self as &MaliciousReplicated<F>).rx().right()
         }
     }
 
@@ -326,7 +316,7 @@ mod tests {
         F: Field,
         Standard: Distribution<F>,
         C: Context,
-        S: AsReplicatedTestOnly<F>,
+        S: ReplicatedLeftValue<F>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (
