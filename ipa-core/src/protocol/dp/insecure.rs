@@ -1,18 +1,43 @@
 #![allow(dead_code)]
 
-use std::f64;
+use std::f64::consts::E;
 
-use rand::distributions::Distribution;
+use rand::distributions::{BernoulliError, Distribution};
 use rand_core::{CryptoRng, RngCore};
 
-use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller};
+use crate::protocol::dp::distributions::{BoxMuller, RoundedBoxMuller, TruncatedDoubleGeometric};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     #[error("Epsilon value must be greater than {}, got {0}", f64::MIN_POSITIVE)]
     BadEpsilon(f64),
     #[error("Valid values for DP-delta are within {:?}, got: {0}", f64::MIN_POSITIVE..1.0 - f64::MIN_POSITIVE)]
     BadDelta(f64),
+    #[error(
+        "Valid values for TruncatedDoubleGeometric are greater than {:?}, got: {0}",
+        f64::MIN_POSITIVE
+    )]
+    BadS(f64),
+    #[error(
+        "Valid values for success probability in Geometric are greater than {:?}, got: {0}",
+        f64::MIN_POSITIVE
+    )]
+    BadGeometricProb(f64),
+    #[error(
+        "Shift value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow
+        in Double Geometric sample",
+    )]
+    BadShiftValue(u32),
+    #[error(
+        "Sensitivity value over 1M -- likely don't need it that large and preventing to avoid any chance of overflow
+        in Double Geometric sample",
+    )]
+    BadSensitivity(u32),
+}
+impl From<BernoulliError> for Error {
+    fn from(_: BernoulliError) -> Self {
+        Error::BadGeometricProb(f64::NAN)
+    }
 }
 
 /// Applies DP to the inputs in the clear using continuous Gaussian noise. Works with floats only, so
@@ -98,6 +123,98 @@ impl DiscreteDp {
     #[must_use]
     pub fn std(&self) -> f64 {
         self.rounded_normal_dist.std()
+    }
+}
+
+///  Non-negative DP noise for OPRF padding
+///  Samples from a Truncated Double Geometric
+#[derive(Debug, PartialEq)]
+pub struct OPRFPaddingDp {
+    epsilon: f64,
+    delta: f64,
+    sensitivity: u32, // $\Delta$
+    truncated_double_geometric: TruncatedDoubleGeometric,
+}
+fn pow_u32(mut base: f64, mut exp: u32) -> f64 {
+    // To avoid type precision loss, we implemented pow for a u32 exponent
+    // like the algorithm here https://docs.rs/num-traits/0.2.15/src/num_traits/pow.rs.html#189
+    if exp == 0 {
+        return 1.0;
+    }
+
+    while exp & 1 == 0 {
+        base = base * base;
+        exp >>= 1;
+    }
+    if exp == 1 {
+        return base;
+    }
+
+    let mut acc = base;
+    while exp > 1 {
+        exp >>= 1;
+        base = base * base;
+        if exp & 1 == 1 {
+            acc *= base;
+        }
+    }
+    acc
+}
+
+fn right_hand_side(n: u32, big_delta: u32, epsilon: f64) -> f64 {
+    // Computes the right hand side of equation (11) in https://arxiv.org/pdf/2110.08177.pdf
+    let r = E.powf(-epsilon);
+    let a = (1.0 - r) / (1.0 + r - 2.0 * (pow_u32(r, n + 1)));
+    let mut result = 0.0;
+    for k in n - big_delta + 1..=n {
+        result += pow_u32(r, k);
+    }
+    a * result
+}
+fn find_smallest_n(big_delta: u32, epsilon: f64, small_delta: f64) -> u32 {
+    // for a fixed set of DP parameters, finds the smallest n that satisfies equation (11)
+    // of https://arxiv.org/pdf/2110.08177.pdf.  This gives the narrowest TruncatedDoubleGeometric
+    // that will satisify the disired DP parameters.
+    for n in big_delta.. {
+        if small_delta >= right_hand_side(n, big_delta, epsilon) {
+            return n;
+        }
+    }
+    panic!("No smallest n found for OPRF padding DP");
+}
+
+impl OPRFPaddingDp {
+    // See dp/README.md
+    pub fn new(new_epsilon: f64, new_delta: f64, new_sensitivity: u32) -> Result<Self, Error> {
+        // make sure delta and epsilon are in range, i.e. >min and delta<1-min
+        if new_epsilon < f64::MIN_POSITIVE {
+            return Err(Error::BadEpsilon(new_epsilon));
+        }
+
+        if !(f64::MIN_POSITIVE..=1.0 - f64::MIN_POSITIVE).contains(&new_delta) {
+            return Err(Error::BadDelta(new_delta));
+        }
+        if new_sensitivity > 1_000_000 {
+            return Err(Error::BadSensitivity(new_sensitivity));
+        }
+
+        // compute smallest shift needed to achieve this delta
+        let smallest_n = find_smallest_n(new_sensitivity, new_epsilon, new_delta);
+
+        Ok(Self {
+            epsilon: new_epsilon,
+            delta: new_delta,
+            sensitivity: new_sensitivity,
+            truncated_double_geometric: TruncatedDoubleGeometric::new(
+                1.0 / new_epsilon,
+                smallest_n,
+            )?,
+        })
+    }
+
+    /// Generates a sample from the `OPRFPaddingDp` struct.
+    pub fn sample<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
+        self.truncated_double_geometric.sample(rng)
     }
 }
 
@@ -237,5 +354,73 @@ mod test {
             );
             assert!(f64::abs(sample_variance - dp.rounded_normal_dist.std().powi(2)) < 2.0);
         }
+    }
+
+    /// Tests for OPRF Padding DP
+    #[test]
+    fn test_pow_u32() {
+        assert!(is_close(pow_u32(2.0, 4), 16.0, 5));
+        assert!(is_close(pow_u32(6.0, 3), 216.0, 5));
+        assert!(is_close(pow_u32(0.0, 0), 1.0, 5));
+    }
+
+    #[test]
+    fn test_find_smallest_n() {
+        assert_eq!(find_smallest_n(1, 0.5, 1e-6), 25);
+        assert_eq!(find_smallest_n(1, 1.0, 1e-06), 14);
+        assert_eq!(find_smallest_n(1, 0.1, 1e-06), 109);
+        assert_eq!(find_smallest_n(1, 0.01, 1e-06), 852);
+        assert_eq!(find_smallest_n(1, 1.0, 1e-07), 16);
+        assert_eq!(find_smallest_n(1, 0.1, 1e-07), 132);
+        assert_eq!(find_smallest_n(1, 0.01, 1e-07), 1082);
+        assert_eq!(find_smallest_n(1, 1.0, 1e-08), 18);
+        assert_eq!(find_smallest_n(1, 0.1, 1e-08), 155);
+        assert_eq!(find_smallest_n(1, 0.01, 1e-08), 1313);
+        assert_eq!(find_smallest_n(10, 1.0, 1e-06), 23);
+        assert_eq!(find_smallest_n(10, 0.1, 1e-06), 137);
+        assert_eq!(find_smallest_n(10, 0.01, 1e-06), 1087);
+        assert_eq!(find_smallest_n(10, 1.0, 1e-07), 25);
+        assert_eq!(find_smallest_n(10, 0.1, 1e-07), 160);
+        assert_eq!(find_smallest_n(10, 0.01, 1e-07), 1317);
+        assert_eq!(find_smallest_n(10, 1.0, 1e-08), 28);
+        assert_eq!(find_smallest_n(10, 0.1, 1e-08), 183);
+        assert_eq!(find_smallest_n(10, 0.01, 1e-08), 1548);
+        assert_eq!(find_smallest_n(100, 1.0, 1e-06), 113);
+        assert_eq!(find_smallest_n(100, 0.1, 1e-06), 231);
+        assert_eq!(find_smallest_n(100, 0.01, 1e-06), 1366);
+        assert_eq!(find_smallest_n(100, 1.0, 1e-07), 115);
+        assert_eq!(find_smallest_n(100, 0.1, 1e-07), 254);
+        assert_eq!(find_smallest_n(100, 0.01, 1e-07), 1597);
+        assert_eq!(find_smallest_n(100, 1.0, 1e-08), 118);
+        assert_eq!(find_smallest_n(100, 0.1, 1e-08), 277);
+        assert_eq!(find_smallest_n(100, 0.01, 1e-08), 1827);
+        assert_eq!(find_smallest_n(1000, 1.0, 1e-06), 1013);
+        assert_eq!(find_smallest_n(1000, 0.1, 1e-06), 1131);
+        assert_eq!(find_smallest_n(1000, 0.01, 1e-06), 2312);
+        assert_eq!(find_smallest_n(1000, 1.0, 1e-07), 1015);
+        assert_eq!(find_smallest_n(1000, 0.1, 1e-07), 1154);
+        assert_eq!(find_smallest_n(1000, 0.01, 1e-07), 2542);
+        assert_eq!(find_smallest_n(1000, 1.0, 1e-08), 1018);
+        assert_eq!(find_smallest_n(1000, 0.1, 1e-08), 1177);
+        assert_eq!(find_smallest_n(1000, 0.01, 1e-08), 2773);
+    }
+    #[test]
+    fn test_oprf_padding_dp() {
+        let oprf_padding = OPRFPaddingDp::new(1.0, 1e-6, 10);
+
+        let mut rng = rand::thread_rng();
+
+        oprf_padding.unwrap().sample(&mut rng);
+    }
+    fn test_oprf_padding_dp_constructor() {
+        let mut actual = OPRFPaddingDp::new(-1.0, 1e-6, 10); // (epsilon, delta, sensitivity)
+        let mut expected = Err(Error::BadEpsilon(-1.0));
+        assert_eq!(expected, Ok(actual));
+        actual = OPRFPaddingDp::new(1.0, -1e-6, 10); // (epsilon, delta, sensitivity)
+        expected = Err(Error::BadDelta(-1e-6));
+        assert_eq!(expected, Ok(actual));
+        actual = OPRFPaddingDp::new(1.0, -1e-6, 1_000_001); // (epsilon, delta, sensitivity)
+        expected = Err(Error::BadSensitivity(1_000_001));
+        assert_eq!(expected, Ok(actual));
     }
 }
