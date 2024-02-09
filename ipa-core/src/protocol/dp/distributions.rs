@@ -234,6 +234,8 @@ mod tests {
 
     #[test]
     fn test_geometric_sample_dist() {
+        const ITERAIONS: u32 = 100;
+        const TOLERANCE: f64 = 0.01;
         let mut rng = rand::thread_rng();
         let p = 0.5; // success probability
         let geometric = Geometric::new(p).expect("Geometric not constructed");
@@ -244,8 +246,7 @@ mod tests {
             *histogram.entry(sample).or_insert(0) += 1;
         }
         #[allow(clippy::cast_precision_loss)]
-        const ITERAIONS: u32 = 100;
-        const TOLERANCE: f64 = 0.01;
+
         for x in 0..ITERAIONS {
             let observed_probability = histogram
                 .get(&x)
