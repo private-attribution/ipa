@@ -57,8 +57,8 @@ where
     let mut sha = Sha256::new();
     // set state
     for x in input {
-        let mut buf = vec![0u8; <F as Serializable>::Size::USIZE];
-        x.serialize(GenericArray::from_mut_slice(&mut buf));
+        let mut buf = GenericArray::default();
+        x.serialize(&mut buf);
         sha.update(buf);
     }
     // compute hash as a field element
