@@ -1,22 +1,18 @@
 use std::{
-    convert::Infallible,
     fmt::{Display, Formatter},
     marker::PhantomData,
-    ops::{Add, Deref},
+    ops::Deref,
 };
 
 use bytes::{BufMut, Bytes};
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::GenericArray;
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U1, U16, U18, U8};
+use typenum::{Unsigned, U1, U16};
 
 use crate::{
-    error::{BoxError, Error, UnwrapInfallible},
-    ff::{
-        boolean::Boolean, boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField,
-        Serializable,
-    },
+    error::BoxError,
+    ff::{boolean_array::BA64, GaloisField, Gf40Bit, Gf8Bit, PrimeField, Serializable},
     hpke::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, FieldShareCrypt, Info,
         KeyPair, KeyRegistry, PublicKeyRegistry, TagSize,
@@ -110,25 +106,6 @@ impl From<&EventType> for u8 {
         match value {
             EventType::Source => 0,
             EventType::Trigger => 1,
-        }
-    }
-}
-
-impl From<&EventType> for Replicated<Boolean> {
-    fn from(value: &EventType) -> Self {
-        Replicated(
-            Boolean::from(*value == EventType::Trigger),
-            Boolean::from(*value == EventType::Trigger),
-        )
-    }
-}
-
-impl From<&Replicated<Boolean>> for EventType {
-    fn from(value: &Replicated<Boolean>) -> Self {
-        if value.0 == Boolean::from(true) {
-            EventType::Trigger
-        } else {
-            EventType::Source
         }
     }
 }
@@ -603,7 +580,7 @@ where
             .map_err(|e| InvalidReportError::DeserializationError("timestamp", e.into()))?,
             match_key: Replicated::<BA64>::deserialize(GenericArray::from_slice(plaintext_mk))
                 .map_err(|e| InvalidReportError::DeserializationError("matchkey", e.into()))?,
-            is_trigger: Replicated::<Boolean>::from(&self.event_type()),
+            event_type: self.event_type(),
             breakdown_key: Replicated::<BK>::deserialize(GenericArray::from_slice(
                 &plaintext_btt[Self::BK_OFFSET..Self::TV_OFFSET],
             ))
@@ -642,131 +619,12 @@ where
     TS: SharedValue,
 {
     pub match_key: Replicated<BA64>,
-    pub is_trigger: Replicated<Boolean>,
+    pub event_type: EventType,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
     pub epoch: Epoch,
     pub site_domain: String,
-}
-
-impl Serializable for u64 {
-    type Size = U8;
-    type DeserializationError = Infallible;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.to_le_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let mut buf_to = [0u8; 8];
-        buf_to[..buf.len()].copy_from_slice(buf);
-        Ok(u64::from_le_bytes(buf_to))
-    }
-}
-
-impl<BK: SharedValue, TV: SharedValue, TS: SharedValue> Serializable for OprfReport<BK, TV, TS>
-where
-    Replicated<BK>: Serializable,
-    Replicated<TV>: Serializable,
-    Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U18>,
-    <Replicated<TS> as Serializable>::Size:
-        Add<<<Replicated<BK> as Serializable>::Size as Add<U18>>::Output>,
-    <Replicated<TV> as Serializable>::Size: Add<
-        <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
-        >>::Output,
-    >,
-    <<Replicated<TV> as Serializable>::Size as Add<
-        <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
-        >>::Output,
-    >>::Output: ArrayLength,
-{
-    type Size = <<Replicated<TV> as Serializable>::Size as Add<
-        <<Replicated<TS> as Serializable>::Size as Add<
-            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
-        >>::Output,
-    >>::Output;
-    type DeserializationError = Error;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
-        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
-        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
-        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
-        let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
-
-        self.match_key
-            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
-
-        self.timestamp
-            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + ts_sz]));
-
-        self.breakdown_key.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + ts_sz..mk_sz + ts_sz + bk_sz],
-        ));
-
-        self.trigger_value.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + ts_sz + bk_sz..mk_sz + ts_sz + bk_sz + tv_sz],
-        ));
-
-        self.is_trigger.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz + ts_sz + bk_sz + tv_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
-        ));
-
-        buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 2usize]
-            .copy_from_slice(&self.epoch.to_le_bytes());
-
-        buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 2usize
-            ..mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 2usize + self.site_domain.as_bytes().len()]
-            .copy_from_slice(self.site_domain.as_bytes());
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
-        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
-        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
-        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
-        let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
-
-        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
-            .unwrap_infallible();
-        let timestamp =
-            Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
-                .map_err(|e| Error::ParseError(e.into()))?;
-        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
-            &buf[mk_sz + ts_sz..mk_sz + ts_sz + bk_sz],
-        ))
-        .map_err(|e| Error::ParseError(e.into()))?;
-        let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
-            &buf[mk_sz + ts_sz + bk_sz..mk_sz + ts_sz + bk_sz + tv_sz],
-        ))
-        .map_err(|e| Error::ParseError(e.into()))?;
-        let is_trigger = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
-            &buf[mk_sz + ts_sz + bk_sz + tv_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
-        ))
-        .map_err(|e| Error::ParseError(e.into()))?;
-        let epoch = u16::from_le_bytes([
-            buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
-            buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 1usize],
-        ]);
-        let site_domain = String::from_utf8(
-            buf[mk_sz + ts_sz + bk_sz + tv_sz + it_sz + 2usize..Self::Size::USIZE].to_vec(),
-        )
-        .map_err(|e| Error::ParseError(e.into()))?;
-        Ok(Self {
-            match_key,
-            is_trigger,
-            breakdown_key,
-            trigger_value,
-            timestamp,
-            epoch,
-            site_domain,
-        })
-    }
 }
 
 impl<BK, TV, TS> OprfReport<BK, TV, TS>
@@ -831,7 +689,7 @@ where
         let info = Info::new(
             key_id,
             self.epoch,
-            EventType::from(&self.is_trigger),
+            self.event_type,
             HELPER_ORIGIN,
             self.site_domain.as_ref(),
         )?;
@@ -868,7 +726,7 @@ where
         out.put_slice(&encap_key_btt.to_bytes());
         out.put_slice(ciphertext_btt);
         out.put_slice(&tag_btt.to_bytes());
-        out.put_slice(&[u8::from(&EventType::from(&self.is_trigger))]);
+        out.put_slice(&[u8::from(&self.event_type)]);
         out.put_slice(&[key_id]);
         out.put_slice(&self.epoch.to_le_bytes());
         out.put_slice(self.site_domain.as_bytes());
@@ -888,6 +746,7 @@ mod test {
             boolean_array::{BA20, BA3, BA8},
             Fp32BitPrime, Gf40Bit, Gf8Bit,
         },
+        report::EventType::{Source, Trigger},
         secret_sharing::replicated::semi_honest::AdditiveShare,
     };
 
@@ -923,14 +782,14 @@ mod test {
     fn enc_dec_roundtrip_oprf() {
         let mut rng = thread_rng();
 
-        let b: Boolean = rng.gen();
+        let b: EventType = if rng.gen::<bool>() { Trigger } else { Source };
 
         let report = OprfReport::<BA8, BA3, BA20> {
             match_key: AdditiveShare(rng.gen(), rng.gen()),
             timestamp: AdditiveShare(rng.gen(), rng.gen()),
             breakdown_key: AdditiveShare(rng.gen(), rng.gen()),
             trigger_value: AdditiveShare(rng.gen(), rng.gen()),
-            is_trigger: AdditiveShare(b, b),
+            event_type: b,
             epoch: rng.gen(),
             site_domain: (&mut rng)
                 .sample_iter(Alphanumeric)

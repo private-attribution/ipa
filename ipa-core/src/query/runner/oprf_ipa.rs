@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 
 use futures::{stream::iter, StreamExt, TryStreamExt};
+use futures_util::stream::repeat;
 
 use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
         boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
-        PrimeField, Serializable,
+        Field, PrimeField, Serializable,
     },
     helpers::{
         query::{IpaQueryConfig, QuerySize},
@@ -17,11 +18,12 @@ use crate::{
     protocol::{
         basics::ShareKnownValue,
         context::{UpgradableContext, UpgradedContext},
-        ipa_prf::oprf_ipa,
+        ipa_prf::{oprf_ipa, OPRFIPAInputRow},
     },
-    report::{EncryptedOprfReport, OprfReport},
-    secret_sharing::replicated::{
-        malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+    report::{EncryptedOprfReport, EventType},
+    secret_sharing::{
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        SharedValue,
     },
     sync::Arc,
 };
@@ -68,7 +70,7 @@ where
         let sz = usize::from(query_size);
 
         let input = if config.plaintext_match_keys {
-            let mut v = RecordsStream::<OprfReport<BA8, BA3, BA20>, _>::new(input_stream)
+            let mut v = RecordsStream::<OPRFIPAInputRow<BA8, BA3, BA20>, _>::new(input_stream)
                 .try_concat()
                 .await?;
             v.truncate(sz);
@@ -85,6 +87,26 @@ where
                 })
                 .try_flatten()
                 .take(sz)
+                .zip(repeat(ctx.clone()))
+                .map(|(res, ctx)| {
+                    res.map(|report| {
+                        let is_trigger = Replicated::<Boolean>::share_known_value(
+                            &ctx,
+                            match report.event_type {
+                                EventType::Source => Boolean::ZERO,
+                                EventType::Trigger => Boolean::ONE,
+                            },
+                        );
+
+                        OPRFIPAInputRow {
+                            timestamp: report.timestamp,
+                            match_key: report.match_key,
+                            is_trigger,
+                            breakdown_key: report.breakdown_key,
+                            trigger_value: report.trigger_value,
+                        }
+                    })
+                })
                 .try_collect::<Vec<_>>()
                 .await?
         };
@@ -114,7 +136,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::{Field, Fp31},
-        report::DEFAULT_KEY_ID,
+        report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
         test_fixture::{ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld},
     };

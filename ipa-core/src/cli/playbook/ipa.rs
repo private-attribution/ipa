@@ -22,7 +22,10 @@ use crate::{
     hpke::PublicKeyRegistry,
     ipa_test_input,
     net::MpcHelperClient,
-    protocol::{ipa::IPAInputRow, BreakdownKey, MatchKey, QueryId, Timestamp, TriggerValue},
+    protocol::{
+        ipa::IPAInputRow, ipa_prf::OPRFIPAInputRow, BreakdownKey, MatchKey, QueryId, Timestamp,
+        TriggerValue,
+    },
     query::QueryStatus,
     report::{KeyIdentifier, OprfReport, Report},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -141,12 +144,13 @@ where
             panic!("match key encryption was requested, but one or more helpers is missing a public key")
         }
     } else {
-        let sz = <OprfReport<BreakdownKey, TriggerValue, Timestamp> as Serializable>::Size::USIZE;
+        let sz =
+            <OPRFIPAInputRow<BreakdownKey, TriggerValue, Timestamp> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
             buffer.resize(query_size * sz, 0u8);
         }
 
-        let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
+        let shares: [Vec<OPRFIPAInputRow<BreakdownKey, TriggerValue, Timestamp>>; 3] =
             records.iter().cloned().share();
 
         zip(&mut buffers, shares).for_each(|(buf, shares)| {

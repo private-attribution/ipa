@@ -1,10 +1,12 @@
-use std::num::NonZeroU32;
+use std::{convert::Infallible, num::NonZeroU32, ops::Add};
 
+use generic_array::{ArrayLength, GenericArray};
 use ipa_macros::Step;
+use typenum::{Unsigned, U18, U8};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
-    error::Error,
+    error::{Error, UnwrapInfallible},
     ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
     protocol::{
         context::{UpgradableContext, UpgradedContext},
@@ -17,7 +19,6 @@ use crate::{
         },
         RecordId,
     },
-    report::OprfReport,
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SharedValue,
@@ -38,6 +39,119 @@ pub(crate) enum Step {
     ConvertInputRowsToPrf,
     Shuffle,
     SortByTimestamp,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
+    pub match_key: Replicated<BA64>,
+    pub is_trigger: Replicated<Boolean>,
+    pub breakdown_key: Replicated<BK>,
+    pub trigger_value: Replicated<TV>,
+    pub timestamp: Replicated<TS>,
+}
+
+impl Serializable for u64 {
+    type Size = U8;
+    type DeserializationError = Infallible;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let raw = &self.to_le_bytes()[..buf.len()];
+        buf.copy_from_slice(raw);
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let mut buf_to = [0u8; 8];
+        buf_to[..buf.len()].copy_from_slice(buf);
+        Ok(u64::from_le_bytes(buf_to))
+    }
+}
+
+impl<BK: SharedValue, TV: SharedValue, TS: SharedValue> Serializable for OPRFIPAInputRow<BK, TV, TS>
+where
+    Replicated<BK>: Serializable,
+    Replicated<TV>: Serializable,
+    Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U18>,
+    <Replicated<TS> as Serializable>::Size:
+        Add<<<Replicated<BK> as Serializable>::Size as Add<U18>>::Output>,
+    <Replicated<TV> as Serializable>::Size: Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
+        >>::Output,
+    >,
+    <<Replicated<TV> as Serializable>::Size as Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
+        >>::Output,
+    >>::Output: ArrayLength,
+{
+    type Size = <<Replicated<TV> as Serializable>::Size as Add<
+        <<Replicated<TS> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<U18>>::Output,
+        >>::Output,
+    >>::Output;
+    type DeserializationError = Error;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
+        let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
+
+        self.match_key
+            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+
+        self.timestamp
+            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + ts_sz]));
+
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut buf[mk_sz + ts_sz..mk_sz + ts_sz + bk_sz],
+        ));
+
+        self.trigger_value.serialize(GenericArray::from_mut_slice(
+            &mut buf[mk_sz + ts_sz + bk_sz..mk_sz + ts_sz + bk_sz + tv_sz],
+        ));
+
+        self.is_trigger.serialize(GenericArray::from_mut_slice(
+            &mut buf[mk_sz + ts_sz + bk_sz + tv_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
+        ));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
+        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
+        let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
+        let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
+
+        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+            .unwrap_infallible();
+        let timestamp =
+            Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
+                .map_err(|e| Error::ParseError(e.into()))?;
+        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
+            &buf[mk_sz + ts_sz..mk_sz + ts_sz + bk_sz],
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+        let trigger_value = Replicated::<TV>::deserialize(GenericArray::from_slice(
+            &buf[mk_sz + ts_sz + bk_sz..mk_sz + ts_sz + bk_sz + tv_sz],
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+        let is_trigger = Replicated::<Boolean>::deserialize(GenericArray::from_slice(
+            &buf[mk_sz + ts_sz + bk_sz + tv_sz..mk_sz + ts_sz + bk_sz + tv_sz + it_sz],
+        ))
+        .map_err(|e| Error::ParseError(e.into()))?;
+
+        Ok(Self {
+            match_key,
+            is_trigger,
+            breakdown_key,
+            trigger_value,
+            timestamp,
+        })
+    }
 }
 
 /// IPA OPRF Protocol
@@ -63,7 +177,7 @@ pub(crate) enum Step {
 /// Propagates errors from config issues or while running the protocol
 pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
     ctx: C,
-    input_rows: Vec<OprfReport<BK, TV, TS>>,
+    input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
@@ -105,7 +219,7 @@ where
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
-    input_rows: Vec<OprfReport<BK, TV, TS>>,
+    input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,

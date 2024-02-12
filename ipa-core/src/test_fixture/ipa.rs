@@ -6,7 +6,7 @@ use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
     ipa_test_input,
-    protocol::{ipa::ipa, BreakdownKey, MatchKey},
+    protocol::{ipa::ipa, ipa_prf::OPRFIPAInputRow, BreakdownKey, MatchKey},
     secret_sharing::{
         replicated::{
             malicious, malicious::ExtendableField, semi_honest,
@@ -250,7 +250,6 @@ pub async fn test_oprf_ipa<F>(
     use crate::{
         ff::boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
         protocol::ipa_prf::oprf_ipa,
-        report::OprfReport,
         test_fixture::Runner,
     };
 
@@ -258,7 +257,7 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
                     8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, aws)
