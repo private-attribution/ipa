@@ -3,7 +3,8 @@ use std::{str::FromStr, sync::Once};
 use metrics_tracing_context::MetricsLayer;
 use tracing::Level;
 use tracing_subscriber::{
-    filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
+    filter::Directive, fmt, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter,
 };
 
 /// Set up logging for IPA
@@ -27,7 +28,11 @@ pub fn setup() {
                     .with_default_directive(default_directive)
                     .from_env_lossy(),
             )
-            .with(fmt::layer())
+            .with(
+                fmt::layer()
+                    .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                    .with_test_writer(),
+            )
             .with(MetricsLayer::new())
             .init();
     });
