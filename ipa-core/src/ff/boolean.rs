@@ -4,8 +4,12 @@ use typenum::U1;
 use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
+    secret_sharing::{
+        replicated::malicious::ExtendableField, Block, FieldVectorizable, SharedValue, StdArray,
+        Vectorizable,
+    },
 };
 
 impl Block for bool {
@@ -38,6 +42,16 @@ impl SharedValue for Boolean {
     type Storage = bool;
     const BITS: u32 = 1;
     const ZERO: Self = Self(false);
+
+    impl_shared_value_common!();
+}
+
+impl Vectorizable<1> for Boolean {
+    type Array = StdArray<Boolean, 1>;
+}
+
+impl FieldVectorizable<1> for Boolean {
+    type ArrayAlias = StdArray<Boolean, 1>;
 }
 
 ///conversion to Scalar struct of `curve25519_dalek`
@@ -146,6 +160,8 @@ impl From<bool> for Boolean {
 
 ///implement Field because required by PRSS
 impl Field for Boolean {
+    const NAME: &'static str = "Boolean";
+
     const ONE: Boolean = Boolean(true);
 
     fn as_u128(&self) -> u128 {

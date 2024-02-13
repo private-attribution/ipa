@@ -270,6 +270,7 @@ mod receive {
 
 mod send {
     use std::{
+        borrow::Borrow,
         collections::BTreeMap,
         fmt::{Debug, Formatter},
     };
@@ -288,7 +289,7 @@ mod send {
         delegate::delegate! {
             to { self.advance(); self.inner() } {
                 #[inline]
-                pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error>;
+                pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error>;
             }
         }
     }

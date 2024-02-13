@@ -1,4 +1,8 @@
-use std::{backtrace::Backtrace, convert::Infallible, fmt::Debug};
+use std::{
+    backtrace::Backtrace,
+    convert::Infallible,
+    fmt::{Debug, Display},
+};
 
 use thiserror::Error;
 
@@ -60,6 +64,8 @@ pub enum Error {
     Unsupported(String),
     #[error("Decompressing invalid elliptic curve point: {0}")]
     DecompressingInvalidCurvePoint(String),
+    #[error(transparent)]
+    LengthError(#[from] LengthError),
 }
 
 impl Default for Error {
@@ -84,6 +90,20 @@ impl From<std::num::ParseIntError> for Error {
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub type Res<T> = Result<T, Error>;
+
+#[derive(Debug)]
+pub struct LengthError {
+    pub expected: usize,
+    pub actual: usize,
+}
+
+impl Display for LengthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "expected {} items, got {}", self.expected, self.actual)
+    }
+}
+
+impl std::error::Error for LengthError {}
 
 /// Set up a global panic hook that dumps the panic information to our tracing subsystem if it is
 /// available and duplicates that to standard error output.

@@ -10,10 +10,10 @@ pub fn iai_benchmark() {
         .expect("Creating runtime failed");
 
     const CIRCUIT_WIDTH: u32 = 500_000;
-    const CIRCUIT_DEPTH: u8 = 1;
+    const CIRCUIT_DEPTH: u16 = 1;
 
     rt.block_on(async {
-        circuit::arithmetic::<Fp31>(black_box(CIRCUIT_WIDTH), black_box(CIRCUIT_DEPTH)).await;
+        circuit::arithmetic::<Fp31, 1>(black_box(CIRCUIT_WIDTH), black_box(CIRCUIT_DEPTH)).await;
     })
 }
 

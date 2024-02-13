@@ -8,8 +8,9 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::{
-        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
+        Vectorizable,
     },
 };
 
@@ -26,16 +27,16 @@ use crate::{
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn multiply<C, F>(
+pub async fn multiply<C, F, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    a: &Replicated<F>,
-    b: &Replicated<F>,
+    a: &Replicated<F, N>,
+    b: &Replicated<F, N>,
     zeros: MultiplyZeroPositions,
-) -> Result<Replicated<F>, Error>
+) -> Result<Replicated<F, N>, Error>
 where
     C: Context,
-    F: Field,
+    F: Field + FieldSimd<N>,
 {
     let role = ctx.role();
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
@@ -43,19 +44,26 @@ where
     zeros.1.check(role, "b", b);
 
     // Shared randomness used to mask the values that are sent.
-    let (s0, s1) = ctx.prss().generate(record_id);
+    let (s0, s1) = ctx
+        .prss()
+        .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    let mut rhs = a.right() * b.right();
+    let mut rhs = a.right_arr().clone() * b.right_arr();
+
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
-        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
+        let right_d =
+            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - &s0;
 
-        ctx.send_channel(role.peer(Direction::Right))
-            .send(record_id, right_d)
+        ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
+            .send(record_id, &right_d)
             .await?;
         rhs += right_d;
     } else {
-        debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
+        debug_assert_eq!(
+            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr(),
+            <<F as Vectorizable<N>>::Array as SharedValueArray<F>>::ZERO
+        );
     }
     // Add randomness to this value whether we sent or not, depending on whether the
     // peer to the right needed to send.  If they send, they subtract randomness,
@@ -65,9 +73,9 @@ where
     }
 
     // Sleep until helper on the left sends us their (d_i-1) value.
-    let mut lhs = a.left() * b.left();
+    let mut lhs = a.left_arr().clone() * b.left_arr();
     if need_to_recv {
-        let left_d = ctx
+        let left_d: <F as Vectorizable<N>>::Array = ctx
             .recv_channel(role.peer(Direction::Left))
             .receive(record_id)
             .await?;
@@ -78,21 +86,32 @@ where
         lhs += s0;
     }
 
-    Ok(Replicated::new(lhs, rhs))
+    Ok(Replicated::new_arr(lhs, rhs))
 }
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::iter::{repeat, zip};
+    use std::{
+        array,
+        iter::{repeat, zip},
+        time::Instant,
+    };
 
     use rand::distributions::{Distribution, Standard};
 
+    use super::multiply;
     use crate::{
-        ff::{Field, Fp31},
-        protocol::{basics::SecureMul, context::Context, RecordId},
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::TotalRecords,
+        protocol::{
+            basics::{SecureMul, ZeroPositions},
+            context::Context,
+            RecordId,
+        },
         rand::{thread_rng, Rng},
+        secret_sharing::replicated::semi_honest::AdditiveShare,
         seq_join::SeqJoin,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, ReconstructArr, Runner, TestWorld},
     };
 
     #[tokio::test]
@@ -181,5 +200,146 @@ mod test {
             .await;
 
         result.reconstruct().as_u128()
+    }
+
+    #[tokio::test]
+    pub async fn wide_mul() {
+        const COUNT: usize = 32;
+        let world = TestWorld::default();
+
+        let mut rng = thread_rng();
+        let a: [Fp32BitPrime; COUNT] = (0..COUNT)
+            .map(|_| rng.gen::<Fp32BitPrime>())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let b: [Fp32BitPrime; COUNT] = (0..COUNT)
+            .map(|_| rng.gen::<Fp32BitPrime>())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let expected: [Fp32BitPrime; COUNT] = zip(a.iter(), b.iter())
+            .map(|(&a, &b)| a * b)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let results = world
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+                multiply(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_shares,
+                    &b_shares,
+                    ZeroPositions::NONE,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+        assert_eq!(expected, results.reconstruct_arr());
+    }
+
+    // The manymult test is a microbenchmark. The test generates a DxW matrix of field elements. The
+    // matrix is reduced to a single W-element row vector by taking the element-wise product of the
+    // D values in each column. The non-vectorized implementation (manymult_novec) simply does a
+    // parallel_join of W semi-honest multiplies. The vectorized implementation (manymult_vec)
+    // processes a row at a time. For manymult_vec, MANYMULT_WIDTH must match a supported
+    // vectorization width.
+    const MANYMULT_ITERS: usize = 512;
+    const MANYMULT_WIDTH: usize = 32;
+
+    #[tokio::test]
+    pub async fn manymult_novec() {
+        let world = TestWorld::default();
+        let mut rng = thread_rng();
+        let mut inputs = Vec::<Vec<Fp32BitPrime>>::new();
+        for _ in 0..MANYMULT_ITERS {
+            inputs.push(
+                (0..MANYMULT_WIDTH)
+                    .map(|_| Fp32BitPrime::try_from(u128::from(rng.gen_range(0u32..100))).unwrap())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        let expected = inputs
+            .iter()
+            .fold(None, |acc: Option<Vec<Fp32BitPrime>>, b| match acc {
+                Some(a) => Some(a.iter().zip(b.iter()).map(|(&a, &b)| a * b).collect()),
+                None => Some(b.clone()),
+            })
+            .unwrap();
+
+        let begin = Instant::now();
+        let result = world
+            .semi_honest(
+                inputs.into_iter().map(IntoIterator::into_iter),
+                |ctx, share: Vec<Vec<AdditiveShare<Fp32BitPrime>>>| async move {
+                    let ctx = ctx.set_total_records(MANYMULT_ITERS * MANYMULT_WIDTH);
+                    let mut iter = share.iter();
+                    let mut val = iter.next().unwrap().clone();
+                    for i in 1..MANYMULT_ITERS {
+                        let cur = iter.next().unwrap();
+                        let mut res = Vec::with_capacity(MANYMULT_WIDTH);
+                        for j in 0..MANYMULT_WIDTH {
+                            res.push(val[j].multiply(
+                                &cur[j],
+                                ctx.clone(),
+                                RecordId::from(MANYMULT_WIDTH * (i - 1) + j),
+                            ));
+                        }
+                        val = ctx.parallel_join(res).await.unwrap();
+                    }
+                    val
+                },
+            )
+            .await;
+        tracing::debug!("Protocol execution time: {:?}", begin.elapsed());
+        assert_eq!(expected, result.reconstruct());
+    }
+
+    #[tokio::test]
+    pub async fn manymult_vec() {
+        let world = TestWorld::default();
+        let mut rng = thread_rng();
+        let mut inputs = Vec::<[Fp32BitPrime; MANYMULT_WIDTH]>::new();
+        for _ in 0..MANYMULT_ITERS {
+            inputs.push(array::from_fn(|_| rng.gen()));
+        }
+        let expected = inputs
+            .iter()
+            .fold(None, |acc: Option<Vec<Fp32BitPrime>>, b| match acc {
+                Some(a) => Some(a.iter().zip(b.iter()).map(|(&a, &b)| a * b).collect()),
+                None => Some(b.to_vec()),
+            })
+            .unwrap();
+
+        let begin = Instant::now();
+        let result = world
+            .semi_honest(
+                inputs.into_iter(),
+                |ctx, share: Vec<AdditiveShare<Fp32BitPrime, MANYMULT_WIDTH>>| async move {
+                    // The output of each row is input to the next row, so no parallelization
+                    // across rows is possible. Thus we set TotalRecords::Indeterminate, which
+                    // flushes after every record. If a row were larger than one record, we could
+                    // instead configure the active work in TestWorld to match the row size.
+                    let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
+                    let mut iter = share.iter();
+                    let mut val = iter.next().unwrap().clone();
+                    for i in 1..MANYMULT_ITERS {
+                        val = multiply(
+                            ctx.clone(),
+                            RecordId::from(i - 1),
+                            &val,
+                            iter.next().unwrap(),
+                            ZeroPositions::NONE,
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    val
+                },
+            )
+            .await;
+        tracing::debug!("Protocol execution time: {:?}", begin.elapsed());
+        assert_eq!(expected, result.reconstruct_arr());
     }
 }

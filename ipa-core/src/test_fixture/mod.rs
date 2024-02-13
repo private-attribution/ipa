@@ -23,7 +23,7 @@ pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::TryFuture;
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
-pub use sharing::{get_bits, into_bits, Reconstruct};
+pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
 #[cfg(feature = "in-memory-infra")]
 pub use world::{Runner, TestWorld, TestWorldConfig};
 

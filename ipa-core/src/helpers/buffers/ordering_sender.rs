@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     collections::VecDeque,
     fmt::Debug,
+    marker::PhantomData,
     mem::drop,
     num::NonZeroUsize,
     pin::Pin,
@@ -330,8 +331,13 @@ impl OrderingSender {
     /// * the same index is provided more than once.
     ///
     /// [capacity]: OrderingSender#spare-capacity-configuration
-    pub fn send<M: Message>(&self, i: usize, m: M) -> Send<'_, M> {
-        Send { i, m, sender: self }
+    pub fn send<M: Message, B: Borrow<M>>(&self, i: usize, m: B) -> Send<'_, M, B> {
+        Send {
+            i,
+            m,
+            sender: self,
+            phantom_data: PhantomData,
+        }
     }
 
     /// Close the sender at index `i`.
@@ -433,13 +439,14 @@ impl OrderingSender {
 }
 
 /// A future for writing item `i` into an `OrderingSender`.
-pub struct Send<'s, M: Message> {
+pub struct Send<'a, M: Message, B: Borrow<M> + 'a> {
     i: usize,
-    m: M,
-    sender: &'s OrderingSender,
+    m: B,
+    sender: &'a OrderingSender,
+    phantom_data: PhantomData<M>,
 }
 
-impl<'s, M: Message> Future for Send<'s, M> {
+impl<'a, M: Message, B: Borrow<M> + 'a> Future for Send<'a, M, B> {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -447,7 +454,7 @@ impl<'s, M: Message> Future for Send<'s, M> {
 
         let res = this.sender.next_op(this.i, cx, |b| {
             assert!(!b.closed, "writing on a closed stream");
-            b.write(&this.m, cx)
+            b.write(this.m.borrow(), cx)
         });
         // A successful write: wake the next in line.
         // But not while holding the lock on state.
