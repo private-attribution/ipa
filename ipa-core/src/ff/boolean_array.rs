@@ -6,6 +6,7 @@ use generic_array::GenericArray;
 use typenum::{U14, U2, U32, U8};
 
 use crate::{
+    error::LengthError,
     ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable},
     protocol::prss::{FromRandom, FromRandomU128},
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -487,12 +488,15 @@ macro_rules! boolean_array_impl {
             }
 
             impl TryFrom<Vec<Boolean>> for $name {
-                type Error = ();
+                type Error = LengthError;
                 fn try_from(value: Vec<Boolean>) -> Result<Self, Self::Error> {
                     if value.len() == $bits {
                         Ok(value.into_iter().collect::<Self>())
                     } else {
-                        Err(())
+                        Err(LengthError {
+                            expected: $bits,
+                            actual: value.len(),
+                        })
                     }
                 }
             }
