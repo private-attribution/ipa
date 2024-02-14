@@ -759,6 +759,7 @@ where
         U4,
     >: ArrayLength,
 {
+    // offsets for BTT Ciphertext
     const TS_OFFSET: usize = 0;
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
     const TV_OFFSET: usize = Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
