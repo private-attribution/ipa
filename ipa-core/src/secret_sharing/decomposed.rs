@@ -1,8 +1,8 @@
-use std::{fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref, slice};
 
 use crate::{
     error::Error,
-    ff::PrimeField,
+    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
@@ -110,6 +110,37 @@ impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
     }
 }
 
+pub struct BitDecomposedBuilder<S> {
+    bits: Vec<S>,
+}
+
+impl<S: Send> ArrayBuild for BitDecomposed<S> {
+    type Input = S;
+    type Builder = BitDecomposedBuilder<S>;
+
+    fn builder() -> Self::Builder {
+        BitDecomposedBuilder { bits: Vec::new() }
+    }
+}
+
+impl<S: Send> ArrayBuilder for BitDecomposedBuilder<S> {
+    type Element = S;
+    type Array = BitDecomposed<S>;
+
+    fn with_capacity(mut self, capacity: usize) -> Self {
+        self.bits.reserve(capacity);
+        self
+    }
+
+    fn push(&mut self, value: S) {
+        self.bits.push(value);
+    }
+
+    fn build(self) -> Self::Array {
+        BitDecomposed::new(self.bits)
+    }
+}
+
 impl<S> Deref for BitDecomposed<S> {
     type Target = [S];
     fn deref(&self) -> &Self::Target {
@@ -122,5 +153,123 @@ impl<S> IntoIterator for BitDecomposed<S> {
     type IntoIter = <Vec<S> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.bits.into_iter()
+    }
+}
+
+impl<S: Clone + Send + Sync> ArrayAccessRef for BitDecomposed<S> {
+    type Element = S;
+    type Ref<'a> = &'a S where S: 'a;
+    type Iter<'a> = slice::Iter<'a, S> where S: 'a;
+
+    fn get(&self, index: usize) -> Option<Self::Ref<'_>> {
+        self.bits.get(index)
+    }
+
+    fn set(&mut self, index: usize, e: Self::Ref<'_>) {
+        self.bits[index] = e.clone();
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.bits.iter()
+    }
+
+    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
+        src
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    const MAX_TEST_SIZE: usize = 1024;
+
+    impl<S> Arbitrary for BitDecomposed<S>
+    where
+        S: Debug,
+        Vec<S>: Arbitrary,
+    {
+        type Parameters = <Vec<S> as Arbitrary>::Parameters;
+        type Strategy = prop::strategy::Map<<Vec<S> as Arbitrary>::Strategy, fn(Vec<S>) -> Self>;
+
+        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+            Vec::<S>::arbitrary_with(args).prop_map(|bits| Self { bits })
+        }
+    }
+
+    prop_compose! {
+        fn val_and_index()
+            (vec in prop::collection::vec(any::<u8>(), 2..MAX_TEST_SIZE))
+            (index in 0..vec.len(), vec in Just(vec))
+        -> (BitDecomposed<u8>, usize) {
+            (BitDecomposed { bits: vec }, index)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn arrayaccess_get_set(
+            (mut a, ix) in val_and_index(),
+            b: u8,
+            c: u8,
+            d: u8,
+        ) {
+            prop_assert_eq!(a.get(0), Some(&a.bits[0]));
+            a.set(0, &b);
+            prop_assert_eq!(a.get(0), Some(&b));
+            prop_assert_eq!(a.get(ix), Some(&a.bits[ix]));
+            a.set(ix, &c);
+            prop_assert_eq!(a.get(ix), Some(&c));
+            prop_assert_eq!(a.get(a.len() - 1), Some(&a.bits[a.len() - 1]));
+            a.set(a.len() - 1, &d);
+            prop_assert_eq!(a.get(a.len() - 1), Some(&d));
+            prop_assert_eq!(a.get(a.len()), None);
+            let BitDecomposed {
+                bits: mut a_mod,
+             } = a.clone();
+            a_mod[0] = b;
+            a_mod[ix] = c;
+            a_mod[a.len() - 1] = d;
+            prop_assert_eq!(a.bits, a_mod);
+        }
+
+        #[test]
+        fn arrayaccess_iter(val in any::<BitDecomposed<u8>>()) {
+            let mut iter = val.iter().enumerate();
+            prop_assert_eq!(iter.len(), val.len());
+            while let Some((i, v)) = iter.next() {
+                prop_assert_eq!(v, &val.bits[i]);
+                prop_assert_eq!(iter.len(), val.len() - 1 - i);
+            }
+        }
+
+        #[test]
+        fn arrayaccess_make_ref(val in any::<u8>()) {
+            prop_assert_eq!(<BitDecomposed<u8> as ArrayAccessRef>::make_ref(&val), &val);
+        }
+    }
+
+    #[test]
+    fn arraybuild() {
+        let mut b = BitDecomposed::<u8>::builder();
+        b.push(1);
+        b.push(2);
+        b.push(3);
+        assert_eq!(
+            b.build(),
+            BitDecomposed {
+                bits: vec![1, 2, 3]
+            }
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn arraybuild_with_capacity(capacity in 0..MAX_TEST_SIZE) {
+            let b = BitDecomposed::<u8>::builder().with_capacity(capacity);
+            prop_assert!(b.bits.capacity() >= capacity);
+        }
     }
 }

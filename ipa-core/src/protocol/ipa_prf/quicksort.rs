@@ -9,7 +9,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, CustomArray, Field},
+    ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray, Field},
     protocol::{
         basics::Reveal, context::Context,
         ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
@@ -61,6 +61,7 @@ where
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + Field + CustomArray<Element = Boolean>,
+    AdditiveShare<K>: ArrayAccess + ArrayBuild<Input = AdditiveShare<Boolean>>,
 {
     assert!(!ranges_to_sort.iter().any(Range::is_empty));
 

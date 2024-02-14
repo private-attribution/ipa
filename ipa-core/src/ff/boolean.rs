@@ -196,13 +196,39 @@ impl FromRandomU128 for Boolean {
     }
 }
 
+impl Vectorizable<64> for Boolean {
+    type Array = crate::ff::boolean_array::BA64;
+}
+
+impl FieldVectorizable<64> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA64;
+}
+
+impl Vectorizable<256> for Boolean {
+    type Array = crate::ff::boolean_array::BA256;
+}
+
+impl FieldVectorizable<256> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA256;
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;
+    use proptest::prelude::{prop, Arbitrary, Strategy};
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
     use crate::ff::{boolean::Boolean, Serializable};
+
+    impl Arbitrary for Boolean {
+        type Parameters = <bool as Arbitrary>::Parameters;
+        type Strategy = prop::strategy::Map<<bool as Arbitrary>::Strategy, fn(bool) -> Self>;
+
+        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+            <bool>::arbitrary_with(args).prop_map(Boolean)
+        }
+    }
 
     ///test serialize and deserialize
     #[test]

@@ -91,7 +91,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub type Res<T> = Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct LengthError {
     pub expected: usize,
     pub actual: usize,
