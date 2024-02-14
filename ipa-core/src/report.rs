@@ -821,9 +821,8 @@ where
             return Err(PlaintextLengthError());
         }
 
-        let mut plaintext_mk = [0u8; <Replicated<BA64> as Serializable>::Size::USIZE];
-        self.match_key
-            .serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
+        let mut plaintext_mk = GenericArray::default();
+        self.match_key.serialize(&mut plaintext_mk);
 
         let mut plaintext_btt = vec![0u8; Self::BTT_END];
         self.timestamp.serialize(GenericArray::from_mut_slice(
@@ -869,8 +868,9 @@ mod test {
             boolean_array::{BA20, BA3, BA8},
             Fp32BitPrime, Gf40Bit, Gf8Bit,
         },
+        report,
         report::EventType::{Source, Trigger},
-        secret_sharing::replicated::semi_honest::AdditiveShare,
+        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
     #[test]
@@ -908,10 +908,10 @@ mod test {
         let b: EventType = if rng.gen::<bool>() { Trigger } else { Source };
 
         let report = OprfReport::<BA8, BA3, BA20> {
-            match_key: AdditiveShare(rng.gen(), rng.gen()),
-            timestamp: AdditiveShare(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare(rng.gen(), rng.gen()),
-            trigger_value: AdditiveShare(rng.gen(), rng.gen()),
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            trigger_value: AdditiveShare::new(rng.gen(), rng.gen()),
             event_type: b,
             epoch: rng.gen(),
             site_domain: (&mut rng)
@@ -929,6 +929,40 @@ mod test {
         let dec_report: OprfReport<BA8, BA3, BA20> = enc_report.decrypt(&key_registry).unwrap();
 
         assert_eq!(dec_report, report);
+    }
+
+    #[test]
+    fn test_decryption_fails() {
+        let mut rng = thread_rng();
+
+        let b: EventType = if rng.gen::<bool>() { Trigger } else { Source };
+
+        let report = OprfReport::<BA8, BA3, BA20> {
+            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
+            trigger_value: AdditiveShare::new(rng.gen(), rng.gen()),
+            event_type: b,
+            epoch: rng.gen(),
+            site_domain: (&mut rng)
+                .sample_iter(Alphanumeric)
+                .map(char::from)
+                .take(10)
+                .collect(),
+        };
+
+        let enc_key_registry = KeyRegistry::random(1, &mut rng);
+        let enc_key_id = 0;
+        let dec_key_registry = KeyRegistry::random(1, &mut rng);
+
+        let enc_report_bytes = report
+            .encrypt(enc_key_id, &enc_key_registry, &mut rng)
+            .unwrap();
+        let enc_report: report::EncryptedOprfReport<BA8, BA3, BA20, &[u8]> =
+            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
+        let dec_report = enc_report.decrypt(&dec_key_registry);
+
+        assert!(dec_report.is_err());
     }
 
     #[test]
