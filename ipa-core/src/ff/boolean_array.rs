@@ -533,7 +533,12 @@ macro_rules! boolean_array_impl {
                     let mut iter = iter.into_iter();
 
                     for i in 0..$bits {
-                        res.0.set(i, bool::from(iter.next().unwrap()));
+                        res.0.set(
+                            i,
+                            bool::from(iter.next().unwrap_or_else(|| {
+                                panic!("Expected iterator to produce {} items, got only {i}", $bits)
+                            })),
+                        );
                     }
 
                     res
@@ -597,6 +602,90 @@ macro_rules! boolean_array_impl {
                     }
                 }
 
+                proptest! {
+                    #[test]
+                    fn add_sub(a: $name, b: $name) {
+                        let xor = $name(a.0 ^ b.0);
+
+                        assert_eq!(&a + &b, xor);
+                        assert_eq!(&a + b.clone(), xor);
+                        assert_eq!(a.clone() + &b, xor);
+                        assert_eq!(a.clone() + b.clone(), xor);
+
+                        let mut tmp = a.clone();
+                        tmp += &b;
+                        assert_eq!(tmp, xor);
+
+                        let mut tmp = a.clone();
+                        tmp += b;
+                        assert_eq!(tmp, xor);
+
+                        // Sub not implemented yet for &BA
+                        //assert_eq!(&a - &b, xor);
+                        //assert_eq!(&a - b.clone(), xor);
+                        assert_eq!(a.clone() - &b, xor);
+                        assert_eq!(a.clone() - b.clone(), xor);
+
+                        let mut tmp = a.clone();
+                        tmp -= &b;
+                        assert_eq!(tmp, xor);
+
+                        let mut tmp = a.clone();
+                        tmp -= b;
+                        assert_eq!(tmp, xor);
+
+                        assert_eq!(-a, a);
+                        assert_eq!(a + (-a), $name::ZERO);
+                    }
+
+                    #[test]
+                    fn mul(mut a: $name, b: $name, c: Boolean) {
+                        let prod = $name(a.0 & b.0);
+
+                        a *= b;
+                        assert_eq!(a, prod);
+
+                        assert_eq!(a * Boolean::from(false), $name::ZERO);
+                        assert_eq!(a * Boolean::from(true), a);
+                        assert_eq!(a * c, if bool::from(c) { a } else { $name::ZERO });
+                        assert_eq!(a * &c, if bool::from(c) { a } else { $name::ZERO });
+                    }
+                }
+
+                #[test]
+                fn boolean_array_from_vec() {
+                    let v = [false, false, true].map(Boolean::from).to_vec();
+                    assert_eq!(BA3::try_from(v.clone()), Ok(BA3::truncate_from(4_u128)));
+                    assert_eq!(
+                        BA8::try_from(v),
+                        Err(LengthError {
+                            expected: 8,
+                            actual: 3
+                        })
+                    );
+                }
+
+                #[test]
+                fn boolean_array_from_fn() {
+                    assert_eq!(
+                        BA3::from_fn(|i| Boolean::from(i == 2)),
+                        BA3::truncate_from(4_u128)
+                    );
+                }
+
+                #[test]
+                fn boolean_array_from_iter() {
+                    let iter = [false, false, true].into_iter().map(Boolean::from);
+                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
+                }
+
+                #[test]
+                #[should_panic(expected = "Expected iterator to produce 3 items, got only 2")]
+                fn boolean_array_from_short_iter() {
+                    let iter = [false, false].into_iter().map(Boolean::from);
+                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
+                }
+
                 #[test]
                 fn set_boolean_array() {
                     let mut rng = thread_rng();
@@ -620,8 +709,21 @@ macro_rules! boolean_array_impl {
 
                     #[test]
                     fn iterate_secret_shared_boolean_array(a: AdditiveShare<$name>) {
-                    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                        use crate::secret_sharing::replicated::ReplicatedSecretSharing;
                         let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, sb)) = iter.next() {
+                            let left = Boolean::from(a.left().0[i]);
+                            let right = Boolean::from(a.right().0[i]);
+                            assert_eq!(sb, AdditiveShare::new(left, right));
+                            assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
+
+                    #[test]
+                    fn iterate_secret_shared_boolean_array_ref(a: AdditiveShare<$name>) {
+                        use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                        let mut iter = (&a).into_iter().enumerate();
                         assert_eq!(iter.len(), $bits);
                         while let Some((i, sb)) = iter.next() {
                             let left = Boolean::from(a.left().0[i]);
@@ -742,81 +844,5 @@ where
 
     fn build(self) -> Self::Array {
         self.array
-    }
-}
-
-#[cfg(all(test, unit_test))]
-mod tests {
-    use rand::{thread_rng, Rng};
-
-    use super::*;
-
-    // It does not seem worth running these tests for every BA type, although
-    // it would be worth writing a version for the largest BA type (which
-    // requires replacing truncate_from).
-
-    #[test]
-    #[allow(clippy::clone_on_copy, clippy::op_ref)]
-    pub fn add_sub() {
-        let mut rng = thread_rng();
-        let a = rng.gen::<u128>();
-        let b = rng.gen::<u128>();
-
-        let xor = BA8::truncate_from(a ^ b);
-
-        let a = BA8::truncate_from(a);
-        let b = BA8::truncate_from(b);
-
-        assert_eq!(&a + &b, xor);
-        assert_eq!(&a + b.clone(), xor);
-        assert_eq!(a.clone() + &b, xor);
-        assert_eq!(a.clone() + b.clone(), xor);
-
-        let mut tmp = a.clone();
-        tmp += &b;
-        assert_eq!(tmp, xor);
-
-        let mut tmp = a.clone();
-        tmp += b;
-        assert_eq!(tmp, xor);
-
-        // Sub not implemented yet for &BA
-        //assert_eq!(&a - &b, xor);
-        //assert_eq!(&a - b.clone(), xor);
-        assert_eq!(a.clone() - &b, xor);
-        assert_eq!(a.clone() - b.clone(), xor);
-
-        let mut tmp = a.clone();
-        tmp -= &b;
-        assert_eq!(tmp, xor);
-
-        let mut tmp = a.clone();
-        tmp -= b;
-        assert_eq!(tmp, xor);
-
-        assert_eq!(-a, a);
-        assert_eq!(a + (-a), BA8::ZERO);
-    }
-
-    #[test]
-    #[allow(clippy::clone_on_copy, clippy::op_ref)]
-    pub fn mul() {
-        let mut rng = thread_rng();
-        let a = rng.gen::<u128>();
-        let b = rng.gen::<u128>();
-        let c = rng.gen::<Boolean>();
-
-        let prod = BA8::truncate_from(a & b);
-
-        let mut a = BA8::truncate_from(a);
-        let b = BA8::truncate_from(b);
-
-        a *= b;
-        assert_eq!(a, prod);
-
-        assert_eq!(a * Boolean::from(false), BA8::ZERO);
-        assert_eq!(a * Boolean::from(true), a);
-        assert_eq!(a * c, if bool::from(c) { a } else { BA8::ZERO });
-        assert_eq!(a * &c, if bool::from(c) { a } else { BA8::ZERO });
     }
 }
