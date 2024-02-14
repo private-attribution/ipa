@@ -44,7 +44,8 @@ impl Verbosity {
             .init();
 
         let handle = LoggingHandle {
-            metrics_handle: (!self.quiet && !cfg!(feature = "disable-metrics")).then(install_collector),
+            metrics_handle: (!self.quiet && !cfg!(feature = "disable-metrics"))
+                .then(install_collector),
         };
         set_global_panic_hook();
 
