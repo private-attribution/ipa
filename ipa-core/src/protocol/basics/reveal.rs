@@ -10,7 +10,6 @@ use crate::{
     helpers::Direction,
     protocol::{
         context::{Context, UpgradedMaliciousContext},
-        sort::generate_permutation::ShuffledPermutationWrapper,
         NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
@@ -114,41 +113,6 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
         } else {
             Err(Error::MaliciousRevealFailed)
         }
-    }
-}
-
-#[async_trait]
-impl<F, S, C> Reveal<C, NoRecord> for ShuffledPermutationWrapper<S, C>
-where
-    F: Field,
-    S: SecretSharing<F> + Reveal<C, RecordId, Output = F>,
-    C: Context,
-{
-    type Output = Vec<u32>;
-
-    /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
-    /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
-    /// from the revealed rows.
-    /// # Errors
-    /// If we cant convert F to u128
-    /// # Panics
-    /// If we cant convert F to u128
-    async fn reveal<'fut>(&self, ctx: C, _: NoRecord) -> Result<Vec<u32>, Error> {
-        let ctx_ref = &ctx;
-        let ctx = ctx.set_total_records(self.perm.len());
-        let revealed_permutation = ctx_ref
-            .try_join(zip(repeat(ctx), self.perm.iter()).enumerate().map(
-                |(index, (ctx, value))| async move {
-                    let reveal_value = value.reveal(ctx, RecordId::from(index)).await;
-
-                    // safety: we wouldn't use fields larger than 64 bits and there are checks that enforce it
-                    // in the field module
-                    reveal_value.map(|val| val.as_u128().try_into().unwrap())
-                },
-            ))
-            .await?;
-
-        Ok(revealed_permutation)
     }
 }
 

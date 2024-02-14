@@ -204,19 +204,11 @@ impl Debug for QueryInput {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    SemiHonestIpa(IpaQueryConfig),
-    MaliciousIpa(IpaQueryConfig),
-    SemiHonestSparseAggregate(SparseAggregateQueryConfig),
-    MaliciousSparseAggregate(SparseAggregateQueryConfig),
     OprfIpa(IpaQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
-    pub const SEMIHONEST_IPA_STR: &'static str = "semihonest-ipa";
-    pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
-    pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-sparse-aggregate";
-    pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-sparse-aggregate";
     pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
 }
 
@@ -226,10 +218,6 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::SemiHonestIpa(_) => Self::SEMIHONEST_IPA_STR,
-            QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
-            QueryType::SemiHonestSparseAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
-            QueryType::MaliciousSparseAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }

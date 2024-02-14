@@ -10,7 +10,6 @@ use crate::{
     protocol::{
         basics::ZeroPositions,
         context::UpgradedContext,
-        ipa::ArithmeticallySharedIPAInputs,
         modulus_conversion::BitConversionTriple,
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
@@ -255,51 +254,6 @@ pub(crate) enum UpgradeModConvStep {
     UpgradeModConv1,
     UpgradeModConv2,
     UpgradeModConv3,
-}
-
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        ArithmeticallySharedIPAInputs<F, Replicated<F>>,
-        ArithmeticallySharedIPAInputs<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: ArithmeticallySharedIPAInputs<F, Replicated<F>>,
-    ) -> Result<ArithmeticallySharedIPAInputs<F, C::Share>, Error> {
-        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv1)
-                .upgrade_one(
-                    self.record_binding,
-                    input.is_trigger_bit,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv2)
-                .upgrade_one(
-                    self.record_binding,
-                    input.trigger_value,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv3)
-                .upgrade_one(self.record_binding, input.timestamp, ZeroPositions::Pvvv),
-        )
-        .await?;
-
-        Ok(ArithmeticallySharedIPAInputs::new(
-            timestamp,
-            is_trigger_bit,
-            trigger_value,
-        ))
-    }
 }
 
 #[async_trait]

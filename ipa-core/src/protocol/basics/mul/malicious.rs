@@ -19,6 +19,7 @@ use crate::{
 pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,
+    ReshareRx,
 }
 
 ///

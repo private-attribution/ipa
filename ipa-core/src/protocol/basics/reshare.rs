@@ -11,10 +11,6 @@ use crate::{
     protocol::{
         context::{Context, UpgradedMaliciousContext},
         prss::SharedRandomness,
-        sort::{
-            apply_sort::shuffle::InnerVectorElementStep,
-            ReshareStep::{RandomnessForValidation, ReshareRx},
-        },
         NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
@@ -26,6 +22,9 @@ use crate::{
         BitDecomposed,
     },
 };
+use crate::protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx};
+use crate::secret_sharing::InnerVectorElementStep;
+
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
 ///
@@ -271,7 +270,6 @@ mod tests {
                     UpgradedMaliciousContext, Validator,
                 },
                 prss::SharedRandomness,
-                sort::ReshareStep::{RandomnessForValidation, ReshareRx},
                 RecordId,
             },
             rand::{thread_rng, Rng},
@@ -285,6 +283,7 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
+        use crate::protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.

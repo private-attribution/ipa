@@ -1,10 +1,23 @@
 use std::{fmt::Debug, ops::Deref};
+use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::PrimeField,
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
+
+#[derive(Step)]
+pub(crate) enum InnerVectorElementStep {
+    #[dynamic(64)]
+    Elem(usize),
+}
+
+impl From<usize> for InnerVectorElementStep {
+    fn from(v: usize) -> Self {
+        Self::Elem(v)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {

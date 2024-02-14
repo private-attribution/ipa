@@ -7,10 +7,6 @@ use crate::{ff::boolean::Boolean, ff::boolean_array::BA64};
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
     protocol::{
-        attribution::input::{
-            AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
-        },
-        ipa::IPAInputRow,
         BreakdownKey, MatchKey,
     },
     rand::Rng,
@@ -97,143 +93,6 @@ where
     }
 }
 
-impl<F, MK, BK> IntoShares<ApplyAttributionWindowInputRow<F, Replicated<F>>>
-    for GenericReportTestInput<F, MK, BK>
-where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<Replicated<MK>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(
-        self,
-        rng: &mut R,
-    ) -> [ApplyAttributionWindowInputRow<F, Replicated<F>>; 3] {
-        let [s0, s1, s2]: [GenericReportShare<F, MK, BK>; 3] = self.share_with(rng);
-
-        [
-            ApplyAttributionWindowInputRow::new(
-                s0.timestamp.unwrap(),
-                s0.is_trigger_report.unwrap(),
-                s0.helper_bit.unwrap(),
-                s0.trigger_value,
-            ),
-            ApplyAttributionWindowInputRow::new(
-                s1.timestamp.unwrap(),
-                s1.is_trigger_report.unwrap(),
-                s1.helper_bit.unwrap(),
-                s1.trigger_value,
-            ),
-            ApplyAttributionWindowInputRow::new(
-                s2.timestamp.unwrap(),
-                s2.is_trigger_report.unwrap(),
-                s2.helper_bit.unwrap(),
-                s2.trigger_value,
-            ),
-        ]
-    }
-}
-
-impl<F, MK, BK> IntoShares<AccumulateCreditInputRow<F, Replicated<F>>>
-    for GenericReportTestInput<F, MK, BK>
-where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<Replicated<MK>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [AccumulateCreditInputRow<F, Replicated<F>>; 3] {
-        let [s0, s1, s2]: [GenericReportShare<F, MK, BK>; 3] = self.share_with(rng);
-
-        [
-            AccumulateCreditInputRow::new(
-                s0.is_trigger_report.unwrap(),
-                s0.helper_bit.unwrap(),
-                s0.active_bit.unwrap(),
-                s0.trigger_value,
-            ),
-            AccumulateCreditInputRow::new(
-                s1.is_trigger_report.unwrap(),
-                s1.helper_bit.unwrap(),
-                s1.active_bit.unwrap(),
-                s1.trigger_value,
-            ),
-            AccumulateCreditInputRow::new(
-                s2.is_trigger_report.unwrap(),
-                s2.helper_bit.unwrap(),
-                s2.active_bit.unwrap(),
-                s2.trigger_value,
-            ),
-        ]
-    }
-}
-
-impl<F, MK, BK> IntoShares<CreditCappingInputRow<F, Replicated<F>>>
-    for GenericReportTestInput<F, MK, BK>
-where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<Replicated<MK>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [CreditCappingInputRow<F, Replicated<F>>; 3] {
-        let [s0, s1, s2]: [GenericReportShare<F, MK, _>; 3] = self.share_with(rng);
-
-        [
-            CreditCappingInputRow::new(
-                s0.is_trigger_report.unwrap(),
-                s0.helper_bit.unwrap(),
-                s0.trigger_value,
-            ),
-            CreditCappingInputRow::new(
-                s1.is_trigger_report.unwrap(),
-                s1.helper_bit.unwrap(),
-                s1.trigger_value,
-            ),
-            CreditCappingInputRow::new(
-                s2.is_trigger_report.unwrap(),
-                s2.helper_bit.unwrap(),
-                s2.trigger_value,
-            ),
-        ]
-    }
-}
-
-impl<F, MK, BK> IntoShares<IPAInputRow<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
-where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<Replicated<MK>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F, MK, BK>; 3] {
-        let [s0, s1, s2]: [GenericReportShare<F, MK, BK>; 3] = self.share_with(rng);
-
-        [
-            IPAInputRow {
-                timestamp: s0.timestamp.unwrap(),
-                mk_shares: s0.match_key.unwrap(),
-                is_trigger_bit: s0.is_trigger_report.unwrap(),
-                breakdown_key: s0.breakdown_key.unwrap(),
-                trigger_value: s0.trigger_value,
-            },
-            IPAInputRow {
-                timestamp: s1.timestamp.unwrap(),
-                mk_shares: s1.match_key.unwrap(),
-                is_trigger_bit: s1.is_trigger_report.unwrap(),
-                breakdown_key: s1.breakdown_key.unwrap(),
-                trigger_value: s1.trigger_value,
-            },
-            IPAInputRow {
-                timestamp: s2.timestamp.unwrap(),
-                mk_shares: s2.match_key.unwrap(),
-                is_trigger_bit: s2.is_trigger_report.unwrap(),
-                breakdown_key: s2.breakdown_key.unwrap(),
-                trigger_value: s2.trigger_value,
-            },
-        ]
-    }
-}
 
 const DOMAINS: &[&str] = &[
     "mozilla.com",
@@ -311,52 +170,6 @@ where
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
-    }
-}
-
-impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [AccumulateCreditInputRow<F, Replicated<F>>; 3]
-where
-    F: Field,
-    MK: GaloisField,
-    BK: GaloisField,
-{
-    fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [&AccumulateCreditInputRow<F, Replicated<F>>; 3]
-where
-    F: Field,
-    MK: GaloisField,
-    BK: GaloisField,
-{
-    fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
-        let [s0, s1, s2] = self;
-
-        let trigger_value = [&s0.trigger_value, &s1.trigger_value, &s2.trigger_value].reconstruct();
-        let is_trigger_report = [
-            &s0.is_trigger_report,
-            &s1.is_trigger_report,
-            &s2.is_trigger_report,
-        ]
-        .reconstruct();
-        let helper_bit = [&s0.helper_bit, &s1.helper_bit, &s2.helper_bit].reconstruct();
-        let active_bit = [&s0.active_bit, &s1.active_bit, &s2.active_bit].reconstruct();
-
-        GenericReportTestInput {
-            breakdown_key: None,
-            trigger_value,
-            is_trigger_report: Some(is_trigger_report),
-            helper_bit: Some(helper_bit),
-            match_key: None,
-            attribution_constraint_id: None,
-            timestamp: None,
-            aggregation_bit: None,
-            active_bit: Some(active_bit),
-        }
     }
 }
 
