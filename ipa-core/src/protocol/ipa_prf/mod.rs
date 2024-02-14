@@ -1,8 +1,8 @@
-use std::{convert::Infallible, num::NonZeroU32, ops::Add};
+use std::{num::NonZeroU32, ops::Add};
 
 use generic_array::{ArrayLength, GenericArray};
 use ipa_macros::Step;
-use typenum::{Unsigned, U18, U8};
+use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
@@ -49,22 +49,6 @@ pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
     pub timestamp: Replicated<TS>,
-}
-
-impl Serializable for u64 {
-    type Size = U8;
-    type DeserializationError = Infallible;
-
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let raw = &self.to_le_bytes()[..buf.len()];
-        buf.copy_from_slice(raw);
-    }
-
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let mut buf_to = [0u8; 8];
-        buf_to[..buf.len()].copy_from_slice(buf);
-        Ok(u64::from_le_bytes(buf_to))
-    }
 }
 
 impl<BK: SharedValue, TV: SharedValue, TS: SharedValue> Serializable for OPRFIPAInputRow<BK, TV, TS>

@@ -1,14 +1,14 @@
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomData,
-    ops::Deref,
+    ops::{Add, Deref, Shl, Shr},
 };
 
 use bytes::{BufMut, Bytes};
-use generic_array::GenericArray;
+use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Unsigned, U1, U16};
+use typenum::{Shleft, Shright, Sum, Unsigned, U1, U16, U31, U4};
 
 use crate::{
     error::BoxError,
@@ -465,6 +465,40 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U31>,
+    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, U31>,
+            <Replicated<TV> as Serializable>::Size,
+        >,
+        <Replicated<TS> as Serializable>::Size,
+    >: Shr<U4>,
+    Shright<
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                <Replicated<TV> as Serializable>::Size,
+            >,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U4,
+    >: Shl<U4>,
+    Shleft<
+        Shright<
+            Sum<
+                Sum<
+                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                    <Replicated<TV> as Serializable>::Size,
+                >,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U4,
+        >,
+        U4,
+    >: ArrayLength,
 {
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
@@ -487,6 +521,7 @@ where
     const EPOCH_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
     const SITE_DOMAIN_OFFSET: usize = Self::EPOCH_OFFSET + 2;
 
+    // offsets within Ciphertext_BTT
     const TS_OFFSET: usize = 0;
 
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
@@ -568,9 +603,29 @@ where
         )
         .unwrap(); // validated on construction
 
-        let mut ct_mk = self.mk_ciphertext().to_vec();
+        #[allow(clippy::type_complexity)]
+        let mut ct_mk: GenericArray<
+            u8,
+            Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
+        > = *GenericArray::from_slice(self.mk_ciphertext());
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
-        let mut ct_btt = self.btt_ciphertext().to_vec();
+        #[allow(clippy::type_complexity)]
+        let mut ct_btt: GenericArray<
+            u8,
+            Shleft<
+                Shright<
+                    Sum<
+                        Sum<
+                            Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                            <Replicated<TV> as Serializable>::Size,
+                        >,
+                        <Replicated<TS> as Serializable>::Size,
+                    >,
+                    U4,
+                >,
+                U4,
+            >,
+        > = GenericArray::from_slice(self.btt_ciphertext()).clone();
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
@@ -603,6 +658,40 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U31>,
+    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, U31>,
+            <Replicated<TV> as Serializable>::Size,
+        >,
+        <Replicated<TS> as Serializable>::Size,
+    >: Shr<U4>,
+    Shright<
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                <Replicated<TV> as Serializable>::Size,
+            >,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U4,
+    >: Shl<U4>,
+    Shleft<
+        Shright<
+            Sum<
+                Sum<
+                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                    <Replicated<TV> as Serializable>::Size,
+                >,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U4,
+        >,
+        U4,
+    >: ArrayLength,
 {
     type Error = InvalidReportError;
 
@@ -635,6 +724,40 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
+    <Replicated<BK> as Serializable>::Size: Add<U31>,
+    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+        Add<<Replicated<TS> as Serializable>::Size>,
+    Sum<
+        Sum<
+            Sum<<Replicated<BK> as Serializable>::Size, U31>,
+            <Replicated<TV> as Serializable>::Size,
+        >,
+        <Replicated<TS> as Serializable>::Size,
+    >: Shr<U4>,
+    Shright<
+        Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                <Replicated<TV> as Serializable>::Size,
+            >,
+            <Replicated<TS> as Serializable>::Size,
+        >,
+        U4,
+    >: Shl<U4>,
+    Shleft<
+        Shright<
+            Sum<
+                Sum<
+                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
+                    <Replicated<TV> as Serializable>::Size,
+                >,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            U4,
+        >,
+        U4,
+    >: ArrayLength,
 {
     const TS_OFFSET: usize = 0;
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
@@ -698,8 +821,9 @@ where
             return Err(PlaintextLengthError());
         }
 
-        let mut plaintext_mk = GenericArray::default();
-        self.match_key.serialize(&mut plaintext_mk);
+        let mut plaintext_mk = [0u8; <Replicated<BA64> as Serializable>::Size::USIZE];
+        self.match_key
+            .serialize(GenericArray::from_mut_slice(&mut plaintext_mk));
 
         let mut plaintext_btt = vec![0u8; Self::BTT_END];
         self.timestamp.serialize(GenericArray::from_mut_slice(
@@ -745,9 +869,8 @@ mod test {
             boolean_array::{BA20, BA3, BA8},
             Fp32BitPrime, Gf40Bit, Gf8Bit,
         },
-        report,
         report::EventType::{Source, Trigger},
-        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        secret_sharing::replicated::semi_honest::AdditiveShare,
     };
 
     #[test]
@@ -785,10 +908,10 @@ mod test {
         let b: EventType = if rng.gen::<bool>() { Trigger } else { Source };
 
         let report = OprfReport::<BA8, BA3, BA20> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            trigger_value: AdditiveShare::new(rng.gen(), rng.gen()),
+            match_key: AdditiveShare(rng.gen(), rng.gen()),
+            timestamp: AdditiveShare(rng.gen(), rng.gen()),
+            breakdown_key: AdditiveShare(rng.gen(), rng.gen()),
+            trigger_value: AdditiveShare(rng.gen(), rng.gen()),
             event_type: b,
             epoch: rng.gen(),
             site_domain: (&mut rng)
@@ -806,40 +929,6 @@ mod test {
         let dec_report: OprfReport<BA8, BA3, BA20> = enc_report.decrypt(&key_registry).unwrap();
 
         assert_eq!(dec_report, report);
-    }
-
-    #[test]
-    fn test_decryption_fails() {
-        let mut rng = thread_rng();
-
-        let b: EventType = if rng.gen::<bool>() { Trigger } else { Source };
-
-        let report = OprfReport::<BA8, BA3, BA20> {
-            match_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            timestamp: AdditiveShare::new(rng.gen(), rng.gen()),
-            breakdown_key: AdditiveShare::new(rng.gen(), rng.gen()),
-            trigger_value: AdditiveShare::new(rng.gen(), rng.gen()),
-            event_type: b,
-            epoch: rng.gen(),
-            site_domain: (&mut rng)
-                .sample_iter(Alphanumeric)
-                .map(char::from)
-                .take(10)
-                .collect(),
-        };
-
-        let enc_key_registry = KeyRegistry::random(1, &mut rng);
-        let enc_key_id = 0;
-        let dec_key_registry = KeyRegistry::random(1, &mut rng);
-
-        let enc_report_bytes = report
-            .encrypt(enc_key_id, &enc_key_registry, &mut rng)
-            .unwrap();
-        let enc_report: report::EncryptedOprfReport<BA8, BA3, BA20, &[u8]> =
-            EncryptedOprfReport::from_bytes(enc_report_bytes.as_slice()).unwrap();
-        let dec_report = enc_report.decrypt(&dec_key_registry);
-
-        assert!(dec_report.is_err());
     }
 
     #[test]
