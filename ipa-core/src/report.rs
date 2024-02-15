@@ -155,6 +155,8 @@ pub enum InvalidReportError {
     Crypt(#[from] CryptError),
     #[error("failed to deserialize field {0}: {1}")]
     DeserializationError(&'static str, #[source] BoxError),
+    #[error("report is too short: {0}, expected length at least: {1}")]
+    Length(usize, usize),
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
@@ -543,6 +545,12 @@ where
     /// ## Errors
     /// If the report contents are invalid.
     pub fn from_bytes(bytes: B) -> Result<Self, InvalidReportError> {
+        if bytes.len() <= Self::SITE_DOMAIN_OFFSET {
+            return Err(InvalidReportError::Length(
+                bytes.len(),
+                Self::SITE_DOMAIN_OFFSET,
+            ));
+        }
         EventType::try_from(bytes[Self::EVENT_TYPE_OFFSET])?;
         let site_domain = &bytes[Self::SITE_DOMAIN_OFFSET..];
         if !site_domain.is_ascii() {
