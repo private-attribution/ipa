@@ -1,14 +1,14 @@
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomData,
-    ops::{Add, Deref, Shl, Shr},
+    ops::{Add, Deref},
 };
 
 use bytes::{BufMut, Bytes};
 use generic_array::{ArrayLength, GenericArray};
 use hpke::Serializable as _;
 use rand_core::{CryptoRng, RngCore};
-use typenum::{Shleft, Shright, Sum, Unsigned, U1, U16, U31, U4};
+use typenum::{Sum, Unsigned, U1, U16};
 
 use crate::{
     error::BoxError,
@@ -17,7 +17,6 @@ use crate::{
         open_in_place, seal_in_place, CryptError, EncapsulationSize, FieldShareCrypt, Info,
         KeyPair, KeyRegistry, PublicKeyRegistry, TagSize,
     },
-    report::InvalidReportError::PlaintextLengthError,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
 
@@ -156,8 +155,6 @@ pub enum InvalidReportError {
     Crypt(#[from] CryptError),
     #[error("failed to deserialize field {0}: {1}")]
     DeserializationError(&'static str, #[source] BoxError),
-    #[error("timestamp, breakdown and triggervalue are too long")]
-    PlaintextLengthError(),
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
@@ -427,7 +424,6 @@ where
 ///     `ct_mk`: Enc(`match_key`)
 ///     `ct_btt`: Enc(`breakdown_key`, `trigger_value`, `timestamp`)
 ///     associated data of `ct_mk`: `key_id`, `epoch`, `event_type`, `site_domain`,
-
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedOprfReport<BK, TV, TS, B>
 where
@@ -440,8 +436,7 @@ where
     phantom_data: PhantomData<(BK, TV, TS)>,
 }
 
-/// follows the outline of the implementation of `EncryptedReport`
-
+// follows the outline of the implementation of `EncryptedReport`
 // Report structure:
 //  * 0..a: `encap_key_1`
 //  * a..b: `mk_ciphertext`
@@ -465,58 +460,33 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>:
         Add<<Replicated<TS> as Serializable>::Size>,
     Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
         <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
+    >: Add<U16>,
+    Sum<
         Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
             <Replicated<TS> as Serializable>::Size,
         >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
+        U16,
     >: ArrayLength,
 {
     const ENCAP_KEY_MK_OFFSET: usize = 0;
     const CIPHERTEXT_MK_OFFSET: usize = Self::ENCAP_KEY_MK_OFFSET + EncapsulationSize::USIZE;
-    // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
     const ENCAP_KEY_BTT_OFFSET: usize = (Self::CIPHERTEXT_MK_OFFSET
         + TagSize::USIZE
-        + ((<Replicated<BA64> as Serializable>::Size::USIZE) + 15))
-        & (!15);
+        + <Replicated<BA64> as Serializable>::Size::USIZE);
     const CIPHERTEXT_BTT_OFFSET: usize = Self::ENCAP_KEY_BTT_OFFSET + EncapsulationSize::USIZE;
-    // need to round up ciphertext length to nearest multiple of 16 since AES has block length 16
 
     const EVENT_TYPE_OFFSET: usize = (Self::CIPHERTEXT_BTT_OFFSET
         + TagSize::USIZE
-        + ((<Replicated<BK> as Serializable>::Size::USIZE
-            + <Replicated<TV> as Serializable>::Size::USIZE
-            + <Replicated<TS> as Serializable>::Size::USIZE)
-            + 15))
-        & (!15);
+        + <Replicated<BK> as Serializable>::Size::USIZE
+        + <Replicated<TV> as Serializable>::Size::USIZE
+        + <Replicated<TS> as Serializable>::Size::USIZE);
     const KEY_IDENTIFIER_OFFSET: usize = Self::EVENT_TYPE_OFFSET + 1;
     const EPOCH_OFFSET: usize = Self::KEY_IDENTIFIER_OFFSET + 1;
     const SITE_DOMAIN_OFFSET: usize = Self::EPOCH_OFFSET + 2;
@@ -594,6 +564,15 @@ where
         &self,
         key_registry: &KeyRegistry<KeyPair>,
     ) -> Result<OprfReport<BK, TV, TS>, InvalidReportError> {
+        type CTMKLength = Sum<<Replicated<BA64> as Serializable>::Size, TagSize>;
+        type CTBTTLength<BK, TV, TS> = Sum<
+            Sum<
+                Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
+                <Replicated<TS> as Serializable>::Size,
+            >,
+            TagSize,
+        >;
+
         let info = Info::new(
             self.key_id(),
             self.epoch(),
@@ -603,29 +582,13 @@ where
         )
         .unwrap(); // validated on construction
 
-        #[allow(clippy::type_complexity)]
-        let mut ct_mk: GenericArray<
-            u8,
-            Shleft<Shright<Sum<<Replicated<BA64> as Serializable>::Size, U31>, U4>, U4>,
-        > = *GenericArray::from_slice(self.mk_ciphertext());
+        let mut ct_mk: GenericArray<u8, CTMKLength> =
+            *GenericArray::from_slice(self.mk_ciphertext());
+        // let mut ct_mk = self.mk_ciphertext().to_vec();
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
-        #[allow(clippy::type_complexity)]
-        let mut ct_btt: GenericArray<
-            u8,
-            Shleft<
-                Shright<
-                    Sum<
-                        Sum<
-                            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                            <Replicated<TV> as Serializable>::Size,
-                        >,
-                        <Replicated<TS> as Serializable>::Size,
-                    >,
-                    U4,
-                >,
-                U4,
-            >,
-        > = GenericArray::from_slice(self.btt_ciphertext()).clone();
+        let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
+            GenericArray::from_slice(self.btt_ciphertext()).clone();
+        // let mut ct_btt = self.btt_ciphertext().to_vec();
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
@@ -658,39 +621,19 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>:
         Add<<Replicated<TS> as Serializable>::Size>,
     Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
         <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
+    >: Add<U16>,
+    Sum<
         Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
             <Replicated<TS> as Serializable>::Size,
         >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
+        U16,
     >: ArrayLength,
 {
     type Error = InvalidReportError;
@@ -724,47 +667,26 @@ where
     Replicated<BK>: Serializable,
     Replicated<TV>: Serializable,
     Replicated<TS>: Serializable,
-    <Replicated<BK> as Serializable>::Size: Add<U31>,
-    Sum<<Replicated<BK> as Serializable>::Size, U31>: Add<<Replicated<TV> as Serializable>::Size>,
-    Sum<Sum<<Replicated<BK> as Serializable>::Size, U31>, <Replicated<TV> as Serializable>::Size>:
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<TV> as Serializable>::Size>,
+    Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>:
         Add<<Replicated<TS> as Serializable>::Size>,
     Sum<
-        Sum<
-            Sum<<Replicated<BK> as Serializable>::Size, U31>,
-            <Replicated<TV> as Serializable>::Size,
-        >,
+        Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
         <Replicated<TS> as Serializable>::Size,
-    >: Shr<U4>,
-    Shright<
+    >: Add<U16>,
+    Sum<
         Sum<
-            Sum<
-                Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                <Replicated<TV> as Serializable>::Size,
-            >,
+            Sum<<Replicated<BK> as Serializable>::Size, <Replicated<TV> as Serializable>::Size>,
             <Replicated<TS> as Serializable>::Size,
         >,
-        U4,
-    >: Shl<U4>,
-    Shleft<
-        Shright<
-            Sum<
-                Sum<
-                    Sum<<Replicated<BK> as Serializable>::Size, U31>,
-                    <Replicated<TV> as Serializable>::Size,
-                >,
-                <Replicated<TS> as Serializable>::Size,
-            >,
-            U4,
-        >,
-        U4,
+        U16,
     >: ArrayLength,
 {
     // offsets for BTT Ciphertext
     const TS_OFFSET: usize = 0;
     const BK_OFFSET: usize = Self::TS_OFFSET + <Replicated<TS> as Serializable>::Size::USIZE;
     const TV_OFFSET: usize = Self::BK_OFFSET + <Replicated<BK> as Serializable>::Size::USIZE;
-    const BTT_END: usize =
-        (Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE + 15) & (!15);
+    const BTT_END: usize = Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE;
 
     /// # Panics
     /// If report length does not fit in `u16`.
@@ -817,10 +739,6 @@ where
             HELPER_ORIGIN,
             self.site_domain.as_ref(),
         )?;
-
-        if Self::TV_OFFSET + <Replicated<TV> as Serializable>::Size::USIZE > U16::USIZE {
-            return Err(PlaintextLengthError());
-        }
 
         let mut plaintext_mk = GenericArray::default();
         self.match_key.serialize(&mut plaintext_mk);
