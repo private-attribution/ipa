@@ -11,6 +11,7 @@ use crate::{
             AccumulateCreditInputRow, ApplyAttributionWindowInputRow, CreditCappingInputRow,
         },
         ipa::IPAInputRow,
+        ipa_prf::OPRFIPAInputRow,
         BreakdownKey, MatchKey,
     },
     rand::Rng,
@@ -199,6 +200,51 @@ where
     }
 }
 
+impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
+where
+    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
+    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
+    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
+        let match_key = BA64::try_from(u128::from(self.user_id))
+            .unwrap()
+            .share_with(rng);
+        let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
+            .unwrap()
+            .share_with(rng);
+        let breakdown_key = BK::try_from(self.breakdown_key.into())
+            .unwrap()
+            .share_with(rng);
+        let trigger_value = TV::try_from(self.trigger_value.into())
+            .unwrap()
+            .share_with(rng);
+        let event_type = if self.is_trigger_report {
+            EventType::Trigger
+        } else {
+            EventType::Source
+        };
+        let epoch = 1;
+        let site_domain = DOMAINS[rng.gen_range(0..DOMAINS.len())].to_owned();
+
+        zip(zip(match_key, zip(timestamp, breakdown_key)), trigger_value)
+            .map(
+                |((match_key_share, (ts_share, bk_share)), tv_share)| OprfReport {
+                    timestamp: ts_share,
+                    match_key: match_key_share,
+                    event_type,
+                    breakdown_key: bk_share,
+                    trigger_value: tv_share,
+                    epoch,
+                    site_domain: site_domain.clone(),
+                },
+            )
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+}
+
 impl<F, MK, BK> IntoShares<IPAInputRow<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
@@ -360,13 +406,13 @@ where
     }
 }
 
-impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
+impl<BK, TV, TS> IntoShares<OPRFIPAInputRow<BK, TV, TS>> for TestRawDataRecord
 where
     BK: SharedValue + Field + IntoShares<Replicated<BK>>,
     TV: SharedValue + Field + IntoShares<Replicated<TV>>,
     TS: SharedValue + Field + IntoShares<Replicated<TS>>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [OPRFIPAInputRow<BK, TV, TS>; 3] {
         let is_trigger = Replicated::new(
             Boolean::from(self.is_trigger_report),
             Boolean::from(self.is_trigger_report),
@@ -389,12 +435,14 @@ where
             repeat(is_trigger),
         )
         .map(
-            |(((match_key_share, (ts_share, bk_share)), tv_share), is_trigger_share)| OprfReport {
-                timestamp: ts_share,
-                match_key: match_key_share,
-                is_trigger: is_trigger_share,
-                breakdown_key: bk_share,
-                trigger_value: tv_share,
+            |(((match_key_share, (ts_share, bk_share)), tv_share), is_trigger_share)| {
+                OPRFIPAInputRow {
+                    timestamp: ts_share,
+                    match_key: match_key_share,
+                    is_trigger: is_trigger_share,
+                    breakdown_key: bk_share,
+                    trigger_value: tv_share,
+                }
             },
         )
         .collect::<Vec<_>>()
@@ -403,7 +451,7 @@ where
     }
 }
 
-impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OprfReport<BK, TV, TS>; 3]
+impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OPRFIPAInputRow<BK, TV, TS>; 3]
 where
     BK: SharedValue + Field,
     TV: SharedValue + Field,

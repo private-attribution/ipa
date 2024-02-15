@@ -29,9 +29,12 @@ type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
+pub type EncapsulationSize = <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
+pub type TagSize = <AeadTag<IpaAead> as Serializable>::OutputSize;
+
 pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
-pub type IpaEncappedKey = <IpaKem as hpke::kem::Kem>::EncappedKey;
+pub type IpaEncapsulatedKey = <IpaKem as hpke::kem::Kem>::EncappedKey;
 
 pub use hpke::{Deserializable, Serializable};
 

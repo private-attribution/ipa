@@ -290,11 +290,12 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
-            playbook_oprf_ipa::<Fp32BitPrime>(
+            playbook_oprf_ipa::<Fp32BitPrime, _>(
                 input_rows,
                 &helper_clients,
                 query_id,
                 ipa_query_config,
+                key_registries.init_from(network),
             )
             .await
         }
