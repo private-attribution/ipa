@@ -229,7 +229,7 @@ impl Step for QueryType {}
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
-    #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
+    #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
     pub per_user_credit_cap: u32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_breakdown_key: u32,
@@ -250,7 +250,7 @@ pub struct IpaQueryConfig {
 impl Default for IpaQueryConfig {
     fn default() -> Self {
         Self {
-            per_user_credit_cap: 3,
+            per_user_credit_cap: 8,
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,

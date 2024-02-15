@@ -2,7 +2,6 @@ use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 use crate::{
     ff::{Field, PrimeField},
-    protocol::boolean::RandomBitsShare,
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -151,7 +150,8 @@ where
     }
 }
 
-impl<F, S> Reconstruct<F> for [RandomBitsShare<F, S>; 3]
+#[cfg(feature = "descriptive-gate")]
+impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
 where
     F: Field,
     S: SecretSharing<F>,

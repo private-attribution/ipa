@@ -1,7 +1,7 @@
 use crate::{
     ff::Field,
     helpers::Role,
-    protocol::context::{Context, UpgradedContext, UpgradedMaliciousContext},
+    protocol::context::{Context, UpgradedContext},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -10,6 +10,11 @@ use crate::{
         },
         SharedValue,
     },
+};
+
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::context::UpgradedMaliciousContext
 };
 
 /// Produce a share of some pre-determined constant.
@@ -30,6 +35,7 @@ impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousReplicated<F>
 {

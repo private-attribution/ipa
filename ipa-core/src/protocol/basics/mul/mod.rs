@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::{Context, UpgradedMaliciousContext},
+        context::{Context},
         RecordId,
     },
     secret_sharing::{
@@ -16,6 +16,7 @@ use crate::{
     },
 };
 
+#[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
@@ -50,8 +51,9 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
         C: 'fut;
 }
 
-/// looks like clippy disagrees with itself on whether this attribute is useless or not.
-use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_mul};
+#[cfg(feature = "descriptive-gate")]
+use malicious::multiply as malicious_mul;
+use semi_honest::multiply as semi_honest_mul;
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
@@ -74,19 +76,3 @@ where
     }
 }
 
-/// Implement secure multiplication for malicious contexts with replicated secret sharing.
-#[async_trait]
-impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
-    async fn multiply_sparse<'fut>(
-        &self,
-        rhs: &Self,
-        ctx: UpgradedMaliciousContext<'a, F>,
-        record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self, Error>
-    where
-        UpgradedMaliciousContext<'a, F>: 'fut,
-    {
-        malicious_mul(ctx, record_id, self, rhs, zeros_at).await
-    }
-}

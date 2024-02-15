@@ -240,7 +240,7 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
     }
 
     let protocol = match mode {
-        IpaSecurityModel::SemiHonest => "semi-honest-ipa",
+        IpaSecurityModel::SemiHonest => "oprf-ipa",
         IpaSecurityModel::Malicious => "malicious-ipa",
     };
     command

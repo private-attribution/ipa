@@ -144,7 +144,7 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
     RBounds { r_lo, r_hi, invert }
 }
 
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(Step))]
 pub(crate) enum GreaterThanConstantStep {
     Reveal,
     CompareLo,

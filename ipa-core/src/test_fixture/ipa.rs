@@ -25,7 +25,6 @@ pub enum IpaSecurityModel {
 }
 
 pub enum IpaQueryStyle {
-    SortInMpc,
     Oprf,
 }
 

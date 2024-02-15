@@ -1,4 +1,5 @@
 pub mod apply_permutation;
+#[cfg(feature = "descriptive-gate")]
 pub mod check_zero;
 mod if_else;
 pub(crate) mod mul;
@@ -8,6 +9,7 @@ mod reveal;
 mod share_known_value;
 pub mod sum_of_product;
 
+#[cfg(feature = "descriptive-gate")]
 pub use check_zero::check_zero;
 pub use if_else::if_else;
 pub use mul::{MultiplyZeroPositions, SecureMul, ZeroPositions};
@@ -20,7 +22,7 @@ pub use sum_of_product::SumOfProducts;
 use crate::{
     ff::Field,
     protocol::{
-        context::{Context, UpgradedMaliciousContext},
+        context::{Context},
         RecordId,
     },
     secret_sharing::{
@@ -32,19 +34,25 @@ use crate::{
     },
 };
 
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::context::UpgradedMaliciousContext
+};
+
 pub trait BasicProtocols<C: Context, V: SharedValue>:
     SecretSharing<V>
     + Reshare<C, RecordId>
     + Reveal<C, RecordId, Output = V>
-    + PartialReveal<C, RecordId, Output = V>
     + SecureMul<C>
     + ShareKnownValue<C, V>
     + SumOfProducts<C>
 {
 }
 
+
 impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> {}
 
+#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> BasicProtocols<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousAdditiveShare<F>
 {

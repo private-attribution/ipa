@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use futures::future::try_join;
 use ipa_macros::Step;
 
@@ -15,6 +16,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
+use crate::protocol::basics::SumOfProducts;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -142,6 +144,23 @@ where
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)
+}
+
+#[async_trait]
+impl<'a, F: ExtendableField> SumOfProducts<UpgradedMaliciousContext<'a, F>>
+for MaliciousReplicated<F>
+{
+    async fn sum_of_products<'fut>(
+        ctx: UpgradedMaliciousContext<'a, F>,
+        record_id: RecordId,
+        a: &[Self],
+        b: &[Self],
+    ) -> Result<Self, Error>
+        where
+            'a: 'fut,
+    {
+        sum_of_products(ctx, record_id, a, b).await
+    }
 }
 
 #[cfg(all(test, unit_test))]

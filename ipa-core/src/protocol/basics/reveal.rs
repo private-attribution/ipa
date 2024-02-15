@@ -9,7 +9,7 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
-        context::{Context, UpgradedMaliciousContext},
+        context::{Context},
         NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
@@ -21,6 +21,12 @@ use crate::{
     },
 };
 
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::context::UpgradedMaliciousContext
+};
+use crate::helpers::Role;
+
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
 pub trait Reveal<C: Context, B: RecordBinding>: Sized {
@@ -31,6 +37,16 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
     async fn reveal<'fut>(&self, ctx: C, record_binding: B) -> Result<Self::Output, Error>
     where
         C: 'fut;
+
+    /// partial reveal protocol to open a shared secret to all helpers except helper `left_out` inside the MPC ring.
+    async fn partial_reveal<'fut>(
+        &self,
+        ctx: C,
+        record_binding: B,
+        left_out: Role,
+    ) -> Result<Option<Self::Output>, Error>
+        where
+            C: 'fut;
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -67,12 +83,44 @@ impl<C: Context, V: SharedValue> Reveal<C, RecordId> for Replicated<V> {
 
         Ok(left + right + share)
     }
+
+    /// TODO: implement reveal through partial reveal where `left_out` is optional
+    async fn partial_reveal<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        left_out: Role,
+    ) -> Result<Option<V>, Error>
+        where
+            C: 'fut,
+    {
+        let (left, right) = self.as_tuple();
+
+        // send except to left_out
+        if ctx.role().peer(Direction::Right) != left_out {
+            ctx.send_channel(ctx.role().peer(Direction::Right))
+                .send(record_id, left)
+                .await?;
+        }
+
+        if ctx.role() == left_out {
+            Ok(None)
+        } else {
+            let share = ctx
+                .recv_channel(ctx.role().peer(Direction::Left))
+                .receive(record_id)
+                .await?;
+
+            Ok(Some(left + right + share))
+        }
+    }
 }
 
 /// This implements the malicious reveal protocol over replicated secret sharings.
 /// It works similarly to semi-honest reveal, the key difference is that each helper sends its share
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
     for MaliciousReplicated<F>
@@ -112,6 +160,48 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
             Ok(left + right + share_from_left)
         } else {
             Err(Error::MaliciousRevealFailed)
+        }
+    }
+
+    async fn partial_reveal<'fut>(
+        &self,
+        ctx: UpgradedMaliciousContext<'a, F>,
+        record_id: RecordId,
+        left_out: Role,
+    ) -> Result<Option<F>, Error>
+        where
+            UpgradedMaliciousContext<'a, F>: 'fut,
+    {
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+        let (left, right) = self.x().access_without_downgrade().as_tuple();
+        let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
+        let left_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Left));
+        let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
+        let right_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Right));
+
+        // Send share to helpers to the right and left
+        // send except to left_out
+        if ctx.role().peer(Direction::Left) != left_out {
+            left_sender.send(record_id, right).await?;
+        }
+        if ctx.role().peer(Direction::Right) != left_out {
+            right_sender.send(record_id, left).await?;
+        }
+        if ctx.role() == left_out {
+            Ok(None)
+        } else {
+            let (share_from_left, share_from_right) = try_join(
+                left_receiver.receive(record_id),
+                right_receiver.receive(record_id),
+            )
+                .await?;
+
+            if share_from_left == share_from_right {
+                Ok(Some(left + right + share_from_left))
+            } else {
+                Err(Error::MaliciousRevealFailed)
+            }
         }
     }
 }

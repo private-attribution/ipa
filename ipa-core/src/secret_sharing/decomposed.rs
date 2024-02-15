@@ -7,18 +7,6 @@ use crate::{
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
 
-#[derive(Step)]
-pub(crate) enum InnerVectorElementStep {
-    #[dynamic(64)]
-    Elem(usize),
-}
-
-impl From<usize> for InnerVectorElementStep {
-    fn from(v: usize) -> Self {
-        Self::Elem(v)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitDecomposed<S> {
     bits: Vec<S>,

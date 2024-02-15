@@ -9,7 +9,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
-        context::{Context, UpgradedMaliciousContext},
+        context::{Context},
         prss::SharedRandomness,
         NoRecord, RecordBinding, RecordId,
     },
@@ -22,8 +22,12 @@ use crate::{
         BitDecomposed,
     },
 };
-use crate::protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx};
-use crate::secret_sharing::InnerVectorElementStep;
+
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+    protocol::context::UpgradedMaliciousContext
+};
 
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
@@ -105,6 +109,7 @@ impl<C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
@@ -138,30 +143,6 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
         let malicious_input = MaliciousReplicated::new(x, rx);
         random_constant_ctx.accumulate_macs(record_id, &malicious_input);
         Ok(malicious_input)
-    }
-}
-
-#[async_trait]
-impl<S, C: Context> Reshare<C, RecordId> for BitDecomposed<S>
-where
-    S: Reshare<C, RecordId> + Send + Sync,
-{
-    async fn reshare<'fut>(
-        self: &BitDecomposed<S>,
-        ctx: C,
-        record_binding: RecordId,
-        to_helper: Role,
-    ) -> Result<BitDecomposed<S>, Error>
-    where
-        C: 'fut,
-    {
-        BitDecomposed::try_from(
-            ctx.parallel_join(self.iter().enumerate().map(|(i, x)| {
-                let c = ctx.narrow(&InnerVectorElementStep::from(i));
-                async move { x.reshare(c, record_binding, to_helper).await }
-            }))
-            .await?,
-        )
     }
 }
 

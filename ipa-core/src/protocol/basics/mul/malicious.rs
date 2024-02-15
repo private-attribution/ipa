@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use futures::future::try_join;
 use ipa_macros::Step;
 
@@ -108,6 +109,23 @@ where
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)
+}
+
+/// Implement secure multiplication for malicious contexts with replicated secret sharing.
+#[async_trait]
+impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: UpgradedMaliciousContext<'a, F>,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+        where
+            UpgradedMaliciousContext<'a, F>: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
 }
 
 #[cfg(all(test, unit_test))]

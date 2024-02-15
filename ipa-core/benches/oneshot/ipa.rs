@@ -9,7 +9,7 @@ use ipa_core::{
     ff::Fp32BitPrime,
     helpers::{query::IpaQueryConfig, GatewayConfig},
     test_fixture::{
-        ipa::{ipa_in_the_clear, test_ipa, test_oprf_ipa, CappingOrder, IpaSecurityModel},
+        ipa::{ipa_in_the_clear, test_oprf_ipa, CappingOrder, IpaSecurityModel},
         EventGenerator, EventGeneratorConfig, TestWorld, TestWorldConfig,
     },
 };
@@ -70,8 +70,6 @@ struct Args {
     /// Needed for benches.
     #[arg(long, hide = true)]
     bench: bool,
-    #[arg(short = 'o', long)]
-    oprf: bool,
 }
 
 impl Args {
@@ -112,8 +110,8 @@ async fn run(args: Args) -> Result<(), Error> {
     );
     let rng = StdRng::seed_from_u64(seed);
     let (user_count, min_events_per_user, max_events_per_user, query_size) =
-        if args.oprf && cfg!(feature = "step-trace") {
-            // For the steps collection, OPRF mode requires a single user with the same number
+        if cfg!(feature = "step-trace") {
+            // For the steps collection, compact gate requires a single user with the same number
             // of dynamic steps as defined for `UserNthRowStep::Row`.
             (
                 NonZeroU64::new(1).unwrap(),
@@ -146,11 +144,7 @@ async fn run(args: Args) -> Result<(), Error> {
     // timestamp.
     raw_data.sort_by_key(|e| e.timestamp);
 
-    let order = if args.oprf {
-        CappingOrder::CapMostRecentFirst
-    } else {
-        CappingOrder::CapOldestFirst
-    };
+    let order = CappingOrder::CapMostRecentFirst;
 
     let expected_results = ipa_in_the_clear(
         &raw_data,
@@ -164,18 +158,7 @@ async fn run(args: Args) -> Result<(), Error> {
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
-    if args.oprf {
-        test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
-    } else {
-        test_ipa::<BenchField>(
-            &world,
-            &raw_data,
-            &expected_results,
-            args.config(),
-            args.mode,
-        )
-        .await;
-    }
+    test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
     tracing::trace!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,

@@ -15,7 +15,7 @@ use hyper::http::uri::Scheme;
 use ipa_core::{
     cli::{
         noise::{apply, ApplyDpArgs},
-        playbook::{make_clients, playbook_ipa, playbook_oprf_ipa, validate, InputSource},
+        playbook::{make_clients, playbook_oprf_ipa, validate, InputSource},
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
@@ -84,10 +84,6 @@ impl From<&CommandInput> for InputSource {
 
 #[derive(Debug, Subcommand)]
 enum ReportCollectorCommand {
-    /// Execute IPA in semi-honest honest majority setting
-    SemiHonestIpa(IpaQueryConfig),
-    /// Execute IPA in malicious honest majority setting
-    MaliciousIpa(IpaQueryConfig),
     /// Generate inputs for IPA
     GenIpaInputs {
         /// Number of records to generate
@@ -129,28 +125,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (clients, network) = make_clients(args.network.as_deref(), scheme, args.wait).await;
     match args.action {
-        ReportCollectorCommand::SemiHonestIpa(config) => {
-            ipa(
-                &args,
-                &network,
-                IpaSecurityModel::SemiHonest,
-                config,
-                &clients,
-                IpaQueryStyle::SortInMpc,
-            )
-            .await?
-        }
-        ReportCollectorCommand::MaliciousIpa(config) => {
-            ipa(
-                &args,
-                &network,
-                IpaSecurityModel::Malicious,
-                config,
-                &clients,
-                IpaQueryStyle::SortInMpc,
-            )
-            .await?
-        }
         ReportCollectorCommand::GenIpaInputs {
             count,
             seed,
@@ -244,12 +218,6 @@ async fn ipa(
     let input = InputSource::from(&args.input);
     let query_type: QueryType;
     match (security_model, &query_style) {
-        (IpaSecurityModel::SemiHonest, IpaQueryStyle::SortInMpc) => {
-            query_type = QueryType::SemiHonestIpa(ipa_query_config.clone());
-        }
-        (IpaSecurityModel::Malicious, IpaQueryStyle::SortInMpc) => {
-            query_type = QueryType::MaliciousIpa(ipa_query_config.clone())
-        }
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
             query_type = QueryType::OprfIpa(ipa_query_config.clone());
         }
@@ -274,7 +242,6 @@ async fn ipa(
             ipa_query_config.max_breakdown_key,
             &(match query_style {
                 IpaQueryStyle::Oprf => CappingOrder::CapMostRecentFirst,
-                IpaQueryStyle::SortInMpc => CappingOrder::CapOldestFirst,
             }),
         );
 
@@ -295,16 +262,6 @@ async fn ipa(
                 &helper_clients,
                 query_id,
                 ipa_query_config,
-            )
-            .await
-        }
-        IpaQueryStyle::SortInMpc => {
-            playbook_ipa::<Fp32BitPrime, MatchKey, BreakdownKey, _>(
-                &input_rows,
-                &helper_clients,
-                query_id,
-                ipa_query_config,
-                key_registries.init_from(network),
             )
             .await
         }

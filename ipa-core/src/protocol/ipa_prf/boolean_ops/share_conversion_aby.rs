@@ -18,6 +18,7 @@ use crate::{
         SharedValue,
     },
 };
+use crate::protocol::basics::Reveal;
 
 #[derive(Step)]
 pub(crate) enum Step {
