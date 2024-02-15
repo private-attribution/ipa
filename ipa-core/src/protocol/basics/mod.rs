@@ -19,12 +19,11 @@ pub use reveal::Reveal;
 pub use share_known_value::ShareKnownValue;
 pub use sum_of_product::SumOfProducts;
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::UpgradedMaliciousContext;
 use crate::{
     ff::Field,
-    protocol::{
-        context::{Context},
-        RecordId,
-    },
+    protocol::{context::Context, RecordId},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousAdditiveShare, ExtendableField},
@@ -32,11 +31,6 @@ use crate::{
         },
         SecretSharing, SharedValue,
     },
-};
-
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    protocol::context::UpgradedMaliciousContext
 };
 
 pub trait BasicProtocols<C: Context, V: SharedValue>:
@@ -48,7 +42,6 @@ pub trait BasicProtocols<C: Context, V: SharedValue>:
     + SumOfProducts<C>
 {
 }
-
 
 impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> {}
 

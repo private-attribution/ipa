@@ -18,6 +18,7 @@ mod multi_thread;
 /// Use this if you get higher-ranked lifetime errors that mention `std::marker::Send`.
 ///
 /// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
+#[allow(dead_code)] // we would need it soon
 pub fn assert_send<'a, O>(
     fut: impl Future<Output = O> + Send + 'a,
 ) -> impl Future<Output = O> + Send + 'a {

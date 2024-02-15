@@ -44,7 +44,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType, SparseAggregateQueryConfig},
+            query::{IpaQueryConfig, QueryConfig, QueryType},
             TransportCallbacks,
         },
         net::{
@@ -119,7 +119,6 @@ mod tests {
         })
         .await;
     }
-
 
     struct OverrideReq {
         field_type: String,

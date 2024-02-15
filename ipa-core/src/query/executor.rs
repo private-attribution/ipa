@@ -24,7 +24,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        context::{SemiHonestContext},
+        context::SemiHonestContext,
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
     },
@@ -56,7 +56,8 @@ where
     }
 }
 
-#[allow(clippy::too_many_lines)]
+/// Needless pass by value because IPA v3 does not make use of key registry yet.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn execute(
     config: QueryConfig,
     _key_registry: Arc<KeyRegistry<KeyPair>>,

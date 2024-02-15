@@ -2,18 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::Field,
-    protocol::{
-        context::{Context},
-        RecordId,
-    },
-    secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-        },
-        FieldSimd,
-    },
+    protocol::{context::Context, RecordId},
 };
 
 #[cfg(feature = "descriptive-gate")]
@@ -50,29 +39,3 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
     where
         C: 'fut;
 }
-
-#[cfg(feature = "descriptive-gate")]
-use malicious::multiply as malicious_mul;
-use semi_honest::multiply as semi_honest_mul;
-
-/// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
-#[async_trait]
-impl<C, F, const N: usize> SecureMul<C> for Replicated<F, N>
-where
-    C: Context,
-    F: Field + FieldSimd<N>,
-{
-    async fn multiply_sparse<'fut>(
-        &self,
-        rhs: &Self,
-        ctx: C,
-        record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self, Error>
-    where
-        C: 'fut,
-    {
-        semi_honest_mul(ctx, record_id, self, rhs, zeros_at).await
-    }
-}
-

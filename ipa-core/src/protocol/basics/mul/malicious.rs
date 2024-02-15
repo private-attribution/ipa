@@ -121,8 +121,8 @@ impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for Mali
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
-        where
-            UpgradedMaliciousContext<'a, F>: 'fut,
+    where
+        UpgradedMaliciousContext<'a, F>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }

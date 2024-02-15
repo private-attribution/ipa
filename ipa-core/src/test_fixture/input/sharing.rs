@@ -6,9 +6,7 @@ use rand::{distributions::Standard, prelude::Distribution};
 use crate::{ff::boolean::Boolean, ff::boolean_array::BA64};
 use crate::{
     ff::{Field, GaloisField, PrimeField, Serializable},
-    protocol::{
-        BreakdownKey, MatchKey,
-    },
+    protocol::{BreakdownKey, MatchKey},
     rand::Rng,
     report::{EventType, OprfReport, Report},
     secret_sharing::{
@@ -92,7 +90,6 @@ where
         ]
     }
 }
-
 
 const DOMAINS: &[&str] = &[
     "mozilla.com",

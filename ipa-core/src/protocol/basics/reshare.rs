@@ -8,25 +8,17 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{
-        context::{Context},
-        prss::SharedRandomness,
-        NoRecord, RecordBinding, RecordId,
-    },
-    secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed,
+    protocol::{context::Context, prss::SharedRandomness, NoRecord, RecordBinding, RecordId},
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
 };
-
 #[cfg(feature = "descriptive-gate")]
 use crate::{
     protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
-    protocol::context::UpgradedMaliciousContext
+    protocol::context::UpgradedMaliciousContext,
 };
 
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
@@ -245,7 +237,10 @@ mod tests {
             ff::{Field, Fp32BitPrime, Gf2, Gf32Bit},
             helpers::{Direction, Role},
             protocol::{
-                basics::Reshare,
+                basics::{
+                    mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+                    Reshare,
+                },
                 context::{
                     Context, SemiHonestContext, UpgradableContext, UpgradedContext,
                     UpgradedMaliciousContext, Validator,
@@ -264,7 +259,6 @@ mod tests {
             },
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use crate::protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.

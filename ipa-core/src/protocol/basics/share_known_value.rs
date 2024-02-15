@@ -1,3 +1,5 @@
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::UpgradedMaliciousContext;
 use crate::{
     ff::Field,
     helpers::Role,
@@ -10,11 +12,6 @@ use crate::{
         },
         SharedValue,
     },
-};
-
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    protocol::context::UpgradedMaliciousContext
 };
 
 /// Produce a share of some pre-determined constant.

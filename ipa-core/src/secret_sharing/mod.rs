@@ -56,7 +56,7 @@ use std::{
 };
 
 pub use array::StdArray;
-pub(crate) use decomposed::{BitDecomposed, };
+pub(crate) use decomposed::BitDecomposed;
 use generic_array::ArrayLength;
 pub use into_shares::IntoShares;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]

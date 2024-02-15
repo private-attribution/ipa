@@ -1,31 +1,21 @@
-use std::iter::{repeat, zip};
-
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::UpgradedMaliciousContext;
 use crate::{
     error::Error,
-    ff::Field,
-    helpers::Direction,
-    protocol::{
-        context::{Context},
-        NoRecord, RecordBinding, RecordId,
-    },
+    helpers::{Direction, Role},
+    protocol::{context::Context, RecordBinding, RecordId},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
         },
-        SecretSharing, SharedValue,
+        SharedValue,
     },
 };
-
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    protocol::context::UpgradedMaliciousContext
-};
-use crate::helpers::Role;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -45,8 +35,8 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
         record_binding: B,
         left_out: Role,
     ) -> Result<Option<Self::Output>, Error>
-        where
-            C: 'fut;
+    where
+        C: 'fut;
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -91,8 +81,8 @@ impl<C: Context, V: SharedValue> Reveal<C, RecordId> for Replicated<V> {
         record_id: RecordId,
         left_out: Role,
     ) -> Result<Option<V>, Error>
-        where
-            C: 'fut,
+    where
+        C: 'fut,
     {
         let (left, right) = self.as_tuple();
 
@@ -169,8 +159,8 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
         record_id: RecordId,
         left_out: Role,
     ) -> Result<Option<F>, Error>
-        where
-            UpgradedMaliciousContext<'a, F>: 'fut,
+    where
+        UpgradedMaliciousContext<'a, F>: 'fut,
     {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
@@ -195,7 +185,7 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
                 left_receiver.receive(record_id),
                 right_receiver.receive(record_id),
             )
-                .await?;
+            .await?;
 
             if share_from_left == share_from_right {
                 Ok(Some(left + right + share_from_left))

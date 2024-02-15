@@ -8,16 +8,15 @@ use async_trait::async_trait;
 use futures::future::try_join;
 use ipa_macros::Step;
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::{MaliciousContext, UpgradedMaliciousContext};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
     protocol::{
-        basics::{Reveal},
-        context::{
-            Base, Context, SemiHonestContext, UpgradableContext,
-            UpgradedSemiHonestContext,
-        },
+        basics::Reveal,
+        context::{Base, Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -28,9 +27,6 @@ use crate::{
     },
     sync::{Arc, Mutex, Weak},
 };
-
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::{MaliciousContext, UpgradedMaliciousContext};
 
 #[async_trait]
 pub trait Validator<B: UpgradableContext, F: ExtendableField> {
@@ -238,7 +234,8 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(1);
-        let is_valid = crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid =
+            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.

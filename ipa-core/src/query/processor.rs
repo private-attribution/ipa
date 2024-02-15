@@ -322,8 +322,8 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{QueryType, QueryType::TestMultiply},
-            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
+            query::QueryType::TestMultiply, HelperIdentity, InMemoryNetwork, PrepareQueryCallback,
+            TransportCallbacks,
         },
     };
 
@@ -531,14 +531,15 @@ mod tests {
         use super::*;
         use crate::{
             error::BoxError,
-            ff::{Field, Fp31},
-            helpers::query::IpaQueryConfig,
-            ipa_test_input,
-            protocol::{BreakdownKey, MatchKey},
+            ff::{
+                boolean_array::{BA20, BA3, BA8},
+                Field, Fp31,
+            },
+            helpers::query::{IpaQueryConfig, QueryType},
+            report::OprfReport,
             secret_sharing::replicated::semi_honest,
-            test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
+            test_fixture::{ipa::TestRawDataRecord, Reconstruct, TestApp},
         };
-        use crate::report::OprfReport;
 
         #[tokio::test]
         async fn complete_query_test_multiply() -> Result<(), BoxError> {
@@ -603,35 +604,63 @@ mod tests {
         }
 
         async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
-            todo!("fix the input row stuff buddy");
-            // let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-            //     [
-            //         { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-            //         { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-            //         { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-            //         { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-            //         { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-            //     ];
-            //     (Fp31, MatchKey, BreakdownKey)
-            // );
-            // let record_count = records.len();
-            //
-            // let _results = app
-            //     .execute_query::<_, Vec<OprfReport<_, _, _>>>(
-            //         records.into_iter(),
-            //         QueryConfig {
-            //             size: record_count.try_into().unwrap(),
-            //             field_type: FieldType::Fp31,
-            //             query_type: QueryType::OprfIpa(IpaQueryConfig {
-            //                 per_user_credit_cap: 3,
-            //                 max_breakdown_key: 3,
-            //                 attribution_window_seconds: None,
-            //                 num_multi_bits: 3,
-            //                 plaintext_match_keys: true,
-            //             }),
-            //         },
-            //     )
-            //     .await?;
+            let records = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
+            let record_count = records.len();
+
+            let _results = app
+                // Achtung: OPRF IPA executor assumes BA8, BA3, BA20 to be the encodings of
+                // inputs - using anything else will lead to a padding error.
+                .execute_query::<_, Vec<OprfReport<BA8, BA3, BA20>>>(
+                    records.into_iter(),
+                    QueryConfig {
+                        size: record_count.try_into().unwrap(),
+                        field_type: FieldType::Fp31,
+                        query_type: QueryType::OprfIpa(IpaQueryConfig {
+                            per_user_credit_cap: 8,
+                            max_breakdown_key: 3,
+                            attribution_window_seconds: None,
+                            num_multi_bits: 3,
+                            plaintext_match_keys: true,
+                        }),
+                    },
+                )
+                .await?;
 
             Ok(())
         }

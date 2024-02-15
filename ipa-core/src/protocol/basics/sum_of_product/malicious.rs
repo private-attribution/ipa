@@ -6,6 +6,7 @@ use crate::{
     error::Error,
     helpers::Direction,
     protocol::{
+        basics::SumOfProducts,
         context::{Context, UpgradedMaliciousContext},
         prss::SharedRandomness,
         RecordId,
@@ -16,7 +17,6 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
-use crate::protocol::basics::SumOfProducts;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -148,7 +148,7 @@ where
 
 #[async_trait]
 impl<'a, F: ExtendableField> SumOfProducts<UpgradedMaliciousContext<'a, F>>
-for MaliciousReplicated<F>
+    for MaliciousReplicated<F>
 {
     async fn sum_of_products<'fut>(
         ctx: UpgradedMaliciousContext<'a, F>,
@@ -156,8 +156,8 @@ for MaliciousReplicated<F>
         a: &[Self],
         b: &[Self],
     ) -> Result<Self, Error>
-        where
-            'a: 'fut,
+    where
+        'a: 'fut,
     {
         sum_of_products(ctx, record_id, a, b).await
     }

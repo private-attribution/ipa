@@ -26,9 +26,9 @@ pub mod random_bits_generator;
 pub mod solved_bits;
 mod xor;
 
+pub use xor::{xor, xor_sparse};
 #[cfg(feature = "descriptive-gate")]
 pub use {comparison::greater_than_constant, solved_bits::RandomBitsShare};
-pub use xor::{xor, xor_sparse};
 
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.

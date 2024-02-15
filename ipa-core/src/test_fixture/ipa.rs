@@ -5,16 +5,13 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
-    ipa_test_input,
-    protocol::{BreakdownKey, MatchKey},
     secret_sharing::{
         replicated::{
-            malicious, malicious::ExtendableField, semi_honest,
-            semi_honest::AdditiveShare as Replicated,
+            malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
         },
         IntoShares,
     },
-    test_fixture::{input::GenericReportTestInput, Reconstruct},
+    test_fixture::Reconstruct,
 };
 
 #[derive(Debug, Copy, Clone)]

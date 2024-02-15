@@ -16,7 +16,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        BitDecomposed, Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -186,7 +186,6 @@ where
         .await
     }
 }
-
 
 #[async_trait]
 impl<'a, C, F> UpgradeToMalicious<'a, Replicated<F>, C::Share>

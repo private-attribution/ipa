@@ -1,20 +1,8 @@
 use async_trait::async_trait;
-use futures::future::try_join;
 
 use crate::{
-    error::Error,
-    helpers::{Direction, Role},
-    protocol::{
-        context::{Context},
-        RecordBinding, RecordId,
-    },
-    secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-        },
-        SharedValue,
-    },
+    protocol::{context::Context, RecordBinding, RecordId},
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
 
 #[async_trait]
@@ -30,7 +18,6 @@ pub trait PartialReveal<C: Context, B: RecordBinding>: Sized {
 // #[embed_doc_image("reveal", "images/reveal.png")]
 impl<C: Context, V: SharedValue> PartialReveal<C, RecordId> for Replicated<V> {
     type Output = V;
-
 }
 
 #[cfg(all(test, unit_test))]
