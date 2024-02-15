@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, mem};
 
 use generic_array::GenericArray;
 
@@ -14,6 +14,43 @@ pub trait PrimeField: Field {
     type PrimeInteger: Into<u128>;
 
     const PRIME: Self::PrimeInteger;
+
+    /// Invert function that returns the multiplicative inverse
+    /// the default implementation uses the extended Euclidean algorithm,
+    /// follows inversion algorithm in
+    /// (with the modification that it works for unsigned integers by keeping track of `sign`):
+    /// `https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm`
+    ///
+    /// The function operates on `u128` rather than field elements since we need divisions
+    ///
+    /// ## Panics
+    /// When `self` is `Zero`
+
+    #[must_use]
+    fn invert(&self) -> Self {
+        assert_ne!(*self, Self::ZERO);
+
+        let mut t = 0u128;
+        let mut newt = 1u128;
+        let mut r = Self::PRIME.into();
+        let mut newr = self.as_u128();
+        let mut sign = 1u128;
+
+        while newr != 0u128 {
+            let quotient = r / newr;
+            mem::swap(&mut t, &mut newt);
+            mem::swap(&mut r, &mut newr);
+            newt += quotient * t;
+            newr -= quotient * r;
+
+            // flip sign
+            sign = 1 - sign;
+        }
+
+        // when sign is negative, output `PRIME-t` otherwise `t`
+        // unwrap is safe
+        Self::try_from((1 - sign) * t + sign * (Self::PRIME.into() - t)).unwrap()
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -293,6 +330,14 @@ macro_rules! field_impl {
                     buf.copy_from_slice(&v.to_le_bytes());
                     let err = $field::deserialize(&buf).unwrap_err();
                     assert!(matches!(err, GreaterThanPrimeError(..)))
+                }
+
+                    #[test]
+                fn test_invert(element: $field) {
+                    if element != $field::ZERO
+                    {
+                        assert_eq!($field::ONE,element * element.invert() );
+                    }
                 }
             }
         }
