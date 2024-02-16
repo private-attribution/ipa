@@ -27,6 +27,8 @@ use crate::{
 /// and outer vectors in a `Vec<Vec<T>>` is an error. Instead, one level of iteration can use the
 /// record ID and the other can use something like a `BitOpStep`.
 ///
+///
+#[cfg_attr(not(feature = "descriptive-gate"), doc = "```ignore")]
 /// ```no_run
 /// use ipa_core::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
 /// use ipa_core::ff::Fp32BitPrime as F;
