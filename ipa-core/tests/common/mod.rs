@@ -195,7 +195,7 @@ pub fn test_network(https: bool) {
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
 
-    test_multiply(&path, https);
+    test_multiply(path, https);
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {

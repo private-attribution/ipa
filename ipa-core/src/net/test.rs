@@ -268,6 +268,7 @@ impl TestServerBuilder {
     }
 
     #[cfg(all(test, web_test))]
+    #[must_use]
     pub fn use_http1(mut self) -> Self {
         self.use_http1 = true;
         self
