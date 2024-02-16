@@ -5,7 +5,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::stream::Fuse;
+use futures::{stream::Fuse, StreamExt};
+use pin_project::pin_project;
 use tracing::{Instrument, Span};
 
 use super::*;
