@@ -2,9 +2,8 @@ use std::{future::IntoFuture, num::NonZeroUsize};
 
 use futures::{
     stream::{iter, Iter as StreamIter, TryCollect},
-    Future, Stream, StreamExt, TryStreamExt,
+    Future, Stream, TryStreamExt,
 };
-use pin_project::pin_project;
 
 use crate::exact::ExactSizeStream;
 

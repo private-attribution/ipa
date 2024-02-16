@@ -23,7 +23,6 @@ use ipa_core::{
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
-    protocol::{BreakdownKey, MatchKey},
     report::{KeyIdentifier, DEFAULT_KEY_ID},
     test_fixture::{
         ipa::{ipa_in_the_clear, CappingOrder, IpaQueryStyle, IpaSecurityModel, TestRawDataRecord},
@@ -155,7 +154,7 @@ fn gen_inputs(
 ) -> io::Result<()> {
     let rng = seed
         .map(StdRng::seed_from_u64)
-        .unwrap_or_else(|| StdRng::from_entropy());
+        .unwrap_or_else(StdRng::from_entropy);
     let mut event_gen = EventGenerator::with_config(rng, args)
         .take(count as usize)
         .collect::<Vec<_>>();
@@ -168,7 +167,7 @@ fn gen_inputs(
 
     for event in event_gen {
         event.to_csv(&mut writer)?;
-        writer.write(&[b'\n'])?;
+        writer.write_all(&[b'\n'])?;
     }
 
     Ok(())
@@ -178,13 +177,14 @@ fn gen_inputs(
 struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
 
 impl KeyRegistries {
+    #[allow(dead_code)]
     fn init_from(
         &mut self,
         network: &NetworkConfig,
     ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
         // Get the configs, if all three peers have one
-        let Some(configs) = network.peers().iter().fold(Some(vec![]), |acc, peer| {
-            if let (Some(mut vec), Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
+        let Some(configs) = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
+            if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
                 vec.push(hpke_config);
                 Some(vec)
             } else {
@@ -209,7 +209,7 @@ impl KeyRegistries {
 
 async fn ipa(
     args: &Args,
-    network: &NetworkConfig,
+    _network: &NetworkConfig,
     security_model: IpaSecurityModel,
     ipa_query_config: IpaQueryConfig,
     helper_clients: &[MpcHelperClient; 3],
@@ -219,7 +219,7 @@ async fn ipa(
     let query_type: QueryType;
     match (security_model, &query_style) {
         (IpaSecurityModel::SemiHonest, IpaQueryStyle::Oprf) => {
-            query_type = QueryType::OprfIpa(ipa_query_config.clone());
+            query_type = QueryType::OprfIpa(ipa_query_config);
         }
         (IpaSecurityModel::Malicious, IpaQueryStyle::Oprf) => {
             panic!("OPRF for malicious is not implemented as yet")
@@ -254,12 +254,12 @@ async fn ipa(
         r
     };
 
-    let mut key_registries = KeyRegistries::default();
+    let mut _key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
             playbook_oprf_ipa::<Fp32BitPrime>(
                 input_rows,
-                &helper_clients,
+                helper_clients,
                 query_id,
                 ipa_query_config,
             )
@@ -269,7 +269,7 @@ async fn ipa(
 
     if let Some(ref path) = args.output_file {
         // it will be sad to lose the results if file already exists.
-        let path = if Path::is_file(&path) {
+        let path = if Path::is_file(path) {
             let mut new_file_name = thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(5)
@@ -313,7 +313,7 @@ fn apply_dp_noise(args: &Args, dp_args: &ApplyDpArgs) -> Result<(), Box<dyn Erro
     let IpaQueryResult { breakdowns, .. } =
         serde_json::from_slice(&InputSource::from(&args.input).to_vec()?)?;
 
-    let output = apply(&breakdowns, &dp_args);
+    let output = apply(&breakdowns, dp_args);
     let mut table = Table::new();
     let header = std::iter::once("Epsilon".to_string())
         .chain(std::iter::once("Variance".to_string()))

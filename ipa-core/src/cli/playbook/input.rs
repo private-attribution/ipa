@@ -113,6 +113,10 @@ impl InputSource {
             .filter_map(|line| line.map(|l| T::from_str(&l)).ok())
     }
 
+    /// Reads all the bytes from this instance and returns an owned buffer that contains them.
+    ///
+    /// ## Errors
+    /// if the underlying IO resource returns an error while reading from it.
     pub fn to_vec(mut self) -> Result<Vec<u8>, io::Error> {
         let mut buf = vec![];
         self.read_to_end(&mut buf)?;

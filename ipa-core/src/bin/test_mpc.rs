@@ -111,14 +111,14 @@ where
 
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
-    let actual = secure_mul(input_rows, &helper_clients, query_id).await;
+    let actual = secure_mul(input_rows, helper_clients, query_id).await;
 
     validate(&expected, &actual);
 }
 
 async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     match args.input.field {
-        FieldType::Fp31 => multiply_in_field::<Fp31>(&args, helper_clients).await,
-        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(&args, helper_clients).await,
+        FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients).await,
+        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
 }

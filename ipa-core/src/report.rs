@@ -163,6 +163,7 @@ pub enum InvalidReportError {
 }
 
 /// A binary report as submitted by a report collector, containing encrypted match key shares.
+/// TODO: DELETE along with Report
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct EncryptedReport<F, MK, BK, B>
 where

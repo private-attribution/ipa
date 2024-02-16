@@ -7,8 +7,6 @@ use std::{
 
 use futures_util::future::try_join_all;
 use generic_array::GenericArray;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
-use rand_core::SeedableRng;
 use tokio::time::sleep;
 use typenum::Unsigned;
 
@@ -19,14 +17,12 @@ use crate::{
         query::{IpaQueryConfig, QueryInput, QuerySize},
         BodyStream,
     },
-    hpke::PublicKeyRegistry,
-    ipa_test_input,
     net::MpcHelperClient,
-    protocol::{BreakdownKey, MatchKey, QueryId, Timestamp, TriggerValue},
+    protocol::{BreakdownKey, QueryId, Timestamp, TriggerValue},
     query::QueryStatus,
-    report::{KeyIdentifier, OprfReport, Report},
+    report::OprfReport,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-    test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
+    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
 
 pub async fn playbook_oprf_ipa<F>(
@@ -61,6 +57,7 @@ where
     run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
 }
 
+#[allow(clippy::disallowed_methods)] // allow try_join_all
 pub async fn run_query_and_validate<F>(
     inputs: [BodyStream; 3],
     query_size: usize,
