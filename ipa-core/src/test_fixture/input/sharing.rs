@@ -1,9 +1,7 @@
 use std::iter::{repeat, zip};
 
-use rand::{distributions::Standard, prelude::Distribution};
-
 use crate::{
-    ff::{boolean::Boolean, boolean_array::BA64, Field, GaloisField},
+    ff::{boolean::Boolean, boolean_array::BA64, Field},
     protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
     report::{EventType, OprfReport},
@@ -11,83 +9,8 @@ use crate::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         IntoShares, SharedValue,
     },
-    test_fixture::{
-        input::{GenericReportShare, GenericReportTestInput},
-        ipa::TestRawDataRecord,
-        Reconstruct,
-    },
+    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
-
-impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
-where
-    F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<Replicated<MK>>,
-    BK: GaloisField + IntoShares<Replicated<BK>>,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [GenericReportShare<F, MK, BK>; 3] {
-        let GenericReportTestInput {
-            match_key,
-            attribution_constraint_id,
-            timestamp,
-            is_trigger_report,
-            breakdown_key,
-            trigger_value,
-            helper_bit,
-            aggregation_bit,
-            active_bit,
-        } = self;
-
-        let [match_key0, match_key1, match_key2] = match_key.share_with(rng);
-        let [attribution_constraint_id0, attribution_constraint_id1, attribution_constraint_id2] =
-            attribution_constraint_id.share_with(rng);
-        let [timestamp0, timestamp1, timestamp2] = timestamp.share_with(rng);
-        let [is_trigger_report0, is_trigger_report1, is_trigger_report2] =
-            is_trigger_report.share_with(rng);
-        let [breakdown_key0, breakdown_key1, breakdown_key2] = breakdown_key.share_with(rng);
-        let [trigger_value0, trigger_value1, trigger_value2] = trigger_value.share_with(rng);
-        let [helper_bit0, helper_bit1, helper_bit2] = helper_bit.share_with(rng);
-        let [aggregation_bit0, aggregation_bit1, aggregation_bit2] =
-            aggregation_bit.share_with(rng);
-        let [active_bit0, active_bit1, active_bit2] = active_bit.share_with(rng);
-
-        [
-            GenericReportShare {
-                match_key: match_key0,
-                breakdown_key: breakdown_key0,
-                trigger_value: trigger_value0,
-                attribution_constraint_id: attribution_constraint_id0,
-                timestamp: timestamp0,
-                is_trigger_report: is_trigger_report0,
-                helper_bit: helper_bit0,
-                aggregation_bit: aggregation_bit0,
-                active_bit: active_bit0,
-            },
-            GenericReportShare {
-                match_key: match_key1,
-                breakdown_key: breakdown_key1,
-                trigger_value: trigger_value1,
-                attribution_constraint_id: attribution_constraint_id1,
-                timestamp: timestamp1,
-                is_trigger_report: is_trigger_report1,
-                helper_bit: helper_bit1,
-                aggregation_bit: aggregation_bit1,
-                active_bit: active_bit1,
-            },
-            GenericReportShare {
-                match_key: match_key2,
-                breakdown_key: breakdown_key2,
-                trigger_value: trigger_value2,
-                attribution_constraint_id: attribution_constraint_id2,
-                timestamp: timestamp2,
-                is_trigger_report: is_trigger_report2,
-                helper_bit: helper_bit2,
-                aggregation_bit: aggregation_bit2,
-                active_bit: active_bit2,
-            },
-        ]
-    }
-}
 
 const DOMAINS: &[&str] = &[
     "mozilla.com",
