@@ -38,7 +38,7 @@ struct Args {
     #[arg(short = 'u', long, default_value = "50")]
     records_per_user: u32,
     /// The contribution cap for each person.
-    #[arg(short = 'c', long, default_value = "3")]
+    #[arg(short = 'c', long, default_value = "8")]
     per_user_cap: u32,
     /// The number of breakdown keys.
     #[arg(short = 'b', long, default_value = "16")]
