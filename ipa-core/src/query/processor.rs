@@ -536,7 +536,7 @@ mod tests {
                 Field, Fp31,
             },
             helpers::query::{IpaQueryConfig, QueryType},
-            report::OprfReport,
+            protocol::ipa_prf::OPRFIPAInputRow,
             secret_sharing::replicated::semi_honest,
             test_fixture::{ipa::TestRawDataRecord, Reconstruct, TestApp},
         };
@@ -646,7 +646,7 @@ mod tests {
             let _results = app
                 // Achtung: OPRF IPA executor assumes BA8, BA3, BA20 to be the encodings of
                 // inputs - using anything else will lead to a padding error.
-                .execute_query::<_, Vec<OprfReport<BA8, BA3, BA20>>>(
+                .execute_query::<_, Vec<OPRFIPAInputRow<BA8, BA3, BA20>>>(
                     records.into_iter(),
                     QueryConfig {
                         size: record_count.try_into().unwrap(),

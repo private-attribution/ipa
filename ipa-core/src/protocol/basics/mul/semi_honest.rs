@@ -64,7 +64,7 @@ where
     } else {
         debug_assert_eq!(
             a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr(),
-            <<F as Vectorizable<N>>::Array as SharedValueArray<F>>::ZERO
+            <<F as Vectorizable<N>>::Array as SharedValueArray<F>>::ZERO_ARRAY
         );
     }
     // Add randomness to this value whether we sent or not, depending on whether the

@@ -70,7 +70,7 @@ pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 
 use crate::{
     error::LengthError,
-    ff::{AddSub, AddSubAssign, Field, Fp32BitPrime, Serializable},
+    ff::{boolean::Boolean, AddSub, AddSubAssign, Field, Fp32BitPrime, Serializable},
     protocol::prss::FromRandom,
 };
 
@@ -211,6 +211,10 @@ impl<F: Field> FieldSimd<1> for F {}
 
 impl FieldSimd<32> for Fp32BitPrime {}
 
+impl FieldSimd<64> for Boolean {}
+
+impl FieldSimd<256> for Boolean {}
+
 pub trait SharedValueArray<V>:
     Clone
     + Eq
@@ -232,7 +236,7 @@ pub trait SharedValueArray<V>:
     + SubAssign<Self>
     + for<'a> SubAssign<&'a Self>
 {
-    const ZERO: Self;
+    const ZERO_ARRAY: Self;
 
     fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self;
 }
@@ -243,6 +247,7 @@ pub trait SharedValueArray<V>:
 pub trait FieldArray<F: SharedValue>:
     SharedValueArray<F>
     + FromRandom
+    + for<'a> Mul<F, Output = Self>
     + for<'a> Mul<&'a F, Output = Self>
     + for<'a> Mul<&'a Self, Output = Self>
 {
