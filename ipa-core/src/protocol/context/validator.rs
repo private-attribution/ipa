@@ -5,18 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join;
-use ipa_macros::Step;
 
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::{MaliciousContext, UpgradedMaliciousContext};
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
     protocol::{
-        basics::Reveal,
-        context::{Base, Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
+        context::{Base, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -25,7 +19,15 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
-    sync::{Arc, Mutex, Weak},
+    sync::{Mutex, Weak},
+};
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    helpers::Direction,
+    protocol::basics::Reveal,
+    protocol::context::Context,
+    protocol::context::{MaliciousContext, UpgradedMaliciousContext},
+    sync::Arc,
 };
 
 #[async_trait]
@@ -68,7 +70,7 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -76,7 +78,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,
@@ -281,6 +283,8 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     async fn propagate_u_and_w(
         &self,
     ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
+        use futures::future::try_join;
+
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUAndW)

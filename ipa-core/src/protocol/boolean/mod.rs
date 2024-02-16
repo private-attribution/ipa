@@ -98,6 +98,7 @@ where
 
 /// # Errors
 /// This does multiplications which can have errors
+#[cfg(feature = "descriptive-gate")]
 pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,

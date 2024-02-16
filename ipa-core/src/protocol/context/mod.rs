@@ -3,6 +3,10 @@ pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
+
+/// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
+/// this flag can be removed
+#[allow(dead_code)]
 pub mod validator;
 
 use std::num::NonZeroUsize;

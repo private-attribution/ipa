@@ -1,16 +1,18 @@
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::UpgradedMaliciousContext;
 use crate::{
     ff::Field,
     helpers::Role,
-    protocol::context::{Context, UpgradedContext},
+    protocol::context::Context,
     secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         SharedValue,
+    },
+};
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::context::UpgradedContext,
+    protocol::context::UpgradedMaliciousContext,
+    secret_sharing::replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, ExtendableField,
     },
 };
 

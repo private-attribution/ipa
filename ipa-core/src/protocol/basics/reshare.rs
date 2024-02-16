@@ -2,7 +2,6 @@ use std::iter::{repeat, zip};
 
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
 
 use crate::{
     error::Error,
@@ -10,15 +9,18 @@ use crate::{
     helpers::{Direction, Role},
     protocol::{context::Context, prss::SharedRandomness, NoRecord, RecordBinding, RecordId},
     secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-        semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
 };
 #[cfg(feature = "descriptive-gate")]
 use crate::{
     protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+    protocol::context::SpecialAccessToUpgradedContext,
     protocol::context::UpgradedMaliciousContext,
+    secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    secret_sharing::replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, ExtendableField,
+    },
 };
 
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
@@ -118,10 +120,7 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        use crate::{
-            protocol::context::SpecialAccessToUpgradedContext,
-            secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-        };
+        use futures::future::try_join;
         let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(

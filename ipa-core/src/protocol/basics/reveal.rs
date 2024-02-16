@@ -1,19 +1,17 @@
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
 
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::context::UpgradedMaliciousContext;
 use crate::{
     error::Error,
     helpers::{Direction, Role},
     protocol::{context::Context, RecordBinding, RecordId},
-    secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-        },
-        SharedValue,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+};
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::context::UpgradedMaliciousContext,
+    secret_sharing::replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, ExtendableField,
     },
 };
 
@@ -125,6 +123,8 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
+        use futures::future::try_join;
+
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let (left, right) = self.x().access_without_downgrade().as_tuple();
@@ -162,6 +162,8 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, RecordId>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
+        use futures::future::try_join;
+
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let (left, right) = self.x().access_without_downgrade().as_tuple();

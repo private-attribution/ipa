@@ -8,7 +8,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, FieldSimd, SecretSharing, Vectorizable,
+        BitDecomposed, FieldSimd, Vectorizable,
     },
 };
 
@@ -154,7 +154,7 @@ where
 impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
 where
     F: Field,
-    S: SecretSharing<F>,
+    S: crate::secret_sharing::SecretSharing<F>,
     for<'a> [&'a S; 3]: Reconstruct<F>,
 {
     fn reconstruct(&self) -> F {
