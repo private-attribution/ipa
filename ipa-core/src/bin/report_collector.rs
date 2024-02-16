@@ -177,7 +177,6 @@ fn gen_inputs(
 struct KeyRegistries(Vec<KeyRegistry<PublicKeyOnly>>);
 
 impl KeyRegistries {
-    #[allow(dead_code)]
     fn init_from(
         &mut self,
         network: &NetworkConfig,

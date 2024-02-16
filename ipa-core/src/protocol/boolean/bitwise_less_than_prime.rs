@@ -191,7 +191,7 @@ impl BitwiseLessThanPrime {
     }
 }
 
-#[cfg_attr(feature = "descriptive-gate", derive(Step))]
+#[derive(Step)]
 pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,

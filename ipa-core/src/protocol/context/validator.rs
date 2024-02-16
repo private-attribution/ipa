@@ -68,7 +68,7 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[cfg_attr(feature = "descriptive-gate", derive(Step))]
+#[derive(Step)]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -76,7 +76,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[cfg_attr(feature = "descriptive-gate", derive(Step))]
+#[derive(Step)]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,
