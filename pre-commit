@@ -87,6 +87,9 @@ check "Clippy checks" \
 check "Clippy concurrency checks" \
     cargo clippy --tests --features shuttle -- -D warnings
 
+check "Clippy web checks" \
+    cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate" -- -D warnings
+
 check "Tests" \
     cargo test
 
