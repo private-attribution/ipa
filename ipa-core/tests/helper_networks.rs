@@ -26,6 +26,12 @@ fn http_semi_honest_ipa() {
     test_ipa(IpaSecurityModel::SemiHonest, false);
 }
 
+#[test]
+#[cfg(all(test, web_test))]
+fn https_semi_honest_ipa() {
+    test_ipa(IpaSecurityModel::SemiHonest, true);
+}
+
 /// Similar to [`network`] tests, but it uses keygen + confgen CLIs to generate helper client config
 /// and then just runs test multiply to make sure helpers are up and running
 ///
