@@ -346,8 +346,6 @@ impl EndpointSetup {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
-    use std::mem::drop;
-
     use rand::prelude::SliceRandom;
 
     use super::{Generator, KeyExchange, SequentialSharedRandomness};

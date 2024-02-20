@@ -198,6 +198,11 @@ impl<
                 ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
+            // It is okay that we are calling `integer_sub` with length(y) > length(x) here.
+            // `difference_to_cap` only needs to be accurate in the case where the next row will
+            // overflow. When that is the case, `updated_sum` must be within `2^TV::BITS` of the
+            // cap, and a `TV::BITS` subtraction of the `TV::BITS` least significant bits of
+            // `updated_sum` from zero will correctly compute the difference to the cap.
             integer_sub(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,

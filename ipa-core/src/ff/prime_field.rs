@@ -4,9 +4,10 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::Serializable,
+    ff::{FieldType, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 pub trait PrimeField: Field {
@@ -22,7 +23,6 @@ pub struct GreaterThanPrimeError<V: Display>(V, u128);
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
         use super::*;
-        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub struct $field(<Self as SharedValue>::Storage);
@@ -31,9 +31,21 @@ macro_rules! field_impl {
             type Storage = $store;
             const BITS: u32 = $bits;
             const ZERO: Self = $field(0);
+
+            impl_shared_value_common!();
+        }
+
+        impl Vectorizable<1> for $field {
+            type Array = StdArray<$field, 1>;
+        }
+
+        impl FieldVectorizable<1> for $field {
+            type ArrayAlias = StdArray<$field, 1>;
         }
 
         impl Field for $field {
+            const NAME: &'static str = stringify!($field);
+
             const ONE: Self = $field(1);
 
             fn as_u128(&self) -> u128 {
@@ -316,6 +328,14 @@ mod fp31 {
 
 mod fp32bit {
     field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
+
+    impl Vectorizable<32> for Fp32BitPrime {
+        type Array = StdArray<Fp32BitPrime, 32>;
+    }
+
+    impl FieldVectorizable<32> for Fp32BitPrime {
+        type ArrayAlias = StdArray<Fp32BitPrime, 32>;
+    }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {

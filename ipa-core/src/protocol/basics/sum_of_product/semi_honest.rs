@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -64,6 +66,21 @@ where
         rhs += a[i].right() * b[i].right();
     }
     Ok(Replicated::new(lhs, rhs))
+}
+
+#[async_trait]
+impl<C: Context, F: Field> super::SumOfProducts<C> for Replicated<F> {
+    async fn sum_of_products<'fut>(
+        ctx: C,
+        record_id: RecordId,
+        a: &[Self],
+        b: &[Self],
+    ) -> Result<Self, Error>
+    where
+        C: 'fut,
+    {
+        sum_of_products(ctx, record_id, a, b).await
+    }
 }
 
 #[cfg(all(test, unit_test))]

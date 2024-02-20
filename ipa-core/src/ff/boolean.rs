@@ -4,8 +4,12 @@ use typenum::U1;
 use super::Gf32Bit;
 use crate::{
     ff::{Field, Serializable},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{replicated::malicious::ExtendableField, Block, SharedValue},
+    secret_sharing::{
+        replicated::malicious::ExtendableField, Block, FieldVectorizable, SharedValue, StdArray,
+        Vectorizable,
+    },
 };
 
 impl Block for bool {
@@ -38,6 +42,16 @@ impl SharedValue for Boolean {
     type Storage = bool;
     const BITS: u32 = 1;
     const ZERO: Self = Self(false);
+
+    impl_shared_value_common!();
+}
+
+impl Vectorizable<1> for Boolean {
+    type Array = StdArray<Boolean, 1>;
+}
+
+impl FieldVectorizable<1> for Boolean {
+    type ArrayAlias = StdArray<Boolean, 1>;
 }
 
 ///conversion to Scalar struct of `curve25519_dalek`
@@ -146,6 +160,8 @@ impl From<bool> for Boolean {
 
 ///implement Field because required by PRSS
 impl Field for Boolean {
+    const NAME: &'static str = "Boolean";
+
     const ONE: Boolean = Boolean(true);
 
     fn as_u128(&self) -> u128 {
@@ -180,13 +196,39 @@ impl FromRandomU128 for Boolean {
     }
 }
 
+impl Vectorizable<64> for Boolean {
+    type Array = crate::ff::boolean_array::BA64;
+}
+
+impl FieldVectorizable<64> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA64;
+}
+
+impl Vectorizable<256> for Boolean {
+    type Array = crate::ff::boolean_array::BA256;
+}
+
+impl FieldVectorizable<256> for Boolean {
+    type ArrayAlias = crate::ff::boolean_array::BA256;
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::GenericArray;
+    use proptest::prelude::{prop, Arbitrary, Strategy};
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
     use crate::ff::{boolean::Boolean, Serializable};
+
+    impl Arbitrary for Boolean {
+        type Parameters = <bool as Arbitrary>::Parameters;
+        type Strategy = prop::strategy::Map<<bool as Arbitrary>::Strategy, fn(bool) -> Self>;
+
+        fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+            <bool>::arbitrary_with(args).prop_map(Boolean)
+        }
+    }
 
     ///test serialize and deserialize
     #[test]

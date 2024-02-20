@@ -460,13 +460,16 @@ mod test {
     use super::*;
 
     mod unit_test {
+        use std::io;
+
         use futures::{StreamExt, TryStreamExt};
         use generic_array::GenericArray;
+        use typenum::Unsigned;
 
-        use super::*;
         use crate::{
             error::Error,
             ff::{Fp31, Fp32BitPrime, Serializable},
+            helpers::RecordsStream,
             secret_sharing::replicated::semi_honest::AdditiveShare,
         };
 

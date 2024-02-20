@@ -74,10 +74,10 @@ impl From<BoxMuller> for RoundedBoxMuller {
 mod tests {
     use std::iter::repeat_with;
 
-    use rand::{distributions::Distribution, thread_rng};
+    use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
 
-    use super::*;
+    use crate::protocol::dp::distributions::{is_close, BoxMuller};
 
     #[test]
     fn dp_normal_distribution_sample_standard() {

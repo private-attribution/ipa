@@ -426,13 +426,18 @@ impl Debug for Http2Configurator {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::time::Duration;
+
     use hpke::{kem::X25519HkdfSha256, Kem};
     use hyper::Uri;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
 
-    use super::*;
-    use crate::{config::HpkeClientConfig, helpers::HelperIdentity, net::test::TestConfigBuilder};
+    use crate::{
+        config::{ClientConfig, HpkeClientConfig, Http2Configurator, HttpClientConfigurator},
+        helpers::HelperIdentity,
+        net::test::TestConfigBuilder,
+    };
 
     const URI_1: &str = "http://localhost:3000";
     const URI_2: &str = "http://localhost:3001";

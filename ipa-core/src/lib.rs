@@ -104,15 +104,7 @@ pub(crate) mod test_executor {
 pub(crate) mod test_executor {
     use std::future::Future;
 
-    pub fn run_with<F, Fut, const ITER: usize>(f: F)
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()>,
-    {
-        run(f);
-    }
-
-    pub fn run<F, Fut, T>(f: F) -> T
+    pub fn run_with<F, Fut, T, const ITER: usize>(f: F) -> T
     where
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = T>,
@@ -125,6 +117,14 @@ pub(crate) mod test_executor {
             .build()
             .unwrap()
             .block_on(f())
+    }
+
+    pub fn run<F, Fut, T>(f: F) -> T
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = T>,
+    {
+        run_with::<_, _, _, 1>(f)
     }
 }
 

@@ -1,20 +1,19 @@
 use std::{
-    future::IntoFuture,
+    future::{Future, IntoFuture},
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use futures::stream::Fuse;
+use futures::{stream::Fuse, Stream, StreamExt};
+use pin_project::pin_project;
 use tracing::{Instrument, Span};
-
-use super::*;
 
 #[cfg(feature = "shuttle")]
 mod shuttle_spawner {
-    use shuttle_crate::future::{self, JoinError, JoinHandle};
+    use std::future::Future;
 
-    use super::*;
+    use shuttle_crate::future::{self, JoinError, JoinHandle};
 
     /// Spawner implementation for Shuttle framework to run tests in parallel
     pub(super) struct ShuttleSpawner;

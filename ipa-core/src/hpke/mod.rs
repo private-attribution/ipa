@@ -29,9 +29,12 @@ type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
+pub type EncapsulationSize = <<IpaKem as hpke::Kem>::EncappedKey as Serializable>::OutputSize;
+pub type TagSize = <AeadTag<IpaAead> as Serializable>::OutputSize;
+
 pub type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 pub type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
-pub type IpaEncappedKey = <IpaKem as hpke::kem::Kem>::EncappedKey;
+pub type IpaEncapsulatedKey = <IpaKem as hpke::kem::Kem>::EncappedKey;
 
 pub use hpke::{Deserializable, Serializable};
 
@@ -159,15 +162,16 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 #[cfg(all(test, unit_test))]
 mod tests {
     use generic_array::GenericArray;
+    use hpke::{aead::AeadTag, Serializable};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
     use typenum::Unsigned;
 
-    use super::*;
     use crate::{
         ff::{Gf40Bit, Serializable as IpaSerializable},
-        report::{Epoch, EventType},
-        secret_sharing::replicated::ReplicatedSecretSharing,
+        hpke::{open_in_place, seal_in_place, CryptError, Info, IpaAead, KeyPair, KeyRegistry},
+        report::{Epoch, EventType, KeyIdentifier},
+        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
     type XorReplicated = AdditiveShare<Gf40Bit>;

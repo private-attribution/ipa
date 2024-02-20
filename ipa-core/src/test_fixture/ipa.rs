@@ -5,16 +5,14 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
-    ipa_test_input,
-    protocol::{ipa::ipa, BreakdownKey, MatchKey},
+    protocol::ipa_prf::OPRFIPAInputRow,
     secret_sharing::{
         replicated::{
-            malicious, malicious::ExtendableField, semi_honest,
-            semi_honest::AdditiveShare as Replicated,
+            malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
         },
         IntoShares,
     },
-    test_fixture::{input::GenericReportTestInput, Reconstruct},
+    test_fixture::Reconstruct,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -25,7 +23,6 @@ pub enum IpaSecurityModel {
 }
 
 pub enum IpaQueryStyle {
-    SortInMpc,
     Oprf,
 }
 
@@ -175,65 +172,6 @@ where
 
 /// # Panics
 /// If any of the IPA protocol modules panic
-#[cfg(feature = "in-memory-infra")]
-pub async fn test_ipa<F>(
-    world: &super::TestWorld,
-    records: &[TestRawDataRecord],
-    expected_results: &[u32],
-    config: IpaQueryConfig,
-    security_model: IpaSecurityModel,
-) where
-    semi_honest::AdditiveShare<F>: Serializable,
-    malicious::AdditiveShare<F>: Serializable,
-    // todo: for semi-honest we don't need extendable fields.
-    F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
-    rand::distributions::Standard: rand::distributions::Distribution<F>,
-{
-    use super::Runner;
-
-    let records = records
-        .iter()
-        .map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MatchKey, BreakdownKey)
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let result: Vec<F> = match security_model {
-        IpaSecurityModel::Malicious => world
-            .malicious(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-        IpaSecurityModel::SemiHonest => world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-    };
-    let result = result
-        .into_iter()
-        .map(|v| u32::try_from(v.as_u128()).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(result, expected_results);
-}
-
-/// # Panics
-/// If any of the IPA protocol modules panic
 #[allow(clippy::too_many_lines)]
 #[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
@@ -250,7 +188,6 @@ pub async fn test_oprf_ipa<F>(
     use crate::{
         ff::boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
         protocol::ipa_prf::oprf_ipa,
-        report::OprfReport,
         test_fixture::Runner,
     };
 
@@ -258,7 +195,7 @@ pub async fn test_oprf_ipa<F>(
     let result: Vec<_> = world
         .semi_honest(
             records.into_iter(),
-            |ctx, input_rows: Vec<OprfReport<BA8, BA3, BA20>>| async move {
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
                     8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, aws)

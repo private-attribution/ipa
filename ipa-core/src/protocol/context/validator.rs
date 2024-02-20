@@ -5,19 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
     protocol::{
-        basics::{check_zero, Reveal},
-        context::{
-            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
-        },
+        context::{Base, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -26,7 +19,15 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
-    sync::{Arc, Mutex, Weak},
+    sync::{Mutex, Weak},
+};
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    helpers::Direction,
+    protocol::basics::Reveal,
+    protocol::context::Context,
+    protocol::context::{MaliciousContext, UpgradedMaliciousContext},
+    sync::Arc,
 };
 
 #[async_trait]
@@ -69,7 +70,7 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -77,7 +78,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,
@@ -194,6 +195,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
@@ -201,6 +203,7 @@ pub struct Malicious<'a, F: ExtendableField> {
     validate_ctx: Base<'a>,
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
@@ -233,7 +236,8 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(1);
-        let is_valid = check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid =
+            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
@@ -245,6 +249,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
@@ -278,6 +283,8 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     async fn propagate_u_and_w(
         &self,
     ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
+        use futures::future::try_join;
+
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUAndW)
@@ -304,6 +311,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())

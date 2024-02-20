@@ -70,7 +70,7 @@ impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
     ///
     /// # Panics
     /// If any bits in the bitwise shared input cannot be converted into the given field `F`
-    /// without truncation or if the bit index is out of range for `B`.
+    /// without truncation.
     #[must_use]
     pub fn new(helper_role: Role, left: bool, right: bool) -> Self {
         let left = F::try_from(u128::from(left)).unwrap();

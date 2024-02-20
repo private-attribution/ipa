@@ -2,30 +2,27 @@ use std::iter::{repeat, zip};
 
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
 
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{
-        context::{Context, UpgradedMaliciousContext},
-        prss::SharedRandomness,
-        sort::{
-            apply_sort::shuffle::InnerVectorElementStep,
-            ReshareStep::{RandomnessForValidation, ReshareRx},
-        },
-        NoRecord, RecordBinding, RecordId,
-    },
-    secret_sharing::{
-        replicated::{
-            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed,
+    protocol::{context::Context, prss::SharedRandomness, NoRecord, RecordBinding, RecordId},
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
 };
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+    protocol::context::SpecialAccessToUpgradedContext,
+    protocol::context::UpgradedMaliciousContext,
+    secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    secret_sharing::replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, ExtendableField,
+    },
+};
+
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
 ///
@@ -106,6 +103,7 @@ impl<C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
@@ -122,10 +120,7 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        use crate::{
-            protocol::context::SpecialAccessToUpgradedContext,
-            secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-        };
+        use futures::future::try_join;
         let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(
@@ -139,30 +134,6 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
         let malicious_input = MaliciousReplicated::new(x, rx);
         random_constant_ctx.accumulate_macs(record_id, &malicious_input);
         Ok(malicious_input)
-    }
-}
-
-#[async_trait]
-impl<S, C: Context> Reshare<C, RecordId> for BitDecomposed<S>
-where
-    S: Reshare<C, RecordId> + Send + Sync,
-{
-    async fn reshare<'fut>(
-        self: &BitDecomposed<S>,
-        ctx: C,
-        record_binding: RecordId,
-        to_helper: Role,
-    ) -> Result<BitDecomposed<S>, Error>
-    where
-        C: 'fut,
-    {
-        BitDecomposed::try_from(
-            ctx.parallel_join(self.iter().enumerate().map(|(i, x)| {
-                let c = ctx.narrow(&InnerVectorElementStep::from(i));
-                async move { x.reshare(c, record_binding, to_helper).await }
-            }))
-            .await?,
-        )
     }
 }
 
@@ -265,13 +236,15 @@ mod tests {
             ff::{Field, Fp32BitPrime, Gf2, Gf32Bit},
             helpers::{Direction, Role},
             protocol::{
-                basics::Reshare,
+                basics::{
+                    mul::malicious::Step::{RandomnessForValidation, ReshareRx},
+                    Reshare,
+                },
                 context::{
                     Context, SemiHonestContext, UpgradableContext, UpgradedContext,
                     UpgradedMaliciousContext, Validator,
                 },
                 prss::SharedRandomness,
-                sort::ReshareStep::{RandomnessForValidation, ReshareRx},
                 RecordId,
             },
             rand::{thread_rng, Rng},

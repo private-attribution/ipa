@@ -2,9 +2,8 @@ use std::{future::IntoFuture, num::NonZeroUsize};
 
 use futures::{
     stream::{iter, Iter as StreamIter, TryCollect},
-    Future, Stream, StreamExt, TryStreamExt,
+    Future, Stream, TryStreamExt,
 };
-use pin_project::pin_project;
 
 use crate::exact::ExactSizeStream;
 
@@ -18,6 +17,7 @@ mod multi_thread;
 /// Use this if you get higher-ranked lifetime errors that mention `std::marker::Send`.
 ///
 /// <https://github.com/rust-lang/rust/issues/102211#issuecomment-1367900125>
+#[allow(dead_code)] // we would need it soon
 pub fn assert_send<'a, O>(
     fut: impl Future<Output = O> + Send + 'a,
 ) -> impl Future<Output = O> + Send + 'a {
@@ -164,16 +164,18 @@ pub use multi_thread::SequentialFutures;
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
-    use std::{convert::Infallible, iter::once, task::Poll};
+    use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     use futures::{
         future::{lazy, BoxFuture},
         stream::{iter, poll_immediate},
-        Future, StreamExt,
+        Future, Stream, StreamExt,
     };
 
-    use super::*;
-    use crate::test_executor::run;
+    use crate::{
+        seq_join::{seq_join, seq_try_join_all},
+        test_executor::run,
+    };
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();

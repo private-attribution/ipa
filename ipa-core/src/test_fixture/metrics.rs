@@ -29,6 +29,9 @@ fn setup() {
 
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
+        // Leaking the recorder is necessary for metrics infrastructure to work.
+        // it does not use `seq_join` or `parallel_join`.
+        #[allow(clippy::disallowed_methods)]
         let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
 
         #[cfg(not(feature = "disable-metrics"))]

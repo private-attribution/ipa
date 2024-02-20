@@ -369,18 +369,31 @@ impl Setup {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
+    use std::{
+        collections::HashMap,
+        convert, io,
+        io::ErrorKind,
+        num::NonZeroUsize,
+        panic::AssertUnwindSafe,
+        sync::{Mutex, Weak},
+        task::Poll,
+    };
 
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use tokio::sync::{mpsc::channel, oneshot};
 
-    use super::*;
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType::TestMultiply, transport::in_memory::InMemoryNetwork, HelperIdentity,
-            OrderingSender,
+            query::{QueryConfig, QueryType::TestMultiply},
+            transport::in_memory::{
+                transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
+                InMemoryNetwork, Setup,
+            },
+            HelperIdentity, OrderingSender, RouteId, Transport, TransportCallbacks,
         },
+        protocol::{step::Gate, QueryId},
+        sync::Arc,
     };
 
     const STEP: &str = "in-memory-transport";
