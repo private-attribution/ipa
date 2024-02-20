@@ -74,6 +74,25 @@ pub(crate) mod task {
     pub use shuttle::future::{JoinError, JoinHandle};
 }
 
+#[cfg(feature = "shuttle")]
+pub(crate) mod shim {
+    use std::any::Any;
+
+    use shuttle_crate::future::JoinError;
+
+    /// There is currently an API mismatch between Tokio and Shuttle `JoinError` implementations.
+    /// This trait brings them closer together, until it is addressed
+    pub trait Tokio: Sized {
+        fn try_into_panic(self) -> Result<Box<dyn Any + Send + 'static>, Self>;
+    }
+
+    impl Tokio for JoinError {
+        fn try_into_panic(self) -> Result<Box<dyn Any + Send + 'static>, Self> {
+            Err(self) // Shuttle `JoinError` does not wrap panics
+        }
+    }
+}
+
 #[cfg(not(all(feature = "shuttle", test)))]
 pub(crate) mod task {
     pub use tokio::task::{JoinError, JoinHandle};

@@ -89,6 +89,9 @@ where
     type Item = F::Output;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        #[cfg(feature = "shuttle")]
+        use crate::shim::Tokio;
+
         let mut this = self.project();
 
         // Draw more values from the input, up to the capacity.
