@@ -42,6 +42,11 @@ impl Step for String {}
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
+pub trait CompactStep: Step + Copy {
+    const MAX: usize;
+    fn str(self) -> &'static str;
+}
+
 /// A step generator for bitwise secure operations.
 ///
 /// For each record, we decompose a value into bits (i.e. credits in the

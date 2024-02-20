@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ipa-core", "ipa-macros"]
+members = [ "ipa-compact-step","ipa-core", "ipa-macros"]
 
 [profile.release]
 incremental = true
