@@ -208,7 +208,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn test_lagrange_single_output_point_using_new(output_point: TestField, input_points in prop::array::uniform32(any::<TestField>())){
+        fn lagrange_single_output_point_using_new(output_point: TestField, input_points in prop::array::uniform32(any::<TestField>())){
             let polynomial_monomial_form = MonomialFormPolynomial{
                 coefficients: GenericArray::<TestField,U32>::from_array(input_points)};
             let output_expected = polynomial_monomial_form.eval(
@@ -222,7 +222,7 @@ mod test {
         }
 
         #[test]
-        fn test_lagrange_cannonical_using_from(input_points in prop::array::uniform8(any::<TestField>()))
+        fn lagrange_cannonical_using_from(input_points in prop::array::uniform8(any::<TestField>()))
         {
             let polynomial_monomial_form = MonomialFormPolynomial{
                 coefficients: GenericArray::<TestField,U8>::from_array(input_points)};
