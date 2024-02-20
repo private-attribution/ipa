@@ -130,14 +130,21 @@ struct StepAttr {
     count: usize,
 }
 
+impl StepAttr {
+    fn from_tuples(ident: &Ident, name: Option<String>, count: Option<usize>) -> Self {
+        Self {
+            name: name.unwrap_or_else(|| ident.to_string().to_snake_case()),
+            count: count.unwrap_or(1),
+        }
+    }
+}
+
 impl TryFrom<&Variant> for StepAttr {
     type Error = TokenStream;
 
     fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
-        let mut attr = Self {
-            name: variant.ident.to_string().to_snake_case(),
-            count: 1,
-        };
+        let mut name = None;
+        let mut count = None;
 
         match &variant.fields {
             Fields::Named(_) => {
@@ -154,7 +161,7 @@ impl TryFrom<&Variant> for StepAttr {
                     );
                 }
                 let Some(f) = f.unnamed.first() else {
-                    return Ok(attr);
+                    return Ok(Self::from_tuples(&variant.ident, name, count));
                 };
 
                 if !matches!(&f.ty, Type::Path(_)) {
@@ -169,27 +176,30 @@ impl TryFrom<&Variant> for StepAttr {
         }
 
         let Some(step) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return Ok(attr);
+            return Ok(Self::from_tuples(&variant.ident, name, count));
         };
 
         for e in step
             .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)
             .expect("error parsing args on #[step]")
         {
-            let Expr::Lit(v) = e.value else {
+            let Expr::Lit(v) = &e.value else {
                 return error(
                     e.value.span(),
                     "#[step(...)] only supports literal arguments",
                 );
             };
             if e.path.is_ident("max") {
+                if count.is_some() {
+                    return error(e.span(), "#[step(max = ...)] duplicated");
+                }
                 if matches!(&variant.fields, Fields::Unit) {
                     return error(
                         e.path.span(),
                         "#[step(max = ...)] only applies to integer variants",
                     );
                 }
-                let Lit::Int(v) = v.lit else {
+                let Lit::Int(v) = &v.lit else {
                     return error(
                         v.lit.span(),
                         "#[step(max = ...))] assignment only supports integer literals",
@@ -201,20 +211,23 @@ impl TryFrom<&Variant> for StepAttr {
                 if v >= 1000 {
                     return error(v.span(), "#[step(max = ...)] cannot exceed 1000");
                 }
-                attr.count = v;
+                count = Some(v);
             } else if e.path.is_ident("name") {
-                let Lit::Str(v) = v.lit else {
+                if name.is_some() {
+                    return error(e.span(), "#[step(name = ...)] duplicated");
+                }
+                let Lit::Str(v) = &v.lit else {
                     return error(
                         v.span(),
                         "#[step(name = ...)] assignment only supports string literals",
                     );
                 };
-                attr.name = v.value();
+                name = Some(v.value());
             } else {
                 return error(e.path.span(), "#[step(...)] unsupported argument");
             }
         }
-        Ok(attr)
+        Ok(Self::from_tuples(&variant.ident, name, count))
     }
 }
 
@@ -504,6 +517,34 @@ mod test {
                 }
             },
             "#[step(max = ...)] cannot exceed 1000",
+        );
+    }
+
+    #[test]
+    fn two_max() {
+        derive_failure(
+            quote! {
+                #[derive(Step)]
+                enum Foo {
+                    #[step(max = 1, max = 2)]
+                    Bar(u8),
+                }
+            },
+            "#[step(max = ...)] duplicated",
+        );
+    }
+
+    #[test]
+    fn two_names() {
+        derive_failure(
+            quote! {
+                #[derive(Step)]
+                enum Foo {
+                    #[step(name = "one", name = "two")]
+                    Bar(u8),
+                }
+            },
+            "#[step(name = ...)] duplicated",
         );
     }
 
