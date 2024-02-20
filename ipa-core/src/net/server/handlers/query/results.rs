@@ -30,15 +30,18 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::future::ready;
 
-    use axum::http::Request;
+    use axum::{http::Request, Extension};
     use hyper::StatusCode;
 
-    use super::*;
     use crate::{
         ff::Fp31,
         helpers::TransportCallbacks,
         net::{
-            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
+            http_serde,
+            server::handlers::query::{
+                results::handler,
+                test_helpers::{assert_req_fails_with, IntoFailingReq},
+            },
             test::TestServer,
         },
         protocol::QueryId,

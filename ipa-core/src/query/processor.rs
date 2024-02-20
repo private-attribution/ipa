@@ -318,12 +318,16 @@ mod tests {
     use futures_util::future::poll_immediate;
     use tokio::sync::Barrier;
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
-            query::QueryType::TestMultiply, HelperIdentity, InMemoryNetwork, PrepareQueryCallback,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, RoleAssignment, Transport,
             TransportCallbacks,
+        },
+        protocol::QueryId,
+        query::{
+            processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
         },
     };
 
@@ -466,6 +470,7 @@ mod tests {
 
     mod prepare {
         use super::*;
+        use crate::query::QueryStatusError;
 
         fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {

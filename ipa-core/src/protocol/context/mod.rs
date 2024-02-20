@@ -280,11 +280,18 @@ mod tests {
     };
     use typenum::Unsigned;
 
-    use super::*;
     use crate::{
         ff::{Field, Fp31, Serializable},
-        helpers::Direction,
-        protocol::{context::validator::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
+        helpers::{Direction, Role},
+        protocol::{
+            context::{
+                validator::Step::MaliciousProtocol, Context, UpgradableContext, UpgradedContext,
+                Validator,
+            },
+            prss::SharedRandomness,
+            step::{Gate, StepNarrow},
+            RecordId,
+        },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,

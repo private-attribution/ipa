@@ -40,7 +40,6 @@ mod tests {
         Body, StatusCode,
     };
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
@@ -48,6 +47,7 @@ mod tests {
             TransportCallbacks,
         },
         net::{
+            http_serde,
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::TestServer,
         },

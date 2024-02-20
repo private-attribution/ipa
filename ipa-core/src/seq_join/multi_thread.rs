@@ -9,13 +9,9 @@ use futures::{stream::Fuse, StreamExt};
 use pin_project::pin_project;
 use tracing::{Instrument, Span};
 
-use super::*;
-
 #[cfg(feature = "shuttle")]
 mod shuttle_spawner {
     use shuttle_crate::future::{self, JoinError, JoinHandle};
-
-    use super::*;
 
     /// Spawner implementation for Shuttle framework to run tests in parallel
     pub(super) struct ShuttleSpawner;

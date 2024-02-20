@@ -162,15 +162,16 @@ pub(crate) fn seal_in_place<'a, R: CryptoRng + RngCore, K: PublicKeyRegistry>(
 #[cfg(all(test, unit_test))]
 mod tests {
     use generic_array::GenericArray;
+    use hpke::{aead::AeadTag, Serializable};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
     use typenum::Unsigned;
 
-    use super::*;
     use crate::{
         ff::{Gf40Bit, Serializable as IpaSerializable},
-        report::{Epoch, EventType},
-        secret_sharing::replicated::ReplicatedSecretSharing,
+        hpke::{open_in_place, seal_in_place, CryptError, Info, IpaAead, KeyPair, KeyRegistry},
+        report::{Epoch, EventType, KeyIdentifier},
+        secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
     };
 
     type XorReplicated = AdditiveShare<Gf40Bit>;

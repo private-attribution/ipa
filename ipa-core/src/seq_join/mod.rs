@@ -164,16 +164,18 @@ pub use multi_thread::SequentialFutures;
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod test {
-    use std::{convert::Infallible, iter::once, task::Poll};
+    use std::{convert::Infallible, iter::once, num::NonZeroUsize, task::Poll};
 
     use futures::{
         future::{lazy, BoxFuture},
         stream::{iter, poll_immediate},
-        Future, StreamExt,
+        Future, Stream, StreamExt,
     };
 
-    use super::*;
-    use crate::test_executor::run;
+    use crate::{
+        seq_join::{seq_join, seq_try_join_all},
+        test_executor::run,
+    };
 
     async fn immediate(count: u32) {
         let capacity = NonZeroUsize::new(3).unwrap();
