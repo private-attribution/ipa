@@ -11,12 +11,16 @@ pub use input::InputSource;
 pub use multiply::secure_mul;
 use tokio::time::sleep;
 
-pub use self::ipa::{playbook_ipa, playbook_oprf_ipa};
+pub use self::ipa::playbook_oprf_ipa;
 use crate::{
     config::{ClientConfig, NetworkConfig, PeerConfig},
     net::{ClientIdentity, MpcHelperClient},
 };
 
+/// Validates that the expected result matches the actual.
+///
+/// ## Panics
+/// If results don't match.
 pub fn validate<'a, I, S>(expected: I, actual: I)
 where
     I: IntoIterator<Item = &'a S>,
@@ -42,14 +46,14 @@ where
         let same = next_expected == next_actual;
         let color = if same { Color::Green } else { Color::Red };
         table.add_row(vec![
-            Cell::new(format!("{}", i)).fg(color),
-            Cell::new(format!("{:?}", next_expected)).fg(color),
-            Cell::new(format!("{:?}", next_actual)).fg(color),
+            Cell::new(format!("{i}")).fg(color),
+            Cell::new(format!("{next_expected:?}")).fg(color),
+            Cell::new(format!("{next_actual:?}")).fg(color),
             Cell::new(if same { "" } else { "X" }),
         ]);
 
         if !same {
-            mismatch.push((i, next_expected, next_actual))
+            mismatch.push((i, next_expected, next_actual));
         }
 
         i += 1;
@@ -59,11 +63,14 @@ where
 
     assert!(
         mismatch.is_empty(),
-        "Expected and actual results don't match: {:?}",
-        mismatch
+        "Expected and actual results don't match: {mismatch:?}",
     );
 }
 
+/// Creates 3 clients to talk to MPC helpers.
+///
+/// ## Panics
+/// If configuration file `network_path` cannot be read from or if it does not conform to toml spec.
 pub async fn make_clients(
     network_path: Option<&Path>,
     scheme: Scheme,

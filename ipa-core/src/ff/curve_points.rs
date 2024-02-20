@@ -196,9 +196,12 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
-    use super::*;
     use crate::{
-        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
+        ff::{
+            curve_points::{NonCanonicalEncoding, RP25519},
+            ec_prime_field::Fp25519,
+            Serializable,
+        },
         secret_sharing::SharedValue,
     };
 

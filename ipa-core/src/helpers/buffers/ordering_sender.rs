@@ -4,7 +4,6 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     marker::PhantomData,
-    mem::drop,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},

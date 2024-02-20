@@ -232,7 +232,7 @@ where
 mod test {
     use std::{
         array,
-        iter::{repeat, repeat_with, zip, Iterator},
+        iter::{repeat, repeat_with, zip},
         time::Instant,
     };
 

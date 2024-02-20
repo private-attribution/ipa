@@ -59,6 +59,10 @@ jobs:
         if: ${{ success() || failure() }}
         run: cargo clippy --tests --features shuttle
 
+      - name: Clippy web
+        if: ${{ success() || failure() }}
+        run: cargo clippy --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+
       - name: Build
         if: ${{ success() || failure() }}
         run: cargo build --tests

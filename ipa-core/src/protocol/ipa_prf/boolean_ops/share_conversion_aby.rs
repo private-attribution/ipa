@@ -10,8 +10,8 @@ use crate::{
     },
     helpers::Role,
     protocol::{
-        basics::PartialReveal, context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add, prss::SharedRandomness, RecordId,
+        basics::Reveal, context::Context, ipa_prf::boolean_ops::addition_sequential::integer_add,
+        prss::SharedRandomness, RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},

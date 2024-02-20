@@ -556,9 +556,9 @@ mod tests {
     }
 
     mod role_assignment_tests {
-        use super::*;
         use crate::{
             ff::Fp31,
+            helpers::{HelperIdentity, Role, RoleAssignment},
             protocol::{basics::SecureMul, context::Context, RecordId},
             rand::{thread_rng, Rng},
             test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},

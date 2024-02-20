@@ -10,14 +10,13 @@ use crate::{
     protocol::{
         basics::ZeroPositions,
         context::UpgradedContext,
-        ipa::ArithmeticallySharedIPAInputs,
         modulus_conversion::BitConversionTriple,
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        BitDecomposed, Linear as LinearSecretSharing,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -28,6 +27,8 @@ use crate::{
 /// and outer vectors in a `Vec<Vec<T>>` is an error. Instead, one level of iteration can use the
 /// record ID and the other can use something like a `BitOpStep`.
 ///
+///
+#[cfg_attr(not(feature = "descriptive-gate"), doc = "```ignore")]
 /// ```no_run
 /// use ipa_core::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
 /// use ipa_core::ff::Fp32BitPrime as F;
@@ -163,12 +164,6 @@ where
     }
 }
 
-#[derive(Step)]
-pub(crate) enum Upgrade2DVectors {
-    #[dynamic(64)]
-    Upgrade2d(usize),
-}
-
 #[async_trait]
 impl<'a, C, F, I, M> UpgradeToMalicious<'a, I, Vec<M>> for UpgradeContext<'a, C, F, NoRecord>
 where
@@ -191,31 +186,6 @@ where
                 .await
         }))
         .await
-    }
-}
-
-#[async_trait]
-impl<'a, C, F, T, M> UpgradeToMalicious<'a, BitDecomposed<T>, BitDecomposed<M>>
-    for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
-    T: Send + 'static,
-    M: Send + 'static,
-    for<'u> UpgradeContext<'u, C, F, RecordId>: UpgradeToMalicious<'u, T, M>,
-{
-    async fn upgrade(self, input: BitDecomposed<T>) -> Result<BitDecomposed<M>, Error> {
-        let ctx_ref = &self.ctx;
-        let record_id = self.record_binding;
-        BitDecomposed::try_from(
-            self.ctx
-                .parallel_join(input.into_iter().enumerate().map(|(i, share)| async move {
-                    UpgradeContext::new(ctx_ref.narrow(&Upgrade2DVectors::Upgrade2d(i)), record_id)
-                        .upgrade(share)
-                        .await
-                }))
-                .await?,
-        )
     }
 }
 
@@ -250,103 +220,6 @@ impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, 
     }
 }
 
-#[derive(Step)]
-pub(crate) enum UpgradeModConvStep {
-    UpgradeModConv1,
-    UpgradeModConv2,
-    UpgradeModConv3,
-}
-
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        ArithmeticallySharedIPAInputs<F, Replicated<F>>,
-        ArithmeticallySharedIPAInputs<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: ArithmeticallySharedIPAInputs<F, Replicated<F>>,
-    ) -> Result<ArithmeticallySharedIPAInputs<F, C::Share>, Error> {
-        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv1)
-                .upgrade_one(
-                    self.record_binding,
-                    input.is_trigger_bit,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv2)
-                .upgrade_one(
-                    self.record_binding,
-                    input.trigger_value,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv3)
-                .upgrade_one(self.record_binding, input.timestamp, ZeroPositions::Pvvv),
-        )
-        .await?;
-
-        Ok(ArithmeticallySharedIPAInputs::new(
-            timestamp,
-            is_trigger_bit,
-            trigger_value,
-        ))
-    }
-}
-
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<
-        'a,
-        IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
-        IPAModulusConvertedInputRowWrapper<F, C::Share>,
-    > for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    C::Share: LinearSecretSharing<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
-    ) -> Result<IPAModulusConvertedInputRowWrapper<F, C::Share>, Error> {
-        let (is_trigger_bit, trigger_value, timestamp) = try_join3(
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv1)
-                .upgrade_one(
-                    self.record_binding,
-                    input.is_trigger_bit,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv2)
-                .upgrade_one(
-                    self.record_binding,
-                    input.trigger_value,
-                    ZeroPositions::Pvvv,
-                ),
-            self.ctx
-                .narrow(&UpgradeModConvStep::UpgradeModConv3)
-                .upgrade_one(self.record_binding, input.timestamp, ZeroPositions::Pvvv),
-        )
-        .await?;
-
-        Ok(IPAModulusConvertedInputRowWrapper::new(
-            timestamp,
-            is_trigger_bit,
-            trigger_value,
-        ))
-    }
-}
-
 // Impl to upgrade a single `Replicated<F>` using a non-record-bound context. Used for tests.
 #[cfg(test)]
 #[async_trait]
@@ -371,7 +244,7 @@ where
 
 // This could also work on a record-bound context, but it's only used in one place for tests where
 // that's not currently required.
-#[cfg(test)]
+#[cfg(all(test, feature = "descriptive-gate"))]
 impl<'a, C: UpgradedContext<F>, F: ExtendableField> UpgradeContext<'a, C, F, NoRecord> {
     pub(super) async fn upgrade_sparse(
         self,
