@@ -43,8 +43,8 @@ impl Step for String {}
 impl Step for str {}
 
 pub trait CompactStep: Step + Copy {
-    const MAX: usize;
-    fn str(self) -> &'static str;
+    const STEP_COUNT: usize;
+    fn step_string(i: usize) -> String;
 }
 
 /// A step generator for bitwise secure operations.

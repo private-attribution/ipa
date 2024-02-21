@@ -1,9 +1,11 @@
+use std::ops::Add;
+
 use proc_macro::TokenStream as TokenStreamBasic;
-use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned};
+use proc_macro2::{Literal, Punct, Spacing, Span, TokenStream};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
     parse_macro_input, punctuated::Punctuated, spanned::Spanned, Data, DataEnum, DeriveInput, Expr,
-    Fields, Ident, Lit, MetaNameValue, Token, Type, Variant,
+    ExprPath, Fields, Ident, Lit, MetaNameValue, Token, Type, Variant,
 };
 
 trait CaseStyle {
@@ -40,9 +42,9 @@ where
 /// # Panics
 /// This won't work in a bunch of ways.
 /// * The derive attribute needs to be used on a enum.
-#[proc_macro_derive(Step, attributes(step))]
+#[proc_macro_derive(CompactStep, attributes(step))]
 pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
-    let output = match derive_step_impl(parse_macro_input!(input as DeriveInput)) {
+    let output = match derive_step_impl(&parse_macro_input!(input as DeriveInput)) {
         Ok(s) => s,
         Err(e) => e,
     };
@@ -53,98 +55,197 @@ fn error<T>(span: Span, msg: &str) -> Result<T, TokenStream> {
     Err(quote_spanned!(span => compile_error!(#msg)))
 }
 
-fn derive_step_impl(ast: DeriveInput) -> Result<TokenStream, TokenStream> {
-    let name = &ast.ident;
-    let Data::Enum(enum_data) = &ast.data else {
+fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, TokenStream> {
+    let ident = &ast.ident;
+    let Data::Enum(data) = &ast.data else {
         return error(ast.ident.span(), "Step can only be derived for an enum");
     };
 
-    let mut expanded = quote!(
-        impl ipa_core::protocol::step::Step for #name {}
-    );
-    expanded.extend(impl_as_ref(name, enum_data)?);
+    let steps = parse_variants(data)?;
 
-    Ok(expanded)
+    Ok(generate(ident, &steps))
 }
 
-fn impl_as_ref(ident: &Ident, data: &DataEnum) -> Result<TokenStream, TokenStream> {
-    if data.variants.is_empty() {
-        let snakey = ident.to_string().to_snake_case();
-        return Ok(quote! {
-            impl AsRef<str> for #ident {
-                fn as_ref(&self) -> &str {
-                    #snakey
-                }
-            }
-        });
-    }
-
-    let mut name_arrays = Vec::new();
-    let mut match_arms = Vec::new();
-
+fn parse_variants(data: &DataEnum) -> Result<Vec<VariantAttr>, TokenStream> {
+    let mut steps = Vec::with_capacity(data.variants.len());
     for v in &data.variants {
-        let ident = &v.ident;
-        let StepAttr {
-            name: step_name,
-            count: step_count,
-        } = StepAttr::try_from(v)?;
-        if step_count == 1 {
-            match_arms.extend(quote! {
-                Self::#ident => #step_name,
+        steps.push(VariantAttr::try_from(v)?);
+    }
+    Ok(steps)
+}
+
+#[derive(Default, Clone)]
+struct ExtendedSum {
+    expr: TokenStream,
+    extra: usize,
+}
+
+impl ToTokens for ExtendedSum {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        if !self.expr.is_empty() {
+            tokens.extend(self.expr.clone());
+            Punct::new('+', Spacing::Alone).to_tokens(tokens);
+        }
+        Literal::usize_suffixed(self.extra).to_tokens(tokens);
+    }
+}
+
+impl Add<usize> for ExtendedSum {
+    type Output = Self;
+    fn add(self, v: usize) -> Self {
+        Self {
+            expr: self.expr,
+            extra: self.extra + v,
+        }
+    }
+}
+
+impl Add<TokenStream> for ExtendedSum {
+    type Output = Self;
+    fn add(mut self, v: TokenStream) -> Self {
+        Punct::new('+', Spacing::Alone).to_tokens(&mut self.expr);
+        self.expr.extend(v);
+        Self {
+            expr: self.expr,
+            extra: self.extra,
+        }
+    }
+}
+
+fn generate(ident: &Ident, steps: &[VariantAttr]) -> TokenStream {
+    let mut name_arrays = TokenStream::new();
+    let mut as_ref_arms = TokenStream::new();
+    let mut arm_count = ExtendedSum::default();
+    let mut compact_step_arms = TokenStream::new();
+
+    for VariantAttr {
+        ident: step_ident,
+        name: step_name,
+        count: step_count,
+        child: step_child,
+    } in steps
+    {
+        if *step_count == 1 {
+            as_ref_arms.extend(quote! {
+                Self::#step_ident => #step_name,
             });
+
+            compact_step_arms.extend(quote! {
+                #arm_count => Self::#step_ident.as_ref().to_owned(),
+            });
+            arm_count = arm_count + 1;
+            if let Some(child) = step_child {
+                let range_end = arm_count.clone()
+                    + quote!(<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT);
+                compact_step_arms.extend(quote! {
+                    #arm_count..#range_end => <#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
+                });
+                arm_count = range_end;
+            }
         } else {
-            debug_assert!(step_count > 1);
-            let array_name = format_ident!("{}_NAMES", ident.to_string().to_shouting_case());
+            let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
             let skip_zeros = match step_count - 1 {
-                1..=9 => 2,
+                2..=9 => 2,
                 10..=99 => 1,
                 100..=999 => 0,
                 _ => unreachable!(),
             };
-            let step_names = (0..step_count)
+            let step_names = (0..*step_count)
                 .map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..])
                 .collect::<Vec<_>>();
-            name_arrays.extend(quote!(
+            name_arrays.extend(quote! {
                 const #array_name: [&str; #step_count] = [#(#step_names),*];
-            ));
-            match_arms.extend(quote!(
-                Self::#ident(&i) => #array_name[usize::try_from(i).unwrap()],
-            ));
+            });
+            as_ref_arms.extend(quote! {
+                Self::#step_ident(&i) => #array_name[usize::try_from(i).unwrap()],
+            });
+
+            let range_end = arm_count.clone() + *step_count;
+            compact_step_arms.extend(quote! {
+                #arm_count..#range_end => Self::#step_ident(i - (#arm_count)).as_ref().to_owned(),
+            });
+            arm_count = range_end;
         }
     }
 
-    Ok(quote! {
-        impl AsRef<str> for #ident {
-            fn as_ref(&self) -> &str {
-                #(#name_arrays)*
-                match self {
-                    #(#match_arms)*
+    let mut result = quote! {
+        impl ::ipa_core::protocol::step::Step for #ident {}
+    };
+
+    if as_ref_arms.is_empty() {
+        let snakey = ident.to_string().to_snake_case();
+        result.extend(quote! {
+            impl ::std::convert::AsRef<str> for #ident {
+                fn as_ref(&self) -> &str {
+                    #snakey
                 }
             }
-        }
-    })
+
+            impl ::ipa_core::protocol::step::CompactStep for #ident {
+                const STEP_COUNT: usize = 1usize;
+                fn step_string(i: usize) -> String {
+                    assert_eq!(i, 0, "step {i} is not valid for {}", ::std::any::type_name::<Self>());
+                    Self.as_ref().to_owned()
+                }
+            }
+        });
+    } else {
+        result.extend(quote! {
+            impl ::std::convert::AsRef<str> for #ident {
+                fn as_ref(&self) -> &str {
+                    #name_arrays
+                    match self {
+                        #as_ref_arms
+                    }
+                }
+            }
+
+            impl ::ipa_core::protocol::step::CompactStep for #ident {
+                const STEP_COUNT: usize = #arm_count;
+                fn step_string(i: usize) -> String {
+                    match i {
+                        #compact_step_arms
+                        _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                    }
+                }
+            }
+        });
+    };
+
+    result.extend(quote! {});
+    result
 }
 
-struct StepAttr {
+struct VariantAttr {
+    ident: Ident,
     name: String,
     count: usize,
+    child: Option<ExprPath>,
 }
 
-impl StepAttr {
-    fn from_tuples(ident: &Ident, name: Option<String>, count: Option<usize>) -> Self {
+impl VariantAttr {
+    fn from_tuples(
+        ident: &Ident,
+        name: Option<String>,
+        count: Option<usize>,
+        child: Option<ExprPath>,
+    ) -> Self {
         Self {
+            ident: ident.clone(),
             name: name.unwrap_or_else(|| ident.to_string().to_snake_case()),
             count: count.unwrap_or(1),
+            child,
         }
     }
 }
 
-impl TryFrom<&Variant> for StepAttr {
+impl TryFrom<&Variant> for VariantAttr {
     type Error = TokenStream;
 
     fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
         let mut name = None;
         let mut count = None;
+        let mut child = None;
 
         match &variant.fields {
             Fields::Named(_) => {
@@ -161,7 +262,7 @@ impl TryFrom<&Variant> for StepAttr {
                     );
                 }
                 let Some(f) = f.unnamed.first() else {
-                    return Ok(Self::from_tuples(&variant.ident, name, count));
+                    return Ok(Self::from_tuples(&variant.ident, name, count, child));
                 };
 
                 if !matches!(&f.ty, Type::Path(_)) {
@@ -170,29 +271,32 @@ impl TryFrom<&Variant> for StepAttr {
                         "#[derive(Step)] variants need to have a single integer type",
                     );
                 }
-                // TODO: validate that the type is really an integer.
+                // Note: it looks like validating that the target type is an integer is
+                // close to impossible, so we'll leave things in this state.
+                // We use `TryFrom` for the value, so that will fail at least catch
+                // any errors.  The only problem being that the errors will be inscrutable.
             }
             Fields::Unit => {}
         }
 
         let Some(step) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return Ok(Self::from_tuples(&variant.ident, name, count));
+            return Ok(Self::from_tuples(&variant.ident, name, count, child));
         };
 
         for e in step
             .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)
             .expect("error parsing args on #[step]")
         {
-            let Expr::Lit(v) = &e.value else {
-                return error(
-                    e.value.span(),
-                    "#[step(...)] only supports literal arguments",
-                );
-            };
             if e.path.is_ident("max") {
                 if count.is_some() {
                     return error(e.span(), "#[step(max = ...)] duplicated");
                 }
+                let Expr::Lit(v) = &e.value else {
+                    return error(
+                        e.value.span(),
+                        "#[step(max = ...)] only supports literal arguments",
+                    );
+                };
                 if matches!(&variant.fields, Fields::Unit) {
                     return error(
                         e.path.span(),
@@ -202,13 +306,18 @@ impl TryFrom<&Variant> for StepAttr {
                 let Lit::Int(v) = &v.lit else {
                     return error(
                         v.lit.span(),
-                        "#[step(max = ...))] assignment only supports integer literals",
+                        "#[step(max = ...))] only supports integer literals",
                     );
                 };
                 let Ok(v) = v.base10_parse::<usize>() else {
                     return error(v.span(), "#[step(max = ...) invalid value");
                 };
-                if v >= 1000 {
+                if child.is_some() && v != 1 {
+                    return error(
+                        v.span(),
+                        "#[step(child = ...)] must also set `max` to 1 or omit it",
+                    );
+                } else if v >= 1000 {
                     return error(v.span(), "#[step(max = ...)] cannot exceed 1000");
                 }
                 count = Some(v);
@@ -216,18 +325,41 @@ impl TryFrom<&Variant> for StepAttr {
                 if name.is_some() {
                     return error(e.span(), "#[step(name = ...)] duplicated");
                 }
+                let Expr::Lit(v) = &e.value else {
+                    return error(
+                        e.value.span(),
+                        "#[step(name = ...)] only supports literal arguments",
+                    );
+                };
                 let Lit::Str(v) = &v.lit else {
                     return error(
                         v.span(),
-                        "#[step(name = ...)] assignment only supports string literals",
+                        "#[step(name = ...)] only supports string literals",
                     );
                 };
                 name = Some(v.value());
+            } else if e.path.is_ident("child") {
+                if child.is_some() {
+                    return error(e.span(), "#[step(child = ...)] duplicated");
+                }
+                if count.is_some() && count != Some(1) {
+                    return error(
+                        e.span(),
+                        "#[step(child = ...)] must also set `max` to 1 or omit it",
+                    );
+                }
+                let Expr::Path(p) = &e.value else {
+                    return error(
+                        e.value.span(),
+                        "#[step(child = ...)] needs to specify a type",
+                    );
+                };
+                child = Some(p.clone());
             } else {
                 return error(e.path.span(), "#[step(...)] unsupported argument");
             }
         }
-        Ok(Self::from_tuples(&variant.ident, name, count))
+        Ok(Self::from_tuples(&variant.ident, name, count, child))
     }
 }
 
@@ -241,12 +373,12 @@ mod test {
 
     fn derive(input: TokenStream) -> Result<TokenStream, TokenStream> {
         match syn::parse2::<DeriveInput>(input) {
-            Ok(di) => derive_step_impl(di),
+            Ok(di) => derive_step_impl(&di),
             Err(e) => Err(e.to_compile_error()),
         }
     }
 
-    fn derive_success(input: TokenStream, output: TokenStream) {
+    fn derive_success(input: TokenStream, output: &TokenStream) {
         assert_eq!(derive(input).unwrap().to_string(), output.to_string());
     }
 
@@ -278,12 +410,20 @@ mod test {
                 #[derive(Step)]
                 enum EmptyEnum {}
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for EmptyEnum {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for EmptyEnum {}
 
-                impl AsRef<str> for EmptyEnum {
+                impl ::std::convert::AsRef<str> for EmptyEnum {
                     fn as_ref(&self) -> &str {
                         "empty_enum"
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for EmptyEnum {
+                    const STEP_COUNT: usize = 1usize;
+                    fn step_string(i: usize) -> String {
+                        assert_eq!(i, 0, "step {i} is not valid for {}", ::std::any::type_name::<Self>());
+                        Self.as_ref().to_owned()
                     }
                 }
             },
@@ -299,13 +439,23 @@ mod test {
                     Arm,
                 }
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for OneArm {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for OneArm {}
 
-                impl AsRef<str> for OneArm {
+                impl ::std::convert::AsRef<str> for OneArm {
                     fn as_ref(&self) -> &str {
                         match self {
                             Self::Arm => "arm",
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for OneArm {
+                    const STEP_COUNT: usize = 1usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize => Self::Arm.as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -323,13 +473,23 @@ mod test {
                     Arm,
                 }
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for OneArm {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for OneArm {}
 
-                impl AsRef<str> for OneArm {
+                impl ::std::convert::AsRef<str> for OneArm {
                     fn as_ref(&self) -> &str {
                         match self {
                             Self::Arm => "a",
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for OneArm {
+                    const STEP_COUNT: usize = 1usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize => Self::Arm.as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -347,14 +507,24 @@ mod test {
                     Arm(u8),
                 }
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for ManyArms {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for ManyArms {}
 
-                impl AsRef<str> for ManyArms {
+                impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["arm0", "arm1", "arm2"];
                         match self {
                             Self::Arm(&i) => ARM_NAMES[usize::try_from(i).unwrap()],
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for ManyArms {
+                    const STEP_COUNT: usize = 3usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize..3usize => Self::Arm(i - (0usize)).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -371,14 +541,24 @@ mod test {
                     Arm(u8),
                 }
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for ManyArms {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for ManyArms {}
 
-                impl AsRef<str> for ManyArms {
+                impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["a0", "a1", "a2"];
                         match self {
                             Self::Arm(&i) => ARM_NAMES[usize::try_from(i).unwrap()],
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for ManyArms {
+                    const STEP_COUNT: usize = 3usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize..3usize => Self::Arm(i - (0usize)).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -391,21 +571,32 @@ mod test {
         derive_success(
             quote! {
                 #[derive(Step)]
-                enum ManyArms {
+                enum TwoArms {
                     Empty,
                     #[step(max = 3)]
                     Int(u8),
                 }
             },
-            quote! {
-                impl ipa_core::protocol::step::Step for ManyArms {}
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for TwoArms {}
 
-                impl AsRef<str> for ManyArms {
+                impl ::std::convert::AsRef<str> for TwoArms {
                     fn as_ref(&self) -> &str {
                         const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
                         match self {
                             Self::Empty => "empty",
                             Self::Int(&i) => INT_NAMES[usize::try_from(i).unwrap()],
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for TwoArms {
+                    const STEP_COUNT: usize = 4usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize => Self::Empty.as_ref().to_owned(),
+                            1usize..4usize => Self::Int(i - (1usize)).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -502,7 +693,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(max = ...))] assignment only supports integer literals",
+            "#[step(max = ...))] only supports integer literals",
         );
     }
 
@@ -558,7 +749,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(...)] only supports literal arguments",
+            "#[step(name = ...)] only supports literal arguments",
         );
     }
 
@@ -572,7 +763,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(name = ...)] assignment only supports string literals",
+            "#[step(name = ...)] only supports string literals",
         );
     }
 
