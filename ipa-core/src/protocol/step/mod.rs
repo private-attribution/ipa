@@ -42,7 +42,7 @@ impl Step for String {}
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
-pub trait CompactStep: Step + Copy {
+pub trait CompactStep: Step {
     const STEP_COUNT: usize;
     fn step_string(i: usize) -> String;
 }

@@ -2,10 +2,10 @@ use std::ops::Add;
 
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Literal, Punct, Spacing, Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
-    parse_macro_input, punctuated::Punctuated, spanned::Spanned, Attribute, Data, DataEnum,
-    DeriveInput, Expr, ExprPath, Fields, Ident, Lit, MetaNameValue, Token, Type, Variant,
+    meta::ParseNestedMeta, parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum,
+    DeriveInput, ExprPath, Fields, Ident, LitInt, LitStr, Type, Variant,
 };
 
 trait CaseStyle {
@@ -46,23 +46,38 @@ where
 pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
     let output = match derive_step_impl(&parse_macro_input!(input as DeriveInput)) {
         Ok(s) => s,
-        Err(e) => e,
+        Err(e) => e.into_compile_error(),
     };
     TokenStreamBasic::from(output)
 }
 
-fn error<T>(span: Span, msg: &str) -> Result<T, TokenStream> {
-    Err(quote_spanned!(span => compile_error!(#msg)))
+trait IntoSpan {
+    fn into_span(self) -> Result<Span, syn::Error>;
 }
 
-fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, TokenStream> {
+impl IntoSpan for Span {
+    fn into_span(self) -> Result<Span, syn::Error> {
+        Ok(self)
+    }
+}
+
+impl IntoSpan for &'_ ParseNestedMeta<'_> {
+    fn into_span(self) -> Result<Span, syn::Error> {
+        Ok(self.path.require_ident()?.span())
+    }
+}
+
+fn error<S: IntoSpan, T>(span: S, msg: &str) -> Result<T, syn::Error> {
+    Err(syn::Error::new(span.into_span()?, msg))
+}
+
+fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let Data::Enum(data) = &ast.data else {
         return error(ast.ident.span(), "Step can only be derived for an enum");
     };
 
-    let variants = VariantAttr::parse_attrs(data)?;
-
+    let variants = VariantAttribute::parse_attrs(data)?;
     Ok(generate(ident, &variants))
 }
 
@@ -85,13 +100,13 @@ impl<'a> VariantAttrParser<'a> {
         }
     }
 
-    fn parse(mut self, variant: &Variant) -> Result<VariantAttr, TokenStream> {
+    fn parse(mut self, variant: &Variant) -> Result<VariantAttribute, syn::Error> {
         match &variant.fields {
             Fields::Named(_) => {
                 return error(
                     variant.fields.span(),
                     "named fields are not supported for #[derive(Step)]",
-                )
+                );
             }
             Fields::Unnamed(f) => {
                 if f.unnamed.len() != 1 {
@@ -101,7 +116,7 @@ impl<'a> VariantAttrParser<'a> {
                     );
                 }
                 let Some(f) = f.unnamed.first() else {
-                    return Ok(VariantAttr::from(self));
+                    return Ok(VariantAttribute::from(self));
                 };
 
                 if !matches!(&f.ty, Type::Path(_)) {
@@ -120,126 +135,92 @@ impl<'a> VariantAttrParser<'a> {
         }
 
         let Some(attrs) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return Ok(VariantAttr::from(self));
+            return Ok(VariantAttribute::from(self));
         };
 
         self.parse_attr(attrs)?;
-        Ok(VariantAttr::from(self))
+        Ok(VariantAttribute::from(self))
     }
 
-    fn parse_attr(&mut self, attrs: &Attribute) -> Result<(), TokenStream> {
-        for e in attrs
-            .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)
-            .expect("error parsing args on #[step]")
-        {
-            if e.path.is_ident("max") {
-                self.parse_count(e)?;
-            } else if e.path.is_ident("name") {
-                self.parse_name(e)?;
-            } else if e.path.is_ident("child") {
-                self.parse_child(e)?;
+    fn parse_attr(&mut self, attrs: &Attribute) -> Result<(), syn::Error> {
+        attrs.parse_nested_meta(|m| {
+            if m.path.is_ident("max") {
+                self.parse_count(&m)?;
+            } else if m.path.is_ident("name") {
+                self.parse_name(&m)?;
+            } else if m.path.is_ident("child") {
+                self.parse_child(&m)?;
             } else {
-                return error(e.path.span(), "#[step(...)] unsupported argument");
+                return Err(m.error("#[step(...)] unsupported argument"));
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
-    fn parse_count(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+    fn parse_count(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
         if self.count.is_some() {
-            return error(e.span(), "#[step(max = ...)] duplicated");
+            return error(m, "#[step(max = ...)] duplicated");
         }
         if self.child.is_some() {
             return error(
-                e.span(),
+                m,
                 "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
             );
         }
-
-        let Expr::Lit(v) = &e.value else {
-            return error(
-                e.value.span(),
-                "#[step(max = ...)] only supports literal arguments",
-            );
-        };
         if !self.integer {
-            return error(
-                e.path.span(),
-                "#[step(max = ...)] only applies to integer variants",
-            );
+            return error(m, "#[step(max = ...)] only applies to integer variants");
         }
-        let Lit::Int(v) = &v.lit else {
-            return error(
-                v.lit.span(),
-                "#[step(max = ...))] only supports integer literals",
-            );
-        };
+
+        let v: LitInt = m.value()?.parse()?;
         let Ok(v) = v.base10_parse::<usize>() else {
             return error(v.span(), "#[step(max = ...) invalid value");
         };
 
-        if v >= 1000 {
-            return error(v.span(), "#[step(max = ...)] cannot exceed 1000");
+        if !(2..1000).contains(&v) {
+            return error(
+                v.span(),
+                "#[step(max = ...)] needs to be at least 2 and less than 1000",
+            );
         }
 
         self.count = Some(v);
         Ok(())
     }
 
-    fn parse_name(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+    fn parse_name(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
         if self.name.is_some() {
-            return error(e.span(), "#[step(name = ...)] duplicated");
+            return error(m, "#[step(name = ...)] duplicated");
         }
 
-        let Expr::Lit(v) = &e.value else {
-            return error(
-                e.value.span(),
-                "#[step(name = ...)] only supports literal arguments",
-            );
-        };
-        let Lit::Str(v) = &v.lit else {
-            return error(
-                v.span(),
-                "#[step(name = ...)] only supports string literals",
-            );
-        };
-
-        self.name = Some(v.value());
+        self.name = Some(m.value()?.parse::<LitStr>()?.value());
         Ok(())
     }
 
-    fn parse_child(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+    fn parse_child(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
         if self.child.is_some() {
-            return error(e.span(), "#[step(child = ...)] duplicated");
+            return error(m, "#[step(child = ...)] duplicated");
         }
         if self.count.is_some() {
             return error(
-                e.span(),
+                m,
                 "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
             );
         }
 
-        let Expr::Path(p) = &e.value else {
-            return error(
-                e.value.span(),
-                "#[step(child = ...)] needs to specify a type",
-            );
-        };
-
-        self.child = Some(p.clone());
+        self.child = Some(m.value()?.parse::<ExprPath>()?);
         Ok(())
     }
 }
 
-struct VariantAttr {
+struct VariantAttribute {
     ident: Ident,
     name: String,
     count: usize,
     child: Option<ExprPath>,
 }
 
-impl VariantAttr {
-    fn parse_attrs(data: &DataEnum) -> Result<Vec<Self>, TokenStream> {
+impl VariantAttribute {
+    fn parse_attrs(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
         let mut steps = Vec::with_capacity(data.variants.len());
         for v in &data.variants {
             steps.push(VariantAttrParser::new(&v.ident).parse(v)?);
@@ -248,19 +229,19 @@ impl VariantAttr {
     }
 }
 
-impl From<VariantAttrParser<'_>> for VariantAttr {
-    fn from(other: VariantAttrParser) -> Self {
+impl From<VariantAttrParser<'_>> for VariantAttribute {
+    fn from(parser: VariantAttrParser) -> Self {
         assert!(
-            other.integer ^ other.count.is_none(),
-            "cannot have an integer type without a count, or a non-integer type with a count"
+            parser.integer ^ parser.count.is_none(),
+            "cannot have an integer type without a count, or a non-integer type with a count: {}, {:?}", parser.integer, parser.count,
         );
         Self {
-            ident: other.ident.clone(),
-            name: other
+            ident: parser.ident.clone(),
+            name: parser
                 .name
-                .unwrap_or_else(|| other.ident.to_string().to_snake_case()),
-            count: other.count.unwrap_or(1),
-            child: other.child,
+                .unwrap_or_else(|| parser.ident.to_string().to_snake_case()),
+            count: parser.count.unwrap_or(1),
+            child: parser.child,
         }
     }
 }
@@ -305,13 +286,13 @@ impl Add<TokenStream> for ExtendedSum {
     }
 }
 
-fn generate(ident: &Ident, variants: &[VariantAttr]) -> TokenStream {
+fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     let mut name_arrays = TokenStream::new();
     let mut as_ref_arms = TokenStream::new();
     let mut arm_count = ExtendedSum::default();
     let mut compact_step_arms = TokenStream::new();
 
-    for VariantAttr {
+    for VariantAttribute {
         ident: step_ident,
         name: step_name,
         count: step_count,
@@ -414,15 +395,15 @@ fn generate(ident: &Ident, variants: &[VariantAttr]) -> TokenStream {
 mod test {
     use proc_macro2::TokenStream;
     use quote::quote;
-    use syn::DeriveInput;
 
     use super::derive_step_impl;
 
     fn derive(input: TokenStream) -> Result<TokenStream, TokenStream> {
-        match syn::parse2::<DeriveInput>(input) {
+        match syn::parse2::<syn::DeriveInput>(input) {
             Ok(di) => derive_step_impl(&di),
-            Err(e) => Err(e.to_compile_error()),
+            Err(e) => Err(e),
         }
+        .map_err(syn::Error::into_compile_error)
     }
 
     fn derive_success(input: TokenStream, output: &TokenStream) {
@@ -430,7 +411,7 @@ mod test {
     }
 
     fn derive_failure(input: TokenStream, msg: &str) {
-        let expected = quote! { compile_error!(#msg) };
+        let expected = quote! { ::core::compile_error!{ #msg } };
         assert_eq!(derive(input).unwrap_err().to_string(), expected.to_string());
     }
 
@@ -545,7 +526,7 @@ mod test {
     }
 
     #[test]
-    fn int_arms() {
+    fn int_arm() {
         derive_success(
             quote! {
                 #[derive(Step)]
@@ -578,8 +559,9 @@ mod test {
             },
         );
     }
+
     #[test]
-    fn int_arms_named() {
+    fn int_arm_named() {
         derive_success(
             quote! {
                 #[derive(Step)]
@@ -605,6 +587,78 @@ mod test {
                     fn step_string(i: usize) -> String {
                         match i {
                             0usize..3usize => Self::Arm(i - (0usize)).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn child_arm() {
+        derive_success(
+            quote! {
+                #[derive(Step)]
+                enum Parent {
+                    #[step(child = Child)]
+                    Offspring,
+                }
+            },
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for Parent {}
+
+                impl ::std::convert::AsRef<str> for Parent {
+                    fn as_ref(&self) -> &str {
+                        match self {
+                            Self::Offspring => "offspring",
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for Parent {
+                    const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize => Self::Offspring.as_ref().to_owned(),
+                            1usize..<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + '/' + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
+                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn child_arm_named() {
+        derive_success(
+            quote! {
+                #[derive(Step)]
+                enum Parent {
+                    #[step(child = Child, name = "spawn")]
+                    Offspring,
+                }
+            },
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for Parent {}
+
+                impl ::std::convert::AsRef<str> for Parent {
+                    fn as_ref(&self) -> &str {
+                        match self {
+                            Self::Offspring => "spawn",
+                        }
+                    }
+                }
+
+                impl ::ipa_core::protocol::step::CompactStep for Parent {
+                    const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            0usize => Self::Offspring.as_ref().to_owned(),
+                            1usize..<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + '/' + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
                             _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
@@ -750,7 +804,21 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(max = ...))] only supports integer literals",
+            "expected integer literal",
+        );
+    }
+
+    #[test]
+    fn max_too_small() {
+        derive_failure(
+            quote! {
+                #[derive(Step)]
+                enum Foo {
+                    #[step(max = 1)]
+                    Bar(u8),
+                }
+            },
+            "#[step(max = ...)] needs to be at least 2 and less than 1000",
         );
     }
 
@@ -764,7 +832,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(max = ...)] cannot exceed 1000",
+            "#[step(max = ...)] needs to be at least 2 and less than 1000",
         );
     }
 
@@ -774,7 +842,7 @@ mod test {
             quote! {
                 #[derive(Step)]
                 enum Foo {
-                    #[step(max = 1, max = 2)]
+                    #[step(max = 3, max = 3)]
                     Bar(u8),
                 }
             },
@@ -806,7 +874,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(name = ...)] only supports literal arguments",
+            "expected string literal",
         );
     }
 
@@ -820,7 +888,7 @@ mod test {
                     Bar(u8),
                 }
             },
-            "#[step(name = ...)] only supports string literals",
+            "expected string literal",
         );
     }
 
