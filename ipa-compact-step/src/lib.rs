@@ -4,8 +4,8 @@ use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Literal, Punct, Spacing, Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    parse_macro_input, punctuated::Punctuated, spanned::Spanned, Data, DataEnum, DeriveInput, Expr,
-    ExprPath, Fields, Ident, Lit, MetaNameValue, Token, Type, Variant,
+    parse_macro_input, punctuated::Punctuated, spanned::Spanned, Attribute, Data, DataEnum,
+    DeriveInput, Expr, ExprPath, Fields, Ident, Lit, MetaNameValue, Token, Type, Variant,
 };
 
 trait CaseStyle {
@@ -61,17 +61,208 @@ fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, TokenStream> {
         return error(ast.ident.span(), "Step can only be derived for an enum");
     };
 
-    let steps = parse_variants(data)?;
+    let variants = VariantAttr::parse_attrs(data)?;
 
-    Ok(generate(ident, &steps))
+    Ok(generate(ident, &variants))
 }
 
-fn parse_variants(data: &DataEnum) -> Result<Vec<VariantAttr>, TokenStream> {
-    let mut steps = Vec::with_capacity(data.variants.len());
-    for v in &data.variants {
-        steps.push(VariantAttr::try_from(v)?);
+struct VariantAttrParser<'a> {
+    ident: &'a Ident,
+    name: Option<String>,
+    count: Option<usize>,
+    child: Option<ExprPath>,
+    integer: bool,
+}
+
+impl<'a> VariantAttrParser<'a> {
+    fn new(ident: &'a Ident) -> Self {
+        Self {
+            ident,
+            name: None,
+            count: None,
+            child: None,
+            integer: false,
+        }
     }
-    Ok(steps)
+
+    fn parse(mut self, variant: &Variant) -> Result<VariantAttr, TokenStream> {
+        match &variant.fields {
+            Fields::Named(_) => {
+                return error(
+                    variant.fields.span(),
+                    "named fields are not supported for #[derive(Step)]",
+                )
+            }
+            Fields::Unnamed(f) => {
+                if f.unnamed.len() != 1 {
+                    return error(
+                        f.span(),
+                        "#[derive(Step) only supports empty or integer variants",
+                    );
+                }
+                let Some(f) = f.unnamed.first() else {
+                    return Ok(VariantAttr::from(self));
+                };
+
+                if !matches!(&f.ty, Type::Path(_)) {
+                    return error(
+                        f.ty.span(),
+                        "#[derive(Step)] variants need to have a single integer type",
+                    );
+                }
+                self.integer = true;
+                // Note: it looks like validating that the target type is an integer is
+                // close to impossible, so we'll leave things in this state.
+                // We use `TryFrom` for the value, so that will fail at least catch
+                // any errors.  The only problem being that the errors will be inscrutable.
+            }
+            Fields::Unit => {}
+        }
+
+        let Some(attrs) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
+            return Ok(VariantAttr::from(self));
+        };
+
+        self.parse_attr(attrs)?;
+        Ok(VariantAttr::from(self))
+    }
+
+    fn parse_attr(&mut self, attrs: &Attribute) -> Result<(), TokenStream> {
+        for e in attrs
+            .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)
+            .expect("error parsing args on #[step]")
+        {
+            if e.path.is_ident("max") {
+                self.parse_count(e)?;
+            } else if e.path.is_ident("name") {
+                self.parse_name(e)?;
+            } else if e.path.is_ident("child") {
+                self.parse_child(e)?;
+            } else {
+                return error(e.path.span(), "#[step(...)] unsupported argument");
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_count(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+        if self.count.is_some() {
+            return error(e.span(), "#[step(max = ...)] duplicated");
+        }
+        if self.child.is_some() {
+            return error(
+                e.span(),
+                "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
+            );
+        }
+
+        let Expr::Lit(v) = &e.value else {
+            return error(
+                e.value.span(),
+                "#[step(max = ...)] only supports literal arguments",
+            );
+        };
+        if !self.integer {
+            return error(
+                e.path.span(),
+                "#[step(max = ...)] only applies to integer variants",
+            );
+        }
+        let Lit::Int(v) = &v.lit else {
+            return error(
+                v.lit.span(),
+                "#[step(max = ...))] only supports integer literals",
+            );
+        };
+        let Ok(v) = v.base10_parse::<usize>() else {
+            return error(v.span(), "#[step(max = ...) invalid value");
+        };
+
+        if v >= 1000 {
+            return error(v.span(), "#[step(max = ...)] cannot exceed 1000");
+        }
+
+        self.count = Some(v);
+        Ok(())
+    }
+
+    fn parse_name(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+        if self.name.is_some() {
+            return error(e.span(), "#[step(name = ...)] duplicated");
+        }
+
+        let Expr::Lit(v) = &e.value else {
+            return error(
+                e.value.span(),
+                "#[step(name = ...)] only supports literal arguments",
+            );
+        };
+        let Lit::Str(v) = &v.lit else {
+            return error(
+                v.span(),
+                "#[step(name = ...)] only supports string literals",
+            );
+        };
+
+        self.name = Some(v.value());
+        Ok(())
+    }
+
+    fn parse_child(&mut self, e: MetaNameValue) -> Result<(), TokenStream> {
+        if self.child.is_some() {
+            return error(e.span(), "#[step(child = ...)] duplicated");
+        }
+        if self.count.is_some() {
+            return error(
+                e.span(),
+                "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
+            );
+        }
+
+        let Expr::Path(p) = &e.value else {
+            return error(
+                e.value.span(),
+                "#[step(child = ...)] needs to specify a type",
+            );
+        };
+
+        self.child = Some(p.clone());
+        Ok(())
+    }
+}
+
+struct VariantAttr {
+    ident: Ident,
+    name: String,
+    count: usize,
+    child: Option<ExprPath>,
+}
+
+impl VariantAttr {
+    fn parse_attrs(data: &DataEnum) -> Result<Vec<Self>, TokenStream> {
+        let mut steps = Vec::with_capacity(data.variants.len());
+        for v in &data.variants {
+            steps.push(VariantAttrParser::new(&v.ident).parse(v)?);
+        }
+        Ok(steps)
+    }
+}
+
+impl From<VariantAttrParser<'_>> for VariantAttr {
+    fn from(other: VariantAttrParser) -> Self {
+        assert!(
+            other.integer ^ other.count.is_none(),
+            "cannot have an integer type without a count, or a non-integer type with a count"
+        );
+        Self {
+            ident: other.ident.clone(),
+            name: other
+                .name
+                .unwrap_or_else(|| other.ident.to_string().to_snake_case()),
+            count: other.count.unwrap_or(1),
+            child: other.child,
+        }
+    }
 }
 
 #[derive(Default, Clone)]
@@ -103,7 +294,9 @@ impl Add<usize> for ExtendedSum {
 impl Add<TokenStream> for ExtendedSum {
     type Output = Self;
     fn add(mut self, v: TokenStream) -> Self {
-        Punct::new('+', Spacing::Alone).to_tokens(&mut self.expr);
+        if !self.expr.is_empty() {
+            Punct::new('+', Spacing::Alone).to_tokens(&mut self.expr);
+        }
         self.expr.extend(v);
         Self {
             expr: self.expr,
@@ -112,7 +305,7 @@ impl Add<TokenStream> for ExtendedSum {
     }
 }
 
-fn generate(ident: &Ident, steps: &[VariantAttr]) -> TokenStream {
+fn generate(ident: &Ident, variants: &[VariantAttr]) -> TokenStream {
     let mut name_arrays = TokenStream::new();
     let mut as_ref_arms = TokenStream::new();
     let mut arm_count = ExtendedSum::default();
@@ -123,7 +316,7 @@ fn generate(ident: &Ident, steps: &[VariantAttr]) -> TokenStream {
         name: step_name,
         count: step_count,
         child: step_child,
-    } in steps
+    } in variants
     {
         if *step_count == 1 {
             as_ref_arms.extend(quote! {
@@ -138,7 +331,8 @@ fn generate(ident: &Ident, steps: &[VariantAttr]) -> TokenStream {
                 let range_end = arm_count.clone()
                     + quote!(<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT);
                 compact_step_arms.extend(quote! {
-                    #arm_count..#range_end => <#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
+                    #arm_count..#range_end => Self::#step_ident.as_ref().to_owned() + '/' +
+                      &<#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
                 });
                 arm_count = range_end;
             }
@@ -214,153 +408,6 @@ fn generate(ident: &Ident, steps: &[VariantAttr]) -> TokenStream {
 
     result.extend(quote! {});
     result
-}
-
-struct VariantAttr {
-    ident: Ident,
-    name: String,
-    count: usize,
-    child: Option<ExprPath>,
-}
-
-impl VariantAttr {
-    fn from_tuples(
-        ident: &Ident,
-        name: Option<String>,
-        count: Option<usize>,
-        child: Option<ExprPath>,
-    ) -> Self {
-        Self {
-            ident: ident.clone(),
-            name: name.unwrap_or_else(|| ident.to_string().to_snake_case()),
-            count: count.unwrap_or(1),
-            child,
-        }
-    }
-}
-
-impl TryFrom<&Variant> for VariantAttr {
-    type Error = TokenStream;
-
-    fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
-        let mut name = None;
-        let mut count = None;
-        let mut child = None;
-
-        match &variant.fields {
-            Fields::Named(_) => {
-                return error(
-                    variant.fields.span(),
-                    "named fields are not supported for #[derive(Step)]",
-                )
-            }
-            Fields::Unnamed(f) => {
-                if f.unnamed.len() != 1 {
-                    return error(
-                        f.span(),
-                        "#[derive(Step) only supports empty or integer variants",
-                    );
-                }
-                let Some(f) = f.unnamed.first() else {
-                    return Ok(Self::from_tuples(&variant.ident, name, count, child));
-                };
-
-                if !matches!(&f.ty, Type::Path(_)) {
-                    return error(
-                        f.ty.span(),
-                        "#[derive(Step)] variants need to have a single integer type",
-                    );
-                }
-                // Note: it looks like validating that the target type is an integer is
-                // close to impossible, so we'll leave things in this state.
-                // We use `TryFrom` for the value, so that will fail at least catch
-                // any errors.  The only problem being that the errors will be inscrutable.
-            }
-            Fields::Unit => {}
-        }
-
-        let Some(step) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return Ok(Self::from_tuples(&variant.ident, name, count, child));
-        };
-
-        for e in step
-            .parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)
-            .expect("error parsing args on #[step]")
-        {
-            if e.path.is_ident("max") {
-                if count.is_some() {
-                    return error(e.span(), "#[step(max = ...)] duplicated");
-                }
-                let Expr::Lit(v) = &e.value else {
-                    return error(
-                        e.value.span(),
-                        "#[step(max = ...)] only supports literal arguments",
-                    );
-                };
-                if matches!(&variant.fields, Fields::Unit) {
-                    return error(
-                        e.path.span(),
-                        "#[step(max = ...)] only applies to integer variants",
-                    );
-                }
-                let Lit::Int(v) = &v.lit else {
-                    return error(
-                        v.lit.span(),
-                        "#[step(max = ...))] only supports integer literals",
-                    );
-                };
-                let Ok(v) = v.base10_parse::<usize>() else {
-                    return error(v.span(), "#[step(max = ...) invalid value");
-                };
-                if child.is_some() && v != 1 {
-                    return error(
-                        v.span(),
-                        "#[step(child = ...)] must also set `max` to 1 or omit it",
-                    );
-                } else if v >= 1000 {
-                    return error(v.span(), "#[step(max = ...)] cannot exceed 1000");
-                }
-                count = Some(v);
-            } else if e.path.is_ident("name") {
-                if name.is_some() {
-                    return error(e.span(), "#[step(name = ...)] duplicated");
-                }
-                let Expr::Lit(v) = &e.value else {
-                    return error(
-                        e.value.span(),
-                        "#[step(name = ...)] only supports literal arguments",
-                    );
-                };
-                let Lit::Str(v) = &v.lit else {
-                    return error(
-                        v.span(),
-                        "#[step(name = ...)] only supports string literals",
-                    );
-                };
-                name = Some(v.value());
-            } else if e.path.is_ident("child") {
-                if child.is_some() {
-                    return error(e.span(), "#[step(child = ...)] duplicated");
-                }
-                if count.is_some() && count != Some(1) {
-                    return error(
-                        e.span(),
-                        "#[step(child = ...)] must also set `max` to 1 or omit it",
-                    );
-                }
-                let Expr::Path(p) = &e.value else {
-                    return error(
-                        e.value.span(),
-                        "#[step(child = ...)] needs to specify a type",
-                    );
-                };
-                child = Some(p.clone());
-            } else {
-                return error(e.path.span(), "#[step(...)] unsupported argument");
-            }
-        }
-        Ok(Self::from_tuples(&variant.ident, name, count, child))
-    }
 }
 
 #[cfg(test)]
@@ -567,35 +614,45 @@ mod test {
     }
 
     #[test]
-    fn both_arms() {
+    fn all_arms() {
         derive_success(
             quote! {
                 #[derive(Step)]
-                enum TwoArms {
+                enum AllArms {
                     Empty,
                     #[step(max = 3)]
                     Int(u8),
+                    #[step(child = ::some::other::StepEnum)]
+                    Child,
+                    Final,
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for TwoArms {}
+                impl ::ipa_core::protocol::step::Step for AllArms {}
 
-                impl ::std::convert::AsRef<str> for TwoArms {
+                impl ::std::convert::AsRef<str> for AllArms {
                     fn as_ref(&self) -> &str {
                         const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
                         match self {
                             Self::Empty => "empty",
                             Self::Int(&i) => INT_NAMES[usize::try_from(i).unwrap()],
+                            Self::Child => "child",
+                            Self::Final => "final",
                         }
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for TwoArms {
-                    const STEP_COUNT: usize = 4usize;
+                impl ::ipa_core::protocol::step::CompactStep for AllArms {
+                    const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 6usize;
                     fn step_string(i: usize) -> String {
                         match i {
                             0usize => Self::Empty.as_ref().to_owned(),
                             1usize..4usize => Self::Int(i - (1usize)).as_ref().to_owned(),
+                            4usize => Self::Child.as_ref().to_owned(),
+                            5usize..<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
+                                => Self::Child.as_ref().to_owned() + '/' + &<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::step_string(i - (5usize)),
+                            <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
+                                => Self::Final.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
                         }
                     }
