@@ -5,7 +5,7 @@ use proc_macro2::{Literal, Punct, Spacing, Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     meta::ParseNestedMeta, parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum,
-    DeriveInput, ExprPath, Fields, Ident, LitInt, LitStr, Type, Variant,
+    DeriveInput, ExprPath, Fields, Ident, LitInt, LitStr, Type, TypePath, Variant,
 };
 
 trait CaseStyle {
@@ -39,9 +39,12 @@ where
     }
 }
 
+/// Derive an implementation of `Step` and `CompactStep`.
+///
 /// # Panics
-/// This won't work in a bunch of ways.
+/// This can fail in a bunch of ways.
 /// * The derive attribute needs to be used on a enum.
+/// * Attributes need to be set correctly.
 #[proc_macro_derive(CompactStep, attributes(step))]
 pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
     let output = match derive_step_impl(&parse_macro_input!(input as DeriveInput)) {
@@ -86,7 +89,7 @@ struct VariantAttrParser<'a> {
     name: Option<String>,
     count: Option<usize>,
     child: Option<ExprPath>,
-    integer: bool,
+    integer: Option<TypePath>,
 }
 
 impl<'a> VariantAttrParser<'a> {
@@ -96,7 +99,7 @@ impl<'a> VariantAttrParser<'a> {
             name: None,
             count: None,
             child: None,
-            integer: false,
+            integer: None,
         }
     }
 
@@ -105,27 +108,28 @@ impl<'a> VariantAttrParser<'a> {
             Fields::Named(_) => {
                 return error(
                     variant.fields.span(),
-                    "named fields are not supported for #[derive(Step)]",
+                    "#[derive(CompactStep)] does not support named field",
                 );
             }
             Fields::Unnamed(f) => {
                 if f.unnamed.len() != 1 {
                     return error(
                         f.span(),
-                        "#[derive(Step) only supports empty or integer variants",
+                        "#[derive(CompactStep) only supports empty or integer variants",
                     );
                 }
                 let Some(f) = f.unnamed.first() else {
-                    return Ok(VariantAttribute::from(self));
+                    return self.make_attr();
                 };
 
-                if !matches!(&f.ty, Type::Path(_)) {
+                let Type::Path(int_type) = &f.ty else {
                     return error(
                         f.ty.span(),
-                        "#[derive(Step)] variants need to have a single integer type",
+                        "#[derive(CompactStep)] variants need to have a single integer type",
                     );
-                }
-                self.integer = true;
+                };
+                self.integer = Some(int_type.clone());
+
                 // Note: it looks like validating that the target type is an integer is
                 // close to impossible, so we'll leave things in this state.
                 // We use `TryFrom` for the value, so that will fail at least catch
@@ -133,18 +137,24 @@ impl<'a> VariantAttrParser<'a> {
             }
             Fields::Unit => {}
         }
+        if let Some((_, d)) = &variant.discriminant {
+            return error(
+                d.span(),
+                "#[derive(CompactStep)] does not work with discriminants",
+            );
+        }
 
-        let Some(attrs) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return Ok(VariantAttribute::from(self));
+        let Some(attr) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
+            return self.make_attr();
         };
 
-        self.parse_attr(attrs)?;
-        Ok(VariantAttribute::from(self))
+        self.parse_attr(attr)?;
+        self.make_attr()
     }
 
-    fn parse_attr(&mut self, attrs: &Attribute) -> Result<(), syn::Error> {
-        attrs.parse_nested_meta(|m| {
-            if m.path.is_ident("max") {
+    fn parse_attr(&mut self, attr: &Attribute) -> Result<(), syn::Error> {
+        attr.parse_nested_meta(|m| {
+            if m.path.is_ident("count") {
                 self.parse_count(&m)?;
             } else if m.path.is_ident("name") {
                 self.parse_name(&m)?;
@@ -159,27 +169,27 @@ impl<'a> VariantAttrParser<'a> {
 
     fn parse_count(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
         if self.count.is_some() {
-            return error(m, "#[step(max = ...)] duplicated");
+            return error(m, "#[step(count = ...)] duplicated");
         }
         if self.child.is_some() {
             return error(
                 m,
-                "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
+                "#[step(child = ...)] and #[step(count = ...)] are mutually exclusive",
             );
         }
-        if !self.integer {
-            return error(m, "#[step(max = ...)] only applies to integer variants");
+        if self.integer.is_none() {
+            return error(m, "#[step(count = ...)] only applies to integer variants");
         }
 
         let v: LitInt = m.value()?.parse()?;
         let Ok(v) = v.base10_parse::<usize>() else {
-            return error(v.span(), "#[step(max = ...) invalid value");
+            return error(v.span(), "#[step(count = ...) invalid value");
         };
 
         if !(2..1000).contains(&v) {
             return error(
                 v.span(),
-                "#[step(max = ...)] needs to be at least 2 and less than 1000",
+                "#[step(count = ...)] needs to be at least 2 and less than 1000",
             );
         }
 
@@ -203,19 +213,37 @@ impl<'a> VariantAttrParser<'a> {
         if self.count.is_some() {
             return error(
                 m,
-                "#[step(child = ...)] and #[step(max = ...)] are mutually exclusive",
+                "#[step(child = ...)] and #[step(count = ...)] are mutually exclusive",
             );
         }
 
         self.child = Some(m.value()?.parse::<ExprPath>()?);
         Ok(())
     }
+
+    fn make_attr(self) -> Result<VariantAttribute, syn::Error> {
+        if self.integer.is_some() && self.count.is_none() {
+            error(
+                self.ident.span(),
+                "#[derive(CompactStep)] requires that integer variants include #[step(count = ...)]",
+            )
+        } else {
+            Ok(VariantAttribute {
+                ident: self.ident.clone(),
+                name: self
+                    .name
+                    .unwrap_or_else(|| self.ident.to_string().to_snake_case()),
+                integer: self.count.zip(self.integer),
+                child: self.child,
+            })
+        }
+    }
 }
 
 struct VariantAttribute {
     ident: Ident,
     name: String,
-    count: usize,
+    integer: Option<(usize, TypePath)>,
     child: Option<ExprPath>,
 }
 
@@ -226,23 +254,6 @@ impl VariantAttribute {
             steps.push(VariantAttrParser::new(&v.ident).parse(v)?);
         }
         Ok(steps)
-    }
-}
-
-impl From<VariantAttrParser<'_>> for VariantAttribute {
-    fn from(parser: VariantAttrParser) -> Self {
-        assert!(
-            parser.integer ^ parser.count.is_none(),
-            "cannot have an integer type without a count, or a non-integer type with a count: {}, {:?}", parser.integer, parser.count,
-        );
-        Self {
-            ident: parser.ident.clone(),
-            name: parser
-                .name
-                .unwrap_or_else(|| parser.ident.to_string().to_snake_case()),
-            count: parser.count.unwrap_or(1),
-            child: parser.child,
-        }
     }
 }
 
@@ -287,59 +298,65 @@ impl Add<TokenStream> for ExtendedSum {
 }
 
 fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
-    let mut name_arrays = TokenStream::new();
-    let mut as_ref_arms = TokenStream::new();
+    // This keeps a running tally of the total number of steps across all of the variants.
+    // This is a composite because it isn't necessarily a simple integer.
+    // It might be `<Child as CompactStep>::STEP_COUNT + 4` or similar.
     let mut arm_count = ExtendedSum::default();
-    let mut compact_step_arms = TokenStream::new();
+    // This tracks the arrays of names that are used for integer variants.
+    let mut name_arrays = TokenStream::new();
+    // This tracks the arms of the `AsRef<str>` match implementation.
+    let mut as_ref_arms = TokenStream::new();
+    // This tracks the arms of the `CompactStep::step_string` match implementation.
+    let mut step_string_arms = TokenStream::new();
 
     for VariantAttribute {
         ident: step_ident,
         name: step_name,
-        count: step_count,
+        integer: step_integer,
         child: step_child,
     } in variants
     {
-        if *step_count == 1 {
+        if let Some((step_count, step_integer)) = step_integer {
+            let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
+            let skip_zeros = match *step_count - 1 {
+                1..=9 => 2,
+                10..=99 => 1,
+                100..=999 => 0,
+                _ => unreachable!("step count is too damn high {step_count}"),
+            };
+            let step_names =
+                (0..*step_count).map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..]);
+            // .collect::<Vec<_>>();
+            name_arrays.extend(quote! {
+                const #array_name: [&str; #step_count] = [#(#step_names),*];
+            });
+            as_ref_arms.extend(quote! {
+                Self::#step_ident(i) => #array_name[usize::try_from(*i).unwrap()],
+            });
+
+            let range_end = arm_count.clone() + *step_count;
+            step_string_arms.extend(quote! {
+                _ if i < #range_end => Self::#step_ident(#step_integer::try_from(i - (#arm_count)).unwrap()).as_ref().to_owned(),
+            });
+            arm_count = range_end;
+        } else {
             as_ref_arms.extend(quote! {
                 Self::#step_ident => #step_name,
             });
 
-            compact_step_arms.extend(quote! {
-                #arm_count => Self::#step_ident.as_ref().to_owned(),
+            step_string_arms.extend(quote! {
+                _ if i == #arm_count => Self::#step_ident.as_ref().to_owned(),
             });
             arm_count = arm_count + 1;
             if let Some(child) = step_child {
                 let range_end = arm_count.clone()
                     + quote!(<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT);
-                compact_step_arms.extend(quote! {
-                    #arm_count..#range_end => Self::#step_ident.as_ref().to_owned() + '/' +
+                step_string_arms.extend(quote! {
+                    _ if i < #range_end => Self::#step_ident.as_ref().to_owned() + "/" +
                       &<#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
                 });
                 arm_count = range_end;
             }
-        } else {
-            let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
-            let skip_zeros = match step_count - 1 {
-                2..=9 => 2,
-                10..=99 => 1,
-                100..=999 => 0,
-                _ => unreachable!(),
-            };
-            let step_names = (0..*step_count)
-                .map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..])
-                .collect::<Vec<_>>();
-            name_arrays.extend(quote! {
-                const #array_name: [&str; #step_count] = [#(#step_names),*];
-            });
-            as_ref_arms.extend(quote! {
-                Self::#step_ident(&i) => #array_name[usize::try_from(i).unwrap()],
-            });
-
-            let range_end = arm_count.clone() + *step_count;
-            compact_step_arms.extend(quote! {
-                #arm_count..#range_end => Self::#step_ident(i - (#arm_count)).as_ref().to_owned(),
-            });
-            arm_count = range_end;
         }
     }
 
@@ -359,14 +376,22 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
             impl ::ipa_core::protocol::step::CompactStep for #ident {
                 const STEP_COUNT: usize = 1usize;
                 fn step_string(i: usize) -> String {
-                    assert_eq!(i, 0, "step {i} is not valid for {}", ::std::any::type_name::<Self>());
-                    Self.as_ref().to_owned()
+                    assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
+                    String::from(#snakey)
                 }
             }
         });
     } else {
+        // Deal with the use of `TryFrom` on types that implement `From`.
+        let suppress_warning = if !name_arrays.is_empty() {
+            quote!(#[allow(clippy::unnecessary_fallible_conversions)])
+        } else {
+            TokenStream::new()
+        };
+
         result.extend(quote! {
             impl ::std::convert::AsRef<str> for #ident {
+                #suppress_warning
                 fn as_ref(&self) -> &str {
                     #name_arrays
                     match self {
@@ -377,10 +402,11 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
 
             impl ::ipa_core::protocol::step::CompactStep for #ident {
                 const STEP_COUNT: usize = #arm_count;
+                #suppress_warning
                 fn step_string(i: usize) -> String {
                     match i {
-                        #compact_step_arms
-                        _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                        #step_string_arms
+                        _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                     }
                 }
             }
@@ -418,10 +444,10 @@ mod test {
     #[test]
     fn simple() {
         let code = derive(quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Simple {
                     Arm,
-                    #[step(max = 3)]
+                    #[step(count = 3)]
                     Leg(usize),
                 }
         })
@@ -435,7 +461,7 @@ mod test {
     fn empty() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum EmptyEnum {}
             },
             &quote! {
@@ -450,8 +476,8 @@ mod test {
                 impl ::ipa_core::protocol::step::CompactStep for EmptyEnum {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
-                        assert_eq!(i, 0, "step {i} is not valid for {}", ::std::any::type_name::<Self>());
-                        Self.as_ref().to_owned()
+                        assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
+                        String::from("empty_enum")
                     }
                 }
             },
@@ -462,7 +488,7 @@ mod test {
     fn one_armed() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum OneArm {
                     Arm,
                 }
@@ -482,8 +508,8 @@ mod test {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize => Self::Arm.as_ref().to_owned(),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i == 0usize => Self::Arm.as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -495,7 +521,7 @@ mod test {
     fn one_armed_named() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum OneArm {
                     #[step(name = "a")]
                     Arm,
@@ -516,8 +542,8 @@ mod test {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize => Self::Arm.as_ref().to_owned(),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i == 0usize => Self::Arm.as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -529,9 +555,9 @@ mod test {
     fn int_arm() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum ManyArms {
-                    #[step(max = 3)]
+                    #[step(count = 3)]
                     Arm(u8),
                 }
             },
@@ -539,20 +565,22 @@ mod test {
                 impl ::ipa_core::protocol::step::Step for ManyArms {}
 
                 impl ::std::convert::AsRef<str> for ManyArms {
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["arm0", "arm1", "arm2"];
                         match self {
-                            Self::Arm(&i) => ARM_NAMES[usize::try_from(i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
                         }
                     }
                 }
 
                 impl ::ipa_core::protocol::step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize..3usize => Self::Arm(i - (0usize)).as_ref().to_owned(),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -564,9 +592,9 @@ mod test {
     fn int_arm_named() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum ManyArms {
-                    #[step(max = 3, name = "a")]
+                    #[step(count = 3, name = "a")]
                     Arm(u8),
                 }
             },
@@ -574,20 +602,22 @@ mod test {
                 impl ::ipa_core::protocol::step::Step for ManyArms {}
 
                 impl ::std::convert::AsRef<str> for ManyArms {
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["a0", "a1", "a2"];
                         match self {
-                            Self::Arm(&i) => ARM_NAMES[usize::try_from(i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
                         }
                     }
                 }
 
                 impl ::ipa_core::protocol::step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize..3usize => Self::Arm(i - (0usize)).as_ref().to_owned(),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -599,7 +629,7 @@ mod test {
     fn child_arm() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Parent {
                     #[step(child = Child)]
                     Offspring,
@@ -620,10 +650,10 @@ mod test {
                     const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize => Self::Offspring.as_ref().to_owned(),
-                            1usize..<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + '/' + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
+                            _ if i < <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -635,7 +665,7 @@ mod test {
     fn child_arm_named() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Parent {
                     #[step(child = Child, name = "spawn")]
                     Offspring,
@@ -656,10 +686,10 @@ mod test {
                     const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize => Self::Offspring.as_ref().to_owned(),
-                            1usize..<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + '/' + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
+                            _ if i < <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -671,11 +701,11 @@ mod test {
     fn all_arms() {
         derive_success(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum AllArms {
                     Empty,
-                    #[step(max = 3)]
-                    Int(u8),
+                    #[step(count = 3)]
+                    Int(usize),
                     #[step(child = ::some::other::StepEnum)]
                     Child,
                     Final,
@@ -685,11 +715,12 @@ mod test {
                 impl ::ipa_core::protocol::step::Step for AllArms {}
 
                 impl ::std::convert::AsRef<str> for AllArms {
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
                         match self {
                             Self::Empty => "empty",
-                            Self::Int(&i) => INT_NAMES[usize::try_from(i).unwrap()],
+                            Self::Int(i) => INT_NAMES[usize::try_from(*i).unwrap()],
                             Self::Child => "child",
                             Self::Final => "final",
                         }
@@ -698,16 +729,17 @@ mod test {
 
                 impl ::ipa_core::protocol::step::CompactStep for AllArms {
                     const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 6usize;
+                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
-                            0usize => Self::Empty.as_ref().to_owned(),
-                            1usize..4usize => Self::Int(i - (1usize)).as_ref().to_owned(),
-                            4usize => Self::Child.as_ref().to_owned(),
-                            5usize..<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
-                                => Self::Child.as_ref().to_owned() + '/' + &<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::step_string(i - (5usize)),
-                            <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
+                            _ if i == 0usize => Self::Empty.as_ref().to_owned(),
+                            _ if i < 4usize => Self::Int(usize::try_from(i - (1usize)).unwrap()).as_ref().to_owned(),
+                            _ if i == 4usize => Self::Child.as_ref().to_owned(),
+                            _ if i < <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
+                                => Self::Child.as_ref().to_owned() + "/" + &<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::step_string(i - (5usize)),
+                            _ if i == <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
                                 => Self::Final.as_ref().to_owned(),
-                            _ => panic!("step {i} is not valid for {}", ::std::any::type_name::<Self>()),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
                 }
@@ -719,7 +751,7 @@ mod test {
     fn not_enum() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 struct Foo(u8);
             },
             "Step can only be derived for an enum",
@@ -730,14 +762,27 @@ mod test {
     fn named_variant() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     Named {
                         n: u8,
                     }
                 }
             },
-            "named fields are not supported for #[derive(Step)]",
+            "#[derive(CompactStep)] does not support named field",
+        );
+    }
+
+    #[test]
+    fn with_discriminant() {
+        derive_failure(
+            quote! {
+                #[derive(CompactStep)]
+                enum Foo {
+                    Bar = 1,
+                }
+            },
+            "#[derive(CompactStep)] does not work with discriminants",
         );
     }
 
@@ -745,12 +790,12 @@ mod test {
     fn empty_variant() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     Bar(),
                 }
             },
-            "#[derive(Step) only supports empty or integer variants",
+            "#[derive(CompactStep) only supports empty or integer variants",
         );
     }
 
@@ -758,12 +803,12 @@ mod test {
     fn tuple_variant() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     Bar((), u8),
                 }
             },
-            "#[derive(Step) only supports empty or integer variants",
+            "#[derive(CompactStep) only supports empty or integer variants",
         );
     }
 
@@ -771,36 +816,36 @@ mod test {
     fn empty_tuple_variant() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     Bar(()),
                 }
             },
-            "#[derive(Step)] variants need to have a single integer type",
+            "#[derive(CompactStep)] variants need to have a single integer type",
         );
     }
 
     #[test]
-    fn max_unit() {
+    fn count_unit() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
-                    #[step(max = 10)]
+                    #[step(count = 10)]
                     Bar,
                 }
             },
-            "#[step(max = ...)] only applies to integer variants",
+            "#[step(count = ...)] only applies to integer variants",
         );
     }
 
     #[test]
-    fn max_str() {
+    fn count_str() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
-                    #[step(max = "10")]
+                    #[step(count = "10")]
                     Bar(u8),
                 }
             },
@@ -809,44 +854,44 @@ mod test {
     }
 
     #[test]
-    fn max_too_small() {
+    fn count_too_small() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
-                    #[step(max = 1)]
+                    #[step(count = 1)]
                     Bar(u8),
                 }
             },
-            "#[step(max = ...)] needs to be at least 2 and less than 1000",
+            "#[step(count = ...)] needs to be at least 2 and less than 1000",
         );
     }
 
     #[test]
-    fn max_too_large() {
+    fn count_too_large() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
-                    #[step(max = 10_000)]
+                    #[step(count = 10_000)]
                     Bar(u8),
                 }
             },
-            "#[step(max = ...)] needs to be at least 2 and less than 1000",
+            "#[step(count = ...)] needs to be at least 2 and less than 1000",
         );
     }
 
     #[test]
-    fn two_max() {
+    fn two_count() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
-                    #[step(max = 3, max = 3)]
+                    #[step(count = 3, count = 3)]
                     Bar(u8),
                 }
             },
-            "#[step(max = ...)] duplicated",
+            "#[step(count = ...)] duplicated",
         );
     }
 
@@ -854,7 +899,7 @@ mod test {
     fn two_names() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     #[step(name = "one", name = "two")]
                     Bar(u8),
@@ -868,7 +913,7 @@ mod test {
     fn name_very_invalid() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     #[step(name = ())]
                     Bar(u8),
@@ -882,7 +927,7 @@ mod test {
     fn name_invalid() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     #[step(name = 12)]
                     Bar(u8),
@@ -896,7 +941,7 @@ mod test {
     fn unsupported_argument() {
         derive_failure(
             quote! {
-                #[derive(Step)]
+                #[derive(CompactStep)]
                 enum Foo {
                     #[step(baz = 12)]
                     Bar(u8),

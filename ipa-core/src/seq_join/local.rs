@@ -9,7 +9,7 @@ use std::{
 
 use futures::stream::Fuse;
 
-use super::*;
+use super::{pin_project, Future, Stream, StreamExt};
 
 enum ActiveItem<F: IntoFuture> {
     Pending(Pin<Box<F::IntoFuture>>),
@@ -133,11 +133,13 @@ mod local_test {
     use futures::{
         future::lazy,
         stream::{poll_fn, repeat_with},
-        StreamExt,
+        Future, StreamExt,
     };
 
-    use super::*;
-    use crate::test_executor::run;
+    use crate::{
+        seq_join::{seq_join, seq_try_join_all},
+        test_executor::run,
+    };
 
     fn fake_waker() -> Waker {
         use std::task::{RawWaker, RawWakerVTable};
