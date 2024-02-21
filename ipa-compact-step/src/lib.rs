@@ -326,7 +326,6 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
             };
             let step_names =
                 (0..*step_count).map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..]);
-            // .collect::<Vec<_>>();
             name_arrays.extend(quote! {
                 const #array_name: [&str; #step_count] = [#(#step_names),*];
             });
