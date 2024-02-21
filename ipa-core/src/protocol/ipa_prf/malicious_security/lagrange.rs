@@ -1,9 +1,9 @@
 use std::iter;
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::U1;
+use typenum::{Unsigned, U1};
 
-use crate::ff::{Field, PrimeField};
+use crate::ff::{Field, PrimeField, Serializable};
 
 /// A degree `N-1` polynomial is stored as `N` points `(x,y)`
 /// where the "x coordinates" of the input points are `x_0` to `x_N` are `F::ZERO` to `(N-1)*F::ONE`
@@ -32,8 +32,16 @@ where
     /// When the field size is too small for `N` evaluation points
     pub fn new() -> Self {
         // assertion that field is large enough
-        // also checks that `try_from` for conversions from sufficiently small `u128` to `F` do not panic
-        debug_assert!(F::BITS > usize::BITS - N::USIZE.leading_zeros());
+        // when it is large enough, `F::try_from().unwrap()` below does not panic
+        assert!(
+            F::BITS > usize::BITS - N::USIZE.leading_zeros(),
+            "Field size {} is not large enough to hold {} points",
+            F::BITS,
+            N::USIZE
+        );
+
+        // assertion that table is not too large for the stack
+        assert!(<F as Serializable>::Size::USIZE * N::USIZE < 2024);
 
         let mut denominator = iter::repeat(F::ONE)
             .take(N::USIZE)
@@ -48,10 +56,18 @@ where
     }
 }
 
-/// `LagrangeTable` is a precomputation table for the Lagrange evaluation.
-/// The "x coordinates" of the input points are `x_0` to `x_(N-1)` are `F::ZERO` to `(N-1)*F::ONE`.
-/// The `LagrangeTable` also specifies `M` "x coordinates" for the output points
-/// The "x coordinates" of the output points are `x_N` to `x_(N+M-1)` are `N*F::ONE` to `(N+M-1)*F::ONE`.
+/// `LagrangeTable` is a precomputed table for the Lagrange evaluation.
+/// Allows to compute points on the polynomial, i.e. output points,
+/// given enough points on the polynomial, i.e. input points,
+/// by using the `eval` function.
+/// The "x coordinates" are implicit.
+/// The "y coordinates" of the input points are inputs to `eval`.
+/// The output of `eval` are the "y coordinates" of the output points .
+/// The "x coordinates" of the input points `x_0` to `x_(N-1)` are `F::ZERO` to `(N-1)*F::ONE`.
+/// The `LagrangeTable` also specifies `M` "x coordinates" for the output points.
+/// The "x coordinates" of the output points `x_N` to `x_(N+M-1)` are `N*F::ONE` to `(N+M-1)*F::ONE`
+/// when generated using `from(denominator)`
+/// unless generated using `new(denominator, x_output)` for a specific output "x coordinate" `x_output`.
 pub struct LagrangeTable<F: Field, N: ArrayLength, M: ArrayLength> {
     table: GenericArray<GenericArray<F, N>, M>,
 }
@@ -64,6 +80,9 @@ where
     /// generates a `CanonicalLagrangeTable` from `CanoncialLagrangeDenominators` for a single output point
     /// The "x coordinate" of the output point is `x_output`.
     pub fn new(denominator: CanonicalLagrangeDenominator<F, N>, x_output: &F) -> Self {
+        // assertion that table is not too large for the stack
+        assert!(<F as Serializable>::Size::USIZE * N::USIZE < 2024);
+
         let mut table = denominator.denominator;
         Self::compute_table_row(x_output, &mut table);
         LagrangeTable::<F, N, U1> {
@@ -103,7 +122,7 @@ where
         }
     }
 
-    /// helper function to compute a single row of `CanonicalLagrangeTable`
+    /// helper function to compute a single row of `LagrangeTable`
     ///
     /// ## Panics
     /// When the field size is too small for `N` evaluation points
@@ -128,8 +147,17 @@ where
 {
     fn from(value: CanonicalLagrangeDenominator<F, N>) -> Self {
         // assertion that field is large enough
-        // also checks that `try_from` for conversions from sufficiently small `u128` to `F` do not panic
-        debug_assert!(F::BITS > usize::BITS - (N::USIZE + M::USIZE).leading_zeros());
+        // when it is large enough, `F::try_from().unwrap()` below does not panic
+        assert!(
+            F::BITS > usize::BITS - (N::USIZE + M::USIZE).leading_zeros(),
+            "Field size {} is not large enough to hold {} + {} points",
+            F::BITS,
+            N::USIZE,
+            M::USIZE
+        );
+
+        // assertion that table is not too large for the stack
+        assert!(<F as Serializable>::Size::USIZE * N::USIZE * M::USIZE < 2024);
 
         let mut table = iter::repeat(value.denominator.clone())
             .take(M::USIZE)
@@ -206,35 +234,53 @@ mod test {
         }
     }
 
+    fn lagrange_single_output_point_using_new(
+        output_point: TestField,
+        input_points: [TestField; 32],
+    ) {
+        let polynomial_monomial_form = MonomialFormPolynomial {
+            coefficients: GenericArray::<TestField, U32>::from_array(input_points),
+        };
+        let output_expected = polynomial_monomial_form.eval(
+            &GenericArray::<TestField, U1>::from_array([output_point; 1]),
+        );
+        let polynomial = Polynomial::from(polynomial_monomial_form.clone());
+        let denominator = CanonicalLagrangeDenominator::<TestField, U32>::new();
+        // generate table using new
+        let lagrange_table = LagrangeTable::<TestField, U32, U1>::new(denominator, &output_point);
+        let output = lagrange_table.eval(&polynomial);
+        assert_eq!(output, output_expected);
+    }
+
+    proptest! {
+    #[test]
+    fn proptest_lagrange_single_output_point_using_new(output_point: TestField, input_points in prop::array::uniform32(any::<TestField>())){
+        lagrange_single_output_point_using_new(output_point,input_points);
+    }
+    }
+
+    fn lagrange_canonical_using_from(input_points: [TestField; 8]) {
+        let polynomial_monomial_form = MonomialFormPolynomial {
+            coefficients: GenericArray::<TestField, U8>::from_array(input_points),
+        };
+        // the canonical x coordinates are 0..15, the outputs use coordinates 8..15:
+        let x_coordinates_output = (8..15)
+            .map(|i| TestField::try_from(i).unwrap())
+            .collect::<GenericArray<_, _>>();
+        let output_expected = polynomial_monomial_form.eval(&x_coordinates_output);
+        let polynomial = Polynomial::from(polynomial_monomial_form.clone());
+        let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
+        // generate table using from
+        let lagrange_table = LagrangeTable::<TestField, U8, U7>::from(denominator);
+        let output = lagrange_table.eval(&polynomial);
+        assert_eq!(output, output_expected);
+    }
+
     proptest! {
         #[test]
-        fn lagrange_single_output_point_using_new(output_point: TestField, input_points in prop::array::uniform32(any::<TestField>())){
-            let polynomial_monomial_form = MonomialFormPolynomial{
-                coefficients: GenericArray::<TestField,U32>::from_array(input_points)};
-            let output_expected = polynomial_monomial_form.eval(
-                &GenericArray::<TestField,U1>::from_array([output_point;1]));
-            let polynomial = Polynomial::from(polynomial_monomial_form.clone());
-            let denominator = CanonicalLagrangeDenominator::<TestField,U32>::new();
-            // generate table using new
-            let lagrange_table = LagrangeTable::<TestField,U32,U1>::new(denominator,&output_point);
-            let output = lagrange_table.eval(&polynomial);
-            assert_eq!(output,output_expected);
-        }
-
-        #[test]
-        fn lagrange_cannonical_using_from(input_points in prop::array::uniform8(any::<TestField>()))
+        fn proptest_lagrange_canonical_using_from(input_points in prop::array::uniform8(any::<TestField>()))
         {
-            let polynomial_monomial_form = MonomialFormPolynomial{
-                coefficients: GenericArray::<TestField,U8>::from_array(input_points)};
-            // the canonical x coordinates are 0..15, the outputs use coordinates 8..15:
-            let x_coordinates_output = (8..15).map(|i|TestField::try_from(i).unwrap()).collect::<GenericArray<_, _>>();
-            let output_expected = polynomial_monomial_form.eval(&x_coordinates_output);
-            let polynomial = Polynomial::from(polynomial_monomial_form.clone());
-            let denominator = CanonicalLagrangeDenominator::<TestField,U8>::new();
-            // generate table using from
-            let lagrange_table = LagrangeTable::<TestField,U8,U7>::from(denominator);
-            let output = lagrange_table.eval(&polynomial);
-            assert_eq!(output,output_expected);
+            lagrange_canonical_using_from(input_points);
         }
     }
 }

@@ -25,7 +25,6 @@ pub trait PrimeField: Field {
     ///
     /// ## Panics
     /// When `self` is `Zero`
-
     #[must_use]
     fn invert(&self) -> Self {
         assert_ne!(*self, Self::ZERO);
@@ -36,7 +35,7 @@ pub trait PrimeField: Field {
         let mut newr = self.as_u128();
         let mut sign = 1u128;
 
-        while newr != 0u128 {
+        while newr != 0 {
             let quotient = r / newr;
             mem::swap(&mut t, &mut newt);
             mem::swap(&mut r, &mut newr);
@@ -332,8 +331,8 @@ macro_rules! field_impl {
                     assert!(matches!(err, GreaterThanPrimeError(..)))
                 }
 
-                    #[test]
-                fn test_invert(element: $field) {
+                #[test]
+                fn invert(element: $field) {
                     if element != $field::ZERO
                     {
                         assert_eq!($field::ONE,element * element.invert() );
