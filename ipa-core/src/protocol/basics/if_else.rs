@@ -2,7 +2,10 @@ use crate::{
     error::Error,
     ff::{boolean::Boolean, Field},
     protocol::{
-        basics::{mul::BooleanArrayMul, SecureMul},
+        basics::{
+            mul::{boolean_array_multiply, BooleanArrayMul},
+            SecureMul,
+        },
         context::Context,
         RecordId,
     },
@@ -84,7 +87,9 @@ where
     //     false_value + condition * (true_value - false_value)
     //   = false_value + 0
     //   = false_value
-    let product = B::multiply(ctx, record_id, &condition, &(true_value - &false_value)).await?;
+    let product =
+        boolean_array_multiply::<_, B>(ctx, record_id, &condition, &(true_value - &false_value))
+            .await?;
 
     Ok((false_value + &product).into())
 }

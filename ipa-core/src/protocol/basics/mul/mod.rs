@@ -1,4 +1,7 @@
-use std::ops::{Add, Sub};
+use std::{
+    future::Future,
+    ops::{Add, Sub},
+};
 
 use async_trait::async_trait;
 
@@ -55,40 +58,56 @@ use semi_honest::multiply as semi_honest_mul;
 // breakdown key type BK is BA8) can invoke vectorized multiply. Without this trait, those
 // implementations would need to specify the `N` const parameter, which is tricky, because you
 // can't supply an expression involving a type parameter (BK::BITS) as a const parameter.
-#[async_trait]
 pub trait BooleanArrayMul:
     Expand<Input = Replicated<Boolean>> + From<Self::Vectorized> + Into<Self::Vectorized>
 {
     type Vectorized: Send
+        + Sync
         + for<'a> Add<&'a Self::Vectorized, Output = Self::Vectorized>
-        + for<'a> Sub<&'a Self::Vectorized, Output = Self::Vectorized>;
+        + for<'a> Sub<&'a Self::Vectorized, Output = Self::Vectorized>
+        + 'static;
 
-    async fn multiply<'fut, C>(
+    fn multiply<'fut, C>(
         ctx: C,
         record_id: RecordId,
         a: &'fut Self::Vectorized,
         b: &'fut Self::Vectorized,
-    ) -> Result<Self::Vectorized, Error>
+    ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
     where
         C: Context + 'fut;
 }
 
+// Workaround for https://github.com/rust-lang/rust/issues/100013. Calling this wrapper function
+// instead of `<_ as BooleanArrayMul>::multiply` seems to hide the BooleanArrayMul `impl Future`
+// GAT.
+pub fn boolean_array_multiply<'fut, C, B>(
+    ctx: C,
+    record_id: RecordId,
+    a: &'fut B::Vectorized,
+    b: &'fut B::Vectorized,
+) -> impl Future<Output = Result<B::Vectorized, Error>> + Send + 'fut
+where
+    C: Context + 'fut,
+    B: BooleanArrayMul,
+{
+    B::multiply(ctx, record_id, a, b)
+}
+
 macro_rules! boolean_array_mul {
     ($dim:expr, $vec:ty) => {
-        #[async_trait]
         impl BooleanArrayMul for Replicated<$vec> {
             type Vectorized = Replicated<Boolean, $dim>;
 
-            async fn multiply<'fut, C>(
+            fn multiply<'fut, C>(
                 ctx: C,
                 record_id: RecordId,
                 a: &'fut Self::Vectorized,
                 b: &'fut Self::Vectorized,
-            ) -> Result<Self::Vectorized, Error>
+            ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
             where
                 C: Context + 'fut,
             {
-                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE).await
+                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE)
             }
         }
     };
