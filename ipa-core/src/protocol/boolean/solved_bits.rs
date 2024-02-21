@@ -153,7 +153,7 @@ mod tests {
     use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField, U128Conversions},
         protocol::{
             boolean::solved_bits::solved_bits,
             context::{Context, UpgradableContext, Validator},

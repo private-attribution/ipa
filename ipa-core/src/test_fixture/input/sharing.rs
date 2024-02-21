@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    ff::{boolean::Boolean, boolean_array::BA64, Field},
+    ff::{boolean::Boolean, boolean_array::BA64, Field, U128Conversions},
     protocol::ipa_prf::OPRFIPAInputRow,
     rand::Rng,
     report::{EventType, OprfReport},
@@ -22,9 +22,9 @@ const DOMAINS: &[&str] = &[
 // TODO: this mostly duplicates the impl for GenericReportTestInput, can we avoid that?
 impl<BK, TV, TS> IntoShares<OprfReport<BK, TV, TS>> for TestRawDataRecord
 where
-    BK: SharedValue + Field + IntoShares<Replicated<BK>>,
-    TV: SharedValue + Field + IntoShares<Replicated<TV>>,
-    TS: SharedValue + Field + IntoShares<Replicated<TS>>,
+    BK: SharedValue + U128Conversions + IntoShares<Replicated<BK>>,
+    TV: SharedValue + U128Conversions + IntoShares<Replicated<TV>>,
+    TS: SharedValue + U128Conversions + IntoShares<Replicated<TS>>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [OprfReport<BK, TV, TS>; 3] {
         let match_key = BA64::try_from(u128::from(self.user_id))
@@ -82,10 +82,10 @@ where
         let timestamp: [Replicated<TS>; 3] = TS::try_from(u128::from(self.timestamp))
             .unwrap()
             .share_with(rng);
-        let breakdown_key = BK::try_from(self.breakdown_key.into())
+        let breakdown_key = BK::try_from(u128::from(self.breakdown_key))
             .unwrap()
             .share_with(rng);
-        let trigger_value = TV::try_from(self.trigger_value.into())
+        let trigger_value = TV::try_from(u128::from(self.trigger_value))
             .unwrap()
             .share_with(rng);
 
@@ -112,9 +112,9 @@ where
 
 impl<BK, TV, TS> Reconstruct<TestRawDataRecord> for [&OPRFIPAInputRow<BK, TV, TS>; 3]
 where
-    BK: SharedValue + Field,
-    TV: SharedValue + Field,
-    TS: SharedValue + Field,
+    BK: SharedValue + U128Conversions,
+    TV: SharedValue + U128Conversions,
+    TS: SharedValue + U128Conversions,
 {
     fn reconstruct(&self) -> TestRawDataRecord {
         let [s0, s1, s2] = self;

@@ -179,8 +179,8 @@ mod tests {
     use futures_util::future::{join, try_join, try_join_all};
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Gf2},
-        helpers::{Direction, GatewayConfig, Role, SendingEnd},
+        ff::{Fp31, Fp32BitPrime, Gf2, U128Conversions},
+        helpers::{Direction, GatewayConfig, Message, Role, SendingEnd},
         protocol::{context::Context, RecordId},
         test_fixture::{Runner, TestWorld, TestWorldConfig},
     };
@@ -192,9 +192,9 @@ mod tests {
     /// Gateway must be able to deal with it.
     #[tokio::test]
     async fn can_handle_heterogeneous_channels() {
-        async fn send<F: Field>(channel: &SendingEnd<F>, i: usize) {
+        async fn send<V: Message + U128Conversions>(channel: &SendingEnd<V>, i: usize) {
             channel
-                .send(i.into(), F::truncate_from(u128::try_from(i).unwrap()))
+                .send(i.into(), V::truncate_from(u128::try_from(i).unwrap()))
                 .await
                 .unwrap();
         }

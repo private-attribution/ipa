@@ -660,7 +660,7 @@ mod concurrency_tests {
     use shuttle_crate::rand::thread_rng;
 
     use crate::{
-        ff::{Field, FieldType, Fp31, Fp32BitPrime},
+        ff::{FieldType, Fp31, Fp32BitPrime, U128Conversions},
         helpers::{
             query::{QueryConfig, QueryType::TestMultiply},
             Direction, GatewayConfig,

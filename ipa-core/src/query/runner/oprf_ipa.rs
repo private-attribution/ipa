@@ -136,7 +136,7 @@ mod tests {
     use crate::{
         ff::{
             boolean_array::{BA20, BA3, BA8},
-            Field, Fp31,
+            Fp31, U128Conversions,
         },
         helpers::{
             query::{IpaQueryConfig, QuerySize},
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(
             results.reconstruct()[0..3]
                 .iter()
-                .map(Field::as_u128)
+                .map(U128Conversions::as_u128)
                 .collect::<Vec<u128>>(),
             EXPECTED
         );

@@ -100,7 +100,7 @@ mod tests {
 
     use super::RandomBitsGenerator;
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Fp31, U128Conversions},
         protocol::{
             context::{Context, UpgradableContext, Validator},
             RecordId,

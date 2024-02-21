@@ -538,7 +538,7 @@ mod tests {
             error::BoxError,
             ff::{
                 boolean_array::{BA20, BA3, BA8},
-                Field, Fp31,
+                Fp31, U128Conversions,
             },
             helpers::query::{IpaQueryConfig, QueryType},
             protocol::ipa_prf::OPRFIPAInputRow,

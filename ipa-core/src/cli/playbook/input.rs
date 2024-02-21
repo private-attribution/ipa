@@ -6,16 +6,16 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{ff::Field, test_fixture::ipa::TestRawDataRecord};
+use crate::{ff::U128Conversions, test_fixture::ipa::TestRawDataRecord};
 
 pub trait InputItem {
     fn from_str(s: &str) -> Self;
 }
 
-impl<F: Field> InputItem for F {
+impl<T: U128Conversions> InputItem for T {
     fn from_str(s: &str) -> Self {
         let int_v = s.parse::<u128>().unwrap();
-        F::truncate_from(int_v)
+        T::truncate_from(int_v)
     }
 }
 
@@ -170,7 +170,7 @@ mod tests {
 
     mod input_source {
         use super::*;
-        use crate::{cli::playbook::input::InputSource, ff::Field};
+        use crate::{cli::playbook::input::InputSource, ff::U128Conversions};
 
         #[test]
         fn multiline() {

@@ -511,7 +511,7 @@ mod tests {
     };
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, U128Conversions},
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
             SharedValue, StdArray, Vectorizable,

@@ -12,7 +12,7 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use super::ArrayAccess;
 use crate::{
-    ff::{boolean_array::NonZeroPadding, Field, Serializable},
+    ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
     impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
@@ -189,7 +189,9 @@ macro_rules! bit_array_impl {
                 const NAME: &'static str = stringify!($field);
 
                 const ONE: Self = Self($one);
+            }
 
+            impl U128Conversions for $name {
                 fn as_u128(&self) -> u128 {
                     (*self).into()
                 }
@@ -226,7 +228,7 @@ macro_rules! bit_array_impl {
 
             impl FromRandomU128 for $name {
                 fn from_random_u128(src: u128) -> Self {
-                    Field::truncate_from(src)
+                    U128Conversions::truncate_from(src)
                 }
             }
 
@@ -503,7 +505,7 @@ macro_rules! bit_array_impl {
                     type Strategy = prop::strategy::Map<RangeInclusive<u128>, fn(u128) -> Self>;
 
                     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-                        (0..=MASK).prop_map(Field::truncate_from as _)
+                        (0..=MASK).prop_map(<$name as U128Conversions>::truncate_from as _)
                     }
                 }
 

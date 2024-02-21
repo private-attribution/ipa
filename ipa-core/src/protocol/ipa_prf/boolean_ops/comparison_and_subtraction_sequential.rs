@@ -244,7 +244,7 @@ mod test {
         ff::{
             boolean::Boolean,
             boolean_array::{BA3, BA32, BA5, BA64},
-            Expand, Field,
+            Expand, Field, U128Conversions,
         },
         protocol,
         protocol::{
@@ -406,7 +406,7 @@ mod test {
             let x = repeat_with(|| rng.gen())
                 .take(BENCH_COUNT)
                 .collect::<Vec<BA64>>();
-            let x_int = x.iter().map(Field::as_u128).collect::<Vec<_>>();
+            let x_int = x.iter().map(U128Conversions::as_u128).collect::<Vec<_>>();
             let y: BA64 = rng.gen::<BA64>();
             let y_int = y.as_u128();
 

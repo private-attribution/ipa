@@ -7,7 +7,7 @@ use sha2::Sha256;
 use typenum::U32;
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
+    ff::{boolean_array::BA256, Field, Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -187,12 +187,14 @@ impl FieldVectorizable<1> for Fp25519 {
     type ArrayAlias = StdArray<Self, 1>;
 }
 
-///implement Field because required by PRSS
 impl Field for Fp25519 {
     const NAME: &'static str = "Fp25519";
 
     const ONE: Fp25519 = Fp25519::ONE;
+}
 
+// TODO(812): remove these impls
+impl U128Conversions for Fp25519 {
     ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
     /// from or into u128. However it is sufficient to generate random elements in Fp25519
     fn as_u128(&self) -> u128 {
@@ -205,7 +207,6 @@ impl Field for Fp25519 {
     }
 }
 
-// TODO(812): remove this impl
 impl FromRandomU128 for Fp25519 {
     fn from_random_u128(v: u128) -> Self {
         let hk = Hkdf::<Sha256>::new(None, &v.to_le_bytes());
@@ -228,6 +229,7 @@ impl TryFrom<u128> for Fp25519 {
         Ok(f)
     }
 }
+// TODO(812): end remove impls
 
 #[cfg(all(test, unit_test))]
 mod test {

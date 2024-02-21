@@ -172,7 +172,7 @@ mod test {
     use crate::{
         ff::{
             boolean_array::{BA32, BA64},
-            Field,
+            U128Conversions,
         },
         protocol,
         protocol::{

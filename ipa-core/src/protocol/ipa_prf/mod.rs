@@ -7,7 +7,10 @@ use typenum::{Unsigned, U18};
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
     error::{Error, UnwrapInfallible},
-    ff::{boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable},
+    ff::{
+        boolean::Boolean, boolean_array::BA64, CustomArray, Field, PrimeField, Serializable,
+        U128Conversions,
+    },
     protocol::{
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
@@ -168,10 +171,10 @@ where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + CustomArray<Element = Boolean> + Field,
-    SS: SharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    TS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
+    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean> + Field,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {

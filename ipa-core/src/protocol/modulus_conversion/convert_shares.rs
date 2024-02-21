@@ -34,7 +34,7 @@ use pin_project::pin_project;
 use crate::{
     error::Error,
     exact::ExactSizeStream,
-    ff::{ArrayAccess, Field, Gf2, PrimeField},
+    ff::{ArrayAccess, Field, Gf2, PrimeField, U128Conversions},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},
@@ -266,7 +266,7 @@ async fn convert_bit<F, C, S>(
     locally_converted_bits: &BitConversionTriple<S>,
 ) -> Result<S, Error>
 where
-    F: Field,
+    F: Field + U128Conversions,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
@@ -398,7 +398,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime, Gf2, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, Gf2, PrimeField, U128Conversions},
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},
