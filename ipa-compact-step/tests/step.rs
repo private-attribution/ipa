@@ -1,5 +1,4 @@
 use ipa_compact_step::CompactStep;
-use ipa_core::protocol::step::CompactStep;
 
 #[derive(CompactStep)]
 enum AllOptions {
@@ -12,8 +11,10 @@ enum AllOptions {
     IntNamed(u16),
     #[step(child = SmallChild)]
     SmallChild,
-    #[step(child = SmallChild, name = "other-child")]
+    #[step(child = SmallChild, name = "sibling")]
     SmallChildNamed,
+    #[step(child = SmallChild, count = 3, name = "brood-mate")]
+    Brood(i8),
     #[step(child = LargeChild)]
     LargeChild,
 }
@@ -27,9 +28,16 @@ enum LargeChild {
     Children(u16),
 }
 
-#[test]
-fn enumerate_options() {
-    for i in 0..<AllOptions as CompactStep>::STEP_COUNT {
-        println!("{i:02}: {}", <AllOptions as CompactStep>::step_string(i));
+#[cfg(test)]
+mod tests {
+    use ipa_core::protocol::step::CompactStep;
+
+    use crate::AllOptions;
+
+    #[test]
+    fn enumerate_options() {
+        for i in 0..<AllOptions as CompactStep>::STEP_COUNT {
+            println!("{i:02}: {}", <AllOptions as CompactStep>::step_string(i));
+        }
     }
 }

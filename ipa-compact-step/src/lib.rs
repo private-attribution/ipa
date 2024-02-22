@@ -1,13 +1,18 @@
-use std::ops::Add;
+#![warn(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+
+mod sum;
+mod variant;
 
 use proc_macro::TokenStream as TokenStreamBasic;
-use proc_macro2::{Literal, Punct, Spacing, Span, TokenStream};
-use quote::{format_ident, quote, ToTokens};
-use syn::{
-    meta::ParseNestedMeta, parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum,
-    DeriveInput, ExprPath, Fields, Ident, LitInt, LitStr, Type, TypePath, Variant,
-};
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
+use syn::{meta::ParseNestedMeta, parse_macro_input, Data, DeriveInput, Fields, Ident};
 
+use crate::{sum::ExtendedSum, variant::VariantAttribute};
+
+/// A utility trait that decorates string-ish things and produces
+/// `names_like_this` or `NAMES_LIKE_THIS` from `NamesLikeThis`.
 trait CaseStyle {
     fn to_snake_case(&self) -> String {
         self.to_underscore(false)
@@ -54,8 +59,16 @@ pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
     TokenStreamBasic::from(output)
 }
 
+/// A utility trait that allows for more streamlined error reporting.
 trait IntoSpan {
     fn into_span(self) -> Result<Span, syn::Error>;
+
+    fn error<T>(self, msg: &str) -> Result<T, syn::Error>
+    where
+        Self: Sized,
+    {
+        Err(syn::Error::new(self.into_span()?, msg))
+    }
 }
 
 impl IntoSpan for Span {
@@ -64,237 +77,23 @@ impl IntoSpan for Span {
     }
 }
 
-impl IntoSpan for &'_ ParseNestedMeta<'_> {
+impl<T> IntoSpan for &T
+where
+    T: syn::spanned::Spanned,
+{
     fn into_span(self) -> Result<Span, syn::Error> {
-        Ok(self.path.require_ident()?.span())
+        Ok(self.span())
     }
-}
-
-fn error<S: IntoSpan, T>(span: S, msg: &str) -> Result<T, syn::Error> {
-    Err(syn::Error::new(span.into_span()?, msg))
 }
 
 fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
     let Data::Enum(data) = &ast.data else {
-        return error(ast.ident.span(), "Step can only be derived for an enum");
+        return ast.ident.error("Step can only be derived for an enum");
     };
 
     let variants = VariantAttribute::parse_attrs(data)?;
     Ok(generate(ident, &variants))
-}
-
-struct VariantAttrParser<'a> {
-    ident: &'a Ident,
-    name: Option<String>,
-    count: Option<usize>,
-    child: Option<ExprPath>,
-    integer: Option<TypePath>,
-}
-
-impl<'a> VariantAttrParser<'a> {
-    fn new(ident: &'a Ident) -> Self {
-        Self {
-            ident,
-            name: None,
-            count: None,
-            child: None,
-            integer: None,
-        }
-    }
-
-    fn parse(mut self, variant: &Variant) -> Result<VariantAttribute, syn::Error> {
-        match &variant.fields {
-            Fields::Named(_) => {
-                return error(
-                    variant.fields.span(),
-                    "#[derive(CompactStep)] does not support named field",
-                );
-            }
-            Fields::Unnamed(f) => {
-                if f.unnamed.len() != 1 {
-                    return error(
-                        f.span(),
-                        "#[derive(CompactStep) only supports empty or integer variants",
-                    );
-                }
-                let Some(f) = f.unnamed.first() else {
-                    return self.make_attr();
-                };
-
-                let Type::Path(int_type) = &f.ty else {
-                    return error(
-                        f.ty.span(),
-                        "#[derive(CompactStep)] variants need to have a single integer type",
-                    );
-                };
-                self.integer = Some(int_type.clone());
-
-                // Note: it looks like validating that the target type is an integer is
-                // close to impossible, so we'll leave things in this state.
-                // We use `TryFrom` for the value, so that will fail at least catch
-                // any errors.  The only problem being that the errors will be inscrutable.
-            }
-            Fields::Unit => {}
-        }
-        if let Some((_, d)) = &variant.discriminant {
-            return error(
-                d.span(),
-                "#[derive(CompactStep)] does not work with discriminants",
-            );
-        }
-
-        let Some(attr) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
-            return self.make_attr();
-        };
-
-        self.parse_attr(attr)?;
-        self.make_attr()
-    }
-
-    fn parse_attr(&mut self, attr: &Attribute) -> Result<(), syn::Error> {
-        attr.parse_nested_meta(|m| {
-            if m.path.is_ident("count") {
-                self.parse_count(&m)?;
-            } else if m.path.is_ident("name") {
-                self.parse_name(&m)?;
-            } else if m.path.is_ident("child") {
-                self.parse_child(&m)?;
-            } else {
-                return Err(m.error("#[step(...)] unsupported argument"));
-            }
-            Ok(())
-        })
-    }
-
-    fn parse_count(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
-        if self.count.is_some() {
-            return error(m, "#[step(count = ...)] duplicated");
-        }
-        if self.child.is_some() {
-            return error(
-                m,
-                "#[step(child = ...)] and #[step(count = ...)] are mutually exclusive",
-            );
-        }
-        if self.integer.is_none() {
-            return error(m, "#[step(count = ...)] only applies to integer variants");
-        }
-
-        let v: LitInt = m.value()?.parse()?;
-        let Ok(v) = v.base10_parse::<usize>() else {
-            return error(v.span(), "#[step(count = ...) invalid value");
-        };
-
-        if !(2..1000).contains(&v) {
-            return error(
-                v.span(),
-                "#[step(count = ...)] needs to be at least 2 and less than 1000",
-            );
-        }
-
-        self.count = Some(v);
-        Ok(())
-    }
-
-    fn parse_name(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
-        if self.name.is_some() {
-            return error(m, "#[step(name = ...)] duplicated");
-        }
-
-        self.name = Some(m.value()?.parse::<LitStr>()?.value());
-        Ok(())
-    }
-
-    fn parse_child(&mut self, m: &ParseNestedMeta<'_>) -> Result<(), syn::Error> {
-        if self.child.is_some() {
-            return error(m, "#[step(child = ...)] duplicated");
-        }
-        if self.count.is_some() {
-            return error(
-                m,
-                "#[step(child = ...)] and #[step(count = ...)] are mutually exclusive",
-            );
-        }
-
-        self.child = Some(m.value()?.parse::<ExprPath>()?);
-        Ok(())
-    }
-
-    fn make_attr(self) -> Result<VariantAttribute, syn::Error> {
-        if self.integer.is_some() && self.count.is_none() {
-            error(
-                self.ident.span(),
-                "#[derive(CompactStep)] requires that integer variants include #[step(count = ...)]",
-            )
-        } else {
-            Ok(VariantAttribute {
-                ident: self.ident.clone(),
-                name: self
-                    .name
-                    .unwrap_or_else(|| self.ident.to_string().to_snake_case()),
-                integer: self.count.zip(self.integer),
-                child: self.child,
-            })
-        }
-    }
-}
-
-struct VariantAttribute {
-    ident: Ident,
-    name: String,
-    integer: Option<(usize, TypePath)>,
-    child: Option<ExprPath>,
-}
-
-impl VariantAttribute {
-    fn parse_attrs(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
-        let mut steps = Vec::with_capacity(data.variants.len());
-        for v in &data.variants {
-            steps.push(VariantAttrParser::new(&v.ident).parse(v)?);
-        }
-        Ok(steps)
-    }
-}
-
-#[derive(Default, Clone)]
-struct ExtendedSum {
-    expr: TokenStream,
-    extra: usize,
-}
-
-impl ToTokens for ExtendedSum {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        if !self.expr.is_empty() {
-            tokens.extend(self.expr.clone());
-            Punct::new('+', Spacing::Alone).to_tokens(tokens);
-        }
-        Literal::usize_suffixed(self.extra).to_tokens(tokens);
-    }
-}
-
-impl Add<usize> for ExtendedSum {
-    type Output = Self;
-    fn add(self, v: usize) -> Self {
-        Self {
-            expr: self.expr,
-            extra: self.extra + v,
-        }
-    }
-}
-
-impl Add<TokenStream> for ExtendedSum {
-    type Output = Self;
-    fn add(mut self, v: TokenStream) -> Self {
-        if !self.expr.is_empty() {
-            Punct::new('+', Spacing::Alone).to_tokens(&mut self.expr);
-        }
-        self.expr.extend(v);
-        Self {
-            expr: self.expr,
-            extra: self.extra,
-        }
-    }
 }
 
 fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
@@ -309,54 +108,13 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     // This tracks the arms of the `CompactStep::step_string` match implementation.
     let mut step_string_arms = TokenStream::new();
 
-    for VariantAttribute {
-        ident: step_ident,
-        name: step_name,
-        integer: step_integer,
-        child: step_child,
-    } in variants
-    {
-        if let Some((step_count, step_integer)) = step_integer {
-            let array_name = format_ident!("{}_NAMES", step_ident.to_string().to_shouting_case());
-            let skip_zeros = match *step_count - 1 {
-                1..=9 => 2,
-                10..=99 => 1,
-                100..=999 => 0,
-                _ => unreachable!("step count is too damn high {step_count}"),
-            };
-            let step_names =
-                (0..*step_count).map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..]);
-            name_arrays.extend(quote! {
-                const #array_name: [&str; #step_count] = [#(#step_names),*];
-            });
-            as_ref_arms.extend(quote! {
-                Self::#step_ident(i) => #array_name[usize::try_from(*i).unwrap()],
-            });
-
-            let range_end = arm_count.clone() + *step_count;
-            step_string_arms.extend(quote! {
-                _ if i < #range_end => Self::#step_ident(#step_integer::try_from(i - (#arm_count)).unwrap()).as_ref().to_owned(),
-            });
-            arm_count = range_end;
-        } else {
-            as_ref_arms.extend(quote! {
-                Self::#step_ident => #step_name,
-            });
-
-            step_string_arms.extend(quote! {
-                _ if i == #arm_count => Self::#step_ident.as_ref().to_owned(),
-            });
-            arm_count = arm_count + 1;
-            if let Some(child) = step_child {
-                let range_end = arm_count.clone()
-                    + quote!(<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT);
-                step_string_arms.extend(quote! {
-                    _ if i < #range_end => Self::#step_ident.as_ref().to_owned() + "/" +
-                      &<#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
-                });
-                arm_count = range_end;
-            }
-        }
+    for v in variants {
+        arm_count = v.generate(
+            arm_count,
+            &mut name_arrays,
+            &mut as_ref_arms,
+            &mut step_string_arms,
+        );
     }
 
     let mut result = quote! {
@@ -382,15 +140,11 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         });
     } else {
         // Deal with the use of `TryFrom` on types that implement `From`.
-        let suppress_warning = if !name_arrays.is_empty() {
-            quote!(#[allow(clippy::unnecessary_fallible_conversions)])
-        } else {
-            TokenStream::new()
-        };
-
+        if !name_arrays.is_empty() {
+            result.extend(quote!(#[allow(clippy::unnecessary_fallible_conversions)]));
+        }
         result.extend(quote! {
             impl ::std::convert::AsRef<str> for #ident {
-                #suppress_warning
                 fn as_ref(&self) -> &str {
                     #name_arrays
                     match self {
@@ -398,10 +152,17 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
                     }
                 }
             }
+        });
 
+        // Implementing `CompactStep` involves some cases where 0 is added or subtracted.
+        if !name_arrays.is_empty() {
+            result.extend(
+                quote!(#[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]),
+            );
+        }
+        result.extend(quote! {
             impl ::ipa_core::protocol::step::CompactStep for #ident {
                 const STEP_COUNT: usize = #arm_count;
-                #suppress_warning
                 fn step_string(i: usize) -> String {
                     match i {
                         #step_string_arms
@@ -563,8 +324,8 @@ mod test {
             &quote! {
                 impl ::ipa_core::protocol::step::Step for ManyArms {}
 
+                #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for ManyArms {
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["arm0", "arm1", "arm2"];
                         match self {
@@ -573,9 +334,9 @@ mod test {
                     }
                 }
 
+                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
                 impl ::ipa_core::protocol::step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
@@ -600,8 +361,8 @@ mod test {
             &quote! {
                 impl ::ipa_core::protocol::step::Step for ManyArms {}
 
+                #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for ManyArms {
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["a0", "a1", "a2"];
                         match self {
@@ -610,9 +371,9 @@ mod test {
                     }
                 }
 
+                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
                 impl ::ipa_core::protocol::step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
@@ -697,6 +458,64 @@ mod test {
     }
 
     #[test]
+    fn int_child() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                enum Parent {
+                    #[step(child = Child, count = 5, name = "spawn")]
+                    Offspring(u8),
+                }
+            },
+            &quote! {
+                impl ::ipa_core::protocol::step::Step for Parent {}
+
+                #[allow(clippy::unnecessary_fallible_conversions)]
+                impl ::std::convert::AsRef<str> for Parent {
+                    fn as_ref(&self) -> &str {
+                        const OFFSPRING_NAMES: [&str; 5usize] =
+                            ["spawn0", "spawn1", "spawn2", "spawn3", "spawn4"];
+                        match self {
+                            Self::Offspring(i) => OFFSPRING_NAMES[usize::try_from(*i).unwrap()],
+                        }
+                    }
+                }
+
+                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
+                impl ::ipa_core::protocol::step::CompactStep for Parent {
+                    const STEP_COUNT: usize =
+                        (<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT * 6usize);
+                    fn step_string(i: usize) -> String {
+                        match i {
+                            _ if i
+                                < (<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT * 6usize)
+                                    =>
+                            {
+                                let offset = i - (0usize);
+                                let divisor =
+                                    <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1;
+                                let s = Self::Offspring(u8::try_from(offset / divisor).unwrap())
+                                    .as_ref()
+                                    .to_owned();
+                                if let Some(v) = (offset % divisor).checked_sub(1) {
+                                    s + "/"
+                                        + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(v)
+                                } else {
+                                    s
+                                }
+                            }
+                            _ => panic!(
+                                "step {i} is not valid for {t}",
+                                t = ::std::any::type_name::<Self>()
+                            ),
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
     fn all_arms() {
         derive_success(
             quote! {
@@ -713,8 +532,8 @@ mod test {
             &quote! {
                 impl ::ipa_core::protocol::step::Step for AllArms {}
 
+                #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for AllArms {
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn as_ref(&self) -> &str {
                         const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
                         match self {
@@ -726,9 +545,9 @@ mod test {
                     }
                 }
 
+                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
                 impl ::ipa_core::protocol::step::CompactStep for AllArms {
                     const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 6usize;
-                    #[allow(clippy::unnecessary_fallible_conversions)]
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Empty.as_ref().to_owned(),
@@ -891,6 +710,34 @@ mod test {
                 }
             },
             "#[step(count = ...)] duplicated",
+        );
+    }
+
+    #[test]
+    fn two_kids() {
+        derive_failure(
+            quote! {
+                #[derive(CompactStep)]
+                enum Foo {
+                    #[step(child = Foo, child = Foo)]
+                    Bar(u8),
+                }
+            },
+            "#[step(child = ...)] duplicated",
+        );
+    }
+
+    #[test]
+    fn lit_kid() {
+        derive_failure(
+            quote! {
+                #[derive(CompactStep)]
+                enum Foo {
+                    #[step(child = 3)]
+                    Bar(u8),
+                }
+            },
+            "expected identifier",
         );
     }
 
