@@ -37,5 +37,13 @@ pub trait CompactStep: crate::Step {
     /// The total number of steps that can be reached from this step.
     const STEP_COUNT: usize;
     /// Create a string representation for the step at index `i`.
+    #[must_use]
     fn step_string(i: usize) -> String;
+    /// For a given step index, `i`, indicate the narrowing type.
+    /// This only applies to step indices that have a child;
+    /// a step index that does not have a child will return `None`.
+    #[must_use]
+    fn step_narrow_type(_i: usize) -> Option<&'static str> {
+        None
+    }
 }

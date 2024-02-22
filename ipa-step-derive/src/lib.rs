@@ -107,18 +107,34 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     let mut as_ref_arms = TokenStream::new();
     // This tracks the arms of the `CompactStep::step_string` match implementation.
     let mut step_string_arms = TokenStream::new();
+    // This tracks the arms of a `CompactStep::step_narrow_type` match implementation.
+    let mut step_narrow_arms = TokenStream::new();
 
     for v in variants {
         arm_count = v.generate(
-            arm_count,
+            &arm_count,
             &mut name_arrays,
             &mut as_ref_arms,
             &mut step_string_arms,
+            &mut step_narrow_arms,
         );
     }
 
     let mut result = quote! {
         impl ::ipa_step::Step for #ident {}
+    };
+
+    let step_narrow = if step_narrow_arms.is_empty() {
+        TokenStream::new()
+    } else {
+        quote! {
+            fn step_narrow_type(i: usize) -> Option<&'static str> {
+                match i {
+                    #step_narrow_arms
+                    _ => None,
+                }
+            }
+        }
     };
 
     if as_ref_arms.is_empty() {
@@ -136,12 +152,18 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
                     assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                     String::from(#snakey)
                 }
+                #step_narrow
             }
         });
     } else {
         // Deal with the use of `TryFrom` on types that implement `From`.
         if !name_arrays.is_empty() {
-            result.extend(quote!(#[allow(clippy::unnecessary_fallible_conversions)]));
+            result.extend(quote! {
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
+            });
         }
         result.extend(quote! {
             impl ::std::convert::AsRef<str> for #ident {
@@ -156,9 +178,13 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
 
         // Implementing `CompactStep` involves some cases where 0 is added or subtracted.
         if !name_arrays.is_empty() {
-            result.extend(
-                quote!(#[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]),
-            );
+            result.extend(quote! {
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
+            });
         }
         result.extend(quote! {
             impl ::ipa_step::CompactStep for #ident {
@@ -169,6 +195,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
                         _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                     }
                 }
+                #step_narrow
             }
         });
     };
@@ -324,7 +351,10 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for ManyArms {}
 
-                #[allow(clippy::unnecessary_fallible_conversions)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
                 impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["arm0", "arm1", "arm2"];
@@ -334,7 +364,11 @@ mod test {
                     }
                 }
 
-                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
                     fn step_string(i: usize) -> String {
@@ -361,7 +395,10 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for ManyArms {}
 
-                #[allow(clippy::unnecessary_fallible_conversions)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
                 impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3usize] = ["a0", "a1", "a2"];
@@ -371,7 +408,11 @@ mod test {
                     }
                 }
 
-                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
                     fn step_string(i: usize) -> String {
@@ -416,6 +457,15 @@ mod test {
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
+
+                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                        match i {
+                            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
+                            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize)),
+                            _ => None,
+                        }
+                    }
                 }
             },
         );
@@ -452,6 +502,15 @@ mod test {
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
+
+                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                        match i {
+                            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
+                            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize)),
+                            _ => None,
+                        }
+                    }
                 }
             },
         );
@@ -470,7 +529,11 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for Parent {}
 
-                #[allow(clippy::unnecessary_fallible_conversions)]
+
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
                 impl ::std::convert::AsRef<str> for Parent {
                     fn as_ref(&self) -> &str {
                         const OFFSPRING_NAMES: [&str; 5usize] =
@@ -481,25 +544,24 @@ mod test {
                     }
                 }
 
-                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
+
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
                 impl ::ipa_step::CompactStep for Parent {
-                    const STEP_COUNT: usize =
-                        (<Child as ::ipa_step::CompactStep>::STEP_COUNT * 6usize);
+                    const STEP_COUNT: usize = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize;
                     fn step_string(i: usize) -> String {
                         match i {
-                            _ if i
-                                < (<Child as ::ipa_step::CompactStep>::STEP_COUNT * 6usize)
-                                    =>
-                            {
+                            _ if i < (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize => {
                                 let offset = i - (0usize);
-                                let divisor =
-                                    <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                                let divisor = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
                                 let s = Self::Offspring(u8::try_from(offset / divisor).unwrap())
                                     .as_ref()
                                     .to_owned();
                                 if let Some(v) = (offset % divisor).checked_sub(1) {
-                                    s + "/"
-                                        + &<Child as ::ipa_step::CompactStep>::step_string(v)
+                                    s + "/" + &<Child as ::ipa_step::CompactStep>::step_string(v)
                                 } else {
                                     s
                                 }
@@ -508,6 +570,20 @@ mod test {
                                 "step {i} is not valid for {t}",
                                 t = ::std::any::type_name::<Self>()
                             ),
+                        }
+                    }
+                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                        match i {
+                            _ if (0usize..(<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize).contains(&i) => {
+                                let offset = i - (0usize);
+                                let divisor = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                                if let Some(v) = (offset % divisor).checked_sub(1) {
+                                    <Child as ::ipa_step::CompactStep>::step_narrow_type(v)
+                                } else {
+                                    Some(::std::any::type_name::<Child>())
+                                }
+                            }
+                            _ => None,
                         }
                     }
                 }
@@ -532,7 +608,10 @@ mod test {
             &quote! {
                 impl ::ipa_step::Step for AllArms {}
 
-                #[allow(clippy::unnecessary_fallible_conversions)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
                 impl ::std::convert::AsRef<str> for AllArms {
                     fn as_ref(&self) -> &str {
                         const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
@@ -545,7 +624,11 @@ mod test {
                     }
                 }
 
-                #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
                 impl ::ipa_step::CompactStep for AllArms {
                     const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6usize;
                     fn step_string(i: usize) -> String {
@@ -558,6 +641,15 @@ mod test {
                             _ if i == <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize
                                 => Self::Final.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
+                    }
+
+                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                        match i {
+                            _ if i == 4usize => Some(::std::any::type_name::<::some::other::StepEnum>()),
+                            _ if (5usize..<::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize).contains(&i)
+                              => <::some::other::StepEnum as ::ipa_step::CompactStep>::step_narrow_type(i - (5usize)),
+                            _ => None,
                         }
                     }
                 }

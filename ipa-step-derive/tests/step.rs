@@ -25,7 +25,9 @@ enum SmallChild {}
 #[derive(CompactStep)]
 enum LargeChild {
     #[step(count = 12)]
-    Children(u16),
+    GrandChildren(u16),
+    #[step(child = SmallChild)]
+    Baby,
 }
 
 #[cfg(test)]
@@ -35,9 +37,24 @@ mod tests {
     use crate::AllOptions;
 
     #[test]
-    fn enumerate_options() {
+    fn enumerate() {
         for i in 0..<AllOptions as CompactStep>::STEP_COUNT {
-            println!("{i:02}: {}", <AllOptions as CompactStep>::step_string(i));
+            let n = <AllOptions as CompactStep>::step_string(i);
+            let t = <AllOptions as CompactStep>::step_narrow_type(i).unwrap_or("!");
+            println!("{i:02}: {n} -> {t}");
+        }
+    }
+}
+
+#[cfg(disabled)]
+mod tmp {
+    fn step_narrow_type(i: usize) -> Option<&'static str> {
+        match i {
+            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
+            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i) => {
+                <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize))
+            }
+            _ => None,
         }
     }
 }
