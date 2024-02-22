@@ -1,5 +1,5 @@
 [package]
-name = "ipa-compact-step"
+name = "ipa-step-derive"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,4 +12,4 @@ quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 
 [dev-dependencies]
-ipa-core = { version = "*", path = "../ipa-core" }
+ipa-step = { version = "*", path = "../ipa-step" }

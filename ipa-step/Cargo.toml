@@ -1,0 +1,11 @@
+[package]
+name = "ipa-step"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+descriptive = []
+trace = ["descriptive", "metrics"]
+
+[dependencies]
+metrics = { version = "0.21.0", optional = true }

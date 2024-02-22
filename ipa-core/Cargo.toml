@@ -16,6 +16,7 @@ default = [
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
+    "ipa-step/descriptive"
 ]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
@@ -56,7 +57,7 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = ["descriptive-gate"]
+step-trace = ["ipa-step/descriptive", "ipa-step/trace"]
 # The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
 descriptive-gate = []
@@ -72,6 +73,7 @@ ipa-prf = []
 
 [dependencies]
 ipa-macros = { version = "*", path = "../ipa-macros" }
+ipa-step = { version = "*", path = "../ipa-step" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"

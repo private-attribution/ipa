@@ -114,7 +114,12 @@ impl<'a> VariantAttrParser<'a> {
             return Err(m.error("#[step(name = ...)] duplicated"));
         }
 
-        self.name = Some(m.value()?.parse::<LitStr>()?.value());
+        let lit_name = m.value()?.parse::<LitStr>()?;
+        let n = lit_name.value();
+        if n.contains('/') {
+            return lit_name.error("#[step(name = ...)] cannot contain '/'");
+        }
+        self.name = Some(n);
         Ok(())
     }
 
@@ -203,12 +208,12 @@ impl VariantAttribute {
         });
         arm_count = arm_count + 1;
         if let Some(child) = step_child {
-            let range_end = arm_count.clone()
-                + quote!(<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT);
+            let range_end =
+                arm_count.clone() + quote!(<#child as ::ipa_step::CompactStep>::STEP_COUNT);
             step_string_arms.extend(quote! {
-            _ if i < #range_end => Self::#step_ident.as_ref().to_owned() + "/" +
-              &<#child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (#arm_count)),
-        });
+                _ if i < #range_end => Self::#step_ident.as_ref().to_owned() + "/" +
+                  &<#child as ::ipa_step::CompactStep>::step_string(i - (#arm_count)),
+            });
             range_end
         } else {
             arm_count
@@ -251,14 +256,14 @@ impl VariantAttribute {
         if let Some(child) = step_child {
             let full_count = *step_count + 1;
             let range_end = arm_count.clone()
-                + quote!((<#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT * #full_count));
+                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT * #full_count));
             step_string_arms.extend(quote! {
                 _ if i < #range_end => {
                     let offset = i - (#arm_count);
-                    let divisor = <#child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1;
+                    let divisor = <#child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
                     let s = Self::#step_ident(#step_integer::try_from(offset / divisor).unwrap()).as_ref().to_owned();
                     if let Some(v) = (offset % divisor).checked_sub(1) {
-                        s + "/" + &<#child as ::ipa_core::protocol::step::CompactStep>::step_string(v)
+                        s + "/" + &<#child as ::ipa_step::CompactStep>::step_string(v)
                     } else {
                         s
                     }

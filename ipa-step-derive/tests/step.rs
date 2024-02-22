@@ -1,4 +1,4 @@
-use ipa_compact_step::CompactStep;
+use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
 enum AllOptions {
@@ -30,7 +30,7 @@ enum LargeChild {
 
 #[cfg(test)]
 mod tests {
-    use ipa_core::protocol::step::CompactStep;
+    use ipa_step::CompactStep;
 
     use crate::AllOptions;
 

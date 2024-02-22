@@ -7,7 +7,7 @@ mod variant;
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{meta::ParseNestedMeta, parse_macro_input, Data, DeriveInput, Fields, Ident};
+use syn::{parse_macro_input, Data, DeriveInput, Ident};
 
 use crate::{sum::ExtendedSum, variant::VariantAttribute};
 
@@ -118,7 +118,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     }
 
     let mut result = quote! {
-        impl ::ipa_core::protocol::step::Step for #ident {}
+        impl ::ipa_step::Step for #ident {}
     };
 
     if as_ref_arms.is_empty() {
@@ -130,7 +130,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
                 }
             }
 
-            impl ::ipa_core::protocol::step::CompactStep for #ident {
+            impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = 1usize;
                 fn step_string(i: usize) -> String {
                     assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
@@ -161,7 +161,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
             );
         }
         result.extend(quote! {
-            impl ::ipa_core::protocol::step::CompactStep for #ident {
+            impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = #arm_count;
                 fn step_string(i: usize) -> String {
                     match i {
@@ -225,7 +225,7 @@ mod test {
                 enum EmptyEnum {}
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for EmptyEnum {}
+                impl ::ipa_step::Step for EmptyEnum {}
 
                 impl ::std::convert::AsRef<str> for EmptyEnum {
                     fn as_ref(&self) -> &str {
@@ -233,7 +233,7 @@ mod test {
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for EmptyEnum {
+                impl ::ipa_step::CompactStep for EmptyEnum {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
                         assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
@@ -254,7 +254,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for OneArm {}
+                impl ::ipa_step::Step for OneArm {}
 
                 impl ::std::convert::AsRef<str> for OneArm {
                     fn as_ref(&self) -> &str {
@@ -264,7 +264,7 @@ mod test {
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for OneArm {
+                impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
@@ -288,7 +288,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for OneArm {}
+                impl ::ipa_step::Step for OneArm {}
 
                 impl ::std::convert::AsRef<str> for OneArm {
                     fn as_ref(&self) -> &str {
@@ -298,7 +298,7 @@ mod test {
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for OneArm {
+                impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
@@ -322,7 +322,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for ManyArms {}
+                impl ::ipa_step::Step for ManyArms {}
 
                 #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for ManyArms {
@@ -335,7 +335,7 @@ mod test {
                 }
 
                 #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
-                impl ::ipa_core::protocol::step::CompactStep for ManyArms {
+                impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
                     fn step_string(i: usize) -> String {
                         match i {
@@ -359,7 +359,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for ManyArms {}
+                impl ::ipa_step::Step for ManyArms {}
 
                 #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for ManyArms {
@@ -372,7 +372,7 @@ mod test {
                 }
 
                 #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
-                impl ::ipa_core::protocol::step::CompactStep for ManyArms {
+                impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
                     fn step_string(i: usize) -> String {
                         match i {
@@ -396,7 +396,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for Parent {}
+                impl ::ipa_step::Step for Parent {}
 
                 impl ::std::convert::AsRef<str> for Parent {
                     fn as_ref(&self) -> &str {
@@ -406,13 +406,13 @@ mod test {
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for Parent {
-                    const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
+                impl ::ipa_step::CompactStep for Parent {
+                    const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
-                            _ if i < <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1usize)),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -432,7 +432,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for Parent {}
+                impl ::ipa_step::Step for Parent {}
 
                 impl ::std::convert::AsRef<str> for Parent {
                     fn as_ref(&self) -> &str {
@@ -442,13 +442,13 @@ mod test {
                     }
                 }
 
-                impl ::ipa_core::protocol::step::CompactStep for Parent {
-                    const STEP_COUNT: usize = <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize;
+                impl ::ipa_step::CompactStep for Parent {
+                    const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
-                            _ if i < <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(i - (1usize)),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1usize)),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -468,7 +468,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for Parent {}
+                impl ::ipa_step::Step for Parent {}
 
                 #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for Parent {
@@ -482,24 +482,24 @@ mod test {
                 }
 
                 #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
-                impl ::ipa_core::protocol::step::CompactStep for Parent {
+                impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize =
-                        (<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT * 6usize);
+                        (<Child as ::ipa_step::CompactStep>::STEP_COUNT * 6usize);
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i
-                                < (<Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT * 6usize)
+                                < (<Child as ::ipa_step::CompactStep>::STEP_COUNT * 6usize)
                                     =>
                             {
                                 let offset = i - (0usize);
                                 let divisor =
-                                    <Child as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 1;
+                                    <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
                                 let s = Self::Offspring(u8::try_from(offset / divisor).unwrap())
                                     .as_ref()
                                     .to_owned();
                                 if let Some(v) = (offset % divisor).checked_sub(1) {
                                     s + "/"
-                                        + &<Child as ::ipa_core::protocol::step::CompactStep>::step_string(v)
+                                        + &<Child as ::ipa_step::CompactStep>::step_string(v)
                                 } else {
                                     s
                                 }
@@ -530,7 +530,7 @@ mod test {
                 }
             },
             &quote! {
-                impl ::ipa_core::protocol::step::Step for AllArms {}
+                impl ::ipa_step::Step for AllArms {}
 
                 #[allow(clippy::unnecessary_fallible_conversions)]
                 impl ::std::convert::AsRef<str> for AllArms {
@@ -546,16 +546,16 @@ mod test {
                 }
 
                 #[allow(clippy::unnecessary_fallible_conversions, clippy::identity_op)]
-                impl ::ipa_core::protocol::step::CompactStep for AllArms {
-                    const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 6usize;
+                impl ::ipa_step::CompactStep for AllArms {
+                    const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6usize;
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Empty.as_ref().to_owned(),
                             _ if i < 4usize => Self::Int(usize::try_from(i - (1usize)).unwrap()).as_ref().to_owned(),
                             _ if i == 4usize => Self::Child.as_ref().to_owned(),
-                            _ if i < <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
-                                => Self::Child.as_ref().to_owned() + "/" + &<::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::step_string(i - (5usize)),
-                            _ if i == <::some::other::StepEnum as ::ipa_core::protocol::step::CompactStep>::STEP_COUNT + 5usize
+                            _ if i < <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize
+                                => Self::Child.as_ref().to_owned() + "/" + &<::some::other::StepEnum as ::ipa_step::CompactStep>::step_string(i - (5usize)),
+                            _ if i == <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize
                                 => Self::Final.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
@@ -756,20 +756,6 @@ mod test {
     }
 
     #[test]
-    fn name_very_invalid() {
-        derive_failure(
-            quote! {
-                #[derive(CompactStep)]
-                enum Foo {
-                    #[step(name = ())]
-                    Bar(u8),
-                }
-            },
-            "expected string literal",
-        );
-    }
-
-    #[test]
     fn name_invalid() {
         derive_failure(
             quote! {
@@ -780,6 +766,20 @@ mod test {
                 }
             },
             "expected string literal",
+        );
+    }
+
+    #[test]
+    fn name_slask() {
+        derive_failure(
+            quote! {
+                #[derive(CompactStep)]
+                enum Foo {
+                    #[step(name = "/")]
+                    Bar(u8),
+                }
+            },
+            "#[step(name = ...)] cannot contain '/'",
         );
     }
 
