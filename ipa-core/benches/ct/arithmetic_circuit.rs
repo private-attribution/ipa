@@ -1,6 +1,6 @@
 use criterion::{
-    black_box, criterion_group, criterion_main, measurement::Measurement, BenchmarkGroup,
-    BenchmarkId, Criterion, SamplingMode, Throughput,
+    black_box, criterion_group, criterion_main, measurement::Measurement, BatchSize,
+    BenchmarkGroup, BenchmarkId, Criterion, SamplingMode, Throughput,
 };
 use ipa_core::{
     ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
@@ -16,6 +16,7 @@ fn do_benchmark<M, F, const N: usize>(
     group: &mut BenchmarkGroup<M>,
     width: u32,
     depth: u16,
+    active_work: usize,
 ) where
     M: Measurement,
     F: Field + FieldSimd<N> + U128Conversions,
@@ -25,11 +26,24 @@ fn do_benchmark<M, F, const N: usize>(
 {
     group.throughput(Throughput::Elements((width * depth as u32) as u64));
     group.bench_with_input(
-        BenchmarkId::new("circuit", format!("{width}:{depth}:{}x{}", F::NAME, N)),
+        BenchmarkId::new(
+            "circuit",
+            format!("{width}:{depth}:{active_work}:{}x{}", F::NAME, N),
+        ),
         &(width, depth),
         |b, &(width, depth)| {
-            b.to_async(rt)
-                .iter(|| circuit::arithmetic::<F, N>(black_box(width), black_box(depth)));
+            b.to_async(rt).iter_batched(
+                || circuit::arithmetic_setup(width, depth),
+                |input| {
+                    circuit::arithmetic::<F, N>(
+                        black_box(width),
+                        black_box(depth),
+                        active_work,
+                        input,
+                    )
+                },
+                BatchSize::PerIteration,
+            );
         },
     );
 }
@@ -46,14 +60,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(10);
     group.sampling_mode(SamplingMode::Flat);
 
-    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 512_000, 1);
-    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 51_200, 10);
-    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 8_000, 64);
+    // Note that the width parameter (3rd-to-last argument to do_benchmark) must
+    // be a multiple of the vectorization width.
 
-    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 25_600, 10);
-    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 2_560, 100);
-    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 4_000, 64);
-    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 250, 1_024);
+    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 4_096, 64, 1024);
+    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 1_024, 256, 1024);
+
+    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 4_096, 64, 1024);
+    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 1_024, 256, 1024);
+    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 4_096, 64, 32);
+    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 1_024, 256, 32);
 }
 
 criterion_group!(benches, criterion_benchmark);
