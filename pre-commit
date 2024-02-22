@@ -90,6 +90,8 @@ check "Clippy concurrency checks" \
 check "Clippy web checks" \
     cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate" -- -D warnings
 
+# The tests here need to be kept in sync with scripts/coverage-ci.
+
 check "Tests" \
     cargo test
 

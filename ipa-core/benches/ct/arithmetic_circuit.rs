@@ -63,13 +63,23 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     // Note that the width parameter (3rd-to-last argument to do_benchmark) must
     // be a multiple of the vectorization width.
 
-    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 4_096, 64, 1024);
-    do_benchmark::<_, Fp31, 1>(&rt, &mut group, 1_024, 256, 1024);
+    #[cfg(not(coverage))]
+    {
+        do_benchmark::<_, Fp31, 1>(&rt, &mut group, 4_096, 64, 1024);
+        do_benchmark::<_, Fp31, 1>(&rt, &mut group, 1_024, 256, 1024);
 
-    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 4_096, 64, 1024);
-    do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 1_024, 256, 1024);
-    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 4_096, 64, 32);
-    do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 1_024, 256, 32);
+        do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 4_096, 64, 1024);
+        do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 1_024, 256, 1024);
+        do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 4_096, 64, 32);
+        do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 1_024, 256, 32);
+    }
+
+    #[cfg(coverage)]
+    {
+        do_benchmark::<_, Fp31, 1>(&rt, &mut group, 256, 64, 32);
+        do_benchmark::<_, Fp32BitPrime, 1>(&rt, &mut group, 256, 64, 32);
+        do_benchmark::<_, Fp32BitPrime, 32>(&rt, &mut group, 256, 64, 32);
+    }
 }
 
 criterion_group!(benches, criterion_benchmark);
