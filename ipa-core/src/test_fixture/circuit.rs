@@ -105,7 +105,7 @@ pub async fn arithmetic<F, const N: usize>(
         .collect::<Vec<_>>()
         .try_into()
     else {
-        panic!("infallible try_into array");
+        unreachable!("infallible try_into array");
     };
 
     let (res0, res1, res2) = join3(fut0, fut1, fut2).await;
