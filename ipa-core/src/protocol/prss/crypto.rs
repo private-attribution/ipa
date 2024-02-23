@@ -140,7 +140,7 @@ pub trait SharedRandomness {
     // Equivalent functionality could be obtained by defining an `Unreplicated<F>` type that
     // implements `FromPrss`.
     #[must_use]
-    fn zero<V: SharedValue + FromRandomU128, I: Into<PrssIndex>>(&self, index: I) -> V {
+    fn zero<V: SharedValue + FromRandom, I: Into<PrssIndex>>(&self, index: I) -> V {
         let (l, r): (V, V) = self.generate(index);
         l - r
     }

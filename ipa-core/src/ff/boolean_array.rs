@@ -1,5 +1,5 @@
 use bitvec::{
-    prelude::{bitarr, BitArr, Lsb0},
+    prelude::{BitArr, Lsb0},
     slice::Iter,
 };
 use generic_array::GenericArray;
@@ -9,7 +9,7 @@ use crate::{
     error::LengthError,
     ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -78,63 +78,10 @@ where
     }
 }
 
-/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
-/// This macro uses a bit of recursive repetition to produce those zeros.
-///
-/// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
-macro_rules! bitarr_one {
-
-    // The binary value of `$bits-1` is expanded in MSB order for each of the values we care about.
-    // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(expand)=> 1 0 0 1 1
-
-    (2) => { bitarr_one!(1) };
-    (3) => { bitarr_one!(1 0) };
-    (4) => { bitarr_one!(1 1) };
-    (5) => { bitarr_one!(1 0 0) };
-    (6) => { bitarr_one!(1 0 1) };
-    (7) => { bitarr_one!(1 1 0) };
-    (8) => { bitarr_one!(1 1 1) };
-    (20) => { bitarr_one!(1 0 0 1 1) };
-    (32) => { bitarr_one!(1 1 1 1 1) };
-    (64) => { bitarr_one!(1 1 1 1 1 1) };
-    (112) => { bitarr_one!(1 1 0 1 1 1 1) };
-    (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
-
-    // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
-    // This also reverses the bit order so that the MSB comes last, as needed for recursion.
-
-    // This passes a value back once the conversion is done.
-    ($([$($x:tt)*])*) => { bitarr_one!(@r $([$($x)*])*) };
-    // This converts one 1 into `[0,]`.
-    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!([0,] $([$($x)*])* $($y)*) };
-    // This converts one 0 into `[]`.
-    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!([] $([$($x)*])* $($y)*) };
-
-    // Recursion step.
-
-    // This is where recursion ends with a `BitArray`.
-    (@r [$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
-    // This is the recursion workhorse.  It takes a list of lists.  The outer lists are bracketed.
-    // The inner lists contain any form that can be repeated and concatenated, which probably
-    // means comma-separated values with a trailing comma.
-    // The first value is repeated once.
-    // The second value is repeated twice and merged into the first value.
-    // The third and subsequent values are repeated twice and shifted along one place.
-    // One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
-    (@r [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!(@r [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
-}
-
 // Macro for boolean arrays <= 128 bits.
 macro_rules! boolean_array_impl_small {
     ($modname:ident, $name:ident, $bits:tt, $deser_type:tt) => {
         boolean_array_impl!($modname, $name, $bits, $deser_type);
-
-        // TODO(812): remove this impl; BAs are not field elements.
-        impl Field for $name {
-            const NAME: &'static str = stringify!($name);
-
-            const ONE: Self = Self(bitarr_one!($bits));
-        }
 
         impl U128Conversions for $name {
             fn truncate_from<T: Into<u128>>(v: T) -> Self {
@@ -192,10 +139,6 @@ macro_rules! boolean_array_impl_small {
             fn from_random_u128(src: u128) -> Self {
                 Self::truncate_from(src)
             }
-        }
-
-        impl FieldVectorizable<1> for $name {
-            type ArrayAlias = StdArray<$name, 1>;
         }
     };
 }
@@ -261,9 +204,6 @@ macro_rules! impl_serializable_trait {
 
                 let min_value = $name::ZERO.0;
                 deserialize(min_value).unwrap();
-
-                let one = $name::ONE.0;
-                deserialize(one).unwrap();
 
                 let mut max_value = $name::ZERO.0;
                 max_value[..$bits].fill(true);

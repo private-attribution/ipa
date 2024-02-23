@@ -155,7 +155,10 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::cmp::Ordering;
+    use std::{
+        cmp::Ordering,
+        iter::{repeat, repeat_with},
+    };
 
     use ipa_macros::Step;
     use rand::Rng;
@@ -163,7 +166,7 @@ pub mod tests {
     use crate::{
         ff::{
             boolean_array::{BA20, BA64},
-            Field, U128Conversions,
+            U128Conversions,
         },
         protocol::{context::Context, ipa_prf::quicksort::quicksort_ranges_by_key_insecure},
         rand::thread_rng,
@@ -188,8 +191,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of random values
-                let mut records: Vec<BA64> = vec![<BA64>::ONE; 20];
-                records.iter_mut().for_each(|x| *x = rng.gen::<BA64>());
+                let records: Vec<BA64> = repeat_with(|| rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -236,10 +238,8 @@ pub mod tests {
             let bools = vec![false, true];
 
             for desc in bools {
-                // generate vector of random values
-                let element = rng.gen::<BA64>();
-                let mut records: Vec<BA64> = vec![<BA64>::ONE; 20];
-                records.iter_mut().for_each(|x| *x = element);
+                // generate vector of 20 copies of same random value
+                let records: Vec<BA64> = repeat(rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =
@@ -334,8 +334,7 @@ pub mod tests {
 
             for desc in bools {
                 // generate vector of random values
-                let mut records: Vec<BA64> = vec![<BA64>::ONE; 20];
-                records.iter_mut().for_each(|x| *x = rng.gen::<BA64>());
+                let records: Vec<BA64> = repeat_with(|| rng.gen()).take(20).collect();
 
                 // convert expected into more readable format
                 let mut expected: Vec<u128> =

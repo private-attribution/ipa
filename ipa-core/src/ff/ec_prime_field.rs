@@ -2,14 +2,12 @@ use std::convert::Infallible;
 
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
-use hkdf::Hkdf;
-use sha2::Sha256;
-use typenum::U32;
+use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable, U128Conversions},
+    ff::{boolean_array::BA256, Field, Serializable},
     impl_shared_value_common,
-    protocol::prss::FromRandomU128,
+    protocol::prss::FromRandom,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
@@ -193,43 +191,17 @@ impl Field for Fp25519 {
     const ONE: Fp25519 = Fp25519::ONE;
 }
 
-// TODO(812): remove these impls
-impl U128Conversions for Fp25519 {
-    ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
-    /// from or into u128. However it is sufficient to generate random elements in Fp25519
-    fn as_u128(&self) -> u128 {
-        unimplemented!()
-    }
+impl FromRandom for Fp25519 {
+    type SourceLength = U2;
 
-    ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
-    fn truncate_from<T: Into<u128>>(_v: T) -> Self {
-        unimplemented!()
+    fn from_random(src: GenericArray<u128, Self::SourceLength>) -> Self {
+        let mut src_bytes = [0u8; 32];
+        src_bytes[0..16].copy_from_slice(&src[0].to_le_bytes());
+        src_bytes[16..32].copy_from_slice(&src[1].to_le_bytes());
+        // Reduces mod order
+        Fp25519::deserialize_infallible(<&GenericArray<u8, U32>>::from(&src_bytes))
     }
 }
-
-impl FromRandomU128 for Fp25519 {
-    fn from_random_u128(v: u128) -> Self {
-        let hk = Hkdf::<Sha256>::new(None, &v.to_le_bytes());
-        let mut okm = [0u8; 32];
-        //error invalid length from expand only happens when okm is very large
-        hk.expand(&[], &mut okm).unwrap();
-        Fp25519::deserialize_infallible(&okm.into())
-    }
-}
-
-///implement `TryFrom` since required by Field
-impl TryFrom<u128> for Fp25519 {
-    type Error = crate::error::Error;
-
-    fn try_from(v: u128) -> Result<Self, Self::Error> {
-        let mut bits = [0u8; 32];
-        bits[..].copy_from_slice(&v.to_le_bytes());
-        let f: Fp25519 = Fp25519::ONE;
-        f.serialize((&mut bits).into());
-        Ok(f)
-    }
-}
-// TODO(812): end remove impls
 
 #[cfg(all(test, unit_test))]
 mod test {
