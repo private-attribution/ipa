@@ -58,13 +58,12 @@ use semi_honest::multiply as semi_honest_mul;
 // breakdown key type BK is BA8) can invoke vectorized multiply. Without this trait, those
 // implementations would need to specify the `N` const parameter, which is tricky, because you
 // can't supply an expression involving a type parameter (BK::BITS) as a const parameter.
-pub trait BooleanArrayMul:
-    Expand<Input = Replicated<Boolean>> + From<Self::Vectorized> + Into<Self::Vectorized>
-{
-    type Vectorized: Send
-        + Sync
+pub trait BooleanArrayMul: Expand<Input = Replicated<Boolean>> + From<Self::Vectorized> {
+    type Vectorized: From<Self>
         + for<'a> Add<&'a Self::Vectorized, Output = Self::Vectorized>
         + for<'a> Sub<&'a Self::Vectorized, Output = Self::Vectorized>
+        + Send
+        + Sync
         + 'static;
 
     fn multiply<'fut, C>(

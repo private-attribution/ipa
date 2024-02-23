@@ -75,9 +75,9 @@ where
     C: Context,
     B: Clone + BooleanArrayMul,
 {
-    let false_value = false_value.clone().into();
-    let true_value = true_value.clone().into();
-    let condition = B::expand(condition).into();
+    let false_value = B::Vectorized::from(false_value.clone());
+    let true_value = B::Vectorized::from(true_value.clone());
+    let condition = B::Vectorized::from(B::expand(condition));
     // If `condition` is a share of 1 (true), then
     //     false_value + condition * (true_value - false_value)
     //   = false_value + true_value - false_value

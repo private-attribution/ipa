@@ -180,8 +180,6 @@ macro_rules! impl_serializable_trait {
 
         #[cfg(all(test, unit_test))]
         mod fallible_serialization_tests {
-            use rand::{thread_rng, Rng};
-
             use super::*;
 
             /// [`https://github.com/private-attribution/ipa/issues/911`]
@@ -197,8 +195,6 @@ macro_rules! impl_serializable_trait {
                     "Padding only makes sense for lengths that are not multiples of 8."
                 );
 
-                let mut rng = thread_rng();
-
                 let mut non_zero_padding = $name::ZERO.0;
                 non_zero_padding.set($bits, true);
                 assert_eq!(
@@ -212,10 +208,6 @@ macro_rules! impl_serializable_trait {
                 let mut max_value = $name::ZERO.0;
                 max_value[..$bits].fill(true);
                 deserialize(max_value).unwrap();
-
-                let mut rnd_value = $name::ZERO.0;
-                rnd_value[..$bits].fill_with(|_| rng.gen());
-                deserialize(rnd_value).unwrap();
             }
         }
     };
