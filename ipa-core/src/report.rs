@@ -332,11 +332,9 @@ where
 
         let mut ct_mk: GenericArray<u8, CTMKLength> =
             *GenericArray::from_slice(self.mk_ciphertext());
-        // let mut ct_mk = self.mk_ciphertext().to_vec();
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
-        // let mut ct_btt = self.btt_ciphertext().to_vec();
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
