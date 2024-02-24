@@ -42,9 +42,9 @@ where
         assert!(<F as Serializable>::Size::USIZE * N::USIZE < 2024);
 
         let mut denominator = GenericArray::generate(|_| F::ONE);
-        for (i, d) in denominator.iter_mut().enumerate() {
-            for j in (0usize..N::USIZE).filter(|&j| i != j) {
-                *d *= F::try_from(i as u128).unwrap() - F::try_from(j as u128).unwrap();
+        for (d, i) in denominator.iter_mut().zip(0u64..) {
+            for j in (0..N::U64).filter(|&j| i != j) {
+                *d *= F::try_from(u128::from(i)).unwrap() - F::try_from(u128::from(j)).unwrap();
             }
             *d = d.invert();
         }
@@ -125,9 +125,9 @@ where
         F: Field,
         N: ArrayLength,
     {
-        for (i, entry) in table_row.iter_mut().enumerate() {
-            for j in (0usize..N::USIZE).filter(|&j| j != i) {
-                *entry *= *x_output - F::try_from(j as u128).unwrap();
+        for (entry, i) in table_row.iter_mut().zip(0u64..) {
+            for j in (0..N::U64).filter(|&j| j != i) {
+                *entry *= *x_output - F::try_from(u128::from(j)).unwrap();
             }
         }
     }
@@ -154,8 +154,8 @@ where
         assert!(<F as Serializable>::Size::USIZE * N::USIZE * M::USIZE < 2024);
 
         let mut table = GenericArray::generate(|_| value.denominator.clone());
-        table.iter_mut().enumerate().for_each(|(i, row)| {
-            Self::compute_table_row(&F::try_from((i + N::USIZE) as u128).unwrap(), row);
+        table.iter_mut().zip(0u64..).for_each(|(row, i)| {
+            Self::compute_table_row(&F::try_from(u128::from(i + N::U64)).unwrap(), row);
         });
         LagrangeTable { table }
     }
@@ -214,7 +214,7 @@ mod test {
     {
         fn from(value: MonomialFormPolynomial<F, N>) -> Self {
             let canonical_points: GenericArray<F, N> =
-                GenericArray::generate(|i| F::try_from(i as u128).unwrap());
+                GenericArray::generate(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
             Polynomial {
                 y_coordinates: value.eval(&canonical_points),
             }
@@ -251,8 +251,9 @@ mod test {
             coefficients: GenericArray::<TestField, U8>::from_array(input_points),
         };
         // the canonical x coordinates are 0..15, the outputs use coordinates 8..15:
-        let x_coordinates_output =
-            GenericArray::<_, U7>::generate(|i| TestField::try_from(i as u128 + 8).unwrap());
+        let x_coordinates_output = GenericArray::<_, U7>::generate(|i| {
+            TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap()
+        });
         let output_expected = polynomial_monomial_form.eval(&x_coordinates_output);
         let polynomial = Polynomial::from(polynomial_monomial_form.clone());
         let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
