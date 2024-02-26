@@ -44,7 +44,10 @@ macro_rules! track_steps {
     ($($a:ident$(::$b:ident)* $(=> $f:expr)*),*) => {
         $(println!("cargo:rerun-if-changed={f}", f = ::ipa_step::module_file!($a$(::$b)* $(=> $f)*));)*
         println!("cargo:rerun-if-changed={f}", f = ::std::file!());
-        println!("cargo:rustc-env=COMPACT_GATE_INCLUDE=true");
+        assert!(::std::env::var(::ipa_step::COMPACT_GATE_INCLUDE_ENV).is_err(),
+                "setting `{e}` in the environment will cause build errors",
+                e = ::ipa_step::COMPACT_GATE_INCLUDE_ENV);
+        println!("cargo:rustc-env={e}=true", e = ::ipa_step::COMPACT_GATE_INCLUDE_ENV);
     };
 }
 

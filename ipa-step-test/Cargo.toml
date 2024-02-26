@@ -10,4 +10,4 @@ ipa-step-derive = { path = "../ipa-step-derive" }
 
 [build-dependencies]
 ipa-step = { path = "../ipa-step", features = ["build"] }
-ipa-step-derive = { path = "../ipa-step-derive", features = ["build"] }
+ipa-step-derive = { path = "../ipa-step-derive" }

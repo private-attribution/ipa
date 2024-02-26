@@ -6,7 +6,10 @@ mod variant;
 
 use std::env;
 
-use ipa_step::name::{CaseStyle, GateName};
+use ipa_step::{
+    name::{CaseStyle, GateName},
+    COMPACT_GATE_INCLUDE_ENV,
+};
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -216,8 +219,9 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
         }
     };
 
-    // This is only set during a regular build.
-    if env::var("COMPACT_GATE_INCLUDE").is_ok() {
+    // This environment variable is set by build scripts,
+    // and is then available (only) during the main build.
+    if env::var(COMPACT_GATE_INCLUDE_ENV).is_ok() {
         let filename = gate_name.filename();
         result.extend(quote! {
             include!(concat!(env!("OUT_DIR"), "/", #filename));
@@ -268,12 +272,12 @@ mod test {
     #[test]
     fn simple() {
         let code = derive(quote! {
-                #[derive(CompactStep)]
-                enum Simple {
-                    Arm,
-                    #[step(count = 3)]
-                    Leg(usize),
-                }
+            #[derive(CompactStep)]
+            enum Simple {
+                Arm,
+                #[step(count = 3)]
+                Leg(usize),
+            }
         })
         .unwrap();
 

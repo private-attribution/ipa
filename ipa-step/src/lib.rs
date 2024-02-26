@@ -10,6 +10,8 @@ pub mod name;
 #[cfg(feature = "build")]
 pub use gate::build as build_gate;
 
+pub const COMPACT_GATE_INCLUDE_ENV: &str = "COMPACT_GATE_INCLUDE";
+
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
 /// Any stage of the protocol execution will involve multiple steps.  Each of these steps
