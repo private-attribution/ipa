@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use crate::{Step, StepNarrow};
+use crate::{Gate, Step, StepNarrow};
 
 pub mod labels {
     pub const STEP_NARROWED: &str = "step.narrowed";
@@ -35,9 +35,41 @@ pub struct Descriptive {
     id: String,
 }
 
+impl Gate for Descriptive {}
+
+impl Default for Descriptive {
+    // TODO(mt): this should might be better if it were to be constructed from
+    // a QueryId rather than using a default.
+    fn default() -> Self {
+        Self {
+            id: String::from("protocol"),
+        }
+    }
+}
+
+impl AsRef<str> for Descriptive {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
+impl From<&str> for Descriptive {
+    fn from(id: &str) -> Self {
+        let id = id.strip_prefix('/').unwrap_or(id);
+        Descriptive { id: id.to_owned() }
+    }
+}
+
 impl Display for Descriptive {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        f.write_str(&self.id)
+    }
+}
+
+impl Debug for Descriptive {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("gate=")?;
+        <Self as Display>::fmt(self, f)
     }
 }
 
@@ -65,34 +97,5 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
         }
 
         Self { id }
-    }
-}
-
-impl Default for Descriptive {
-    // TODO(mt): this should might be better if it were to be constructed from
-    // a QueryId rather than using a default.
-    fn default() -> Self {
-        Self {
-            id: String::from("protocol"),
-        }
-    }
-}
-
-impl AsRef<str> for Descriptive {
-    fn as_ref(&self) -> &str {
-        self.id.as_str()
-    }
-}
-
-impl From<&str> for Descriptive {
-    fn from(id: &str) -> Self {
-        let id = id.strip_prefix('/').unwrap_or(id);
-        Descriptive { id: id.to_owned() }
-    }
-}
-
-impl Debug for Descriptive {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "step={}", self.id)
     }
 }

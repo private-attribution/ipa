@@ -6,10 +6,14 @@ edition = "2021"
 [lib]
 proc-macro = true
 
+[features]
+# The CompactGate macro relies on code that is generated at build time.
+# This feature, when enabled, will disable the macro, allowing the code generation
+# to use the identified type without creating a circular dependency.
+build = []
+
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
-
-[dev-dependencies]
-ipa-step = { version = "*", path = "../ipa-step" }
+ipa-step = { version = "*", path = "../ipa-step", features = ["name"] }

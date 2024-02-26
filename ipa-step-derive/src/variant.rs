@@ -1,3 +1,4 @@
+use ipa_step::name::CaseStyle;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
@@ -5,7 +6,7 @@ use syn::{
     LitStr, Type, TypePath, Variant,
 };
 
-use crate::{sum::ExtendedSum, CaseStyle, IntoSpan};
+use crate::{sum::ExtendedSum, IntoSpan};
 
 struct VariantAttrParser<'a> {
     ident: &'a Ident,
@@ -172,16 +173,24 @@ impl VariantAttribute {
     pub fn generate(
         &self,
         arm_count: &ExtendedSum,
+        index_arms: &mut TokenStream,
         name_arrays: &mut TokenStream,
         as_ref_arms: &mut TokenStream,
         step_string_arms: &mut TokenStream,
         step_narrow_arms: &mut TokenStream,
     ) -> ExtendedSum {
         if self.integer.is_none() {
-            self.generate_single(arm_count, as_ref_arms, step_string_arms, step_narrow_arms)
+            self.generate_single(
+                arm_count,
+                index_arms,
+                as_ref_arms,
+                step_string_arms,
+                step_narrow_arms,
+            )
         } else {
             self.generate_int(
                 arm_count,
+                index_arms,
                 name_arrays,
                 as_ref_arms,
                 step_string_arms,
@@ -193,6 +202,7 @@ impl VariantAttribute {
     fn generate_single(
         &self,
         arm_count: &ExtendedSum,
+        index_arms: &mut TokenStream,
         as_ref_arms: &mut TokenStream,
         step_string_arms: &mut TokenStream,
         step_narrow_arms: &mut TokenStream,
@@ -207,6 +217,10 @@ impl VariantAttribute {
         else {
             unreachable!();
         };
+
+        index_arms.extend(quote! {
+            Self::#step_ident => #arm_count,
+        });
 
         as_ref_arms.extend(quote! {
             Self::#step_ident => #step_name,
@@ -250,6 +264,7 @@ impl VariantAttribute {
     fn generate_int(
         &self,
         arm_count: &ExtendedSum,
+        index_arms: &mut TokenStream,
         name_arrays: &mut TokenStream,
         as_ref_arms: &mut TokenStream,
         step_string_arms: &mut TokenStream,
@@ -286,6 +301,12 @@ impl VariantAttribute {
         });
 
         if let Some(child) = step_child {
+            let idx = arm_count.clone()
+                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * usize::try_from(*i).unwrap());
+            index_arms.extend(quote! {
+                Self::#step_ident(i) => #idx,
+            });
+
             // With `step_count` variations present, each has a name.
             // But each also has independent child nodes of its own.
             // That means `step_count * (#child::STEP_COUNT * 1)` total nodes.
@@ -321,6 +342,11 @@ impl VariantAttribute {
             });
             range_end
         } else {
+            let idx = arm_count.clone() + quote!(usize::try_from(*i).unwrap());
+            index_arms.extend(quote! {
+                Self::#step_ident(i) => #idx,
+            });
+
             let range_end = arm_count.clone() + *step_count;
             step_string_arms.extend(quote! {
                 _ if i < #range_end => Self::#step_ident(#step_integer::try_from(i - (#arm_count)).unwrap()).as_ref().to_owned(),

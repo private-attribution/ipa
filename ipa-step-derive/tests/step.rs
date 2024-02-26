@@ -56,5 +56,6 @@ mod tmp {
             }
             _ => None,
         }
+        assert_eq!(SmallChild.index(), 0);
     }
 }

@@ -1,5 +1,14 @@
+#![allow(clippy::module_name_repetitions)]
+
 #[cfg(any(feature = "descriptive", debug_assertions))]
 pub mod descriptive;
+#[cfg(feature = "build")]
+pub mod gate;
+#[cfg(feature = "name")]
+pub mod name;
+
+#[cfg(feature = "build")]
+pub use gate::build as build_gate;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -33,12 +42,18 @@ pub trait StepNarrow<S: Step + ?Sized> {
 /// Implementations of `Step` can also implement `compact::Step` to enable the use of
 /// `CompactGate` implementations.  The `ipa-step-derive` crate provides a means of
 /// automatically implementing this trait.
-pub trait CompactStep: crate::Step {
+pub trait CompactStep: Step {
     /// The total number of steps that can be reached from this step.
     const STEP_COUNT: usize;
+
+    /// Get the index an instance of this type.
+    #[must_use]
+    fn index(&self) -> usize;
+
     /// Create a string representation for the step at index `i`.
     #[must_use]
     fn step_string(i: usize) -> String;
+
     /// For a given step index, `i`, indicate the narrowing type.
     /// This only applies to step indices that have a child;
     /// a step index that does not have a child will return `None`.
@@ -47,3 +62,9 @@ pub trait CompactStep: crate::Step {
         None
     }
 }
+
+/// A `Gate` implementation is a marker trait for a type that can be used to identify
+/// gates in a protocol.  It can be mapped to and from strings and has a default value.
+/// In most cases, implementations will also implement `StepNarrow` for different types,
+/// but this is not strictly required.
+pub trait Gate: Default + AsRef<str> + for<'a> From<&'a str> {}

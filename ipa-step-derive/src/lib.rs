@@ -4,45 +4,15 @@
 mod sum;
 mod variant;
 
+use std::env;
+
+use ipa_step::name::{CaseStyle, GateName};
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Ident};
 
 use crate::{sum::ExtendedSum, variant::VariantAttribute};
-
-/// A utility trait that decorates string-ish things and produces
-/// `names_like_this` or `NAMES_LIKE_THIS` from `NamesLikeThis`.
-trait CaseStyle {
-    fn to_snake_case(&self) -> String {
-        self.to_underscore(false)
-    }
-
-    fn to_shouting_case(&self) -> String {
-        self.to_underscore(true)
-    }
-
-    fn to_underscore(&self, upper: bool) -> String;
-}
-
-impl<T> CaseStyle for T
-where
-    T: AsRef<str>,
-{
-    fn to_underscore(&self, upper: bool) -> String {
-        self.as_ref().chars().fold(String::new(), |mut acc, c| {
-            if c.is_uppercase() {
-                if !acc.is_empty() {
-                    acc.push('_');
-                }
-                acc.push(if upper { c } else { c.to_ascii_lowercase() });
-            } else {
-                acc.push(if upper { c.to_ascii_uppercase() } else { c });
-            }
-            acc
-        })
-    }
-}
 
 /// Derive an implementation of `Step` and `CompactStep`.
 ///
@@ -57,6 +27,11 @@ pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
         Err(e) => e.into_compile_error(),
     };
     TokenStreamBasic::from(output)
+}
+
+#[proc_macro_derive(CompactGate)]
+pub fn derive_gate(input: TokenStreamBasic) -> TokenStreamBasic {
+    TokenStreamBasic::from(derive_gate_impl(&parse_macro_input!(input as DeriveInput)))
 }
 
 /// A utility trait that allows for more streamlined error reporting.
@@ -101,6 +76,8 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     // This is a composite because it isn't necessarily a simple integer.
     // It might be `<Child as CompactStep>::STEP_COUNT + 4` or similar.
     let mut arm_count = ExtendedSum::default();
+    // This tracks the index of each item.
+    let mut index_arms = TokenStream::new();
     // This tracks the arrays of names that are used for integer variants.
     let mut name_arrays = TokenStream::new();
     // This tracks the arms of the `AsRef<str>` match implementation.
@@ -113,6 +90,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
     for v in variants {
         arm_count = v.generate(
             &arm_count,
+            &mut index_arms,
             &mut name_arrays,
             &mut as_ref_arms,
             &mut step_string_arms,
@@ -148,6 +126,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
 
             impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = 1usize;
+                fn index(&self) -> usize { 0 }
                 fn step_string(i: usize) -> String {
                     assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                     String::from(#snakey)
@@ -189,6 +168,11 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         result.extend(quote! {
             impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = #arm_count;
+                fn index(&self) -> usize {
+                    match self {
+                        #index_arms
+                    }
+                }
                 fn step_string(i: usize) -> String {
                     match i {
                         #step_string_arms
@@ -200,7 +184,60 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         });
     };
 
-    result.extend(quote! {});
+    result
+}
+
+fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
+    let step = ast.ident.to_string();
+    let gate_name = GateName::new(&step);
+    let name = Ident::new(&gate_name.name(), Span::call_site());
+
+    let mut result = quote! {
+        /// A compact `Gate` corresponding to #step.
+        #[derive(PartialEq, Eq, Clone, Copy)]
+        pub struct #name(usize);
+        impl ::ipa_step::Gate for #name {}
+        impl ::std::default::Default for #name {
+            fn default() -> Self {
+                Self(0)
+            }
+        }
+
+        impl ::std::fmt::Display for #name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.write_str(self.as_ref())
+            }
+        }
+        impl ::std::fmt::Debug for #name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.write_str("gate=")?;
+                <Self as ::std::fmt::Display>::fmt(self, f)
+            }
+        }
+    };
+
+    // This is only set during a regular build.
+    if env::var("COMPACT_GATE_INCLUDE").is_ok() {
+        let filename = gate_name.filename();
+        result.extend(quote! {
+            include!(concat!(env!("OUT_DIR"), "/", #filename));
+        });
+    } else {
+        result.extend(quote! {
+        impl ::std::convert::AsRef<str> for #name {
+            fn as_ref(&self) -> &str {
+                unimplemented!()
+            }
+        }
+
+        impl ::std::convert::From<&str> for #name {
+            fn from(s: &str) -> Self {
+                unimplemented!()
+            }
+        }
+        });
+    }
+
     result
 }
 
@@ -262,6 +299,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for EmptyEnum {
                     const STEP_COUNT: usize = 1usize;
+                    fn index(&self) -> usize { 0 }
                     fn step_string(i: usize) -> String {
                         assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                         String::from("empty_enum")
@@ -293,6 +331,11 @@ mod test {
 
                 impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Arm => 0usize,
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Arm.as_ref().to_owned(),
@@ -327,6 +370,11 @@ mod test {
 
                 impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Arm => 0usize,
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Arm.as_ref().to_owned(),
@@ -371,6 +419,11 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
+                    fn index (& self) -> usize {
+                        match self {
+                            Self::Arm (i) => usize::try_from(*i).unwrap(),
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
@@ -415,6 +468,11 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
+                    fn index (& self) -> usize {
+                        match self {
+                            Self::Arm (i) => usize::try_from(*i).unwrap(),
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
@@ -449,6 +507,11 @@ mod test {
 
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Offspring => 0usize,
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
@@ -494,6 +557,11 @@ mod test {
 
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Offspring => 0usize,
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
@@ -552,6 +620,11 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Offspring(i) => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * usize::try_from(*i).unwrap(),
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i < (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize => {
@@ -631,6 +704,14 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for AllArms {
                     const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6usize;
+                    fn index(&self) -> usize {
+                        match self {
+                            Self::Empty => 0usize,
+                            Self::Int(i) => usize::try_from(*i).unwrap() + 1usize,
+                            Self::Child => 4usize,
+                            Self::Final => <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize,
+                        }
+                    }
                     fn step_string(i: usize) -> String {
                         match i {
                             _ if i == 0usize => Self::Empty.as_ref().to_owned(),

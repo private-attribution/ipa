@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
+# This is used for build.rs scripts.
+build = ["name", "prettyplease", "proc-macro2", "quote", "syn"]
 descriptive = []
+name = []
 trace = ["descriptive", "metrics"]
 
 [dependencies]
 metrics = { version = "0.21.0", optional = true }
+prettyplease = { version = "0.2", optional = true }
+proc-macro2 = { version = "1", optional = true }
+quote = { version = "1", optional = true }
+syn = { version = "2", optional = true, default-features = false, features = ["parsing"] }
