@@ -21,7 +21,7 @@ pub struct CanonicalLagrangeDenominator<F: Field, N: ArrayLength> {
 
 impl<F, N> CanonicalLagrangeDenominator<F, N>
 where
-    F: PrimeField,
+    F: PrimeField + TryFrom<u128>,
     N: ArrayLength,
 {
     /// generates canonical Lagrange denominators
@@ -70,7 +70,7 @@ pub struct LagrangeTable<F: Field, N: ArrayLength, M: ArrayLength> {
 
 impl<F, N> LagrangeTable<F, N, U1>
 where
-    F: Field,
+    F: Field + TryFrom<u128>,
     N: ArrayLength,
 {
     /// generates a `CanonicalLagrangeTable` from `CanoncialLagrangeDenominators` for a single output point
@@ -122,7 +122,7 @@ where
     /// When the field size is too small for `N` evaluation points
     fn compute_table_row(x_output: &F, table_row: &mut GenericArray<F, N>)
     where
-        F: Field,
+        F: Field + TryFrom<u128>,
         N: ArrayLength,
     {
         for (entry, i) in table_row.iter_mut().zip(0u64..) {
@@ -135,7 +135,7 @@ where
 
 impl<F, N, M> From<CanonicalLagrangeDenominator<F, N>> for LagrangeTable<F, N, M>
 where
-    F: Field,
+    F: Field + TryFrom<u128>,
     N: ArrayLength,
     M: ArrayLength,
 {
@@ -209,7 +209,7 @@ mod test {
 
     impl<F, N> From<MonomialFormPolynomial<F, N>> for Polynomial<F, N>
     where
-        F: Field,
+        F: Field + TryFrom<u128>,
         N: ArrayLength,
     {
         fn from(value: MonomialFormPolynomial<F, N>) -> Self {
