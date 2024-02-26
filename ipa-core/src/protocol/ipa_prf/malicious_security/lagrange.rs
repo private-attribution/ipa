@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
 
@@ -22,6 +24,7 @@ pub struct CanonicalLagrangeDenominator<F: Field, N: ArrayLength> {
 impl<F, N> CanonicalLagrangeDenominator<F, N>
 where
     F: PrimeField + TryFrom<u128>,
+    <F as TryFrom<u128>>::Error: Debug,
     N: ArrayLength,
 {
     /// generates canonical Lagrange denominators
@@ -71,6 +74,7 @@ pub struct LagrangeTable<F: Field, N: ArrayLength, M: ArrayLength> {
 impl<F, N> LagrangeTable<F, N, U1>
 where
     F: Field + TryFrom<u128>,
+    <F as TryFrom<u128>>::Error: Debug,
     N: ArrayLength,
 {
     /// generates a `CanonicalLagrangeTable` from `CanoncialLagrangeDenominators` for a single output point
@@ -123,6 +127,7 @@ where
     fn compute_table_row(x_output: &F, table_row: &mut GenericArray<F, N>)
     where
         F: Field + TryFrom<u128>,
+        <F as TryFrom<u128>>::Error: Debug,
         N: ArrayLength,
     {
         for (entry, i) in table_row.iter_mut().zip(0u64..) {
@@ -136,6 +141,7 @@ where
 impl<F, N, M> From<CanonicalLagrangeDenominator<F, N>> for LagrangeTable<F, N, M>
 where
     F: Field + TryFrom<u128>,
+    <F as TryFrom<u128>>::Error: Debug,
     N: ArrayLength,
     M: ArrayLength,
 {
@@ -163,6 +169,8 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use std::fmt::Debug;
+
     use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use proptest::{prelude::*, proptest};
     use typenum::{U1, U32, U7, U8};
@@ -210,6 +218,7 @@ mod test {
     impl<F, N> From<MonomialFormPolynomial<F, N>> for Polynomial<F, N>
     where
         F: Field + TryFrom<u128>,
+        <F as TryFrom<u128>>::Error: Debug,
         N: ArrayLength,
     {
         fn from(value: MonomialFormPolynomial<F, N>) -> Self {
