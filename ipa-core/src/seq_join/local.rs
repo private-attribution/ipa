@@ -7,9 +7,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::stream::Fuse;
-
-use super::{pin_project, Future, Stream, StreamExt};
+use futures::{stream::Fuse, Future, Stream, StreamExt};
+use pin_project::pin_project;
 
 enum ActiveItem<F: IntoFuture> {
     Pending(Pin<Box<F::IntoFuture>>),

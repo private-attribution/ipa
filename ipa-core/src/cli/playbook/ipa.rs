@@ -7,7 +7,7 @@ use std::{
 
 use futures_util::future::try_join_all;
 use generic_array::GenericArray;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 use tokio::time::sleep;
 use typenum::Unsigned;
@@ -20,92 +20,18 @@ use crate::{
         BodyStream,
     },
     hpke::PublicKeyRegistry,
-    ipa_test_input,
     net::MpcHelperClient,
-    protocol::{
-        ipa::IPAInputRow, ipa_prf::OPRFIPAInputRow, BreakdownKey, MatchKey, QueryId, Timestamp,
-        TriggerValue,
-    },
+    protocol::{ipa_prf::OPRFIPAInputRow, BreakdownKey, QueryId, Timestamp, TriggerValue},
     query::QueryStatus,
-    report::{KeyIdentifier, OprfReport, Report},
+    report::{KeyIdentifier, OprfReport},
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
-    test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord, Reconstruct},
+    test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
 
-/// Semi-honest IPA protocol.
-/// Returns aggregated values per breakdown key represented as index in the returned vector
-#[allow(clippy::missing_panics_doc)]
-pub async fn playbook_ipa<F, MK, BK, KR>(
-    records: &[TestRawDataRecord],
-    clients: &[MpcHelperClient; 3],
-    query_id: QueryId,
-    query_config: IpaQueryConfig,
-    encryption: Option<(KeyIdentifier, [&KR; 3])>,
-) -> IpaQueryResult
-where
-    F: PrimeField + IntoShares<AdditiveShare<F>>,
-    Standard: Distribution<F>,
-    IPAInputRow<F, MatchKey, BreakdownKey>: Serializable,
-    TestRawDataRecord: IntoShares<Report<F, MatchKey, BreakdownKey>>,
-    AdditiveShare<F>: Serializable,
-    KR: PublicKeyRegistry,
-{
-    let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
-    let query_size = records.len();
-
-    if !query_config.plaintext_match_keys {
-        if let Some((key_id, key_registries)) = encryption {
-            const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
-            for buffer in &mut buffers {
-                buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
-            }
-
-            let mut rng = StdRng::from_entropy();
-            let shares: [Vec<Report<_, _, _>>; 3] = records.iter().cloned().share();
-            zip(&mut buffers, shares).zip(key_registries).for_each(
-                |((buf, shares), key_registry)| {
-                    for share in shares {
-                        share
-                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                            .unwrap();
-                    }
-                },
-            );
-        } else {
-            panic!("match key encryption was requested, but one or more helpers is missing a public key")
-        }
-    } else {
-        let sz = <IPAInputRow<F, MatchKey, BreakdownKey> as Serializable>::Size::USIZE;
-        for buffer in &mut buffers {
-            buffer.resize(query_size * sz, 0u8);
-        }
-
-        let inputs = records.iter().map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MatchKey, BreakdownKey)
-            )
-        });
-        let shares: [Vec<IPAInputRow<_, _, _>>; 3] = inputs.share();
-        zip(&mut buffers, shares).for_each(|(buf, shares)| {
-            for (share, chunk) in zip(shares, buf.chunks_mut(sz)) {
-                share.serialize(GenericArray::from_mut_slice(chunk));
-            }
-        });
-    }
-
-    let inputs = buffers.map(BodyStream::from);
-    tracing::info!("Starting query after finishing encryption");
-
-    run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
-}
-
+/// Executes the IPA v3 protocol.
+///
+/// ## Panics
+/// If report encryption fails
 pub async fn playbook_oprf_ipa<F, KR>(
     records: Vec<TestRawDataRecord>,
     clients: &[MpcHelperClient; 3],
@@ -121,29 +47,7 @@ where
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
     let query_size = records.len();
 
-    if !query_config.plaintext_match_keys {
-        if let Some((key_id, key_registries)) = encryption {
-            const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
-            for buffer in &mut buffers {
-                buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
-            }
-
-            let mut rng = StdRng::from_entropy();
-            let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
-                records.iter().cloned().share();
-            zip(&mut buffers, shares).zip(key_registries).for_each(
-                |((buf, shares), key_registry)| {
-                    for share in shares {
-                        share
-                            .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
-                            .unwrap();
-                    }
-                },
-            );
-        } else {
-            panic!("match key encryption was requested, but one or more helpers is missing a public key")
-        }
-    } else {
+    if query_config.plaintext_match_keys {
         let sz =
             <OPRFIPAInputRow<BreakdownKey, TriggerValue, Timestamp> as Serializable>::Size::USIZE;
         for buffer in &mut buffers {
@@ -158,6 +62,28 @@ where
                 share.serialize(GenericArray::from_mut_slice(chunk));
             }
         });
+    } else if let Some((key_id, key_registries)) = encryption {
+        const ESTIMATED_AVERAGE_REPORT_SIZE: usize = 80; // TODO: confirm/adjust
+        for buffer in &mut buffers {
+            buffer.reserve(query_size * ESTIMATED_AVERAGE_REPORT_SIZE);
+        }
+
+        let mut rng = StdRng::from_entropy();
+        let shares: [Vec<OprfReport<BreakdownKey, TriggerValue, Timestamp>>; 3] =
+            records.iter().cloned().share();
+        zip(&mut buffers, shares)
+            .zip(key_registries)
+            .for_each(|((buf, shares), key_registry)| {
+                for share in shares {
+                    share
+                        .delimited_encrypt_to(key_id, key_registry, &mut rng, buf)
+                        .unwrap();
+                }
+            });
+    } else {
+        panic!(
+            "match key encryption was requested, but one or more helpers is missing a public key"
+        )
     }
 
     let inputs = buffers.map(BodyStream::from);
@@ -166,6 +92,7 @@ where
     run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
 }
 
+#[allow(clippy::disallowed_methods)] // allow try_join_all
 pub async fn run_query_and_validate<F>(
     inputs: [BodyStream; 3],
     query_size: usize,

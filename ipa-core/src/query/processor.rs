@@ -318,12 +318,16 @@ mod tests {
     use futures_util::future::poll_immediate;
     use tokio::sync::Barrier;
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{QueryType, QueryType::TestMultiply},
-            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, RoleAssignment, Transport,
+            TransportCallbacks,
+        },
+        protocol::QueryId,
+        query::{
+            processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
         },
     };
 
@@ -466,6 +470,7 @@ mod tests {
 
     mod prepare {
         use super::*;
+        use crate::query::QueryStatusError;
 
         fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
@@ -531,12 +536,14 @@ mod tests {
         use super::*;
         use crate::{
             error::BoxError,
-            ff::{Field, Fp31},
-            helpers::query::IpaQueryConfig,
-            ipa_test_input,
-            protocol::{ipa::IPAInputRow, BreakdownKey, MatchKey},
+            ff::{
+                boolean_array::{BA20, BA3, BA8},
+                Fp31, U128Conversions,
+            },
+            helpers::query::{IpaQueryConfig, QueryType},
+            protocol::ipa_prf::OPRFIPAInputRow,
             secret_sharing::replicated::semi_honest,
-            test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
+            test_fixture::{ipa::TestRawDataRecord, Reconstruct, TestApp},
         };
 
         #[tokio::test]
@@ -602,26 +609,55 @@ mod tests {
         }
 
         async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
-            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-                [
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                ];
-                (Fp31, MatchKey, BreakdownKey)
-            );
+            let records = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
             let record_count = records.len();
 
             let _results = app
-                .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
+                // Achtung: OPRF IPA executor assumes BA8, BA3, BA20 to be the encodings of
+                // inputs - using anything else will lead to a padding error.
+                .execute_query::<_, Vec<OPRFIPAInputRow<BA8, BA3, BA20>>>(
                     records.into_iter(),
                     QueryConfig {
                         size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
-                            per_user_credit_cap: 3,
+                        query_type: QueryType::OprfIpa(IpaQueryConfig {
+                            per_user_credit_cap: 8,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,

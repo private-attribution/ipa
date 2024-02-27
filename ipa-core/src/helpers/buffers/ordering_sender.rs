@@ -4,7 +4,6 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     marker::PhantomData,
-    mem::drop,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -524,7 +523,7 @@ mod test {
 
     use super::OrderingSender;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, Serializable},
+        ff::{Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, Serializable, U128Conversions},
         helpers::Message,
         rand::thread_rng,
         sync::Arc,

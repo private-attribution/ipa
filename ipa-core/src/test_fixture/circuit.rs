@@ -3,7 +3,7 @@ use rand::distributions::{Distribution, Standard};
 
 use super::join3v;
 use crate::{
-    ff::Field,
+    ff::{Field, U128Conversions},
     helpers::TotalRecords,
     protocol::{
         basics::SecureMul,
@@ -21,7 +21,7 @@ use crate::{
 /// panics when circuits did not produce the expected value.
 pub async fn arithmetic<F, const N: usize>(width: u32, depth: u16)
 where
-    F: Field + FieldSimd<N>,
+    F: Field + FieldSimd<N> + U128Conversions,
     for<'a> Replicated<F, N>: SecureMul<SemiHonestContext<'a>>,
     [F; N]: IntoShares<Replicated<F, N>>,
     Standard: Distribution<F>,

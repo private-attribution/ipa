@@ -79,11 +79,3 @@ impl From<usize> for BitOpStep {
         Self::Bit(v)
     }
 }
-
-/// Set of steps that define the IPA protocol.
-#[derive(Step)]
-pub(crate) enum IpaProtocolStep {
-    /// Sort shares by the match key
-    #[dynamic(64)]
-    Sort(usize),
-}

@@ -351,7 +351,7 @@ where
 pub mod tests {
     use super::shuffle;
     use crate::{
-        ff::{Field, Gf40Bit},
+        ff::{Gf40Bit, U128Conversions},
         test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 

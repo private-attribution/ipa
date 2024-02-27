@@ -17,7 +17,7 @@ use crate::{
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.
-#[allow(clippy::missing_panics_doc)]
+#[allow(clippy::missing_panics_doc, clippy::disallowed_methods)]
 pub async fn secure_mul<F>(
     // I couldn't make `share` work with `&[(F, F)]`
     input: Vec<(F, F)>,

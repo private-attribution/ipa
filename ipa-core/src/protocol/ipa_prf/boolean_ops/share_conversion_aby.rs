@@ -6,12 +6,12 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess, CustomArray,
-        Expand, Field,
+        Expand,
     },
     helpers::Role,
     protocol::{
-        basics::PartialReveal, context::Context,
-        ipa_prf::boolean_ops::addition_sequential::integer_add, prss::SharedRandomness, RecordId,
+        basics::Reveal, context::Context, ipa_prf::boolean_ops::addition_sequential::integer_add,
+        prss::SharedRandomness, RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -99,7 +99,7 @@ pub async fn convert_to_fp25519<C, B>(
 ) -> Result<AdditiveShare<Fp25519>, Error>
 where
     C: Context,
-    B: SharedValue + CustomArray<Element = Boolean> + Field,
+    B: SharedValue + CustomArray<Element = Boolean>,
 {
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions

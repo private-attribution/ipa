@@ -9,6 +9,8 @@ use std::{borrow::Borrow, iter::repeat, ops::Not};
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
+#[cfg(all(test, unit_test))]
+use crate::secret_sharing::FieldVectorizable;
 use crate::{
     error::Error,
     ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
@@ -113,22 +115,22 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn integer_sat_sub<C, S>(
+pub async fn integer_sat_sub<F, C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
+    F: Field + FieldSimd<N> + FieldVectorizable<N, ArrayAlias = S>,
     C: Context,
-    S::Element: Field,
-    S: SharedValue + CustomArray + Expand<Input = S::Element>,
-    AdditiveShare<S>: SecureMul<C>
-        + ArrayAccessRef<Element = AdditiveShare<S::Element>>
-        + ArrayBuild<Input = AdditiveShare<S::Element>>,
-    AdditiveShare<S::Element>: SecureMul<C> + Not<Output = AdditiveShare<S::Element>>,
+    S: SharedValue + CustomArray<Element = F>,
+    AdditiveShare<S>:
+        ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
+    AdditiveShare<F>: SecureMul<C> + Not<Output = AdditiveShare<F>>,
+    AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
 {
-    let mut carry = AdditiveShare::<S::Element>::share_known_value(&ctx, S::Element::ONE);
+    let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
     let result = subtraction_circuit(
         ctx.narrow(&Step::SaturatedSubtraction),
         record_id,
@@ -136,14 +138,17 @@ where
         y,
         &mut carry,
     )
-    .await?;
+    .await?
+    .into();
 
     // carry computes carry=(x>=y)
     // if carry==0 {all 0 array, i.e. Array[carry]} else {result}:
     // compute (1-carry)*Array[carry]+carry*result =carry*result
     AdditiveShare::<S>::expand(&carry)
+        .into()
         .multiply(&result, ctx.narrow(&Step::MultiplyWithCarry), record_id)
         .await
+        .map(Into::into)
 }
 
 /// subtraction using bit subtractor
@@ -232,7 +237,7 @@ where
 mod test {
     use std::{
         array,
-        iter::{repeat, repeat_with, zip, Iterator},
+        iter::{repeat, repeat_with, zip},
         time::Instant,
     };
 
@@ -244,7 +249,7 @@ mod test {
         ff::{
             boolean::Boolean,
             boolean_array::{BA3, BA32, BA5, BA64},
-            Expand, Field,
+            Expand, Field, U128Conversions,
         },
         protocol,
         protocol::{
@@ -406,7 +411,7 @@ mod test {
             let x = repeat_with(|| rng.gen())
                 .take(BENCH_COUNT)
                 .collect::<Vec<BA64>>();
-            let x_int = x.iter().map(Field::as_u128).collect::<Vec<_>>();
+            let x_int = x.iter().map(U128Conversions::as_u128).collect::<Vec<_>>();
             let y: BA64 = rng.gen::<BA64>();
             let y_int = y.as_u128();
 
@@ -569,7 +574,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_, BA64>(
+                    integer_sat_sub::<_, _, _, 64>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],

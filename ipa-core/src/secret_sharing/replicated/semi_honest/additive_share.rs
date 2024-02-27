@@ -510,11 +510,11 @@ mod tests {
         proptest,
     };
 
-    use super::*;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, U128Conversions},
         secret_sharing::{
-            replicated::ReplicatedSecretSharing, SharedValue, StdArray, Vectorizable,
+            replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+            SharedValue, StdArray, Vectorizable,
         },
     };
 

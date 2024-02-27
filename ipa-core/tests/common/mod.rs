@@ -195,7 +195,7 @@ pub fn test_network(https: bool) {
     let sockets = test_setup(path);
     let _helpers = spawn_helpers(path, &sockets, https);
 
-    test_multiply(&path, https);
+    test_multiply(path, https);
 }
 
 pub fn test_ipa(mode: IpaSecurityModel, https: bool) {
@@ -240,7 +240,7 @@ pub fn test_ipa_with_config(mode: IpaSecurityModel, https: bool, config: IpaQuer
     }
 
     let protocol = match mode {
-        IpaSecurityModel::SemiHonest => "semi-honest-ipa",
+        IpaSecurityModel::SemiHonest => "oprf-ipa",
         IpaSecurityModel::Malicious => "malicious-ipa",
     };
     command

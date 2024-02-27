@@ -5,7 +5,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA112, BA64},
-        ArrayAccess, CustomArray, Expand, Field,
+        ArrayAccess, CustomArray, Expand,
     },
     protocol::{
         context::{UpgradableContext, UpgradedContext},
@@ -27,9 +27,9 @@ pub async fn shuffle_inputs<C, BK, TV, TS>(
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = AdditiveShare<Boolean>>,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + CustomArray<Element = Boolean>,
+    TV: SharedValue + CustomArray<Element = Boolean>,
+    TS: SharedValue + CustomArray<Element = Boolean>,
 {
     let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()

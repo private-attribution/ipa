@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -89,6 +91,26 @@ where
     Ok(Replicated::new_arr(lhs, rhs))
 }
 
+/// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
+#[async_trait]
+impl<C, F, const N: usize> super::SecureMul<C> for Replicated<F, N>
+where
+    C: Context,
+    F: Field + FieldSimd<N>,
+{
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: C,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+    where
+        C: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
+}
 #[cfg(all(test, unit_test))]
 mod test {
     use std::{
@@ -101,7 +123,7 @@ mod test {
 
     use super::multiply;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         helpers::TotalRecords,
         protocol::{
             basics::{SecureMul, ZeroPositions},
@@ -183,7 +205,7 @@ mod test {
 
     async fn multiply_sync<F>(world: &TestWorld, a: u128, b: u128) -> u128
     where
-        F: Field,
+        F: Field + U128Conversions,
         (F, F): Sized,
         Standard: Distribution<F>,
     {

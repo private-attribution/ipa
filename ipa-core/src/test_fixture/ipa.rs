@@ -5,16 +5,14 @@ use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
-    ipa_test_input,
-    protocol::{ipa::ipa, ipa_prf::OPRFIPAInputRow, BreakdownKey, MatchKey},
+    protocol::ipa_prf::OPRFIPAInputRow,
     secret_sharing::{
         replicated::{
-            malicious, malicious::ExtendableField, semi_honest,
-            semi_honest::AdditiveShare as Replicated,
+            malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
         },
         IntoShares,
     },
-    test_fixture::{input::GenericReportTestInput, Reconstruct},
+    test_fixture::Reconstruct,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -25,7 +23,6 @@ pub enum IpaSecurityModel {
 }
 
 pub enum IpaQueryStyle {
-    SortInMpc,
     Oprf,
 }
 
@@ -171,65 +168,6 @@ where
         expected_results[bk] += capped_contribution;
         total_contribution += capped_contribution;
     }
-}
-
-/// # Panics
-/// If any of the IPA protocol modules panic
-#[cfg(feature = "in-memory-infra")]
-pub async fn test_ipa<F>(
-    world: &super::TestWorld,
-    records: &[TestRawDataRecord],
-    expected_results: &[u32],
-    config: IpaQueryConfig,
-    security_model: IpaSecurityModel,
-) where
-    semi_honest::AdditiveShare<F>: Serializable,
-    malicious::AdditiveShare<F>: Serializable,
-    // todo: for semi-honest we don't need extendable fields.
-    F: PrimeField + ExtendableField + IntoShares<semi_honest::AdditiveShare<F>>,
-    rand::distributions::Standard: rand::distributions::Distribution<F>,
-{
-    use super::Runner;
-
-    let records = records
-        .iter()
-        .map(|x| {
-            ipa_test_input!(
-                {
-                    timestamp: x.timestamp,
-                    match_key: x.user_id,
-                    is_trigger_report: x.is_trigger_report,
-                    breakdown_key: x.breakdown_key,
-                    trigger_value: x.trigger_value,
-                };
-                (F, MatchKey, BreakdownKey)
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let result: Vec<F> = match security_model {
-        IpaSecurityModel::Malicious => world
-            .malicious(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-        IpaSecurityModel::SemiHonest => world
-            .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                ipa::<_, _, _, F, MatchKey, BreakdownKey>(ctx, &input_rows, config)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .reconstruct(),
-    };
-    let result = result
-        .into_iter()
-        .map(|v| u32::try_from(v.as_u128()).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(result, expected_results);
 }
 
 /// # Panics

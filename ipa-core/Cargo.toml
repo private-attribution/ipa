@@ -64,6 +64,10 @@ descriptive-gate = []
 compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
+# Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
+# RUSTFLAGS="--cfg tokio_unstable" cargo run ... --features="tokio-console ...".
+# Note that if there are other flags enabled on your platform in .cargo/config.toml, you need to include them as well.
+tokio-console = ["console-subscriber", "tokio/tracing"]
 
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
@@ -90,6 +94,7 @@ bytes = "1.4"
 clap = { version = "4.3.2", optional = true, features = ["derive"] }
 comfy-table = { version = "7.0", optional = true }
 config = "0.14"
+console-subscriber = {  version = "0.2", optional = true }
 criterion = { version = "0.5.1", optional = true, default-features = false, features = [
     "async_tokio",
     "plotters",
@@ -204,12 +209,6 @@ required-features = ["enable-benches", "descriptive-gate"]
 [[bench]]
 name = "oneshot_arithmetic"
 path = "benches/oneshot/arithmetic_circuit.rs"
-harness = false
-required-features = ["enable-benches", "descriptive-gate"]
-
-[[bench]]
-name = "oneshot_sort"
-path = "benches/oneshot/sort.rs"
 harness = false
 required-features = ["enable-benches", "descriptive-gate"]
 

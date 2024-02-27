@@ -33,10 +33,9 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::future::ready;
 
-    use axum::http::Request;
+    use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
@@ -44,8 +43,10 @@ mod tests {
             HelperIdentity, RoleAssignment, TransportCallbacks,
         },
         net::{
+            http_serde,
             server::{
                 handlers::query::{
+                    prepare::handler,
                     test_helpers::{assert_req_fails_with, IntoFailingReq},
                     MaybeExtensionExt,
                 },

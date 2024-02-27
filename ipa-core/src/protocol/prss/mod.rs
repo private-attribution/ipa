@@ -346,13 +346,11 @@ impl EndpointSetup {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
-    use std::mem::drop;
-
     use rand::prelude::SliceRandom;
 
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, U128Conversions},
         protocol::{
             prss::{Endpoint, PrssIndex, SharedRandomness},
             step::{Gate, StepNarrow},

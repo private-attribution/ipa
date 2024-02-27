@@ -6,8 +6,7 @@ use std::{
 use typenum::{U1, U4};
 
 use crate::{
-    error,
-    protocol::prss::FromRandomU128,
+    protocol::prss::FromRandom,
     secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
 
@@ -26,8 +25,7 @@ pub trait Field:
     SharedValue
     + Mul<Self, Output = Self>
     + MulAssign<Self>
-    + FromRandomU128
-    + TryFrom<u128, Error = error::Error>
+    + FromRandom
     + Into<Self::Storage>
     + Vectorizable<1>
     + FieldVectorizable<1, ArrayAlias = <Self as Vectorizable<1>>::Array>
@@ -37,15 +35,6 @@ pub trait Field:
 
     /// Multiplicative identity element
     const ONE: Self;
-
-    /// Truncates the higher-order bits larger than `Self::BITS`, and converts
-    /// into this data type. This conversion is lossy. Callers are encouraged
-    /// to use `try_from` if the input is not known in advance.
-    fn truncate_from<T: Into<u128>>(v: T) -> Self;
-
-    /// Blanket implementation to represent the instance of this trait as 16 byte integer.
-    /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
-    fn as_u128(&self) -> u128;
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

@@ -1,12 +1,18 @@
+#[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
+
+/// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
+/// this flag can be removed
+#[allow(dead_code)]
 pub mod validator;
 
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+#[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
@@ -274,11 +280,18 @@ mod tests {
     };
     use typenum::Unsigned;
 
-    use super::*;
     use crate::{
-        ff::{Field, Fp31, Serializable},
-        helpers::Direction,
-        protocol::{context::validator::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
+        ff::{Field, Fp31, Serializable, U128Conversions},
+        helpers::{Direction, Role},
+        protocol::{
+            context::{
+                validator::Step::MaliciousProtocol, Context, UpgradableContext, UpgradedContext,
+                Validator,
+            },
+            prss::SharedRandomness,
+            step::{Gate, StepNarrow},
+            RecordId,
+        },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
@@ -313,7 +326,7 @@ mod tests {
     /// Toy protocol to execute PRSS generation and send/receive logic
     async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> Replicated<F>
     where
-        F: Field,
+        F: Field + U128Conversions,
         Standard: Distribution<F>,
         C: Context,
         S: ReplicatedLeftValue<F>,

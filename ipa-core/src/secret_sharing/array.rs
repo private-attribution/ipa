@@ -6,7 +6,7 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{U1, U32};
+use typenum::U32;
 
 use crate::{
     error::LengthError,
@@ -270,9 +270,9 @@ impl<V: SharedValue + Not<Output = V>, const N: usize> Not for StdArray<V, N> {
     }
 }
 
-impl<F: SharedValue + FromRandom<SourceLength = U1>> FromRandom for StdArray<F, 1> {
-    type SourceLength = U1;
-    fn from_random(src: GenericArray<u128, U1>) -> Self {
+impl<F: SharedValue + FromRandom> FromRandom for StdArray<F, 1> {
+    type SourceLength = <F as FromRandom>::SourceLength;
+    fn from_random(src: GenericArray<u128, Self::SourceLength>) -> Self {
         Self([F::from_random(src)])
     }
 }

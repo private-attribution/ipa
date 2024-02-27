@@ -8,7 +8,7 @@ use ipa_core::{
         playbook::{make_clients, secure_mul, validate, InputSource},
         Verbosity,
     },
-    ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable},
+    ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions},
     helpers::query::{QueryConfig, QueryType::TestMultiply},
     net::MpcHelperClient,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -99,8 +99,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn multiply_in_field<F: Field>(args: &Args, helper_clients: &[MpcHelperClient; 3])
-where
+async fn multiply_in_field<F: Field + U128Conversions>(
+    args: &Args,
+    helper_clients: &[MpcHelperClient; 3],
+) where
     F: Field + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength,
@@ -111,14 +113,14 @@ where
 
     let query_id = helper_clients[0].create_query(query_config).await.unwrap();
     let expected = input_rows.iter().map(|(a, b)| *a * *b).collect::<Vec<_>>();
-    let actual = secure_mul(input_rows, &helper_clients, query_id).await;
+    let actual = secure_mul(input_rows, helper_clients, query_id).await;
 
     validate(&expected, &actual);
 }
 
 async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     match args.input.field {
-        FieldType::Fp31 => multiply_in_field::<Fp31>(&args, helper_clients).await,
-        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(&args, helper_clients).await,
+        FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients).await,
+        FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(args, helper_clients).await,
     };
 }

@@ -13,7 +13,8 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable},
+    ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable, U128Conversions},
+    protocol::prss::FromRandom,
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, BitDecomposed,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
@@ -40,7 +41,7 @@ pub struct AdditiveShare<V: SharedValue + ExtendableField> {
 }
 
 pub trait ExtendableField: Field {
-    type ExtendedField: Field;
+    type ExtendedField: Field + FromRandom;
     fn to_extended(&self) -> Self::ExtendedField;
 }
 
@@ -84,6 +85,7 @@ pub trait Downgrade: Send {
 #[must_use = "You should not be downgrading `replicated::malicious::AdditiveShare` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
 impl<T> UnauthorizedDowngradeWrapper<T> {
+    #[cfg(feature = "descriptive-gate")]
     pub(crate) fn new(v: T) -> Self {
         Self(v)
     }
@@ -414,7 +416,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 mod tests {
     use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, U128Conversions},
         helpers::Role,
         rand::{thread_rng, Rng},
         secret_sharing::{

@@ -1,6 +1,8 @@
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
+#[cfg(all(test, unit_test))]
+use crate::secret_sharing::{FieldSimd, FieldVectorizable};
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
@@ -46,19 +48,20 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn integer_sat_add<C, S>(
+pub async fn integer_sat_add<F, C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
+    F: Field + FieldSimd<N> + FieldVectorizable<N, ArrayAlias = S>,
     C: Context,
-    S: CustomArray + Field,
-    S::Element: Field,
+    S: SharedValue + CustomArray<Element = F>,
+    AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
 {
     use crate::{ff::Expand, protocol::basics::if_else};
-    let mut carry = AdditiveShare::<S::Element>::ZERO;
+    let mut carry = AdditiveShare::<F>::ZERO;
     let result = addition_circuit(
         ctx.narrow(&Step::SaturatedAddition),
         record_id,
@@ -66,10 +69,11 @@ where
         y,
         &mut carry,
     )
-    .await?;
+    .await?
+    .into();
 
     // expand carry bit to array
-    let carry_array = AdditiveShare::<S>::expand(&carry);
+    let carry_array = AdditiveShare::<S>::expand(&carry).into();
 
     // if carry_array==1 then {carry_array} else {result}:
     if_else(
@@ -80,6 +84,7 @@ where
         &result,
     )
     .await
+    .map(Into::into)
 }
 
 /// addition using bit adder
@@ -172,7 +177,7 @@ mod test {
     use crate::{
         ff::{
             boolean_array::{BA32, BA64},
-            Field,
+            U128Conversions,
         },
         protocol,
         protocol::{
@@ -237,7 +242,7 @@ mod test {
 
             let result = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_sat_add::<_, BA64>(
+                    integer_sat_add::<_, _, _, 64>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0,

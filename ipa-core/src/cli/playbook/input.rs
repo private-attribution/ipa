@@ -6,46 +6,22 @@ use std::{
     path::PathBuf,
 };
 
-use crate::{
-    ff::{Field, GaloisField},
-    ipa_test_input,
-    test_fixture::{input::GenericReportTestInput, ipa::TestRawDataRecord},
-};
+use crate::{ff::U128Conversions, test_fixture::ipa::TestRawDataRecord};
 
 pub trait InputItem {
     fn from_str(s: &str) -> Self;
 }
 
-impl<F: Field> InputItem for F {
+impl<T: U128Conversions> InputItem for T {
     fn from_str(s: &str) -> Self {
         let int_v = s.parse::<u128>().unwrap();
-        F::truncate_from(int_v)
+        T::truncate_from(int_v)
     }
 }
 
 impl InputItem for u64 {
     fn from_str(s: &str) -> Self {
         s.parse::<u64>().unwrap()
-    }
-}
-
-impl<F: Field, MK: GaloisField, BK: GaloisField> InputItem for GenericReportTestInput<F, MK, BK> {
-    fn from_str(s: &str) -> Self {
-        if let [ts, match_key, is_trigger_bit, breakdown_key, trigger_value] =
-            s.splitn(5, ',').collect::<Vec<_>>()[..]
-        {
-            ipa_test_input!({
-                    timestamp: ts.parse::<u128>().unwrap(),
-                    match_key: match_key.parse::<u128>().unwrap(),
-                    is_trigger_report: is_trigger_bit.parse::<u128>().unwrap(),
-                    breakdown_key: breakdown_key.parse::<u128>().unwrap(),
-                    trigger_value: trigger_value.parse::<u128>().unwrap()
-                };
-                (F, MK, BK)
-            )
-        } else {
-            panic!("{s} is not a valid IPAInputTestRow")
-        }
     }
 }
 
@@ -113,6 +89,10 @@ impl InputSource {
             .filter_map(|line| line.map(|l| T::from_str(&l)).ok())
     }
 
+    /// Reads all the bytes from this instance and returns an owned buffer that contains them.
+    ///
+    /// ## Errors
+    /// if the underlying IO resource returns an error while reading from it.
     pub fn to_vec(mut self) -> Result<Vec<u8>, io::Error> {
         let mut buf = vec![];
         self.read_to_end(&mut buf)?;
@@ -190,7 +170,7 @@ mod tests {
 
     mod input_source {
         use super::*;
-        use crate::{cli::playbook::input::InputSource, ff::Field};
+        use crate::{cli::playbook::input::InputSource, ff::U128Conversions};
 
         #[test]
         fn multiline() {

@@ -128,14 +128,22 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::zip;
+    use std::{iter::zip, sync::Arc};
 
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;
 
-    use super::*;
     use crate::{
-        ff::{Field, Fp31},
+        ff::{
+            boolean_array::{BA20, BA3, BA8},
+            Fp31, U128Conversions,
+        },
+        helpers::{
+            query::{IpaQueryConfig, QuerySize},
+            BodyStream,
+        },
+        hpke::KeyRegistry,
+        query::runner::OprfIpaQuery,
         report::{OprfReport, DEFAULT_KEY_ID},
         secret_sharing::IntoShares,
         test_fixture::{ipa::TestRawDataRecord, join3v, Reconstruct, TestWorld},
@@ -227,7 +235,7 @@ mod tests {
         assert_eq!(
             results.reconstruct()[0..3]
                 .iter()
-                .map(Field::as_u128)
+                .map(U128Conversions::as_u128)
                 .collect::<Vec<u128>>(),
             EXPECTED
         );

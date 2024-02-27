@@ -20,6 +20,7 @@ impl WrappedAxumBodyStream {
     ///
     /// In the real-world-infra configuration, that is the same as a `WrappedAxumBodyStream`.
     #[cfg(feature = "real-world-infra")]
+    #[must_use]
     pub fn new(inner: BodyStream) -> Self {
         Self::new_internal(inner)
     }

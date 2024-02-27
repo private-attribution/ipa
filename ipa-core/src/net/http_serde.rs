@@ -123,22 +123,6 @@ pub mod query {
             let query_type = match query_type.as_str() {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-                QueryType::SEMIHONEST_IPA_STR => {
-                    let Query(q) = req.extract().await?;
-                    Ok(QueryType::SemiHonestIpa(q))
-                }
-                QueryType::MALICIOUS_IPA_STR => {
-                    let Query(q) = req.extract().await?;
-                    Ok(QueryType::MaliciousIpa(q))
-                }
-                QueryType::SEMIHONEST_AGGREGATE_STR => {
-                    let Query(q) = req.extract().await?;
-                    Ok(QueryType::SemiHonestSparseAggregate(q))
-                }
-                QueryType::MALICIOUS_AGGREGATE_STR => {
-                    let Query(q) = req.extract().await?;
-                    Ok(QueryType::MaliciousSparseAggregate(q))
-                }
                 QueryType::OPRF_IPA_STR => {
                     let Query(q) = req.extract().await?;
                     Ok(QueryType::OprfIpa(q))
@@ -165,9 +149,7 @@ pub mod query {
             match self.query_type {
                 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => Ok(()),
-                QueryType::SemiHonestIpa(config)
-                | QueryType::MaliciousIpa(config)
-                | QueryType::OprfIpa(config) => {
+                QueryType::OprfIpa(config) => {
                     write!(
                         f,
                         "&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
@@ -181,16 +163,6 @@ pub mod query {
                     if let Some(window) = config.attribution_window_seconds {
                         write!(f, "&attribution_window_seconds={}", window.get())?;
                     }
-
-                    Ok(())
-                }
-                QueryType::SemiHonestSparseAggregate(config)
-                | QueryType::MaliciousSparseAggregate(config) => {
-                    write!(
-                        f,
-                        "&contribution_bits={}&num_contributions={}",
-                        config.contribution_bits, config.num_contributions,
-                    )?;
 
                     Ok(())
                 }
