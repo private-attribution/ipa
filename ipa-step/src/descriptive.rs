@@ -38,8 +38,6 @@ pub struct Descriptive {
 impl Gate for Descriptive {}
 
 impl Default for Descriptive {
-    // TODO(mt): this should might be better if it were to be constructed from
-    // a QueryId rather than using a default.
     fn default() -> Self {
         Self {
             id: String::from("protocol"),
