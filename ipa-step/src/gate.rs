@@ -11,7 +11,7 @@ use crate::{name::GateName, CompactGateIndex, CompactStep};
 
 #[macro_export]
 macro_rules! module_file {
-    ($a:ident$(::$b:ident)* => $f:expr) => {
+    ($a:ident$(::$b:ident)* @ $f:expr) => {
         $f
     };
     ($a:ident$(::$b:ident)*) => {
@@ -36,16 +36,16 @@ macro_rules! load_steps {
     // The typical form for the macro:
     // step_module(module::name, other::module)
     // But for modules (including ".../mod.rs") without simple names:
-    // step_module(module::name => "path/to/mod.rs", other::module)
-    ($($a:ident$(::$b:ident)* $(=> $f:expr)*),*) => {
-        $(load_steps!(@ ::ipa_step::module_file!($a$(::$b)* $(=> $f)*), $a$(::$b)*);)*
+    // step_module(module::name @ "path/to/mod.rs", other::module)
+    ($($a:ident$(::$b:ident)* $(@ $f:expr)?),*) => {
+        $(load_steps!(@ ::ipa_step::module_file!($a$(::$b)* $(@ $f)?), $a$(::$b)*);)*
     };
 }
 
 #[macro_export]
 macro_rules! track_steps {
-    ($($a:ident$(::$b:ident)* $(=> $f:expr)*),*) => {
-        $(println!("cargo:rerun-if-changed={f}", f = ::ipa_step::module_file!($a$(::$b)* $(=> $f)*));)*
+    ($($a:ident$(::$b:ident)* $(@ $f:expr)*),*) => {
+        $(println!("cargo:rerun-if-changed={f}", f = ::ipa_step::module_file!($a$(::$b)* $(@ $f)?));)*
         println!("cargo:rerun-if-changed={f}", f = ::std::file!());
         assert!(::std::env::var(::ipa_step::COMPACT_GATE_INCLUDE_ENV).is_err(),
                 "setting `{e}` in the environment will cause build errors",
