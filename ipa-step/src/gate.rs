@@ -1,3 +1,6 @@
+// This module exists here because all of this functionality cannot be exported
+// from the ipa-step-derive proc-macro crate.  It it only used by build scripts.
+
 use std::{collections::HashMap, env, fs::write, path::PathBuf};
 
 use proc_macro2::TokenStream;
@@ -68,13 +71,16 @@ fn build_narrows(
     for (t, steps) in step_narrows {
         let t = crate_path(t);
         let ty: Path = parse_str(&t).unwrap();
-        let msg = format!("unsupported narrow for {gate_name}({{i}}) => {t}");
+        let short_name = t.rsplit_once("::").map_or_else(|| t.as_ref(), |(_a, b)| b);
+        let msg = format!("unexpected narrow for {gate_name}({{s}}) => {short_name}({{ss}})");
         syntax.extend(quote! {
             impl ::ipa_step::StepNarrow<#ty> for #ident {
                 fn narrow(&self, step: &#ty) -> Self {
                     match self.0 {
                         #(#steps)|* => Self(self.0 + 1 + <#ty as ::ipa_step::CompactStep>::index(step)),
-                        _ => panic!(#msg, i = self.0),
+                        _ => panic!(#msg,
+                                    s = self.as_ref(),
+                                    ss = <#ty as ::std::convert::AsRef<str>>::as_ref(step)),
                     }
                 }
             }

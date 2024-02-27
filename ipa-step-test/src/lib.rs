@@ -35,4 +35,18 @@ mod tests {
                 .narrow(&BasicStep::One)
         );
     }
+
+    #[test]
+    #[should_panic(expected = "unknown string provided to ComplexGate::from: /not/a/gate")]
+    fn bad_string() {
+        _ = ComplexGate::from("/not/a/gate");
+    }
+
+    /// Attempts to use `narrow()` will not compile if the type is wrong,
+    /// but if the starting state is wrong it will panic.
+    #[test]
+    #[should_panic(expected = "unexpected narrow for ComplexGate(/two2/one) => BasicStep(two)")]
+    fn bad_narrow() {
+        _ = ComplexGate::from("/two2/one").narrow(&BasicStep::Two);
+    }
 }
