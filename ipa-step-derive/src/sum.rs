@@ -14,12 +14,12 @@ pub struct ExtendedSum {
 impl ToTokens for ExtendedSum {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if self.expr.is_empty() {
-            Literal::usize_suffixed(self.extra).to_tokens(tokens);
+            Literal::usize_unsuffixed(self.extra).to_tokens(tokens);
         } else {
             tokens.extend(self.expr.clone());
             if self.extra > 0 {
                 Punct::new('+', Spacing::Alone).to_tokens(tokens);
-                Literal::usize_suffixed(self.extra).to_tokens(tokens);
+                Literal::usize_unsuffixed(self.extra).to_tokens(tokens);
             }
         }
     }

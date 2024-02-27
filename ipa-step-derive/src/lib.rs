@@ -110,7 +110,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         TokenStream::new()
     } else {
         quote! {
-            fn step_narrow_type(i: usize) -> Option<&'static str> {
+            fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
                 match i {
                     #step_narrow_arms
                     _ => None,
@@ -129,9 +129,9 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
             }
 
             impl ::ipa_step::CompactStep for #ident {
-                const STEP_COUNT: usize = 1usize;
-                fn base_index(&self) -> usize { 0 }
-                fn step_string(i: usize) -> String {
+                const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                     assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                     String::from(#snakey)
                 }
@@ -172,13 +172,13 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         }
         result.extend(quote! {
             impl ::ipa_step::CompactStep for #ident {
-                const STEP_COUNT: usize = #arm_count;
-                fn base_index(&self) -> usize {
+                const STEP_COUNT: ::ipa_step::CompactGateIndex = #arm_count;
+                fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                     match self {
                         #index_arms
                     }
                 }
-                fn step_string(i: usize) -> String {
+                fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                     match i {
                         #step_string_arms
                         _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
@@ -205,7 +205,7 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
         ///
         /// [`Descriptive`]: crate::descriptive::Descriptive
         #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        pub struct #name(usize);
+        pub struct #name(::ipa_step::CompactGateIndex);
         impl ::ipa_step::Gate for #name {}
         impl ::std::default::Default for #name {
             fn default() -> Self {
@@ -309,9 +309,9 @@ mod test {
                 }
 
                 impl ::ipa_step::CompactStep for EmptyEnum {
-                    const STEP_COUNT: usize = 1usize;
-                    fn base_index(&self) -> usize { 0 }
-                    fn step_string(i: usize) -> String {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                         String::from("empty_enum")
                     }
@@ -341,15 +341,15 @@ mod test {
                 }
 
                 impl ::ipa_step::CompactStep for OneArm {
-                    const STEP_COUNT: usize = 1usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm => 0usize,
+                            Self::Arm => 0,
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i == 0usize => Self::Arm.as_ref().to_owned(),
+                            _ if i == 0 => Self::Arm.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -380,15 +380,15 @@ mod test {
                 }
 
                 impl ::ipa_step::CompactStep for OneArm {
-                    const STEP_COUNT: usize = 1usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm => 0usize,
+                            Self::Arm => 0,
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i == 0usize => Self::Arm.as_ref().to_owned(),
+                            _ if i == 0 => Self::Arm.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -416,9 +416,9 @@ mod test {
                 )]
                 impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
-                        const ARM_NAMES: [&str; 3usize] = ["arm0", "arm1", "arm2"];
+                        const ARM_NAMES: [&str; 3] = ["arm0", "arm1", "arm2"];
                         match self {
-                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -429,15 +429,15 @@ mod test {
                     clippy::identity_op,
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
-                    const STEP_COUNT: usize = 3usize;
-                    fn base_index (& self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 3;
+                    fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm (i) => usize::try_from(*i).unwrap(),
+                            Self::Arm (i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
+                            _ if i < 3 => Self::Arm(u8::try_from(i - (0)).unwrap()).as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -465,9 +465,9 @@ mod test {
                 )]
                 impl ::std::convert::AsRef<str> for ManyArms {
                     fn as_ref(&self) -> &str {
-                        const ARM_NAMES: [&str; 3usize] = ["a0", "a1", "a2"];
+                        const ARM_NAMES: [&str; 3] = ["a0", "a1", "a2"];
                         match self {
-                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -478,15 +478,15 @@ mod test {
                     clippy::identity_op,
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
-                    const STEP_COUNT: usize = 3usize;
-                    fn base_index (& self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 3;
+                    fn base_index (& self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Arm (i) => usize::try_from(*i).unwrap(),
+                            Self::Arm (i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i < 3usize => Self::Arm(u8::try_from(i - (0usize)).unwrap()).as_ref().to_owned(),
+                            _ if i < 3 => Self::Arm(u8::try_from(i - (0)).unwrap()).as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
@@ -517,26 +517,26 @@ mod test {
                 }
 
                 impl ::ipa_step::CompactStep for Parent {
-                    const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Offspring => 0usize,
+                            Self::Offspring => 0,
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
-                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1usize)),
+                            _ if i == 0 => Self::Offspring.as_ref().to_owned(),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1)),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
 
-                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
                         match i {
-                            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
-                            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i)
-                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize)),
+                            _ if i == 0 => Some(::std::any::type_name::<Child>()),
+                            _ if (1..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1)),
                             _ => None,
                         }
                     }
@@ -567,26 +567,26 @@ mod test {
                 }
 
                 impl ::ipa_step::CompactStep for Parent {
-                    const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Offspring => 0usize,
+                            Self::Offspring => 0,
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i == 0usize => Self::Offspring.as_ref().to_owned(),
-                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize
-                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1usize)),
+                            _ if i == 0 => Self::Offspring.as_ref().to_owned(),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1
+                                => Self::Offspring.as_ref().to_owned() + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1)),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
 
-                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
                         match i {
-                            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
-                            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i)
-                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize)),
+                            _ if i == 0 => Some(::std::any::type_name::<Child>()),
+                            _ if (1..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1)),
                             _ => None,
                         }
                     }
@@ -615,10 +615,10 @@ mod test {
                 )]
                 impl ::std::convert::AsRef<str> for Parent {
                     fn as_ref(&self) -> &str {
-                        const OFFSPRING_NAMES: [&str; 5usize] =
+                        const OFFSPRING_NAMES: [&str; 5] =
                             ["spawn0", "spawn1", "spawn2", "spawn3", "spawn4"];
                         match self {
-                            Self::Offspring(i) => OFFSPRING_NAMES[usize::try_from(*i).unwrap()],
+                            Self::Offspring(i) => OFFSPRING_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -630,16 +630,16 @@ mod test {
                     clippy::identity_op,
                 )]
                 impl ::ipa_step::CompactStep for Parent {
-                    const STEP_COUNT: usize = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Offspring(i) => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * usize::try_from(*i).unwrap(),
+                            Self::Offspring(i) => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap(),
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i < (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize => {
-                                let offset = i - (0usize);
+                            _ if i < (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5 => {
+                                let offset = i - (0);
                                 let divisor = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
                                 let s = Self::Offspring(u8::try_from(offset / divisor).unwrap())
                                     .as_ref()
@@ -656,10 +656,10 @@ mod test {
                             ),
                         }
                     }
-                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
                         match i {
-                            _ if (0usize..(<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize).contains(&i) => {
-                                let offset = i - (0usize);
+                            _ if (0..(<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5).contains(&i) => {
+                                let offset = i - (0);
                                 let divisor = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
                                 if let Some(v) = (offset % divisor).checked_sub(1) {
                                     <Child as ::ipa_step::CompactStep>::step_narrow_type(v)
@@ -698,10 +698,10 @@ mod test {
                 )]
                 impl ::std::convert::AsRef<str> for AllArms {
                     fn as_ref(&self) -> &str {
-                        const INT_NAMES: [&str; 3usize] = ["int0", "int1", "int2"];
+                        const INT_NAMES: [&str; 3] = ["int0", "int1", "int2"];
                         match self {
                             Self::Empty => "empty",
-                            Self::Int(i) => INT_NAMES[usize::try_from(*i).unwrap()],
+                            Self::Int(i) => INT_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
                             Self::Child => "child",
                             Self::Final => "final",
                         }
@@ -714,33 +714,33 @@ mod test {
                     clippy::identity_op,
                 )]
                 impl ::ipa_step::CompactStep for AllArms {
-                    const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6usize;
-                    fn base_index(&self) -> usize {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex {
                         match self {
-                            Self::Empty => 0usize,
-                            Self::Int(i) => usize::try_from(*i).unwrap() + 1usize,
-                            Self::Child => 4usize,
-                            Self::Final => <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize,
+                            Self::Empty => 0,
+                            Self::Int(i) => ::ipa_step::CompactGateIndex::try_from(*i).unwrap() + 1,
+                            Self::Child => 4,
+                            Self::Final => <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5,
                         }
                     }
-                    fn step_string(i: usize) -> String {
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
                         match i {
-                            _ if i == 0usize => Self::Empty.as_ref().to_owned(),
-                            _ if i < 4usize => Self::Int(usize::try_from(i - (1usize)).unwrap()).as_ref().to_owned(),
-                            _ if i == 4usize => Self::Child.as_ref().to_owned(),
-                            _ if i < <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize
-                                => Self::Child.as_ref().to_owned() + "/" + &<::some::other::StepEnum as ::ipa_step::CompactStep>::step_string(i - (5usize)),
-                            _ if i == <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize
+                            _ if i == 0 => Self::Empty.as_ref().to_owned(),
+                            _ if i < 4 => Self::Int(usize::try_from(i - (1)).unwrap()).as_ref().to_owned(),
+                            _ if i == 4 => Self::Child.as_ref().to_owned(),
+                            _ if i < <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5
+                                => Self::Child.as_ref().to_owned() + "/" + &<::some::other::StepEnum as ::ipa_step::CompactStep>::step_string(i - (5)),
+                            _ if i == <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5
                                 => Self::Final.as_ref().to_owned(),
                             _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
                         }
                     }
 
-                    fn step_narrow_type(i: usize) -> Option<&'static str> {
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
                         match i {
-                            _ if i == 4usize => Some(::std::any::type_name::<::some::other::StepEnum>()),
-                            _ if (5usize..<::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5usize).contains(&i)
-                              => <::some::other::StepEnum as ::ipa_step::CompactStep>::step_narrow_type(i - (5usize)),
+                            _ if i == 4 => Some(::std::any::type_name::<::some::other::StepEnum>()),
+                            _ if (5..<::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 5).contains(&i)
+                              => <::some::other::StepEnum as ::ipa_step::CompactStep>::step_narrow_type(i - (5)),
                             _ => None,
                         }
                     }

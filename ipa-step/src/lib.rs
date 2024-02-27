@@ -11,6 +11,7 @@ pub mod name;
 pub use gate::build as build_gate;
 
 pub const COMPACT_GATE_INCLUDE_ENV: &str = "COMPACT_GATE_INCLUDE";
+pub type CompactGateIndex = usize;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -46,7 +47,7 @@ pub trait StepNarrow<S: Step + ?Sized> {
 /// automatically implementing this trait with `#[derive(CompactStep)]`.
 pub trait CompactStep: Step {
     /// The total number of steps that can be reached from this step.
-    const STEP_COUNT: usize;
+    const STEP_COUNT: CompactGateIndex;
 
     /// Get the index an instance of this type.
     /// This will be sparse if there are children as it needs to account for
@@ -54,18 +55,18 @@ pub trait CompactStep: Step {
     /// However, it will never produce an index for the child node, as
     /// this object does not include the state from children.
     #[must_use]
-    fn base_index(&self) -> usize;
+    fn base_index(&self) -> CompactGateIndex;
 
     /// Create a string representation for the step at index `i`.
     /// This does take children into account.
     #[must_use]
-    fn step_string(i: usize) -> String;
+    fn step_string(i: CompactGateIndex) -> String;
 
     /// For a given step index, `i`, indicate the narrowing type.
     /// This only applies to step indices that have a child;
     /// a step index that does not have a child will return `None`.
     #[must_use]
-    fn step_narrow_type(_i: usize) -> Option<&'static str> {
+    fn step_narrow_type(_i: CompactGateIndex) -> Option<&'static str> {
         None
     }
 }

@@ -1,5 +1,5 @@
 use ipa_step::name::CaseStyle;
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
     meta::ParseNestedMeta, spanned::Spanned, Attribute, DataEnum, ExprPath, Fields, Ident, LitInt,
@@ -291,18 +291,19 @@ impl VariantAttribute {
         };
         let step_names =
             (0..*step_count).map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..]);
+        let step_count_lit = Literal::usize_unsuffixed(*step_count);
         name_arrays.extend(quote! {
-            const #array_name: [&str; #step_count] = [#(#step_names),*];
+            const #array_name: [&str; #step_count_lit] = [#(#step_names),*];
         });
 
         // Use those names in the `AsRef` implementation.
         as_ref_arms.extend(quote! {
-             Self::#step_ident(i) => #array_name[usize::try_from(*i).unwrap()],
+             Self::#step_ident(i) => #array_name[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
         });
 
         if let Some(child) = step_child {
             let idx = arm_count.clone()
-                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * usize::try_from(*i).unwrap());
+                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
             index_arms.extend(quote! {
                 Self::#step_ident(i) => #idx,
             });
@@ -311,7 +312,7 @@ impl VariantAttribute {
             // But each also has independent child nodes of its own.
             // That means `step_count * (#child::STEP_COUNT * 1)` total nodes.
             let range_end = arm_count.clone()
-                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * #step_count);
+                + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * #step_count_lit);
             step_string_arms.extend(quote! {
                 _ if i < #range_end => {
                     let offset = i - (#arm_count);
@@ -342,7 +343,8 @@ impl VariantAttribute {
             });
             range_end
         } else {
-            let idx = arm_count.clone() + quote!(usize::try_from(*i).unwrap());
+            let idx =
+                arm_count.clone() + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
             index_arms.extend(quote! {
                 Self::#step_ident(i) => #idx,
             });

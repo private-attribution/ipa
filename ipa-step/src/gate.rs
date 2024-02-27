@@ -7,7 +7,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse2, parse_str, Ident, Path};
 
-use crate::{name::GateName, CompactStep};
+use crate::{name::GateName, CompactGateIndex, CompactStep};
 
 #[macro_export]
 macro_rules! module_file {
@@ -65,7 +65,7 @@ fn crate_path(p: &str) -> String {
 fn build_narrows(
     ident: &Ident,
     gate_name: &str,
-    step_narrows: HashMap<&str, Vec<usize>>,
+    step_narrows: HashMap<&str, Vec<CompactGateIndex>>,
     syntax: &mut TokenStream,
 ) {
     for (t, steps) in step_narrows {
