@@ -35,7 +35,7 @@ impl Step for String {}
 #[cfg(any(feature = "descriptive", debug_assertions))]
 impl Step for str {}
 
-/// For gate identifier, this takes a step toward an adjacent gate.
+/// For a gate identifier, this takes a step toward an adjacent gate.
 pub trait StepNarrow<S: Step + ?Sized> {
     #[must_use]
     fn narrow(&self, step: &S) -> Self;
@@ -43,16 +43,21 @@ pub trait StepNarrow<S: Step + ?Sized> {
 
 /// Implementations of `Step` can also implement `compact::Step` to enable the use of
 /// `CompactGate` implementations.  The `ipa-step-derive` crate provides a means of
-/// automatically implementing this trait.
+/// automatically implementing this trait with `#[derive(CompactStep)]`.
 pub trait CompactStep: Step {
     /// The total number of steps that can be reached from this step.
     const STEP_COUNT: usize;
 
     /// Get the index an instance of this type.
+    /// This will be sparse if there are children as it needs to account for
+    /// the indices that children might take up.
+    /// However, it will never produce an index for the child node, as
+    /// this object does not include the state from children.
     #[must_use]
-    fn index(&self) -> usize;
+    fn base_index(&self) -> usize;
 
     /// Create a string representation for the step at index `i`.
+    /// This does take children into account.
     #[must_use]
     fn step_string(i: usize) -> String;
 
@@ -69,4 +74,4 @@ pub trait CompactStep: Step {
 /// gates in a protocol.  It can be mapped to and from strings and has a default value.
 /// In most cases, implementations will also implement `StepNarrow` for different types,
 /// but this is not strictly required.
-pub trait Gate: Default + AsRef<str> + for<'a> From<&'a str> {}
+pub trait Gate: Default + AsRef<str> + for<'a> From<&'a str> + Ord {}

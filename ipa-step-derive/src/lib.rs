@@ -105,6 +105,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         impl ::ipa_step::Step for #ident {}
     };
 
+    // Maybe override the default implementation of `step_narrow_type`.
     let step_narrow = if step_narrow_arms.is_empty() {
         TokenStream::new()
     } else {
@@ -129,7 +130,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
 
             impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = 1usize;
-                fn index(&self) -> usize { 0 }
+                fn base_index(&self) -> usize { 0 }
                 fn step_string(i: usize) -> String {
                     assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                     String::from(#snakey)
@@ -159,6 +160,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         });
 
         // Implementing `CompactStep` involves some cases where 0 is added or subtracted.
+        // In addition to the useless conversions above.
         if !name_arrays.is_empty() {
             result.extend(quote! {
                 #[allow(
@@ -171,7 +173,7 @@ fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
         result.extend(quote! {
             impl ::ipa_step::CompactStep for #ident {
                 const STEP_COUNT: usize = #arm_count;
-                fn index(&self) -> usize {
+                fn base_index(&self) -> usize {
                     match self {
                         #index_arms
                     }
@@ -197,7 +199,12 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
 
     let mut result = quote! {
         /// A compact `Gate` corresponding to #step.
-        #[derive(PartialEq, Eq, Clone, Copy)]
+        ///
+        /// Note that the ordering of this gate implementation might not match
+        /// the ordering of [`Descriptive`].
+        ///
+        /// [`Descriptive`]: crate::descriptive::Descriptive
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct #name(usize);
         impl ::ipa_step::Gate for #name {}
         impl ::std::default::Default for #name {
@@ -303,7 +310,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for EmptyEnum {
                     const STEP_COUNT: usize = 1usize;
-                    fn index(&self) -> usize { 0 }
+                    fn base_index(&self) -> usize { 0 }
                     fn step_string(i: usize) -> String {
                         assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
                         String::from("empty_enum")
@@ -335,7 +342,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Arm => 0usize,
                         }
@@ -374,7 +381,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for OneArm {
                     const STEP_COUNT: usize = 1usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Arm => 0usize,
                         }
@@ -423,7 +430,7 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
-                    fn index (& self) -> usize {
+                    fn base_index (& self) -> usize {
                         match self {
                             Self::Arm (i) => usize::try_from(*i).unwrap(),
                         }
@@ -472,7 +479,7 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for ManyArms {
                     const STEP_COUNT: usize = 3usize;
-                    fn index (& self) -> usize {
+                    fn base_index (& self) -> usize {
                         match self {
                             Self::Arm (i) => usize::try_from(*i).unwrap(),
                         }
@@ -511,7 +518,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Offspring => 0usize,
                         }
@@ -561,7 +568,7 @@ mod test {
 
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Offspring => 0usize,
                         }
@@ -624,7 +631,7 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for Parent {
                     const STEP_COUNT: usize = (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * 5usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Offspring(i) => (<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * usize::try_from(*i).unwrap(),
                         }
@@ -708,7 +715,7 @@ mod test {
                 )]
                 impl ::ipa_step::CompactStep for AllArms {
                     const STEP_COUNT: usize = <::some::other::StepEnum as ::ipa_step::CompactStep>::STEP_COUNT + 6usize;
-                    fn index(&self) -> usize {
+                    fn base_index(&self) -> usize {
                         match self {
                             Self::Empty => 0usize,
                             Self::Int(i) => usize::try_from(*i).unwrap() + 1usize,

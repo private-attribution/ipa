@@ -77,7 +77,7 @@ fn build_narrows(
             impl ::ipa_step::StepNarrow<#ty> for #ident {
                 fn narrow(&self, step: &#ty) -> Self {
                     match self.0 {
-                        #(#steps)|* => Self(self.0 + 1 + <#ty as ::ipa_step::CompactStep>::index(step)),
+                        #(#steps)|* => Self(self.0 + 1 + <#ty as ::ipa_step::CompactStep>::base_index(step)),
                         _ => panic!(#msg,
                                     s = self.as_ref(),
                                     ss = <#ty as ::std::convert::AsRef<str>>::as_ref(step)),

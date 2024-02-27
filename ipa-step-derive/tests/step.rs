@@ -45,17 +45,3 @@ mod tests {
         }
     }
 }
-
-#[cfg(disabled)]
-mod tmp {
-    fn step_narrow_type(i: usize) -> Option<&'static str> {
-        match i {
-            _ if i == 0usize => Some(::std::any::type_name::<Child>()),
-            _ if (1usize..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1usize).contains(&i) => {
-                <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1usize))
-            }
-            _ => None,
-        }
-        assert_eq!(SmallChild.index(), 0);
-    }
-}
