@@ -418,7 +418,7 @@ mod test {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3] = ["arm0", "arm1", "arm2"];
                         match self {
-                            Self::Arm(i) => ARM_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -467,7 +467,7 @@ mod test {
                     fn as_ref(&self) -> &str {
                         const ARM_NAMES: [&str; 3] = ["a0", "a1", "a2"];
                         match self {
-                            Self::Arm(i) => ARM_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
+                            Self::Arm(i) => ARM_NAMES[usize::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -618,7 +618,7 @@ mod test {
                         const OFFSPRING_NAMES: [&str; 5] =
                             ["spawn0", "spawn1", "spawn2", "spawn3", "spawn4"];
                         match self {
-                            Self::Offspring(i) => OFFSPRING_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
+                            Self::Offspring(i) => OFFSPRING_NAMES[usize::try_from(*i).unwrap()],
                         }
                     }
                 }
@@ -701,7 +701,7 @@ mod test {
                         const INT_NAMES: [&str; 3] = ["int0", "int1", "int2"];
                         match self {
                             Self::Empty => "empty",
-                            Self::Int(i) => INT_NAMES[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
+                            Self::Int(i) => INT_NAMES[usize::try_from(*i).unwrap()],
                             Self::Child => "child",
                             Self::Final => "final",
                         }

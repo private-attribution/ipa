@@ -11,7 +11,7 @@ pub mod name;
 pub use gate::build as build_gate;
 
 pub const COMPACT_GATE_INCLUDE_ENV: &str = "COMPACT_GATE_INCLUDE";
-pub type CompactGateIndex = usize;
+pub type CompactGateIndex = u16;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///

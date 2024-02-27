@@ -298,7 +298,7 @@ impl VariantAttribute {
 
         // Use those names in the `AsRef` implementation.
         as_ref_arms.extend(quote! {
-             Self::#step_ident(i) => #array_name[::ipa_step::CompactGateIndex::try_from(*i).unwrap()],
+             Self::#step_ident(i) => #array_name[usize::try_from(*i).unwrap()],
         });
 
         if let Some(child) = step_child {
