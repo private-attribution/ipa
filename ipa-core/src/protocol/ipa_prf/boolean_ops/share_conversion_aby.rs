@@ -169,10 +169,10 @@ where
     match ctx.role() {
         Role::H1 => Ok(AdditiveShare::<Fp25519>::new(
             Fp25519::from(sh_s.left()).neg(),
-            Fp25519::from(y.unwrap()),
+            Fp25519::from(BA256::from_array(&y.unwrap())),
         )),
         Role::H2 => Ok(AdditiveShare::<Fp25519>::new(
-            Fp25519::from(y.unwrap()),
+            Fp25519::from(BA256::from_array(&y.unwrap())),
             Fp25519::from(sh_r.right()).neg(),
         )),
         Role::H3 => Ok(AdditiveShare::<Fp25519>::new(
