@@ -197,11 +197,7 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{
-            curve_points::{NonCanonicalEncoding, RP25519},
-            ec_prime_field::Fp25519,
-            Serializable,
-        },
+        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
     };
 
@@ -258,7 +254,10 @@ mod test {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn non_canonical() {
+        use crate::ff::curve_points::NonCanonicalEncoding;
+
         const ZERO: u128 = 0;
         // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
         let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };

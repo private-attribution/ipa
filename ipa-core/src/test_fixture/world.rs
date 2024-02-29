@@ -2,6 +2,7 @@ use std::{fmt::Debug, io::stdout, iter::zip};
 
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
+use ipa_macros::Step;
 use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
 use rand_core::{RngCore, SeedableRng};
 use tracing::{Instrument, Level, Span};
@@ -30,6 +31,14 @@ use crate::{
         logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
     },
 };
+
+// This is used by the metrics tests in `protocol::context`. It otherwise would/should not be pub.
+#[derive(Step)]
+pub enum TestExecutionStep {
+    /// Provides a unique per-iteration context in tests.
+    #[dynamic(1024)]
+    Iter(usize),
+}
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -139,7 +148,7 @@ impl TestWorld {
         zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
-                    .narrow(&Self::execution_step(execution))
+                    .narrow(&TestExecutionStep::Iter(execution))
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -155,7 +164,8 @@ impl TestWorld {
         let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
-                MaliciousContext::new(participant, gateway).narrow(&Self::execution_step(execution))
+                MaliciousContext::new(participant, gateway)
+                    .narrow(&TestExecutionStep::Iter(execution))
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -165,11 +175,6 @@ impl TestWorld {
     #[must_use]
     pub fn metrics_snapshot(&self) -> Metrics {
         self.metrics_handle.snapshot()
-    }
-
-    #[must_use]
-    pub fn execution_step(execution: usize) -> String {
-        format!("run-{execution}")
     }
 
     pub fn gateway(&self, role: Role) -> &Gateway {

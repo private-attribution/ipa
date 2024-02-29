@@ -300,7 +300,7 @@ mod tests {
         telemetry::metrics::{
             BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
         },
-        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{Reconstruct, Runner, TestExecutionStep, TestWorld, TestWorldConfig},
     };
 
     trait ReplicatedLeftValue<F: Field> {
@@ -391,7 +391,7 @@ mod tests {
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             .narrow("metrics");
 
         // for semi-honest protocols, amplification factor per helper is 1.
@@ -448,7 +448,7 @@ mod tests {
             .await;
 
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)
             .narrow("metrics");

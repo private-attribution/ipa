@@ -1,6 +1,7 @@
 use std::{array, num::NonZeroUsize};
 
 use futures::{future::join3, stream, StreamExt};
+use ipa_macros::Step;
 use rand::distributions::{Distribution, Standard};
 
 use crate::{
@@ -121,6 +122,12 @@ pub async fn arithmetic<F, const N: usize>(
     assert_eq!(sum, u128::from(width));
 }
 
+#[derive(Step)]
+enum Step {
+    #[dynamic(1024)]
+    Stripe(usize),
+}
+
 async fn circuit<'a, F, const N: usize>(
     ctx: SemiHonestContext<'a>,
     record_id: RecordId,
@@ -134,7 +141,7 @@ where
 {
     assert_eq!(b.len(), usize::from(depth));
     for (stripe_ix, stripe) in b.iter().enumerate() {
-        let stripe_ctx = ctx.narrow(&format!("s{stripe_ix}"));
+        let stripe_ctx = ctx.narrow(&Step::Stripe(stripe_ix));
         a = a.multiply(stripe, stripe_ctx, record_id).await.unwrap();
     }
 
