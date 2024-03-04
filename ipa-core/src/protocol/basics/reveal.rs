@@ -215,7 +215,7 @@ mod tests {
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
-        helpers::Direction,
+        helpers::{Direction, Role},
         protocol::{
             basics::Reveal,
             context::{
@@ -256,6 +256,37 @@ mod tests {
         assert_eq!(input, results[0]);
         assert_eq!(input, results[1]);
         assert_eq!(input, results[2]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    pub async fn partial() -> Result<(), Error> {
+        type TestField = Fp31;
+
+        let mut rng = thread_rng();
+        let world = TestWorld::default();
+
+        for &left_out in Role::all() {
+            let input = rng.gen::<TestField>();
+            let results = world
+                .semi_honest(input, |ctx, share| async move {
+                    share
+                        .partial_reveal(ctx.set_total_records(1), RecordId::from(0), left_out)
+                        .await
+                        .unwrap()
+                        .map(|revealed| TestField::from_array(&revealed))
+                })
+                .await;
+
+            for &helper in Role::all() {
+                if helper == left_out {
+                    assert_eq!(None, results[helper]);
+                } else {
+                    assert_eq!(Some(input), results[helper]);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -323,6 +354,54 @@ mod tests {
     }
 
     #[tokio::test]
+    pub async fn malicious_partial() -> Result<(), Error> {
+        type TestField = Fp31;
+
+        let mut rng = thread_rng();
+        let world = TestWorld::default();
+
+        for &left_out in Role::all() {
+            let sh_ctx = world.malicious_contexts();
+            let v = sh_ctx.map(UpgradableContext::validator);
+            let m_ctx: [_; 3] = v
+                .iter()
+                .map(|v| v.context().set_total_records(1))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+
+            let record_id = RecordId::from(0);
+            let input: TestField = rng.gen();
+
+            let m_shares = join3v(
+                zip(m_ctx.iter(), input.share_with(&mut rng))
+                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+            )
+            .await;
+
+            let results = join_all(zip(m_ctx.clone().into_iter(), m_shares).map(
+                |(m_ctx, m_share)| async move {
+                    m_share
+                        .partial_reveal(m_ctx, record_id, left_out)
+                        .await
+                        .unwrap()
+                },
+            ))
+            .await;
+
+            for &helper in Role::all() {
+                if helper == left_out {
+                    assert_eq!(None, results[helper]);
+                } else {
+                    assert_eq!(Some(input.into_array()), results[helper]);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = thread_rng();
         let world = TestWorld::default();
@@ -346,7 +425,46 @@ mod tests {
         let result = try_join3(
             m_shares[0].reveal(m_ctx[0].clone(), record_id),
             m_shares[1].reveal(m_ctx[1].clone(), record_id),
-            reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], Fp31::ONE),
+            reveal_with_additive_attack(
+                m_ctx[2].clone(),
+                record_id,
+                &m_shares[2],
+                false,
+                Fp31::ONE,
+            ),
+        )
+        .await;
+
+        assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    pub async fn malicious_partial_validation_fail() -> Result<(), Error> {
+        let mut rng = thread_rng();
+        let world = TestWorld::default();
+        let sh_ctx = world.malicious_contexts();
+        let v = sh_ctx.map(UpgradableContext::validator);
+        let m_ctx: [_; 3] = v
+            .iter()
+            .map(|v| v.context().set_total_records(1))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        let record_id = RecordId::from(0);
+        let input: Fp31 = rng.gen();
+
+        let m_shares = join3v(
+            zip(m_ctx.iter(), input.share_with(&mut rng))
+                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+        )
+        .await;
+        let result = try_join3(
+            m_shares[0].partial_reveal(m_ctx[0].clone(), record_id, Role::H3),
+            m_shares[1].partial_reveal(m_ctx[1].clone(), record_id, Role::H3),
+            reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], true, Fp31::ONE),
         )
         .await;
 
@@ -359,8 +477,9 @@ mod tests {
         ctx: UpgradedMaliciousContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
+        left_out: bool,
         additive_error: F,
-    ) -> Result<F, Error> {
+    ) -> Result<Option<F>, Error> {
         let (left, right) = input.x().access_without_downgrade().as_tuple();
         let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
         let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
@@ -374,9 +493,13 @@ mod tests {
         )
         .await?;
 
-        let (share_from_left, _share_from_right): (F, F) =
-            try_join(left_recv.receive(record_id), right_recv.receive(record_id)).await?;
+        if left_out {
+            Ok(None)
+        } else {
+            let (share_from_left, _share_from_right): (F, F) =
+                try_join(left_recv.receive(record_id), right_recv.receive(record_id)).await?;
 
-        Ok(left + right + share_from_left)
+            Ok(Some(left + right + share_from_left))
+        }
     }
 }
