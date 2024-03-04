@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter};
+
 use bitvec::{
     prelude::{BitArr, Lsb0},
     slice::Iter,
@@ -254,8 +256,14 @@ macro_rules! boolean_array_impl {
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
-            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+            #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
+
+            impl Debug for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{}({})", stringify!($name), self.0)
+                }
+            }
 
             impl $name {
                 #[cfg(all(test, unit_test))]
