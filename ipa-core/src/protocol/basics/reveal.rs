@@ -1,4 +1,5 @@
-use async_trait::async_trait;
+use std::future::Future;
+
 use embed_doc_image::embed_doc_image;
 
 use crate::{
@@ -18,23 +19,26 @@ use crate::{
 };
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
-#[async_trait]
 pub trait Reveal<C: Context, const N: usize>: Sized {
     type Output;
     /// reveal the secret to all helpers in MPC circuit. Note that after method is called,
     /// it must be assumed that the secret value has been revealed to at least one of the helpers.
     /// Even in case when method never terminates, returns an error, etc.
-    async fn reveal<'fut>(&self, ctx: C, record_id: RecordId) -> Result<Self::Output, Error>
+    fn reveal<'fut>(
+        &'fut self,
+        ctx: C,
+        record_id: RecordId,
+    ) -> impl Future<Output = Result<Self::Output, Error>> + Send + 'fut
     where
         C: 'fut;
 
     /// partial reveal protocol to open a shared secret to all helpers except helper `left_out` inside the MPC ring.
-    async fn partial_reveal<'fut>(
-        &self,
+    fn partial_reveal<'fut>(
+        &'fut self,
         ctx: C,
         record_id: RecordId,
         left_out: Role,
-    ) -> Result<Option<Self::Output>, Error>
+    ) -> impl Future<Output = Result<Option<Self::Output>, Error>> + Send + 'fut
     where
         C: 'fut;
 }
@@ -50,7 +54,6 @@ pub trait Reveal<C: Context, const N: usize>: Sized {
 /// ![Reveal steps][reveal]
 /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
 /// i.e. their own shares and received share.
-#[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
 impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
     for Replicated<V, N>
@@ -58,7 +61,7 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
     type Output = <V as Vectorizable<N>>::Array;
 
     async fn reveal<'fut>(
-        &self,
+        &'fut self,
         ctx: C,
         record_id: RecordId,
     ) -> Result<<V as Vectorizable<N>>::Array, Error>
@@ -83,7 +86,7 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
 
     /// TODO: implement reveal through partial reveal where `left_out` is optional
     async fn partial_reveal<'fut>(
-        &self,
+        &'fut self,
         ctx: C,
         record_id: RecordId,
         left_out: Role,
@@ -96,9 +99,11 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
 
         // send except to left_out
         if ctx.role().peer(Direction::Right) != left_out {
-            ctx.send_channel::<<V as Vectorizable<N>>::Array>(ctx.role().peer(Direction::Right))
-                .send(record_id, left)
-                .await?;
+            ctx.send_channel::<<V as Vectorizable<N>>::Array>(
+                ctx.role().peer(Direction::Right),
+            )
+            .send(record_id, left)
+            .await?;
         }
 
         if ctx.role() == left_out {
@@ -119,12 +124,11 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[cfg(feature = "descriptive-gate")]
-#[async_trait]
 impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for MaliciousReplicated<F> {
     type Output = <F as Vectorizable<1>>::Array;
 
     async fn reveal<'fut>(
-        &self,
+        &'fut self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
     ) -> Result<<F as Vectorizable<1>>::Array, Error>
@@ -162,7 +166,7 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Mali
     }
 
     async fn partial_reveal<'fut>(
-        &self,
+        &'fut self,
         ctx: UpgradedMaliciousContext<'a, F>,
         record_id: RecordId,
         left_out: Role,
@@ -204,6 +208,20 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Mali
             }
         }
     }
+}
+
+// Workaround for https://github.com/rust-lang/rust/issues/100013. Calling this wrapper function
+// instead of `Reveal::reveal` seems to hide the `impl Future` GAT.
+pub fn reveal<'fut, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    v: &'fut S,
+) -> impl Future<Output = Result<S::Output, Error>> + Send + 'fut
+where
+    C: Context + 'fut,
+    S: Reveal<C, 1>,
+{
+    S::reveal(v, ctx, record_id)
 }
 
 #[cfg(all(test, unit_test))]
