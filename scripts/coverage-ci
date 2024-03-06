@@ -14,4 +14,8 @@ for gate in "compact" "descriptive"; do
   cargo test --no-default-features --features "cli web-app real-world-infra test-fixture $gate-gate"
 done
 
+cargo test --bench oneshot_ipa --no-default-features --features "enable-benches descriptive-gate" -- -n 62 -c 16
+
+cargo test --bench criterion_arithmetic --no-default-features --features "enable-benches descriptive-gate"
+
 cargo llvm-cov report "$@"
