@@ -261,7 +261,8 @@ macro_rules! boolean_array_impl {
 
             impl Debug for $name {
                 fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{}({})", stringify!($name), self.0)
+                    f.write_str(stringify!($name))?;
+                    self.0.data.fmt(f)
                 }
             }
 
@@ -704,6 +705,13 @@ macro_rules! boolean_array_impl {
                         $name::deserialize(&buf).unwrap(),
                         "Failed to deserialize a valid value: {ba:?}"
                     );
+                }
+
+                #[test]
+                fn debug() {
+                    let expected = format!("{}{:?}", stringify!($name), $name::ZERO.0.data);
+                    let actual = format!("{:?}", $name::ZERO);
+                    assert_eq!(expected, actual);
                 }
             }
         }
