@@ -212,6 +212,7 @@ mod tests {
             },
             IntoShares, SharedValue,
         },
+        test_executor::run,
         test_fixture::{join3v, Runner, TestWorld},
     };
 
@@ -382,76 +383,76 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    pub async fn malicious_validation_fail() -> Result<(), Error> {
-        let mut rng = thread_rng();
-        let world = TestWorld::default();
-        let sh_ctx = world.malicious_contexts();
-        let v = sh_ctx.map(UpgradableContext::validator);
-        let m_ctx: [_; 3] = v
-            .iter()
-            .map(|v| v.context().set_total_records(1))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+    #[test]
+    pub fn malicious_validation_fail() {
+        run(|| async {
+            let mut rng = thread_rng();
+            let world = TestWorld::default();
+            let sh_ctx = world.malicious_contexts();
+            let v = sh_ctx.map(UpgradableContext::validator);
+            let m_ctx: [_; 3] = v
+                .iter()
+                .map(|v| v.context().set_total_records(1))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
 
-        let record_id = RecordId::from(0);
-        let input: Fp31 = rng.gen();
+            let record_id = RecordId::from(0);
+            let input: Fp31 = rng.gen();
 
-        let m_shares = join3v(
-            zip(m_ctx.iter(), input.share_with(&mut rng))
-                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
-        )
-        .await;
-        let result = try_join3(
-            m_shares[0].reveal(m_ctx[0].clone(), record_id),
-            m_shares[1].reveal(m_ctx[1].clone(), record_id),
-            reveal_with_additive_attack(
-                m_ctx[2].clone(),
-                record_id,
-                &m_shares[2],
-                false,
-                Fp31::ONE,
-            ),
-        )
-        .await;
+            let m_shares = join3v(
+                zip(m_ctx.iter(), input.share_with(&mut rng))
+                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+            )
+            .await;
+            let result = try_join3(
+                m_shares[0].reveal(m_ctx[0].clone(), record_id),
+                m_shares[1].reveal(m_ctx[1].clone(), record_id),
+                reveal_with_additive_attack(
+                    m_ctx[2].clone(),
+                    record_id,
+                    &m_shares[2],
+                    false,
+                    Fp31::ONE,
+                ),
+            )
+            .await;
 
-        assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
-
-        Ok(())
+            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
+        })
     }
 
-    #[tokio::test]
-    pub async fn malicious_partial_validation_fail() -> Result<(), Error> {
-        let mut rng = thread_rng();
-        let world = TestWorld::default();
-        let sh_ctx = world.malicious_contexts();
-        let v = sh_ctx.map(UpgradableContext::validator);
-        let m_ctx: [_; 3] = v
-            .iter()
-            .map(|v| v.context().set_total_records(1))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+    #[test]
+    pub fn malicious_partial_validation_fail()  {
+        run(|| async {
+            let mut rng = thread_rng();
+            let world = TestWorld::default();
+            let sh_ctx = world.malicious_contexts();
+            let v = sh_ctx.map(UpgradableContext::validator);
+            let m_ctx: [_; 3] = v
+                .iter()
+                .map(|v| v.context().set_total_records(1))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
 
-        let record_id = RecordId::from(0);
-        let input: Fp31 = rng.gen();
+            let record_id = RecordId::from(0);
+            let input: Fp31 = rng.gen();
 
-        let m_shares = join3v(
-            zip(m_ctx.iter(), input.share_with(&mut rng))
-                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
-        )
-        .await;
-        let result = try_join3(
-            m_shares[0].partial_reveal(m_ctx[0].clone(), record_id, Role::H3),
-            m_shares[1].partial_reveal(m_ctx[1].clone(), record_id, Role::H3),
-            reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], true, Fp31::ONE),
-        )
-        .await;
+            let m_shares = join3v(
+                zip(m_ctx.iter(), input.share_with(&mut rng))
+                    .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
+            )
+            .await;
+            let result = try_join3(
+                m_shares[0].partial_reveal(m_ctx[0].clone(), record_id, Role::H3),
+                m_shares[1].partial_reveal(m_ctx[1].clone(), record_id, Role::H3),
+                reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], true, Fp31::ONE),
+            )
+            .await;
 
-        assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
-
-        Ok(())
+            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
+        })
     }
 
     pub async fn reveal_with_additive_attack<F: ExtendableField>(
