@@ -9,7 +9,10 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        SharedValue,
+    },
 };
 
 #[derive(Step)]
@@ -88,8 +91,8 @@ where
         .await?;
 
     //reconstruct (z,R)
-    let gr: RP25519 = sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?;
-    let z = y.reveal(ctx.narrow(&Step::Revealz), record_id).await?;
+    let gr = RP25519::from_array(&sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?);
+    let z = Fp25519::from_array(&y.reveal(ctx.narrow(&Step::Revealz), record_id).await?);
 
     //compute R^(1/z) to u64
     Ok(u64::from(gr * (z.invert())))

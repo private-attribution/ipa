@@ -27,6 +27,7 @@ use crate::{
     protocol::basics::Reveal,
     protocol::context::Context,
     protocol::context::{MaliciousContext, UpgradedMaliciousContext},
+    secret_sharing::SharedValue,
     sync::Arc,
 };
 
@@ -229,7 +230,9 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?;
+        let r = <F as ExtendableField>::ExtendedField::from_array(
+            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+        );
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self

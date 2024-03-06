@@ -57,9 +57,11 @@ pub async fn check_zero<C: Context, F: Field + FromRandom>(
     let rv_share = r_sharing
         .multiply(v, ctx.narrow(&Step::MultiplyWithR), record_id)
         .await?;
-    let rv = rv_share
-        .reveal(ctx.narrow(&Step::RevealR), record_id)
-        .await?;
+    let rv = F::from_array(
+        &rv_share
+            .reveal(ctx.narrow(&Step::RevealR), record_id)
+            .await?,
+    );
 
     Ok(rv == F::ZERO)
 }

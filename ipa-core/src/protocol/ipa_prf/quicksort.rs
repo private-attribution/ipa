@@ -112,7 +112,7 @@ where
                                 .await?;
 
                             // desc = true will flip the order of the sort
-                            Ok::<_, Error>(Boolean::from(desc) == comparison)
+                            Ok::<_, Error>(Boolean::from(desc) == Boolean::from_array(&comparison))
                         }
                     }),
             ),

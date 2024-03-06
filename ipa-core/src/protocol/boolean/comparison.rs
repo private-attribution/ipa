@@ -82,9 +82,11 @@ where
     let r = rbg.generate(record_id).await?;
 
     // Mask `a` with random `r` and reveal.
-    let b = (r.b_p + a)
-        .reveal(ctx.narrow(&Step::Reveal), record_id)
-        .await?;
+    let b = F::from_array(
+        &(r.b_p + a)
+            .reveal(ctx.narrow(&Step::Reveal), record_id)
+            .await?,
+    );
 
     let RBounds { r_lo, r_hi, invert } = compute_r_bounds(b.as_u128(), c, F::PRIME.into());
 
