@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use futures_util::future::try_join4;
 use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
@@ -13,9 +15,9 @@ use crate::{
 
 pub struct PrssExchangeStep;
 
-impl AsRef<str> for PrssExchangeStep {
-    fn as_ref(&self) -> &str {
-        "prss_exchange"
+impl Display for PrssExchangeStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("prss_exchange")
     }
 }
 

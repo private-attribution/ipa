@@ -213,13 +213,14 @@ impl QueryType {
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
-impl AsRef<str> for QueryType {
-    fn as_ref(&self) -> &str {
-        match self {
+impl Display for QueryType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let id = match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
-        }
+        };
+        f.write_str(id)
     }
 }
 

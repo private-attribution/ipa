@@ -33,7 +33,7 @@ pub trait StepNarrow<S: Step + ?Sized> {
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Step: AsRef<str> {}
+pub trait Step: ToString {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 // Note: Since the creation of the `derive(Step)` macro, hardly any code is

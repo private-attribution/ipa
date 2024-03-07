@@ -146,12 +146,13 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
     }
 
     Ok(quote!(
-        impl AsRef<str> for #ident {
-            fn as_ref(&self) -> &str {
+        impl std::fmt::Display for #ident {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 #(#const_arrays)*
-                match self {
+                let id = match self {
                     #(#arms)*
-                }
+                };
+                f.write_str(id)
             }
         }
     ))

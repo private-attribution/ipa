@@ -142,7 +142,7 @@ pub mod query {
             write!(
                 f,
                 "query_type={qt}&field_type={f:?}&size={size}",
-                qt = self.query_type.as_ref(),
+                qt = self.query_type.to_string(),
                 f = self.field_type,
                 size = self.size
             )?;
