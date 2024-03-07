@@ -214,7 +214,7 @@ required-features = ["enable-benches", "descriptive-gate"]
 name = "oneshot_ipa"
 path = "benches/oneshot/ipa.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[test]]
 name = "helper_networks"
