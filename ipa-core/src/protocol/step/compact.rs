@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use hex::{FromHex, ToHex};
+use smallvec::SmallVec;
 
 use super::StepNarrow;
 use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::Step};
@@ -12,14 +13,14 @@ use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protoc
     serde(from = "&str")
 )]
 pub struct Compact {
-    id: Vec<u8>,
+    id: SmallVec<[u8; 12]>,
 }
 
 // serde::Deserialize requires From<&str> implementation
 impl From<&str> for Compact {
     fn from(id: &str) -> Self {
         Compact {
-            id: Vec::from_hex(id.strip_prefix('/').unwrap_or(id)).unwrap(), // TODO unwrap (just use a deser impl -- but maybe axum issues)
+            id: Vec::from_hex(id.strip_prefix('/').unwrap_or(id)).unwrap().into(), // TODO unwrap (just use a deser impl -- but maybe axum issues)
         }
     }
 }
