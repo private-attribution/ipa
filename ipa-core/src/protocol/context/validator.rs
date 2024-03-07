@@ -21,7 +21,7 @@ use crate::{
     },
     sync::{Mutex, Weak},
 };
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 use crate::{
     helpers::Direction,
     protocol::basics::Reveal,
@@ -198,7 +198,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     }
 }
 
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
@@ -206,7 +206,7 @@ pub struct Malicious<'a, F: ExtendableField> {
     validate_ctx: Base<'a>,
 }
 
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
@@ -254,7 +254,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     }
 }
 
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
@@ -316,7 +316,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())

@@ -9,7 +9,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, SharedValue, Vectorizable,
     },
 };
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 use crate::{
     protocol::context::UpgradedMaliciousContext,
     secret_sharing::replicated::malicious::{
@@ -118,7 +118,7 @@ impl<C: Context, V: SharedValue + Vectorizable<N>, const N: usize> Reveal<C, N>
 /// It works similarly to semi-honest reveal, the key difference is that each helper sends its share
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for MaliciousReplicated<F> {
     type Output = <F as Vectorizable<1>>::Array;

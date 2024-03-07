@@ -1,4 +1,4 @@
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
@@ -12,7 +12,7 @@ pub mod validator;
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
-//#[cfg(feature = "descriptive-gate")]
+#[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
