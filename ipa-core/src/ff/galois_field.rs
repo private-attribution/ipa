@@ -530,8 +530,14 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
+                #[cfg(debug_assertions)]
                 #[should_panic(expected = "index < usize::try_from")]
                 pub fn out_of_count_index() {
+                    // With debug assertions enabled, this test will panic on any out-of-bounds
+                    // access. Without debug assertions, it will not panic on access to the unused
+                    // bits for non-multiple-of-8 bitwidths. Enable the test only with debug
+                    // assertions, rather than try to do something conditioned on the bit width.
+
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic
                     assert_eq!(s[<$name>::BITS as usize], false);
