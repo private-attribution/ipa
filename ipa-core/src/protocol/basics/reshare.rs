@@ -12,7 +12,7 @@ use crate::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
 };
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 use crate::{
     protocol::basics::mul::malicious::Step::{RandomnessForValidation, ReshareRx},
     protocol::context::SpecialAccessToUpgradedContext,
@@ -103,7 +103,7 @@ impl<C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors

@@ -421,7 +421,7 @@ impl ChannelId {
 
 impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.gate.as_ref())
+        write!(f, "channel[{:?},{:?}]", self.role, self.gate.to_string())
     }
 }
 

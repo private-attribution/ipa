@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use futures_util::future::try_join4;
+use generic_array::GenericArray;
 use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
 
@@ -21,7 +22,13 @@ impl Display for PrssExchangeStep {
     }
 }
 
-impl Step for PrssExchangeStep {}
+impl Step for PrssExchangeStep {
+    type Length = generic_array::typenum::U1;
+
+    fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
+        [0u8].into()
+    }
+}
 
 /// establish the prss endpoint by exchanging public keys with the other helpers
 /// # Errors

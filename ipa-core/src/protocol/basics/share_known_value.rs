@@ -7,7 +7,7 @@ use crate::{
         SharedValue,
     },
 };
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 use crate::{
     protocol::context::UpgradedContext,
     protocol::context::UpgradedMaliciousContext,
@@ -34,7 +34,7 @@ impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousReplicated<F>
 {

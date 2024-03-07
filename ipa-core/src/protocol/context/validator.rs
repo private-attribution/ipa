@@ -21,7 +21,7 @@ use crate::{
     },
     sync::{Mutex, Weak},
 };
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 use crate::{
     helpers::Direction,
     protocol::basics::Reveal,
@@ -71,7 +71,8 @@ impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
+//#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
+#[derive(ipa_macros::Step)]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -79,7 +80,8 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
+//#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
+#[derive(ipa_macros::Step)]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,
@@ -196,7 +198,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
@@ -204,7 +206,7 @@ pub struct Malicious<'a, F: ExtendableField> {
     validate_ctx: Base<'a>,
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
@@ -220,7 +222,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    #[tracing::instrument(name = "validate", skip_all, fields(gate = %self.validate_ctx.gate().as_ref()))]
+    #[tracing::instrument(name = "validate", skip_all, fields(gate = %self.validate_ctx.gate().to_string()))]
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
@@ -252,7 +254,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
@@ -314,7 +316,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
+//#[cfg(feature = "descriptive-gate")]
 impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())

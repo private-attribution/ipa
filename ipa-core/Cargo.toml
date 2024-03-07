@@ -11,7 +11,7 @@ default = [
     # by default remove all TRACE, DEBUG spans from release builds
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
-    "descriptive-gate",
+    "compact-gate",
     "aggregate-circuit",
     "stall-detection",
     "aggregate-circuit",

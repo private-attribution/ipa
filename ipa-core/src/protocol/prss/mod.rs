@@ -11,6 +11,7 @@ pub use crypto::{
     SharedRandomness,
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+use tracing::trace;
 use x25519_dalek::PublicKey;
 
 use super::step::Gate;
@@ -162,6 +163,11 @@ impl SharedRandomness for IndexedSharedRandomness {
         index: I,
     ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
         let index = index.into();
+        trace!(
+            i = %index.0,
+            gate = ?self.used.key.to_string(),
+            "prss",
+        );
         #[cfg(debug_assertions)]
         {
             for i in 0..N::USIZE {
@@ -283,8 +289,8 @@ impl EndpointInner {
         } else {
             self.items.entry(key.clone()).or_insert_with_key(|k| {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
-                    left: self.left.generator(k.as_ref().as_bytes()),
-                    right: self.right.generator(k.as_ref().as_bytes()),
+                    left: self.left.generator(k.to_string().as_bytes()), // TODO: impl as_bytes natively on Gate
+                    right: self.right.generator(k.to_string().as_bytes()),
                     #[cfg(debug_assertions)]
                     used: UsedSet::new(key.clone()),
                 }))
@@ -307,8 +313,8 @@ impl EndpointInner {
             "Attempt access a sequential PRSS for {key} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_ref().as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_ref().as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.to_string().as_bytes())), // TODO native Gate to_bytes
+            SequentialSharedRandomness::new(self.right.generator(key.to_string().as_bytes())),
         )
     }
 }

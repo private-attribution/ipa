@@ -5,6 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
+use generic_array::GenericArray;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -224,7 +225,13 @@ impl Display for QueryType {
     }
 }
 
-impl Step for QueryType {}
+impl Step for QueryType {
+    type Length = generic_array::typenum::U1;
+
+    fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
+        [1u8].into()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]

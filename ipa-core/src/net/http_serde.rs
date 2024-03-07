@@ -422,7 +422,7 @@ pub mod query {
                         "{}/{}/step/{}",
                         BASE_AXUM_PATH,
                         self.query_id.as_ref(),
-                        self.gate.as_ref()
+                        self.gate.to_string()
                     ))
                     .build()?;
                 Ok(hyper::Request::post(uri).body(self.body)?)

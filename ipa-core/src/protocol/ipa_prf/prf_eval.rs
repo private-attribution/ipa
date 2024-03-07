@@ -17,7 +17,6 @@ use crate::{
 
 #[derive(Step)]
 pub(crate) enum Step {
-    PRFKeyGen,
     GenRandomMask,
     MultMaskWithPRFInput,
     RevealR,
@@ -57,7 +56,7 @@ pub fn gen_prf_key<C>(ctx: &C) -> AdditiveShare<Fp25519>
 where
     C: Context,
 {
-    ctx.narrow(&Step::PRFKeyGen).prss().generate(RecordId(0))
+    ctx.prss().generate(RecordId(0))
 }
 
 /// evaluates the Dodis-Yampolski PRF g^(1/(k+x))

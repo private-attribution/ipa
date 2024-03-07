@@ -75,7 +75,7 @@ impl Error {
     ) -> Error {
         Self::SerializationError {
             record_id,
-            step: String::from(gate.as_ref()),
+            step: gate.to_string(),
             inner: inner.into(),
         }
     }

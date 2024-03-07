@@ -38,14 +38,10 @@
 //     }
 //     ...
 
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream};
 use quote::{__private::TokenStream as TokenStream2, format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
-
-use crate::{
-    parser::{group_by_modules, ipa_state_transition_map, StepMetaData},
-    tree::Node,
-};
+use proc_macro2::{Literal, Ident};
 
 const MAX_DYNAMIC_STEPS: usize = 1024;
 
@@ -93,17 +89,18 @@ pub fn expand(input: TokenStream) -> TokenStream {
 
     // all IPA protocol steps need to implement the `Step` trait
     let ident = &ast.ident;
-    let mut out = quote!(
-        impl crate::protocol::step::Step for #ident {}
-    );
+    let mut out = TokenStream2::new();
+    extend_or_error!(out, impl_as_bytes(ident, data));
 
     // implement `AsRef<str>`
     extend_or_error!(out, impl_as_ref(ident, data));
     // implement `StepNarrow<T>` if `compact-gate` feature is enabled. we need the if
     // statement here to avoid a compile error when `collect_steps.py` is run.
+    /*
     if cfg!(feature = "compact-gate") {
         extend_or_error!(out, impl_step_narrow(ident, data));
     }
+    */
 
     out.into()
 }
@@ -158,6 +155,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
     ))
 }
 
+/*
 /// Build a state transition map for the enum variants, and use it to generate
 /// a `StepNarrow` implementation.
 fn impl_step_narrow(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2, syn::Error> {
@@ -200,91 +198,76 @@ fn impl_step_narrow(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStr
         }
     ))
 }
+*/
 
 /// Returns a list of IPA protocol steps from `steps.txt` that match the enum
 /// variants in given `data`.
-fn get_meta_data_for(
+fn impl_as_bytes(
     ident: &syn::Ident,
     data: &syn::DataEnum,
-) -> Result<Vec<Node<StepMetaData>>, syn::Error> {
-    // Create lists of steps grouped by modules from `steps.txt`.
-    let steps = ipa_state_transition_map();
-    let grouped_steps = group_by_modules(&steps);
-
-    // Create a list of all enum variant names in the given enum `data`.
-    // If a step is narrowed, they will be present in `steps` vec.
-    // The dynamic steps are synthetically generated here to cover all
-    // subsets in `steps.txt`.
-    let variant_names = data
+) -> Result<TokenStream2, syn::Error> {
+    let dynamic_step = data
         .variants
         .iter()
-        .flat_map(|v| {
-            if is_dynamic_step(v) {
-                // using `unwrap()` here since we have already validated the
-                // format in `impl_as_ref()`.
-                let num_steps = get_dynamic_step_count(v).unwrap();
-                (0..num_steps)
-                    .map(|i| format!("{}{}", v.ident.to_string().to_snake_case(), i))
-                    .collect::<Vec<_>>()
-            } else {
-                vec![v.ident.to_string().to_snake_case()]
+        .filter(|v| is_dynamic_step(v))
+        .try_fold(None, |prev, item| {
+            match prev {
+                None => Ok(Some(item)),
+                Some(_) => Err(syn::Error::new_spanned(
+                    ident,
+                    "ipa_macros::step supports no more than one dynamic substep per step",
+                )),
             }
-        })
-        .collect::<Vec<_>>();
+        })?;
 
-    // If there are no variants in the enum, return an empty vector. The
-    // caller will need to handle this case properly.
-    if variant_names.is_empty() {
-        return Ok(Vec::new());
-    }
+    let substeps = data.variants.len() + dynamic_step.map_or(Ok(0), |d| get_dynamic_step_count(d).map(|n| n - 1))?;
 
-    // Here, we try to find the enum we are expanding from `grouped_steps`.
-    // Note that there could be multiple enums with the same name, and the
-    // proc-macro does not know the module name it is being used in, so we
-    // can't simply use the enum name as a key to look up.
-    // Instead, we check whether all steps in `grouped_steps[i]` exist in
-    // `variant_names`. If `S ⊆ variant_names where S ∈ grouped_steps`,
-    // then we have found our enum. If there are more than one enum that
-    // satisfies this condition, we are in trouble...
-    let mut target_steps = Vec::new();
-    for (_, steps) in grouped_steps {
-        if steps.iter().all(|s| {
-            s.module.ends_with(ident.to_string().as_str()) && variant_names.contains(&s.name)
-        }) {
-            target_steps.push(steps);
+    let bits = substeps.next_power_of_two().ilog2();
+    let bytes = (bits + 7) / 8;
+
+    let mut arms = Vec::new();
+    let mut index = if dynamic_step.is_some() { (1 << bits) - data.variants.len() + 1 } else { 0 };
+
+    let bytes_literal = Literal::usize_unsuffixed(usize::try_from(bytes).unwrap());
+
+    for v in data.variants.iter() {
+        let ident = &v.ident;
+        let ident_snake_case = ident.to_string().to_snake_case();
+        let ident_upper_case = ident_snake_case.to_uppercase();
+
+        if is_dynamic_step(v) {
+            let num_steps = match get_dynamic_step_count(v) {
+                Ok(n) => n,
+                Err(e) => return Err(e),
+            };
+
+            arms.extend(quote!(
+                Self::#ident(i) => generic_array::GenericArray::from_slice(&i.to_le_bytes()[0..#bytes_literal]).to_owned(),
+            ));
+        } else {
+            // generate a single variant for static steps
+            let index_literal = Literal::usize_suffixed(index);
+            arms.extend(quote!(
+                Self::#ident => generic_array::GenericArray::from_slice(&#index_literal.to_le_bytes()[0..#bytes_literal]).to_owned(),
+            ));
+            index += 1;
         }
     }
 
-    match target_steps.len() {
-        0 => {
-            // If we get here, we have not found the enum in `steps.txt`. It's
-            // likely that the enum is newly added but `steps.txt` is not updated,
-            // the code where the step is narrowed is no longer executed, or the
-            // step is used in tests only.
-            Err(syn::Error::new_spanned(
-                ident,
-                "ipa_macros::step expects an enum with variants that match the steps in \
-            steps.txt. If you've made a change to steps, make sure to run `collect_steps.py` \
-            and replace steps.txt with the output. If the step is not a part of the protocol \
-            yet, you can temporarily hide the step or the module containing the step with \
-            `#[cfg(feature = \"descriptive-gate\")]`.",
-            ))
+    //let length_type = Ident::new(&format!("U{bytes}"), format!("ipa-macros::step"));
+    let length_type = format_ident!("U{bytes}");
+
+    Ok(quote!(
+        impl crate::protocol::step::Step for #ident {
+            type Length = typenum::#length_type;
+
+            fn as_bytes(&self) -> generic_array::GenericArray<u8, Self::Length> {
+                match self {
+                    #(#arms)*
+                }
+            }
         }
-        1 => {
-            Ok(target_steps[0]
-                .iter()
-                .map(|s|
-                    // we want to retain the references to the parents, so we use `upgrade()`
-                    s.upgrade())
-                .collect::<Vec<_>>())
-        }
-        _ => Err(syn::Error::new_spanned(
-            ident,
-            "ipa_macros::step found multiple enums that have the same name and contain at \
-            least one variant with the same name. Consider renaming the enum/variant to \
-            avoid this conflict.",
-        )),
-    }
+    ))
 }
 
 fn is_dynamic_step(variant: &syn::Variant) -> bool {

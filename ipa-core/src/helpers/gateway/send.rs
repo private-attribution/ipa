@@ -113,15 +113,15 @@ impl<M: Message> SendingEnd<M> {
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
-    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.role, gate = ?self.channel_id.gate.as_ref()))]
+    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.role, gate = ?self.channel_id.gate.to_string()))]
     pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error> {
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
-            STEP => self.channel_id.gate.as_ref().to_string(),
+            STEP => self.channel_id.gate.to_string(),
             ROLE => self.sender_role.as_static_str()
         );
         metrics::counter!(BYTES_SENT, M::Size::U64,
-            STEP => self.channel_id.gate.as_ref().to_string(),
+            STEP => self.channel_id.gate.to_string(),
             ROLE => self.sender_role.as_static_str()
         );
 

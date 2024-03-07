@@ -298,7 +298,7 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// If the total record count on the context is unspecified.
-#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().to_string()))]
 pub fn convert_bits<'a, F, V, C, S, VS>(
     ctx: C,
     binary_shares: VS,
@@ -319,7 +319,7 @@ where
 /// A version of `convert_bits` that allows for the retention of unconverted fields in the input.
 /// Note that unconverted fields are not upgraded, so they might need to be upgraded either before or
 /// after invoking this function.
-#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().as_ref()))]
+#[tracing::instrument(name = "modulus_conversion", skip_all, fields(bits = ?bit_range, gate = %ctx.gate().to_string()))]
 pub fn convert_selected_bits<'a, F, V, C, S, VS, R>(
     ctx: C,
     binary_shares: VS,
