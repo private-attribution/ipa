@@ -23,8 +23,10 @@ impl Display for PrssExchangeStep {
 }
 
 impl Step for PrssExchangeStep {
+    #[cfg(feature = "compact-gate")]
     type Length = generic_array::typenum::U1;
 
+    #[cfg(feature = "compact-gate")]
     fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
         [0u8].into()
     }

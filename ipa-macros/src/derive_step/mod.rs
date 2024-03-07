@@ -259,8 +259,10 @@ fn impl_as_bytes(
 
     Ok(quote!(
         impl crate::protocol::step::Step for #ident {
+            #[cfg(feature = "compact-gate")]
             type Length = typenum::#length_type;
 
+            #[cfg(feature = "compact-gate")]
             fn as_bytes(&self) -> generic_array::GenericArray<u8, Self::Length> {
                 match self {
                     #(#arms)*

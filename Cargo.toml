@@ -6,6 +6,9 @@ members = ["ipa-core", "ipa-macros"]
 incremental = true
 lto = "thin"
 
+[profile.bench]
+debug-assertions = true
+
 [profile.bench-dhat]
 inherits = "bench"
 incremental = true

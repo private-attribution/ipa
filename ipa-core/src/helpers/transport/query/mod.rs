@@ -226,8 +226,10 @@ impl Display for QueryType {
 }
 
 impl Step for QueryType {
+    #[cfg(feature = "compact-gate")]
     type Length = generic_array::typenum::U1;
 
+    #[cfg(feature = "compact-gate")]
     fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
         [1u8].into()
     }
