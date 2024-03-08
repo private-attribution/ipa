@@ -11,7 +11,6 @@ pub use crypto::{
     SharedRandomness,
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
-use smallvec::SmallVec;
 use tracing::trace;
 use x25519_dalek::PublicKey;
 

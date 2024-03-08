@@ -138,9 +138,9 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
-smallvec = { version = "1.13", features = ["union"] }
 thiserror = "1.0"
 time = { version = "0.3", optional = true }
+tinyvec = { version = "1.6" }
 tokio = { version = "1.35", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 # TODO: axum-server holds onto 0.24 and we can't upgrade until they do. Or we move away from axum-server
 tokio-rustls = { version = "0.24", optional = true }
