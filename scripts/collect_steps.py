@@ -170,9 +170,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    features = "enable-benches debug-trace step-trace"
+    features = ["enable-benches", "debug-trace", "step-trace"]
     if args.multi_threading:
-        features = f"{features} multi-threading"
+        features.append("multi-threading")
 
     ARGS = [
         "cargo",
@@ -180,7 +180,7 @@ if __name__ == "__main__":
         "--bench",
         "oneshot_ipa",
         "--no-default-features",
-        f"--features={features}",
+        f'--features={" ".join(features)}',
         "--",
         "--num-multi-bits",
         "3",
