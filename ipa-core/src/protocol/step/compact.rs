@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use hex::FromHex;
+use hex::{FromHex, ToHex};
+use smallvec::SmallVec;
 
 use super::StepNarrow;
 use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::{GateId, GateIdArray, Step}};
@@ -60,7 +61,7 @@ impl<S: Step + ?Sized> StepNarrow<S> for Compact {
             id += [std::any::type_name::<S>(), "::"].concat().as_ref();
         }
 
-        id.extend(step.as_bytes());
+        id.extend_from_slice(step.as_bytes().as_slice());
         #[cfg(feature = "step-trace")]
         {
             metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());
