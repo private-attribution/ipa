@@ -16,8 +16,8 @@ pub type Gate = descriptive::Descriptive;
 #[cfg(feature = "compact-gate")]
 pub type Gate = compact::Compact;
 
-pub type GateId = ArrayVec<[u8; 10]>;
-pub type GateIdArray = [u8; 10];
+pub type GateIdArray = [u8; 14];
+pub type GateId = ArrayVec<GateIdArray>;
 
 pub trait StepNarrow<S: Step + ?Sized> {
     #[must_use]
