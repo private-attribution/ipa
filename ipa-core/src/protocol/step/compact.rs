@@ -13,7 +13,13 @@ use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protoc
     serde(from = "&str")
 )]
 pub struct Compact {
-    id: SmallVec<[u8; 12]>,
+    id: SmallVec<[u8; 8]>,
+}
+
+impl Compact {
+    pub fn id(&self) -> &SmallVec<[u8; 8]> {
+        &self.id
+    }
 }
 
 // serde::Deserialize requires From<&str> implementation

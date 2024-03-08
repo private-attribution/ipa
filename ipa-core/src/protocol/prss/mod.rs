@@ -11,6 +11,7 @@ pub use crypto::{
     SharedRandomness,
 };
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+use smallvec::SmallVec;
 use tracing::trace;
 use x25519_dalek::PublicKey;
 
@@ -27,13 +28,13 @@ use crate::{
 /// a given step.
 #[cfg(debug_assertions)]
 struct UsedSet {
-    key: Gate,
+    key: SmallVec<[u8; 8]>,
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
 #[cfg(debug_assertions)]
 impl UsedSet {
-    fn new(key: Gate) -> Self {
+    fn new(key: SmallVec<[u8; 8]>) -> Self {
         Self {
             key,
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -52,7 +53,7 @@ impl UsedSet {
         } else {
             assert!(
                 self.used.lock().unwrap().insert(raw_index as usize),
-                "Generated randomness for index '{index}' twice using the same key '{}'",
+                "Generated randomness for index '{index}' twice using the same key '{:?}'",
                 self.key,
             );
         }
@@ -62,7 +63,7 @@ impl UsedSet {
 #[cfg(debug_assertions)]
 impl Debug for UsedSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IndicesSet(key={})", self.key)
+        write!(f, "IndicesSet(key={:?})", self.key)
     }
 }
 
@@ -165,7 +166,7 @@ impl SharedRandomness for IndexedSharedRandomness {
         let index = index.into();
         trace!(
             i = %index.0,
-            gate = ?self.used.key.to_string(),
+            gate = ?self.used.key,
             "prss",
         );
         #[cfg(debug_assertions)]
@@ -276,7 +277,7 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    items: HashMap<Gate, EndpointItem>,
+    items: HashMap<SmallVec<[u8; 8]>, EndpointItem>,
 }
 
 impl EndpointInner {
@@ -284,22 +285,23 @@ impl EndpointInner {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
-        let item = if let Some(item) = self.items.get(key) {
+        let key = key.id().clone();
+        let item = if let Some(item) = self.items.get(&key) {
             item
         } else {
             self.items.entry(key.clone()).or_insert_with_key(|k| {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
-                    left: self.left.generator(k.to_string().as_bytes()), // TODO: impl as_bytes natively on Gate
-                    right: self.right.generator(k.to_string().as_bytes()),
+                    left: self.left.generator(&k),
+                    right: self.right.generator(&k),
                     #[cfg(debug_assertions)]
-                    used: UsedSet::new(key.clone()),
+                    used: UsedSet::new(k.clone()),
                 }))
             })
         };
         if let EndpointItem::Indexed(idxd) = item {
             Arc::clone(idxd)
         } else {
-            panic!("Attempt to get an indexed PRSS for {key} after retrieving a sequential PRSS");
+            panic!("Attempt to get an indexed PRSS for {key:?} after retrieving a sequential PRSS");
         }
     }
 
@@ -307,14 +309,15 @@ impl EndpointInner {
         &mut self,
         key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        let key = key.id().clone();
         let prev = self.items.insert(key.clone(), EndpointItem::Sequential);
         assert!(
             prev.is_none(),
-            "Attempt access a sequential PRSS for {key} after another access"
+            "Attempt access a sequential PRSS for {key:?} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.to_string().as_bytes())), // TODO native Gate to_bytes
-            SequentialSharedRandomness::new(self.right.generator(key.to_string().as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.as_slice())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_slice())),
         )
     }
 }
