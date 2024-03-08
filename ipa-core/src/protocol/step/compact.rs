@@ -4,7 +4,7 @@ use hex::{FromHex, ToHex};
 use smallvec::SmallVec;
 
 use super::StepNarrow;
-use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::Step};
+use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::{GateId, Step}};
 
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(
@@ -13,11 +13,11 @@ use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protoc
     serde(from = "&str")
 )]
 pub struct Compact {
-    id: SmallVec<[u8; 8]>,
+    id: GateId,
 }
 
 impl Compact {
-    pub fn id(&self) -> &SmallVec<[u8; 8]> {
+    pub fn id(&self) -> &GateId {
         &self.id
     }
 }

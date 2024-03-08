@@ -17,7 +17,7 @@ use x25519_dalek::PublicKey;
 
 use super::step::Gate;
 use crate::{
-    protocol::RecordId,
+    protocol::{step::GateId, RecordId},
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
@@ -28,13 +28,13 @@ use crate::{
 /// a given step.
 #[cfg(debug_assertions)]
 struct UsedSet {
-    key: SmallVec<[u8; 8]>,
+    key: GateId,
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
 #[cfg(debug_assertions)]
 impl UsedSet {
-    fn new(key: SmallVec<[u8; 8]>) -> Self {
+    fn new(key: GateId) -> Self {
         Self {
             key,
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -279,7 +279,7 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    items: HashMap<SmallVec<[u8; 8]>, EndpointItem>,
+    items: HashMap<GateId, EndpointItem>,
 }
 
 impl EndpointInner {
