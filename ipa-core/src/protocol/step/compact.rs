@@ -89,26 +89,4 @@ impl StepNarrow<PrssExchangeStep> for Compact {
         Self(PRSS_EXCHANGE_STATE)
     }
 }
-
-// Reverse of `static_state_map` for `Compact::as_ref()`
-fn static_reverse_state_map(state: u16) -> &'static str {
-    match state {
-        ROOT_STATE => "run-0",
-        QUERY_TYPE_OPRF_STATE => QueryType::OPRF_IPA_STR,
-        PRSS_EXCHANGE_STATE => PrssExchangeStep.as_ref(),
-        _ => panic!("cannot as_ref() from the invalid state {state}"),
-    }
-}
-
-fn static_deserialize_state_map(s: &str) -> u16 {
-    if s == "run-0" {
-        return ROOT_STATE;
-    } else if s == QueryType::OPRF_IPA_STR {
-        return QUERY_TYPE_OPRF_STATE;
-    } else if s == PrssExchangeStep.as_ref() {
-        return PRSS_EXCHANGE_STATE;
-    }
-
-    panic!("cannot deserialize from the invalid step \"{s}\"");
-}
 */
