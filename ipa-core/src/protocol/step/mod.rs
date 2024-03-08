@@ -9,15 +9,15 @@ pub use compact::Compact;
 pub use descriptive::Descriptive;
 use generic_array::{GenericArray, ArrayLength};
 use ipa_macros::Step;
-use smallvec::SmallVec;
+use tinyvec::ArrayVec;
 
 #[cfg(feature = "descriptive-gate")]
 pub type Gate = descriptive::Descriptive;
 #[cfg(feature = "compact-gate")]
 pub type Gate = compact::Compact;
 
-pub type GateIdArray = [u8; 12];
-pub type GateId = SmallVec<GateIdArray>;
+pub type GateIdArray = [u8; 14];
+pub type GateId = ArrayVec<GateIdArray>;
 
 pub trait StepNarrow<S: Step + ?Sized> {
     #[must_use]
