@@ -164,11 +164,13 @@ impl SharedRandomness for IndexedSharedRandomness {
         index: I,
     ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
         let index = index.into();
+        /*
         trace!(
             i = %index.0,
             gate = ?self.used.key,
             "prss",
         );
+        */
         #[cfg(debug_assertions)]
         {
             for i in 0..N::USIZE {
