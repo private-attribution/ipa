@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use hex::FromHex;
 
 use super::StepNarrow;
-use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::{GateId, Step}};
+use crate::{helpers::{prss_protocol::PrssExchangeStep, query::QueryType}, protocol::step::{GateId, GateIdArray, Step}};
 
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[cfg_attr(
@@ -25,7 +25,7 @@ impl Compact {
 impl From<&str> for Compact {
     fn from(id: &str) -> Self {
         Compact {
-            id: <[u8; 6]>::from_hex(id.strip_prefix('/').unwrap_or(id)).unwrap().into(), // TODO unwrap (just use a deser impl -- but maybe axum issues)
+            id: GateIdArray::from_hex(id.strip_prefix('/').unwrap_or(id)).unwrap().into(), // TODO use a deser implementation so we can return errors
         }
     }
 }

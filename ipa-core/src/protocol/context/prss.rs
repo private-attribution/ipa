@@ -39,7 +39,7 @@ impl SharedRandomness for InstrumentedIndexedSharedRandomness<'_> {
         &self,
         index: I,
     ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
-        let step = self.step.to_string(); // TODO: not OK here!
+        //let step = self.step.to_string(); // TODO: not OK here!
         // TODO: what we really want here is a gauge indicating the maximum index used to generate
         // PRSS. Gauge infrastructure is not supported yet, `Metrics` struct needs to be able to
         // handle gauges
@@ -73,7 +73,7 @@ impl RngCore for InstrumentedSequentialSharedRandomness<'_> {
     }
 
     fn next_u64(&mut self) -> u64 {
-        let step = self.step.to_string(); // TODO: not OK here!
+        //let step = self.step.to_string(); // TODO: not OK here!
         //metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED, STEP => step, ROLE => self.role.as_static_str());
         self.inner.next_u64()
     }
