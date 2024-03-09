@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::{borrow::Borrow, fmt::Debug, hash::Hash};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -24,6 +24,19 @@ pub use stream::{
     BodyStream, BytesStream, LengthDelimitedStream, RecordsStream, StreamCollection, StreamKey,
     WrappedBoxBodyStream,
 };
+
+use crate::{helpers::Role, sharding::ShardIndex};
+
+/// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
+/// types of peers - helpers and shards.
+pub trait Identity: Copy + Clone + Debug + PartialEq + Eq + Hash + Send + Sync + 'static {}
+
+impl Identity for ShardIndex {}
+impl Identity for HelperIdentity {}
+
+/// Role is an identifier of helper peer, only valid within a given query. For every query, there
+/// exists a static mapping from role to helper identity.
+impl Identity for Role {}
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -125,21 +138,16 @@ impl RouteParams<RouteId, QueryId, Gate> for (RouteId, QueryId, Gate) {
 
 /// Transport that supports per-query,per-step channels
 #[async_trait]
-pub trait Transport: Clone + Send + Sync + 'static {
+pub trait Transport<I: Identity>: Clone + Send + Sync + 'static {
     type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
     type Error: std::fmt::Debug;
 
-    fn identity(&self) -> HelperIdentity;
+    fn identity(&self) -> I;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
     /// party
-    async fn send<D, Q, S, R>(
-        &self,
-        dest: HelperIdentity,
-        route: R,
-        data: D,
-    ) -> Result<(), Self::Error>
+    async fn send<D, Q, S, R>(&self, dest: I, route: R, data: D) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -152,7 +160,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// and step
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        from: HelperIdentity,
+        from: I,
         route: R,
     ) -> Self::RecordsStream;
 

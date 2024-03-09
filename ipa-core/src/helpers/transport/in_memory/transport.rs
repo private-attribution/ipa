@@ -151,7 +151,7 @@ impl InMemoryTransport {
 }
 
 #[async_trait]
-impl Transport for Weak<InMemoryTransport> {
+impl Transport<HelperIdentity> for Weak<InMemoryTransport> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
     type Error = Error;
 

@@ -11,7 +11,7 @@ use futures::Stream;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
+    helpers::{buffers::OrderingSender, Error, HelperChannelId, Message, Role, TotalRecords},
     protocol::RecordId,
     sync::Arc,
     telemetry::{
@@ -23,7 +23,7 @@ use crate::{
 /// Sending end of the gateway channel.
 pub struct SendingEnd<M: Message> {
     sender_role: Role,
-    channel_id: ChannelId,
+    channel_id: HelperChannelId,
     inner: Arc<GatewaySender>,
     _phantom: PhantomData<M>,
 }
@@ -31,11 +31,11 @@ pub struct SendingEnd<M: Message> {
 /// Sending channels, indexed by (role, step).
 #[derive(Default)]
 pub(super) struct GatewaySenders {
-    pub(super) inner: DashMap<ChannelId, Arc<GatewaySender>>,
+    pub(super) inner: DashMap<HelperChannelId, Arc<GatewaySender>>,
 }
 
 pub(super) struct GatewaySender {
-    channel_id: ChannelId,
+    channel_id: HelperChannelId,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
 }
@@ -45,7 +45,7 @@ pub(super) struct GatewaySendStream {
 }
 
 impl GatewaySender {
-    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
+    fn new(channel_id: HelperChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
         Self {
             channel_id,
             ordering_tx: tx,
@@ -57,7 +57,7 @@ impl GatewaySender {
         &self,
         record_id: RecordId,
         msg: B,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error<Role>> {
         debug_assert!(
             self.total_records.is_specified(),
             "total_records cannot be unspecified when sending"
@@ -95,7 +95,11 @@ impl GatewaySender {
 }
 
 impl<M: Message> SendingEnd<M> {
-    pub(super) fn new(sender: Arc<GatewaySender>, role: Role, channel_id: &ChannelId) -> Self {
+    pub(super) fn new(
+        sender: Arc<GatewaySender>,
+        role: Role,
+        channel_id: &HelperChannelId,
+    ) -> Self {
         Self {
             sender_role: role,
             channel_id: channel_id.clone(),
@@ -113,8 +117,8 @@ impl<M: Message> SendingEnd<M> {
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
-    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.role, gate = ?self.channel_id.gate.as_ref()))]
-    pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error> {
+    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.peer, gate = ?self.channel_id.gate.as_ref()))]
+    pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error<Role>> {
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
             STEP => self.channel_id.gate.as_ref().to_string(),
@@ -135,7 +139,7 @@ impl GatewaySenders {
     /// messages to get through.
     pub(crate) fn get_or_create<M: Message>(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &HelperChannelId,
         capacity: NonZeroUsize,
         total_records: TotalRecords, // TODO track children for indeterminate senders
     ) -> (Arc<GatewaySender>, Option<GatewaySendStream>) {

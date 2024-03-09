@@ -1,24 +1,18 @@
 use thiserror::Error;
-use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     error::BoxError,
-    helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
+    helpers::{ChannelId, HelperChannelId, HelperIdentity, Role, TotalRecords, TransportIdentity},
     protocol::{step::Gate, RecordId},
 };
 
 /// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum Error<I: TransportIdentity> {
     #[error("An error occurred while sending data to {channel:?}: {inner}")]
     SendError {
-        channel: ChannelId,
+        channel: ChannelId<I>,
 
-        #[source]
-        inner: BoxError,
-    },
-    #[error("An error occurred while sending data over a reordering channel: {inner}")]
-    OrderedChannelError {
         #[source]
         inner: BoxError,
     },
@@ -29,7 +23,7 @@ pub enum Error {
     },
     #[error("An error occurred while receiving data from {source:?}/{step}: {inner}")]
     ReceiveError {
-        source: Role,
+        source: I,
         step: String,
         #[source]
         inner: BoxError,
@@ -51,16 +45,16 @@ pub enum Error {
     #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]
     TooManyRecords {
         record_id: RecordId,
-        channel_id: ChannelId,
+        channel_id: ChannelId<I>,
         total_records: TotalRecords,
     },
 }
 
-impl Error {
+impl Error<Role> {
     pub fn send_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        channel: ChannelId,
+        channel: HelperChannelId,
         inner: E,
-    ) -> Error {
+    ) -> Self {
         Self::SendError {
             channel,
             inner: inner.into(),
@@ -72,7 +66,7 @@ impl Error {
         record_id: RecordId,
         gate: &Gate,
         inner: E,
-    ) -> Error {
+    ) -> Self {
         Self::SerializationError {
             record_id,
             step: String::from(gate.as_ref()),
@@ -81,12 +75,4 @@ impl Error {
     }
 }
 
-impl<M: Message> From<SendError<(usize, M)>> for Error {
-    fn from(_: SendError<(usize, M)>) -> Self {
-        Self::OrderedChannelError {
-            inner: "ordered string".into(),
-        }
-    }
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error<Role>>;

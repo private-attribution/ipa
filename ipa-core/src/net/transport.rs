@@ -123,7 +123,7 @@ impl HttpTransport {
 }
 
 #[async_trait]
-impl Transport for Arc<HttpTransport> {
+impl Transport<HelperIdentity> for Arc<HttpTransport> {
     type RecordsStream = ReceiveRecords<LogHttpErrors>;
     type Error = Error;
 

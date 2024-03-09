@@ -3,7 +3,7 @@ use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
 
 use crate::{
-    helpers::{ChannelId, Direction, Error, Gateway, TotalRecords},
+    helpers::{ChannelId, Direction, Error, Gateway, Role, TotalRecords},
     protocol::{
         prss,
         step::{Gate, Step, StepNarrow},
@@ -28,7 +28,7 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     gateway: &Gateway,
     gate: &Gate,
     rng: &mut R,
-) -> Result<prss::Endpoint, Error> {
+) -> Result<prss::Endpoint, Error<Role>> {
     // setup protocol to exchange prss public keys. This protocol sends one message per peer.
     // Each message contains this helper's public key. At the end of this protocol, all helpers
     // have completed key exchange and each of them have established a shared secret with each peer.

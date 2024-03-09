@@ -74,8 +74,8 @@ mod gateway {
     use crate::{
         helpers::{
             gateway::{Gateway, State},
-            ChannelId, GatewayConfig, Message, ReceivingEnd, Role, RoleAssignment, SendingEnd,
-            TotalRecords, TransportImpl,
+            GatewayConfig, HelperChannelId, Message, ReceivingEnd, Role, RoleAssignment,
+            SendingEnd, TotalRecords, TransportImpl,
         },
         protocol::QueryId,
         sync::Arc,
@@ -149,7 +149,7 @@ mod gateway {
         #[must_use]
         pub fn get_sender<M: Message>(
             &self,
-            channel_id: &ChannelId,
+            channel_id: &HelperChannelId,
             total_records: TotalRecords,
         ) -> SendingEnd<M> {
             Observed::wrap(
@@ -159,7 +159,7 @@ mod gateway {
         }
 
         #[must_use]
-        pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<M> {
+        pub fn get_receiver<M: Message>(&self, channel_id: &HelperChannelId) -> ReceivingEnd<M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),
                 self.inner().gateway.get_receiver(channel_id),
@@ -221,7 +221,7 @@ mod receive {
         helpers::{
             error::Error,
             gateway::{receive::GatewayReceivers, ReceivingEnd},
-            ChannelId, Message,
+            HelperChannelId, Message, Role,
         },
         protocol::RecordId,
     };
@@ -230,12 +230,12 @@ mod receive {
         delegate::delegate! {
             to { self.advance(); self.inner() } {
                 #[inline]
-                pub async fn receive(&self, record_id: RecordId) -> Result<M, Error>;
+                pub async fn receive(&self, record_id: RecordId) -> Result<M, Error<Role>>;
             }
         }
     }
 
-    pub struct WaitingTasks(BTreeMap<ChannelId, Vec<String>>);
+    pub struct WaitingTasks(BTreeMap<HelperChannelId, Vec<String>>);
 
     impl Debug for WaitingTasks {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -243,7 +243,7 @@ mod receive {
                 write!(
                     f,
                     "\n\"{:?}\", from={:?}. Waiting to receive records {:?}.",
-                    channel.gate, channel.role, records
+                    channel.gate, channel.peer, records
                 )?;
             }
 
@@ -280,7 +280,7 @@ mod send {
         helpers::{
             error::Error,
             gateway::send::{GatewaySender, GatewaySenders},
-            ChannelId, Message, TotalRecords,
+            HelperChannelId, Message, Role, TotalRecords,
         },
         protocol::RecordId,
     };
@@ -289,12 +289,12 @@ mod send {
         delegate::delegate! {
             to { self.advance(); self.inner() } {
                 #[inline]
-                pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error>;
+                pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error<Role>>;
             }
         }
     }
 
-    pub struct WaitingTasks(BTreeMap<ChannelId, (TotalRecords, Vec<String>)>);
+    pub struct WaitingTasks(BTreeMap<HelperChannelId, (TotalRecords, Vec<String>)>);
 
     impl Debug for WaitingTasks {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -302,7 +302,7 @@ mod send {
                 write!(
                     f,
                     "\n\"{:?}\", to={:?}. Waiting to send records {:?} out of {total:?}.",
-                    channel.gate, channel.role, records
+                    channel.gate, channel.peer, records
                 )?;
             }
 
