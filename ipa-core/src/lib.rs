@@ -33,6 +33,7 @@ mod exact;
 mod seq_join;
 #[cfg(feature = "enable-serde")]
 mod serde;
+mod sharding;
 
 pub use app::{HelperApp, Setup as AppSetup};
 
