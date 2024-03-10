@@ -8,7 +8,7 @@ use crate::{
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        InMemoryNetwork, InMemoryTransport,
+        HelperIdentity, InMemoryNetwork,
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -50,7 +50,7 @@ where
 /// [`TestWorld`]: crate::test_fixture::TestWorld
 pub struct TestApp {
     drivers: [HelperApp; 3],
-    network: InMemoryNetwork,
+    network: InMemoryNetwork<HelperIdentity>,
 }
 
 fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
@@ -68,7 +68,7 @@ impl Default for TestApp {
             .transports()
             .iter()
             .zip(setup)
-            .map(|(t, s)| s.connect(<InMemoryTransport as Clone>::clone(t)))
+            .map(|(t, s)| s.connect(Clone::clone(t)))
             .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| "infallible")

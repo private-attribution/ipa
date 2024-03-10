@@ -8,7 +8,7 @@ use rand_core::{RngCore, SeedableRng};
 use tracing::{Instrument, Level, Span};
 
 use crate::{
-    helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
+    helpers::{Gateway, GatewayConfig, HelperIdentity, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradableContext, UpgradeContext,
@@ -49,7 +49,7 @@ pub struct TestWorld {
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
-    _network: InMemoryNetwork,
+    _network: InMemoryNetwork<HelperIdentity>,
 }
 
 #[derive(Clone)]
@@ -112,7 +112,7 @@ impl TestWorld {
         let network = InMemoryNetwork::default();
         let role_assignment = config
             .role_assignment
-            .unwrap_or_else(|| RoleAssignment::new(network.helper_identities()));
+            .unwrap_or_else(|| RoleAssignment::new(network.identities()));
 
         let mut gateways = [None, None, None];
         for i in 0..3 {
