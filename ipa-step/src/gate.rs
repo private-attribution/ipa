@@ -1,5 +1,5 @@
 // This module exists here because all of this functionality cannot be exported
-// from the ipa-step-derive proc-macro crate.  It it only used by build scripts.
+// from the ipa-step-derive proc-macro crate.  It is only used by build scripts.
 
 use std::{collections::HashMap, env, fs::write, path::PathBuf};
 
