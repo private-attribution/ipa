@@ -145,6 +145,5 @@ pub fn build<S: CompactStep>() {
     };
     build_narrows(&ident, &gate_name, step_narrows, &mut syntax);
 
-    // println!("{syntax}");
     write(out, prettyplease::unparse(&parse2(syntax).unwrap())).unwrap();
 }
