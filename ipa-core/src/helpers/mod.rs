@@ -17,7 +17,7 @@ use std::ops::{Index, IndexMut};
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::OrderingSender;
-pub use error::{Error, Result};
+pub use error::Error;
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
