@@ -7,7 +7,7 @@ mod variant;
 use std::env;
 
 use ipa_step::{
-    name::{CaseStyle, GateName},
+    name::{GateName, UnderscoreStyle},
     COMPACT_GATE_INCLUDE_ENV,
 };
 use proc_macro::TokenStream as TokenStreamBasic;

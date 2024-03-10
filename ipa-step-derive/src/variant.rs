@@ -1,4 +1,4 @@
-use ipa_step::name::CaseStyle;
+use ipa_step::name::UnderscoreStyle;
 use proc_macro2::{Literal, TokenStream};
 use quote::{format_ident, quote};
 use syn::{

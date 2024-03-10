@@ -16,7 +16,6 @@ default = [
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
-    "ipa-step/descriptive"
 ]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
@@ -60,7 +59,7 @@ weak-field = []
 step-trace = ["ipa-step/descriptive", "ipa-step/trace"]
 # The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
-descriptive-gate = []
+descriptive-gate = ["ipa-step/descriptive"]
 compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]

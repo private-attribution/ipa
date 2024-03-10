@@ -2,7 +2,10 @@
 
 /// A utility trait that decorates string-ish things and produces
 /// `names_like_this` or `NAMES_LIKE_THIS` from `NamesLikeThis`.
-pub trait CaseStyle {
+///
+/// This doesn't use `Cow<'_, str>` as a more generic implementation might.
+/// No anticipated use of this trait will avoid having to modify the input.
+pub trait UnderscoreStyle {
     fn to_snake_case(&self) -> String {
         self.to_underscore(false)
     }
@@ -14,7 +17,7 @@ pub trait CaseStyle {
     fn to_underscore(&self, upper: bool) -> String;
 }
 
-impl<T: AsRef<str>> CaseStyle for T {
+impl<T: AsRef<str>> UnderscoreStyle for T {
     fn to_underscore(&self, upper: bool) -> String {
         self.as_ref().chars().fold(String::new(), |mut acc, c| {
             if c.is_uppercase() {

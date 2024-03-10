@@ -1,4 +1,5 @@
 use std::{
+    borrow::ToOwned,
     collections::{HashMap, VecDeque},
     io::Read,
     path::PathBuf,
@@ -71,10 +72,7 @@ pub(crate) fn read_steps_file(file_path: &str) -> Vec<String> {
     let mut file = std::fs::File::open(path).expect("Could not open the steps file");
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
-    contents
-        .lines()
-        .map(std::borrow::ToOwned::to_owned)
-        .collect::<Vec<_>>()
+    contents.lines().map(ToOwned::to_owned).collect::<Vec<_>>()
 }
 
 /// Constructs a tree structure with nodes that contain the `Step` instances.
@@ -117,10 +115,7 @@ pub(crate) fn construct_tree(steps: Vec<StepMetaData>) -> Node<StepMetaData> {
 /// output = ("ipa::protocol::modulus_conversion::convert_shares::Step", "xor1")
 /// ```
 pub(crate) fn split_step_module_and_name(input: &str) -> (String, String) {
-    let mod_parts = input
-        .split("::")
-        .map(std::borrow::ToOwned::to_owned)
-        .collect::<Vec<_>>();
+    let mod_parts = input.split("::").map(ToOwned::to_owned).collect::<Vec<_>>();
     let (substep_name, path) = mod_parts.split_last().unwrap();
     (path.join("::"), substep_name.to_owned())
 }

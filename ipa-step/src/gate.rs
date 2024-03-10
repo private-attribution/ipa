@@ -56,7 +56,7 @@ macro_rules! track_steps {
 
 fn crate_path(p: &str) -> String {
     let Some((_, p)) = p.split_once("::") else {
-        panic!("unable to handle name of type `{p}`")
+        panic!("unable to handle name of type `{p}`");
     };
     String::from("crate::") + p
 }
