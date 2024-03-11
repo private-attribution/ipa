@@ -27,28 +27,52 @@ use crate::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
+    sharding::{NoSharding, Shard, ShardBinding, ShardConfiguration, ShardIndex},
 };
 
 #[derive(Clone)]
-pub struct Context<'a> {
-    inner: Base<'a>,
+pub struct Context<'a, B: ShardBinding> {
+    inner: Base<'a, B>,
 }
-
-impl<'a> Context<'a> {
-    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self {
-            inner: Base::new(participant, gateway),
-        }
+impl ShardConfiguration for Context<'_, Shard> {
+    fn shard_id(&self) -> ShardIndex {
+        self.inner.shard_id()
     }
 
+    fn shard_count(&self) -> ShardIndex {
+        self.inner.shard_count()
+    }
+}
+
+impl<'a, B: ShardBinding> Context<'a, B> {
+    pub fn new_complete(participant: &'a PrssEndpoint, gateway: &'a Gateway, shard: B) -> Self {
+        Self {
+            inner: Base::new(participant, gateway, shard),
+        }
+    }
+}
+
+impl<'a> Context<'a, NoSharding> {
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_complete(participant, gateway, NoSharding)
+    }
+}
+
+impl<'a> Context<'a, Shard> {
+    pub fn new_sharded(participant: &'a PrssEndpoint, gateway: &'a Gateway, shard: Shard) -> Self {
+        Self::new_complete(participant, gateway, shard)
+    }
+}
+
+impl<'a, B: ShardBinding> Context<'a, B> {
     #[cfg(test)]
     #[must_use]
-    pub fn from_base(base: Base<'a>) -> Self {
+    pub fn from_base(base: Base<'a, B>) -> Self {
         Self { inner: base }
     }
 }
 
-impl<'a> super::Context for Context<'a> {
+impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -98,35 +122,37 @@ impl<'a> super::Context for Context<'a> {
     }
 }
 
-impl<'a> UpgradableContext for Context<'a> {
-    type UpgradedContext<F: ExtendableField> = Upgraded<'a, F>;
-    type Validator<F: ExtendableField> = Validator<'a, F>;
+impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
+    type UpgradedContext<F: ExtendableField> = Upgraded<'a, B, F>;
+    type Validator<F: ExtendableField> = Validator<'a, B, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Self::Validator::new(self.inner)
     }
 }
 
-impl<'a> SeqJoin for Context<'a> {
+impl<'a, B: ShardBinding> SeqJoin for Context<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
 }
 
-impl Debug for Context<'_> {
+impl<B: ShardBinding> Debug for Context<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestContext")
+        f.debug_struct("SemiHonestContext")
+            .field("shard", &self.inner.sharding)
+            .finish()
     }
 }
 
 #[derive(Clone)]
-pub struct Upgraded<'a, F: ExtendableField> {
-    inner: Base<'a>,
+pub struct Upgraded<'a, B: ShardBinding, F: ExtendableField> {
+    inner: Base<'a, B>,
     _f: PhantomData<F>,
 }
 
-impl<'a, F: ExtendableField> Upgraded<'a, F> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+impl<'a, B: ShardBinding, F: ExtendableField> Upgraded<'a, B, F> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         Self {
             inner,
             _f: PhantomData,
@@ -134,7 +160,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
     }
 }
 
-impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B, F> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -180,7 +206,7 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
     }
 }
 
-impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
@@ -197,7 +223,7 @@ pub(crate) enum UpgradeStep {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, B, F> {
     type Share = Replicated<F>;
 
     fn share_known_value(&self, value: F) -> Self::Share {
@@ -248,8 +274,10 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     }
 }
 
-impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, F> {
-    type Base = Base<'a>;
+impl<'a, B: ShardBinding, F: ExtendableField> SpecialAccessToUpgradedContext<F>
+    for Upgraded<'a, B, F>
+{
+    type Base = Base<'a, B>;
 
     fn accumulate_macs(self, _record_id: RecordId, _x: &Replicated<F>) {
         // noop
@@ -260,8 +288,13 @@ impl<'a, F: ExtendableField> SpecialAccessToUpgradedContext<F> for Upgraded<'a, 
     }
 }
 
-impl<F: ExtendableField> Debug for Upgraded<'_, F> {
+impl<B: ShardBinding, F: ExtendableField> Debug for Upgraded<'_, B, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestContext<{:?}>", type_name::<F>())
+        write!(
+            f,
+            "SemiHonestContext<{:?}, {:?}>",
+            type_name::<B>(),
+            type_name::<F>()
+        )
     }
 }

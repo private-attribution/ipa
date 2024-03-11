@@ -1,6 +1,5 @@
 use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     convert,
     fmt::{Debug, Formatter},
     io,
@@ -14,7 +13,6 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use serde::de::DeserializeOwned;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -23,9 +21,12 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        query::{PrepareQuery, QueryConfig},
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportCallbacks, TransportIdentity,
+        transport::in_memory::{
+            handlers::{IdentityHandlerExt, RequestHandler},
+            routing::Addr,
+        },
+        NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding,
+        StreamCollection, Transport,
     },
     protocol::{step::Gate, QueryId},
     sync::{Arc, Weak},
@@ -64,7 +65,7 @@ pub struct InMemoryTransport<I> {
     record_streams: StreamCollection<I, InMemoryStream>,
 }
 
-impl<I: TransportIdentity> InMemoryTransport<I> {
+impl<I: IdentityHandlerExt> InMemoryTransport<I> {
     #[must_use]
     fn new(identity: I, connections: HashMap<I, ConnectionTx<I>>) -> Self {
         Self {
@@ -83,37 +84,16 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(
-        self: &Arc<Self>,
-        callbacks: TransportCallbacks<Weak<Self>>,
-        mut rx: ConnectionRx<I>,
-    ) {
+    fn listen(self: &Arc<Self>, mut callbacks: I::Handler, mut rx: ConnectionRx<I>) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
                 let this = Arc::downgrade(self);
-                let dest = this.identity();
                 async move {
-                    let mut active_queries = HashSet::new();
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
                         let result = match addr.route {
-                            RouteId::ReceiveQuery => {
-                                let qc = addr.into::<QueryConfig>();
-                                (callbacks.receive_query)(Transport::clone_ref(&this), qc)
-                                    .await
-                                    .map(|query_id| {
-                                        assert!(
-                                            active_queries.insert(query_id),
-                                            "the same query id {query_id:?} is generated twice"
-                                        );
-                                    })
-                                    .map_err(|e| Error::Rejected {
-                                        dest,
-                                        inner: Box::new(e),
-                                    })
-                            }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
                                 let gate = addr.gate.unwrap();
@@ -121,14 +101,8 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                                 streams.add_stream((query_id, from, gate), stream);
                                 Ok(())
                             }
-                            RouteId::PrepareQuery => {
-                                let input = addr.into::<PrepareQuery>();
-                                (callbacks.prepare_query)(Transport::clone_ref(&this), input)
-                                    .await
-                                    .map_err(|e| Error::Rejected {
-                                        dest,
-                                        inner: Box::new(e),
-                                    })
+                            RouteId::ReceiveQuery | RouteId::PrepareQuery => {
+                                callbacks.handle(Clone::clone(&this), addr).await
                             }
                         };
 
@@ -159,7 +133,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
 }
 
 #[async_trait]
-impl<I: TransportIdentity> Transport<I> for Weak<InMemoryTransport<I>> {
+impl<I: IdentityHandlerExt> Transport<I> for Weak<InMemoryTransport<I>> {
     type RecordsStream = ReceiveRecords<I, InMemoryStream>;
     type Error = Error<I>;
 
@@ -269,69 +243,16 @@ impl Debug for InMemoryStream {
     }
 }
 
-struct Addr<I> {
-    route: RouteId,
-    origin: Option<I>,
-    query_id: Option<QueryId>,
-    gate: Option<Gate>,
-    params: String,
+pub struct Setup<I> {
+    identity: I,
+    tx: ConnectionTx<I>,
+    rx: ConnectionRx<I>,
+    connections: HashMap<I, ConnectionTx<I>>,
 }
 
-impl<I: TransportIdentity> Addr<I> {
-    #[allow(clippy::needless_pass_by_value)] // to avoid using double-reference at callsites
-    fn from_route<Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
-        origin: I,
-        route: R,
-    ) -> Self
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-    {
-        Self {
-            route: route.resource_identifier(),
-            origin: Some(origin),
-            query_id: route.query_id().into(),
-            gate: route.gate().into(),
-            params: route.extra().borrow().to_string(),
-        }
-    }
-
-    fn into<T: DeserializeOwned>(self) -> T {
-        serde_json::from_str(&self.params).unwrap()
-    }
-
-    #[cfg(all(test, unit_test))]
-    fn records(from: I, query_id: QueryId, gate: Gate) -> Self {
-        Self {
-            route: RouteId::Records,
-            origin: Some(from),
-            query_id: Some(query_id),
-            gate: Some(gate),
-            params: String::new(),
-        }
-    }
-}
-
-impl<I: Debug> Debug for Addr<I> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Addr[route={:?}, query_id={:?}, step={:?}, params={}]",
-            self.route, self.query_id, self.gate, self.params
-        )
-    }
-}
-
-pub struct Setup {
-    identity: HelperIdentity,
-    tx: ConnectionTx<HelperIdentity>,
-    rx: ConnectionRx<HelperIdentity>,
-    connections: HashMap<HelperIdentity, ConnectionTx<HelperIdentity>>,
-}
-
-impl Setup {
+impl<I: IdentityHandlerExt> Setup<I> {
     #[must_use]
-    pub fn new(identity: HelperIdentity) -> Self {
+    pub fn new(identity: I) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
@@ -356,24 +277,18 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(
+    fn into_active_conn<H: Into<I::Handler>>(
         self,
-        callbacks: TransportCallbacks<Weak<InMemoryTransport<HelperIdentity>>>,
-    ) -> (
-        ConnectionTx<HelperIdentity>,
-        Arc<InMemoryTransport<HelperIdentity>>,
-    ) {
+        callbacks: H,
+    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
-        transport.listen(callbacks, self.rx);
+        transport.listen(callbacks.into(), self.rx);
 
         (self.tx, transport)
     }
 
     #[must_use]
-    pub fn start(
-        self,
-        callbacks: TransportCallbacks<Weak<InMemoryTransport<HelperIdentity>>>,
-    ) -> Arc<InMemoryTransport<HelperIdentity>> {
+    pub fn start<H: Into<I::Handler>>(self, callbacks: H) -> Arc<InMemoryTransport<I>> {
         self.into_active_conn(callbacks).1
     }
 }
@@ -399,7 +314,7 @@ mod tests {
             query::{QueryConfig, QueryType::TestMultiply},
             transport::in_memory::{
                 transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
-                InMemoryNetwork, Setup,
+                InMemoryMpcNetwork, Setup,
             },
             HelperIdentity, OrderingSender, RouteId, Transport, TransportCallbacks,
             TransportIdentity,
@@ -606,7 +521,7 @@ mod tests {
     async fn can_consume_ordering_sender() {
         let tx = Arc::new(OrderingSender::new(NonZeroUsize::new(2).unwrap(), 2));
         let rx = Arc::clone(&tx).as_rc_stream();
-        let network = InMemoryNetwork::default();
+        let network = InMemoryMpcNetwork::default();
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);
 

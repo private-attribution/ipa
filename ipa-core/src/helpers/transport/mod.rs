@@ -16,7 +16,7 @@ mod receive;
 mod stream;
 
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;

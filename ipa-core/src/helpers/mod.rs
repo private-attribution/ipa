@@ -57,7 +57,7 @@ pub use transport::{
     WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]
-pub use transport::{InMemoryNetwork, InMemoryTransport};
+pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 use typenum::{Unsigned, U8};
 use x25519_dalek::PublicKey;
 
@@ -350,6 +350,14 @@ impl<T> IndexMut<Role> for Vec<T> {
 }
 
 impl RoleAssignment {
+    pub const DEFAULT: Self = Self {
+        helper_roles: [
+            HelperIdentity::ONE,
+            HelperIdentity::TWO,
+            HelperIdentity::THREE,
+        ],
+    };
+
     #[must_use]
     pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
         Self { helper_roles }
@@ -402,6 +410,12 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
             (HelperIdentity::TWO, value[1]),
             (HelperIdentity::THREE, value[2]),
         ])
+    }
+}
+
+impl Default for RoleAssignment {
+    fn default() -> Self {
+        Self::DEFAULT
     }
 }
 

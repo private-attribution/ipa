@@ -15,9 +15,11 @@ use async_trait::async_trait;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
+pub type SemiHonestContext<'a, B = NoSharding> = semi_honest::Context<'a, B>;
+pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Shard>;
 
 use crate::{
     error::Error,
@@ -33,6 +35,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::{NoSharding, Shard, ShardBinding, ShardConfiguration, ShardIndex},
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -157,37 +160,43 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct Base<'a> {
+pub struct Base<'a, B: ShardBinding = NoSharding> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    sharding: B,
 }
 
-impl<'a> Base<'a> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+impl<'a, B: ShardBinding> Base<'a, B> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
         Self::new_complete(
             participant,
             gateway,
             Gate::default(),
             TotalRecords::Unspecified,
+            sharding,
         )
     }
+}
 
+impl<'a, B: ShardBinding> Base<'a, B> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
         gate: Gate,
         total_records: TotalRecords,
+        sharding: B,
     ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            sharding,
         }
     }
 }
 
-impl<'a> Context for Base<'a> {
+impl<'a, B: ShardBinding> Context for Base<'a, B> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -204,6 +213,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -212,6 +222,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -251,7 +262,23 @@ impl<'a> Context for Base<'a> {
     }
 }
 
-impl<'a> SeqJoin for Base<'a> {
+/// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
+/// via [`ShardConfiguration`] trait.
+pub trait ShardedContext: Context + ShardConfiguration {}
+
+impl ShardConfiguration for Base<'_, Shard> {
+    fn shard_id(&self) -> ShardIndex {
+        self.sharding.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.sharding.shard_count
+    }
+}
+
+impl<'a> ShardedContext for Base<'a, Shard> {}
+
+impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.gateway.config().active_work()
     }
@@ -263,11 +290,36 @@ struct Inner<'a> {
     pub gateway: &'a Gateway,
 }
 
+// #[derive(Clone)]
+// struct WithShardInfo<'a> {
+//     base: Inner<'a>,
+//     shard: Shard,
+// }
+//
 impl<'a> Inner<'a> {
     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self { prss, gateway }
     }
 }
+//
+// impl<'a> WithShardInfo<'a> {
+//     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway, shard: Shard) -> Self {
+//         Self {
+//             base: Inner::new(prss, gateway),
+//             shard,
+//         }
+//     }
+// }
+
+// impl ShardConfiguration for WithShardInfo<'_> {
+//     fn shard_index(&self) -> ShardIndex {
+//         self.shard.shard_id
+//     }
+//
+//     fn shard_count(&self) -> ShardIndex {
+//         self.shard.shard_count
+//     }
+// }
 
 #[cfg(all(test, unit_test))]
 mod tests {

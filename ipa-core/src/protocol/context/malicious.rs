@@ -32,6 +32,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::NoSharding,
     sync::Arc,
 };
 
@@ -43,7 +44,7 @@ pub struct Context<'a> {
 impl<'a> Context<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            inner: Base::new(participant, gateway),
+            inner: Base::new(participant, gateway, NoSharding),
         }
     }
 
@@ -182,6 +183,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             self.inner.gateway,
             self.gate.clone(),
             self.total_records,
+            NoSharding,
         )
     }
 }

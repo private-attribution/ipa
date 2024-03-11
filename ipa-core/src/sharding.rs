@@ -1,8 +1,27 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Debug, Display, Formatter},
+    num::TryFromIntError,
+};
 
 /// A unique zero-based index of the helper shard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShardIndex(u32);
+
+#[derive(Debug, Copy, Clone)]
+pub struct Shard {
+    pub shard_id: ShardIndex,
+    pub shard_count: ShardIndex,
+}
+
+impl ShardConfiguration for Shard {
+    fn shard_id(&self) -> ShardIndex {
+        self.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.shard_count
+    }
+}
 
 impl Display for ShardIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -37,6 +56,14 @@ pub trait ShardConfiguration {
     }
 }
 
+pub trait ShardBinding: Debug + Send + Sync + Clone {}
+
+#[derive(Debug, Copy, Clone)]
+pub struct NoSharding;
+
+impl ShardBinding for NoSharding {}
+impl ShardBinding for Shard {}
+
 impl ShardIndex {
     pub const FIRST: Self = Self(0);
 
@@ -52,10 +79,30 @@ impl From<u32> for ShardIndex {
     }
 }
 
+impl From<ShardIndex> for u32 {
+    fn from(value: ShardIndex) -> Self {
+        value.0
+    }
+}
+
+impl From<ShardIndex> for u64 {
+    fn from(value: ShardIndex) -> Self {
+        u64::from(value.0)
+    }
+}
+
 #[cfg(target_pointer_width = "64")]
 impl From<ShardIndex> for usize {
     fn from(value: ShardIndex) -> Self {
         usize::try_from(value.0).unwrap()
+    }
+}
+
+impl TryFrom<usize> for ShardIndex {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        u32::try_from(value).map(Self)
     }
 }
 

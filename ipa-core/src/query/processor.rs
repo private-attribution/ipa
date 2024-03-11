@@ -322,7 +322,7 @@ mod tests {
         ff::FieldType,
         helpers::{
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, RoleAssignment, Transport,
+            HelperIdentity, InMemoryMpcNetwork, PrepareQueryCallback, RoleAssignment, Transport,
             TransportCallbacks,
         },
         protocol::QueryId,
@@ -368,7 +368,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -406,7 +406,7 @@ mod tests {
             prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
             ..Default::default()
         });
-        let network = InMemoryNetwork::new(cb);
+        let network = InMemoryMpcNetwork::new(cb);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -433,7 +433,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -456,7 +456,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -482,7 +482,7 @@ mod tests {
 
         #[tokio::test]
         async fn happy_case() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]);
@@ -501,7 +501,7 @@ mod tests {
 
         #[tokio::test]
         async fn rejects_if_coordinator() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[0]);
@@ -515,7 +515,7 @@ mod tests {
 
         #[tokio::test]
         async fn rejects_if_query_exists() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]);
