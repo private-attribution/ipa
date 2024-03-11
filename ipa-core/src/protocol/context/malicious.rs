@@ -5,7 +5,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
 use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
@@ -23,7 +22,6 @@ use crate::{
             SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
         NoRecord, RecordId,
     },
     secret_sharing::replicated::{

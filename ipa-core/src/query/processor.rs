@@ -4,6 +4,7 @@ use std::{
 };
 
 use futures::{future::try_join, stream};
+use ipa_step::Gate;
 
 use crate::{
     error::Error as ProtocolError,
@@ -53,11 +54,11 @@ impl Default for Processor {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum NewQueryError {
+pub enum NewQueryError<G: Gate> {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] TransportError),
+    Transport(#[from] TransportError<G>),
 }
 
 #[derive(thiserror::Error, Debug)]

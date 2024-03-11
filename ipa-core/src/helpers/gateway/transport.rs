@@ -1,3 +1,5 @@
+use ipa_step::Gate;
+
 use crate::{
     helpers::{
         buffers::UnorderedReceiver,
@@ -12,18 +14,18 @@ use crate::{
 ///
 /// [`HelperIdentity`]: crate::helpers::HelperIdentity
 #[derive(Clone)]
-pub(super) struct RoleResolvingTransport {
+pub(super) struct RoleResolvingTransport<G: Gate> {
     pub query_id: QueryId,
     pub roles: RoleAssignment,
     pub config: GatewayConfig,
-    pub inner: TransportImpl,
+    pub inner: TransportImpl<G>,
 }
 
-impl RoleResolvingTransport {
+impl<G: Gate> RoleResolvingTransport<G> {
     pub(crate) async fn send(
         &self,
-        channel_id: &ChannelId,
-        data: GatewaySendStream,
+        channel_id: &ChannelId<G>,
+        data: GatewaySendStream<G>,
     ) -> Result<(), <TransportImpl as Transport>::Error> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
@@ -41,7 +43,7 @@ impl RoleResolvingTransport {
             .await
     }
 
-    pub(crate) fn receive(&self, channel_id: &ChannelId) -> UR {
+    pub(crate) fn receive(&self, channel_id: &ChannelId<G>) -> UR {
         let peer = self.roles.identity(channel_id.role);
         assert_ne!(
             peer,

@@ -11,3 +11,6 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 ipa-step = { version = "*", path = "../ipa-step", features = ["name"] }
+
+[dev-dependencies]
+prettyplease = "0.2"

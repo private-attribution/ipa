@@ -1,5 +1,6 @@
 mod transport;
 
+use ipa_step::Gate;
 pub use transport::Setup;
 
 use crate::{
@@ -7,15 +8,15 @@ use crate::{
     sync::{Arc, Weak},
 };
 
-pub type InMemoryTransport = Weak<transport::InMemoryTransport>;
+pub type InMemoryTransport<G> = Weak<transport::InMemoryTransport<G>>;
 
 /// Container for all active transports
 #[derive(Clone)]
-pub struct InMemoryNetwork {
-    pub transports: [Arc<transport::InMemoryTransport>; 3],
+pub struct InMemoryNetwork<G: Gate> {
+    pub transports: [Arc<transport::InMemoryTransport<G>>; 3],
 }
 
-impl Default for InMemoryNetwork {
+impl<G: Gate> Default for InMemoryNetwork<G> {
     fn default() -> Self {
         Self::new([
             TransportCallbacks::default(),
@@ -26,9 +27,9 @@ impl Default for InMemoryNetwork {
 }
 
 #[allow(dead_code)]
-impl InMemoryNetwork {
+impl<G: Gate> InMemoryNetwork<G> {
     #[must_use]
-    pub fn new(callbacks: [TransportCallbacks<InMemoryTransport>; 3]) -> Self {
+    pub fn new(callbacks: [TransportCallbacks<InMemoryTransport<G>>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] =
             HelperIdentity::make_three().map(Setup::new);
 
@@ -59,7 +60,7 @@ impl InMemoryNetwork {
     /// ## Panics
     /// If [`HelperIdentity`] is somehow points to a non-existent helper, which shouldn't happen.
     #[must_use]
-    pub fn transport(&self, id: HelperIdentity) -> InMemoryTransport {
+    pub fn transport(&self, id: HelperIdentity) -> InMemoryTransport<G> {
         self.transports
             .iter()
             .find(|t| t.identity() == id)
@@ -68,8 +69,8 @@ impl InMemoryNetwork {
 
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn transports(&self) -> [InMemoryTransport; 3] {
-        let transports: [InMemoryTransport; 3] = self
+    pub fn transports(&self) -> [InMemoryTransport<G>; 3] {
+        let transports: [InMemoryTransport<G>; 3] = self
             .transports
             .iter()
             .map(Arc::downgrade)

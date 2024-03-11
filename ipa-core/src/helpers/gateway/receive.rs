@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::Stream;
+use ipa_step::Gate;
 
 use crate::{
     helpers::{buffers::UnorderedReceiver, ChannelId, Error, Message, Transport, TransportImpl},
@@ -9,25 +10,25 @@ use crate::{
 };
 
 /// Receiving end end of the gateway channel.
-pub struct ReceivingEnd<M: Message> {
-    channel_id: ChannelId,
-    unordered_rx: UR,
+pub struct ReceivingEnd<G: Gate, M: Message> {
+    channel_id: ChannelId<G>,
+    unordered_rx: UR<G>,
     _phantom: PhantomData<M>,
 }
 
 /// Receiving channels, indexed by (role, step).
 #[derive(Default)]
-pub(super) struct GatewayReceivers {
-    pub(super) inner: DashMap<ChannelId, UR>,
+pub(super) struct GatewayReceivers<G: Gate> {
+    pub(super) inner: DashMap<ChannelId<G>, UR<G>>,
 }
 
-pub(super) type UR = UnorderedReceiver<
-    <TransportImpl as Transport>::RecordsStream,
-    <<TransportImpl as Transport>::RecordsStream as Stream>::Item,
+pub(super) type UR<G> = UnorderedReceiver<
+    <TransportImpl<G> as Transport<G>>::RecordsStream,
+    <<TransportImpl<G> as Transport<G>>::RecordsStream as Stream>::Item,
 >;
 
-impl<M: Message> ReceivingEnd<M> {
-    pub(super) fn new(channel_id: ChannelId, rx: UR) -> Self {
+impl<G: Gate, M: Message> ReceivingEnd<G, M> {
+    pub(super) fn new(channel_id: ChannelId<G>, rx: UR) -> Self {
         Self {
             channel_id,
             unordered_rx: rx,
@@ -57,8 +58,8 @@ impl<M: Message> ReceivingEnd<M> {
     }
 }
 
-impl GatewayReceivers {
-    pub fn get_or_create<F: FnOnce() -> UR>(&self, channel_id: &ChannelId, ctr: F) -> UR {
+impl<G: Gate> GatewayReceivers<G> {
+    pub fn get_or_create<F: FnOnce() -> UR>(&self, channel_id: &ChannelId<G>, ctr: F) -> UR {
         // TODO: raw entry API if it becomes available to avoid cloning the key
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),

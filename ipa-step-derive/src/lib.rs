@@ -6,16 +6,14 @@ mod variant;
 
 use std::env;
 
-use ipa_step::{
-    name::{GateName, UnderscoreStyle},
-    COMPACT_GATE_INCLUDE_ENV,
-};
+use ipa_step::{name::GateName, COMPACT_GATE_INCLUDE_ENV};
 use proc_macro::TokenStream as TokenStreamBasic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Ident};
+use variant::Generator;
 
-use crate::{sum::ExtendedSum, variant::VariantAttribute};
+use crate::variant::VariantAttribute;
 
 /// Derive an implementation of `Step` and `CompactStep`.
 ///
@@ -66,130 +64,22 @@ where
 
 fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let ident = &ast.ident;
-    let Data::Enum(data) = &ast.data else {
-        return ast.ident.error("Step can only be derived for an enum");
-    };
-
-    let variants = VariantAttribute::parse_attrs(data)?;
-    Ok(generate(ident, &variants))
-}
-
-fn generate(ident: &Ident, variants: &[VariantAttribute]) -> TokenStream {
-    // This keeps a running tally of the total number of steps across all of the variants.
-    // This is a composite because it isn't necessarily a simple integer.
-    // It might be `<Child as CompactStep>::STEP_COUNT + 4` or similar.
-    let mut arm_count = ExtendedSum::default();
-    // This tracks the index of each item.
-    let mut index_arms = TokenStream::new();
-    // This tracks the arrays of names that are used for integer variants.
-    let mut name_arrays = TokenStream::new();
-    // This tracks the arms of the `AsRef<str>` match implementation.
-    let mut as_ref_arms = TokenStream::new();
-    // This tracks the arms of the `CompactStep::step_string` match implementation.
-    let mut step_string_arms = TokenStream::new();
-    // This tracks the arms of a `CompactStep::step_narrow_type` match implementation.
-    let mut step_narrow_arms = TokenStream::new();
-
-    for v in variants {
-        arm_count = v.generate(
-            &arm_count,
-            &mut index_arms,
-            &mut name_arrays,
-            &mut as_ref_arms,
-            &mut step_string_arms,
-            &mut step_narrow_arms,
-        );
-    }
-
-    let mut result = quote! {
-        impl ::ipa_step::Step for #ident {}
-    };
-
-    // Maybe override the default implementation of `step_narrow_type`.
-    let step_narrow = if step_narrow_arms.is_empty() {
-        TokenStream::new()
-    } else {
-        quote! {
-            fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
-                match i {
-                    #step_narrow_arms
-                    _ => None,
-                }
+    let mut g = Generator::default();
+    let attr = match &ast.data {
+        Data::Enum(data) => {
+            for v in VariantAttribute::parse_variants(data)? {
+                g.add_variant(&v);
             }
+            VariantAttribute::parse_outer(ident, &ast.attrs, None)?
+        }
+        Data::Struct(data) => VariantAttribute::parse_outer(ident, &ast.attrs, Some(&data.fields))?,
+        Data::Union(..) => {
+            return ast
+                .ident
+                .error("Step can only be derived for a struct or enum")
         }
     };
-
-    if as_ref_arms.is_empty() {
-        let snakey = ident.to_string().to_snake_case();
-        result.extend(quote! {
-            impl ::std::convert::AsRef<str> for #ident {
-                fn as_ref(&self) -> &str {
-                    #snakey
-                }
-            }
-
-            impl ::ipa_step::CompactStep for #ident {
-                const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
-                fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
-                fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
-                    assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
-                    String::from(#snakey)
-                }
-                #step_narrow
-            }
-        });
-    } else {
-        // Deal with the use of `TryFrom` on types that implement `From`.
-        if !name_arrays.is_empty() {
-            result.extend(quote! {
-                #[allow(
-                    clippy::useless_conversion,
-                    clippy::unnecessary_fallible_conversions,
-                )]
-            });
-        }
-        result.extend(quote! {
-            impl ::std::convert::AsRef<str> for #ident {
-                fn as_ref(&self) -> &str {
-                    #name_arrays
-                    match self {
-                        #as_ref_arms
-                    }
-                }
-            }
-        });
-
-        // Implementing `CompactStep` involves some cases where 0 is added or subtracted.
-        // In addition to the useless conversions above.
-        if !name_arrays.is_empty() {
-            result.extend(quote! {
-                #[allow(
-                    clippy::useless_conversion,
-                    clippy::unnecessary_fallible_conversions,
-                    clippy::identity_op,
-                )]
-            });
-        }
-        result.extend(quote! {
-            impl ::ipa_step::CompactStep for #ident {
-                const STEP_COUNT: ::ipa_step::CompactGateIndex = #arm_count;
-                fn base_index(&self) -> ::ipa_step::CompactGateIndex {
-                    match self {
-                        #index_arms
-                    }
-                }
-                fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
-                    match i {
-                        #step_string_arms
-                        _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
-                    }
-                }
-                #step_narrow
-            }
-        });
-    };
-
-    result
+    Ok(g.generate(ident, &attr))
 }
 
 fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
@@ -256,6 +146,7 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
 mod test {
     use proc_macro2::TokenStream;
     use quote::quote;
+    use syn::parse2;
 
     use super::derive_step_impl;
 
@@ -267,8 +158,18 @@ mod test {
         .map_err(syn::Error::into_compile_error)
     }
 
-    fn derive_success(input: TokenStream, output: &TokenStream) {
-        assert_eq!(derive(input).unwrap().to_string(), output.to_string());
+    fn pretty(tokens: TokenStream) -> String {
+        prettyplease::unparse(&parse2(tokens).unwrap())
+    }
+
+    fn derive_success(input: TokenStream, expected: &TokenStream) {
+        let output = derive(input).unwrap();
+        assert_eq!(
+            output.to_string(),
+            expected.to_string(),
+            "Got:\n{p}",
+            p = pretty(output),
+        );
     }
 
     fn derive_failure(input: TokenStream, msg: &str) {
@@ -312,8 +213,41 @@ mod test {
                     const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
                     fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
                     fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
-                        assert_eq!(i, 0, "step {i} is not valid for {t}", t = ::std::any::type_name::<Self>());
-                        String::from("empty_enum")
+                        match i {
+                            _ if i == 0 => String::from("empty_enum"),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn empty_named() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                #[step(name = "empty")]
+                enum EmptyEnum {}
+            },
+            &quote! {
+                impl ::ipa_step::Step for EmptyEnum {}
+
+                impl ::std::convert::AsRef<str> for EmptyEnum {
+                    fn as_ref(&self) -> &str {
+                        "empty"
+                    }
+                }
+
+                impl ::ipa_step::CompactStep for EmptyEnum {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                        match i {
+                            _ if i == 0 => String::from("empty"),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
                     }
                 }
             },
@@ -596,6 +530,48 @@ mod test {
     }
 
     #[test]
+    fn empty_child() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                #[step(child = Child)]
+                enum Parent {}
+            },
+            &quote! {
+                impl ::ipa_step::Step for Parent {}
+
+                impl ::std::convert::AsRef<str> for Parent {
+                    fn as_ref(&self) -> &str {
+                        "parent"
+                    }
+                }
+
+                impl ::ipa_step::CompactStep for Parent {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                        match i {
+                            _ if i == 0 => String::from("parent"),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1
+                                => String::from("parent") + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1)),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
+                    }
+
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
+                        match i {
+                            _ if i == 0 => Some(::std::any::type_name::<Child>()),
+                            _ if (1..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1)),
+                            _ => None,
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
     fn int_child() {
         derive_success(
             quote! {
@@ -750,13 +726,95 @@ mod test {
     }
 
     #[test]
-    fn not_enum() {
+    fn struct_empty() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                struct StructEmpty;
+            },
+            &quote! {
+                impl ::ipa_step::Step for StructEmpty {}
+
+                impl ::std::convert::AsRef<str> for StructEmpty {
+                    fn as_ref(&self) -> &str {
+                        "struct_empty"
+                    }
+                }
+
+                impl ::ipa_step::CompactStep for StructEmpty {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                        match i {
+                            _ if i == 0 => String::from("struct_empty"),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn struct_child() {
+        derive_success(
+            quote! {
+                #[derive(CompactStep)]
+                #[step(child = Child)]
+                struct StructEmpty;
+            },
+            &quote! {
+                impl ::ipa_step::Step for StructEmpty {}
+
+                impl ::std::convert::AsRef<str> for StructEmpty {
+                    fn as_ref(&self) -> &str {
+                        "struct_empty"
+                    }
+                }
+
+                impl ::ipa_step::CompactStep for StructEmpty {
+                    const STEP_COUNT: ::ipa_step::CompactGateIndex = <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
+                    fn base_index(&self) -> ::ipa_step::CompactGateIndex { 0 }
+                    fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                        match i {
+                            _ if i == 0 => String::from("struct_empty"),
+                            _ if i < <Child as ::ipa_step::CompactStep>::STEP_COUNT + 1
+                              => String::from ("struct_empty") + "/" + &<Child as ::ipa_step::CompactStep>::step_string(i - (1)),
+                            _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                        }
+                    }
+                    fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
+                        match i {
+                            _ if i == 0 => Some(::std::any::type_name::<Child>()),
+                            _ if (1..<Child as ::ipa_step::CompactStep>::STEP_COUNT + 1).contains(&i)
+                              => <Child as ::ipa_step::CompactStep>::step_narrow_type(i - (1)),
+                            _ => None,
+                        }
+                    }
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn struct_missing_count() {
         derive_failure(
             quote! {
                 #[derive(CompactStep)]
                 struct Foo(u8);
             },
-            "Step can only be derived for an enum",
+            "#[derive(CompactStep)] requires that integer variants include #[step(count = ...)]",
+        );
+    }
+
+    #[test]
+    fn union_unsupported() {
+        derive_failure(
+            quote! {
+                #[derive(CompactStep)]
+                union Foo {};
+            },
+            "unexpected token",
         );
     }
 

@@ -27,21 +27,44 @@ impl<'a> VariantAttrParser<'a> {
         }
     }
 
-    fn parse(mut self, variant: &Variant) -> Result<VariantAttribute, syn::Error> {
-        match &variant.fields {
+    /// Parse an enum variant.
+    fn parse_variant(mut self, variant: &Variant) -> Result<VariantAttribute, syn::Error> {
+        if !self.parse_fields(&variant.fields)? {
+            return self.make_attr();
+        }
+        if let Some((_, d)) = &variant.discriminant {
+            return d
+                .span()
+                .error("#[derive(CompactStep)] does not work with discriminants");
+        }
+
+        self.parse_attrs(&variant.attrs)
+    }
+
+    /// Parse the outer label on a struct or enum.
+    fn parse_outer(
+        mut self,
+        attrs: &[Attribute],
+        fields: Option<&Fields>,
+    ) -> Result<VariantAttribute, syn::Error> {
+        if let Some(fields) = fields {
+            self.parse_fields(fields)?;
+        }
+        self.parse_attrs(attrs)
+    }
+
+    fn parse_fields(&mut self, fields: &Fields) -> Result<bool, syn::Error> {
+        match &fields {
             Fields::Named(_) => {
-                return variant
-                    .fields
-                    .error("#[derive(CompactStep)] does not support named field");
+                return fields.error("#[derive(CompactStep)] does not support named field");
             }
             Fields::Unnamed(f) => {
                 if f.unnamed.len() != 1 {
-                    return variant
-                        .fields
+                    return fields
                         .error("#[derive(CompactStep) only supports empty or integer variants");
                 }
                 let Some(f) = f.unnamed.first() else {
-                    return self.make_attr();
+                    return Ok(false);
                 };
 
                 let Type::Path(int_type) = &f.ty else {
@@ -58,13 +81,11 @@ impl<'a> VariantAttrParser<'a> {
             }
             Fields::Unit => {}
         }
-        if let Some((_, d)) = &variant.discriminant {
-            return d
-                .span()
-                .error("#[derive(CompactStep)] does not work with discriminants");
-        }
+        Ok(true)
+    }
 
-        let Some(attr) = variant.attrs.iter().find(|a| a.path().is_ident("step")) else {
+    fn parse_attrs(mut self, attrs: &[Attribute]) -> Result<VariantAttribute, syn::Error> {
+        let Some(attr) = attrs.iter().find(|a| a.path().is_ident("step")) else {
             return self.make_attr();
         };
 
@@ -159,76 +180,114 @@ pub struct VariantAttribute {
 }
 
 impl VariantAttribute {
+    /// The name of this variant.
+    /// Either the `name` attribute passed to `#[step(name = "")]` or
+    /// a snake case version of the type identifier.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Parse a set of attributes out from a representation of an enum.
-    pub fn parse_attrs(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
+    pub fn parse_variants(data: &DataEnum) -> Result<Vec<Self>, syn::Error> {
         let mut steps = Vec::with_capacity(data.variants.len());
         for v in &data.variants {
-            steps.push(VariantAttrParser::new(&v.ident).parse(v)?);
+            steps.push(VariantAttrParser::new(&v.ident).parse_variant(v)?);
         }
         Ok(steps)
     }
 
+    /// Parse the attributes from a enum.
+    pub fn parse_outer(
+        ident: &Ident,
+        attrs: &[Attribute],
+        fields: Option<&Fields>,
+    ) -> Result<Self, syn::Error> {
+        VariantAttrParser::new(ident).parse_outer(attrs, fields)
+    }
+}
+
+#[derive(Default)]
+pub struct Generator {
+    // This keeps a running tally of the total number of steps across all of the variants.
+    // This is a composite because it isn't necessarily a simple integer.
+    // It might be `<Child as CompactStep>::STEP_COUNT + 4` or similar.
+    arm_count: ExtendedSum,
+    // This tracks the index of each item.
+    index_arms: TokenStream,
+    // This tracks the arrays of names that are used for integer variants.
+    name_arrays: TokenStream,
+    // This tracks the arms of the `AsRef<str>` match implementation.
+    as_ref_arms: TokenStream,
+    // This tracks the arms of the `CompactStep::step_string` match implementation.
+    step_string_arms: TokenStream,
+    // This tracks the arms of a `CompactStep::step_narrow_type` match implementation.
+    step_narrow_arms: TokenStream,
+}
+
+impl Generator {
+    /// The name of this variant.
     /// Generate the code for a single variant.
     /// Return the updated running tally of steps involved.
-    pub fn generate(
-        &self,
-        arm_count: &ExtendedSum,
-        index_arms: &mut TokenStream,
-        name_arrays: &mut TokenStream,
-        as_ref_arms: &mut TokenStream,
-        step_string_arms: &mut TokenStream,
-        step_narrow_arms: &mut TokenStream,
-    ) -> ExtendedSum {
-        if self.integer.is_none() {
-            self.generate_single(
-                arm_count,
-                index_arms,
-                as_ref_arms,
-                step_string_arms,
-                step_narrow_arms,
-            )
+    pub fn add_variant(&mut self, v: &VariantAttribute) {
+        if v.integer.is_none() {
+            self.add_empty(v, true);
         } else {
-            self.generate_int(
-                arm_count,
-                index_arms,
-                name_arrays,
-                as_ref_arms,
-                step_string_arms,
-                step_narrow_arms,
-            )
+            self.add_int(v, true);
         }
     }
 
-    fn generate_single(
-        &self,
-        arm_count: &ExtendedSum,
-        index_arms: &mut TokenStream,
-        as_ref_arms: &mut TokenStream,
-        step_string_arms: &mut TokenStream,
-        step_narrow_arms: &mut TokenStream,
-    ) -> ExtendedSum {
+    fn add_outer(&mut self, v: &VariantAttribute) {
+        if self.arm_count.is_zero() {
+            if v.integer.is_none() {
+                self.add_empty(v, false);
+            } else {
+                self.add_int(v, false);
+            }
+        } else {
+            assert!(
+                v.child.is_none(),
+                "#[step(child = ...)] is only valid for empty enums"
+            );
+        }
+    }
+
+    fn add_empty(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
             ident: step_ident,
             name: step_name,
             integer: None,
             child: step_child,
-        } = self
+        } = v
         else {
             unreachable!();
         };
 
-        index_arms.extend(quote! {
-            Self::#step_ident => #arm_count,
-        });
+        let arm_count = &self.arm_count; // To make available for `quote!()`.
 
-        as_ref_arms.extend(quote! {
-            Self::#step_ident => #step_name,
-        });
+        let string_value = if is_variant {
+            self.index_arms.extend(quote! {
+                Self::#step_ident => #arm_count,
+            });
+
+            self.as_ref_arms.extend(quote! {
+                Self::#step_ident => #step_name,
+            });
+
+            quote!(Self::#step_ident.as_ref().to_owned())
+        } else {
+            // If this is at the top level, don't extend `index_arms` or `as_ref_arms`.
+            // We leave these empty so that
+            debug_assert!(self.index_arms.is_empty());
+            debug_assert!(self.as_ref_arms.is_empty());
+
+            // Empty enums can't be instantiated, so copy the string value out.
+            quote!(String::from(#step_name))
+        };
 
         // Use the `AsRef<str>` implementation for the string value.
-        step_string_arms.extend(quote! {
-            _ if i == #arm_count => Self::#step_ident.as_ref().to_owned(),
+        self.step_string_arms.extend(quote! {
+            _ if i == #arm_count => #string_value,
         });
 
         let next_arm_count = arm_count.clone() + 1;
@@ -239,8 +298,8 @@ impl VariantAttribute {
                 next_arm_count.clone() + quote!(<#child as ::ipa_step::CompactStep>::STEP_COUNT);
 
             // The name of each gate is in the form `"this" + "/" + child.step_string(offset)`...
-            step_string_arms.extend(quote! {
-                _ if i < #range_end => Self::#step_ident.as_ref().to_owned() + "/" +
+            self.step_string_arms.extend(quote! {
+                _ if i < #range_end => #string_value + "/" +
                   &<#child as ::ipa_step::CompactStep>::step_string(i - (#next_arm_count)),
             });
 
@@ -249,36 +308,35 @@ impl VariantAttribute {
             // Note also the `std::any::type_name` kludge here:
             // the belief is that this is better than `stringify!()`
             // on the basis that `#child` might not be fully qualified when specified.
-            step_narrow_arms.extend(quote! {
+            self.step_narrow_arms.extend(quote! {
                 _ if i == #arm_count => Some(::std::any::type_name::<#child>()),
                 _ if (#next_arm_count..#range_end).contains(&i)
                   => <#child as ::ipa_step::CompactStep>::step_narrow_type(i - (#next_arm_count)),
             });
 
-            range_end
+            self.arm_count = range_end;
         } else {
-            next_arm_count
+            self.arm_count = next_arm_count;
         }
     }
 
-    fn generate_int(
-        &self,
-        arm_count: &ExtendedSum,
-        index_arms: &mut TokenStream,
-        name_arrays: &mut TokenStream,
-        as_ref_arms: &mut TokenStream,
-        step_string_arms: &mut TokenStream,
-        step_narrow_arms: &mut TokenStream,
-    ) -> ExtendedSum {
+    fn add_int(&mut self, v: &VariantAttribute, is_variant: bool) {
         // Unpack so that we can use `quote!()`.
         let VariantAttribute {
             ident: step_ident,
             name: step_name,
             integer: Some((step_count, step_integer)),
             child: step_child,
-        } = self
+        } = v
         else {
             unreachable!();
+        };
+
+        let arm_count = &self.arm_count; // To make available for `quote!()`.
+        let arm = if is_variant {
+            quote!(Self::#step_ident)
+        } else {
+            quote!(Self)
         };
 
         // Construct some nice names for each integer value in the range.
@@ -292,32 +350,32 @@ impl VariantAttribute {
         let step_names =
             (0..*step_count).map(|s| step_name.clone() + &format!("{s:03}")[skip_zeros..]);
         let step_count_lit = Literal::usize_unsuffixed(*step_count);
-        name_arrays.extend(quote! {
+        self.name_arrays.extend(quote! {
             const #array_name: [&str; #step_count_lit] = [#(#step_names),*];
         });
 
         // Use those names in the `AsRef` implementation.
-        as_ref_arms.extend(quote! {
-             Self::#step_ident(i) => #array_name[usize::try_from(*i).unwrap()],
+        self.as_ref_arms.extend(quote! {
+             #arm(i) => #array_name[usize::try_from(*i).unwrap()],
         });
 
         if let Some(child) = step_child {
-            let idx = arm_count.clone()
+            let idx = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * ::ipa_step::CompactGateIndex::try_from(*i).unwrap());
-            index_arms.extend(quote! {
-                Self::#step_ident(i) => #idx,
+            self.index_arms.extend(quote! {
+                #arm(i) => #idx,
             });
 
             // With `step_count` variations present, each has a name.
             // But each also has independent child nodes of its own.
             // That means `step_count * (#child::STEP_COUNT * 1)` total nodes.
-            let range_end = arm_count.clone()
+            let range_end = self.arm_count.clone()
                 + quote!((<#child as ::ipa_step::CompactStep>::STEP_COUNT + 1) * #step_count_lit);
-            step_string_arms.extend(quote! {
+            self.step_string_arms.extend(quote! {
                 _ if i < #range_end => {
                     let offset = i - (#arm_count);
                     let divisor = <#child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
-                    let s = Self::#step_ident(#step_integer::try_from(offset / divisor).unwrap()).as_ref().to_owned();
+                    let s = #arm(#step_integer::try_from(offset / divisor).unwrap()).as_ref().to_owned();
                     if let Some(v) = (offset % divisor).checked_sub(1) {
                         s + "/" + &<#child as ::ipa_step::CompactStep>::step_string(v)
                     } else {
@@ -330,7 +388,7 @@ impl VariantAttribute {
             // Note: These match clauses can't use the `i < end` shortcut as above, because
             // the match does not cover all options.
             // See also above regarding `std::any::type_name()`.
-            step_narrow_arms.extend(quote! {
+            self.step_narrow_arms.extend(quote! {
                 _ if (#arm_count..#range_end).contains(&i) => {
                     let offset = i - (#arm_count);
                     let divisor = <#child as ::ipa_step::CompactStep>::STEP_COUNT + 1;
@@ -341,19 +399,111 @@ impl VariantAttribute {
                     }
                 }
             });
-            range_end
+            self.arm_count = range_end;
         } else {
-            let idx =
-                arm_count.clone() + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
-            index_arms.extend(quote! {
-                Self::#step_ident(i) => #idx,
+            let idx = self.arm_count.clone()
+                + quote!(::ipa_step::CompactGateIndex::try_from(*i).unwrap());
+            self.index_arms.extend(quote! {
+                #arm(i) => #idx,
             });
 
             let range_end = arm_count.clone() + *step_count;
-            step_string_arms.extend(quote! {
-                _ if i < #range_end => Self::#step_ident(#step_integer::try_from(i - (#arm_count)).unwrap()).as_ref().to_owned(),
+            self.step_string_arms.extend(quote! {
+                _ if i < #range_end => #arm(#step_integer::try_from(i - (#arm_count)).unwrap()).as_ref().to_owned(),
             });
-            range_end
+            self.arm_count = range_end;
         }
+    }
+
+    pub fn generate(mut self, ident: &Ident, attr: &VariantAttribute) -> TokenStream {
+        self.add_outer(attr);
+
+        let mut result = quote! {
+            impl ::ipa_step::Step for #ident {}
+        };
+
+        assert_eq!(self.index_arms.is_empty(), self.as_ref_arms.is_empty());
+        let (index_arms, as_ref_arms) = if self.index_arms.is_empty() {
+            let n = attr.name();
+            (quote!(0), quote!(#n))
+        } else {
+            let index_arms = self.index_arms;
+            let as_ref_arms = self.as_ref_arms;
+            (
+                quote! {
+                    match self { #index_arms }
+                },
+                quote! {
+                    match self { #as_ref_arms }
+                },
+            )
+        };
+
+        // Deal with the use of `TryFrom` on types that implement `From`.
+        let name_arrays = self.name_arrays;
+        if !name_arrays.is_empty() {
+            result.extend(quote! {
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                )]
+            });
+        }
+        result.extend(quote! {
+            impl ::std::convert::AsRef<str> for #ident {
+                fn as_ref(&self) -> &str {
+                    #name_arrays
+                    #as_ref_arms
+                }
+            }
+        });
+
+        // Implementing `CompactStep` involves some cases where 0 is added or subtracted.
+        // In addition to the useless conversions above.
+        if !name_arrays.is_empty() {
+            result.extend(quote! {
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    clippy::identity_op,
+                )]
+            });
+        }
+
+        let arm_count = self.arm_count;
+        let step_string_arms = self.step_string_arms;
+
+        // Maybe override the default implementation of `step_narrow_type`.
+        let step_narrow = if self.step_narrow_arms.is_empty() {
+            TokenStream::new()
+        } else {
+            let step_narrow_arms = self.step_narrow_arms;
+            quote! {
+                fn step_narrow_type(i: ::ipa_step::CompactGateIndex) -> Option<&'static str> {
+                    match i {
+                        #step_narrow_arms
+                        _ => None,
+                    }
+                }
+            }
+        };
+
+        result.extend(quote! {
+            impl ::ipa_step::CompactStep for #ident {
+                const STEP_COUNT: ::ipa_step::CompactGateIndex = #arm_count;
+                fn base_index(&self) -> ::ipa_step::CompactGateIndex {
+                    #index_arms
+                }
+                fn step_string(i: ::ipa_step::CompactGateIndex) -> String {
+                    match i {
+                        #step_string_arms
+                        _ => panic!("step {i} is not valid for {t}", t = ::std::any::type_name::<Self>()),
+                    }
+                }
+                #step_narrow
+            }
+        });
+
+        result
     }
 }

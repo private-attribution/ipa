@@ -14,6 +14,7 @@ use ::tokio::sync::{
 };
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
+use ipa_step::Gate;
 use serde::de::DeserializeOwned;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
@@ -27,13 +28,13 @@ use crate::{
         HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
         StepBinding, StreamCollection, Transport, TransportCallbacks,
     },
-    protocol::{step::Gate, QueryId},
+    protocol::QueryId,
     sync::{Arc, Weak},
 };
 
-type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
-type ConnectionTx = Sender<Packet>;
-type ConnectionRx = Receiver<Packet>;
+type Packet<G> = (Addr<G>, InMemoryStream, oneshot::Sender<Result<(), Error>>);
+type ConnectionTx<G> = Sender<Packet<G>>;
+type ConnectionRx<G> = Receiver<Packet<G>>;
 type StreamItem = Vec<u8>;
 
 #[derive(Debug, thiserror::Error)]
@@ -54,15 +55,18 @@ pub enum Error {
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
 /// incoming messages.
-pub struct InMemoryTransport {
+pub struct InMemoryTransport<G: Gate> {
     identity: HelperIdentity,
-    connections: HashMap<HelperIdentity, ConnectionTx>,
+    connections: HashMap<HelperIdentity, ConnectionTx<G>>,
     record_streams: StreamCollection<InMemoryStream>,
 }
 
-impl InMemoryTransport {
+impl<G: Gate> InMemoryTransport<G> {
     #[must_use]
-    fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
+    fn new(
+        identity: HelperIdentity,
+        connections: HashMap<HelperIdentity, ConnectionTx<G>>,
+    ) -> Self {
         Self {
             identity,
             connections,
@@ -79,7 +83,11 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(self: &Arc<Self>, callbacks: TransportCallbacks<Weak<Self>>, mut rx: ConnectionRx) {
+    fn listen(
+        self: &Arc<Self>,
+        callbacks: TransportCallbacks<Weak<Self>>,
+        mut rx: ConnectionRx<G>,
+    ) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -132,7 +140,7 @@ impl InMemoryTransport {
         );
     }
 
-    fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx {
+    fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx<G> {
         self.connections
             .get(&dest)
             .unwrap_or_else(|| {
@@ -151,7 +159,7 @@ impl InMemoryTransport {
 }
 
 #[async_trait]
-impl Transport for Weak<InMemoryTransport> {
+impl<G: Gate> Transport<G> for Weak<InMemoryTransport<G>> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
     type Error = Error;
 
@@ -163,7 +171,7 @@ impl Transport for Weak<InMemoryTransport> {
         D: Stream<Item = Vec<u8>> + Send + 'static,
         Q: QueryIdBinding,
         S: StepBinding,
-        R: RouteParams<RouteId, Q, S>,
+        R: RouteParams<G, RouteId, Q, S>,
     >(
         &self,
         dest: HelperIdentity,
@@ -172,7 +180,7 @@ impl Transport for Weak<InMemoryTransport> {
     ) -> Result<(), Error>
     where
         Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
+        Option<G>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
@@ -195,7 +203,7 @@ impl Transport for Weak<InMemoryTransport> {
             .and_then(convert::identity)
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
+    fn receive<R: RouteParams<G, NoResourceIdentifier, QueryId, G>>(
         &self,
         from: HelperIdentity,
         route: R,
@@ -261,23 +269,23 @@ impl Debug for InMemoryStream {
     }
 }
 
-struct Addr {
+struct Addr<G: Gate> {
     route: RouteId,
     origin: Option<HelperIdentity>,
     query_id: Option<QueryId>,
-    gate: Option<Gate>,
+    gate: Option<G>,
     params: String,
 }
 
-impl Addr {
+impl<G: Gate> Addr<G> {
     #[allow(clippy::needless_pass_by_value)] // to avoid using double-reference at callsites
-    fn from_route<Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
+    fn from_route<Q: QueryIdBinding, S: StepBinding, R: RouteParams<G, RouteId, Q, S>>(
         origin: HelperIdentity,
         route: R,
     ) -> Self
     where
         Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
+        Option<G>: From<S>,
     {
         Self {
             route: route.resource_identifier(),
@@ -293,7 +301,7 @@ impl Addr {
     }
 
     #[cfg(all(test, unit_test))]
-    fn records(from: HelperIdentity, query_id: QueryId, gate: Gate) -> Self {
+    fn records(from: HelperIdentity, query_id: QueryId, gate: G) -> Self {
         Self {
             route: RouteId::Records,
             origin: Some(from),
@@ -304,7 +312,7 @@ impl Addr {
     }
 }
 
-impl Debug for Addr {
+impl<G: Gate> Debug for Addr<G> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -314,14 +322,14 @@ impl Debug for Addr {
     }
 }
 
-pub struct Setup {
+pub struct Setup<G: Gate> {
     identity: HelperIdentity,
-    tx: ConnectionTx,
-    rx: ConnectionRx,
-    connections: HashMap<HelperIdentity, ConnectionTx>,
+    tx: ConnectionTx<G>,
+    rx: ConnectionRx<G>,
+    connections: HashMap<HelperIdentity, ConnectionTx<G>>,
 }
 
-impl Setup {
+impl<G: Gate> Setup<G> {
     #[must_use]
     pub fn new(identity: HelperIdentity) -> Self {
         let (tx, rx) = channel(16);
@@ -392,7 +400,7 @@ mod tests {
             },
             HelperIdentity, OrderingSender, RouteId, Transport, TransportCallbacks,
         },
-        protocol::{step::Gate, QueryId},
+        protocol::QueryId,
         sync::Arc,
     };
 

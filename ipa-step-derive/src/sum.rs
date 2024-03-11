@@ -11,6 +11,13 @@ pub struct ExtendedSum {
     extra: usize,
 }
 
+impl ExtendedSum {
+    /// Returns whether the expression is equal to 0.
+    pub fn is_zero(&self) -> bool {
+        self.expr.is_empty() && self.extra == 0
+    }
+}
+
 impl ToTokens for ExtendedSum {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if self.expr.is_empty() {

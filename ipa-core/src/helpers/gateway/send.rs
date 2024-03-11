@@ -8,6 +8,7 @@ use std::{
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::Stream;
+use ipa_step::Gate;
 use typenum::Unsigned;
 
 use crate::{
@@ -21,31 +22,31 @@ use crate::{
 };
 
 /// Sending end of the gateway channel.
-pub struct SendingEnd<M: Message> {
+pub struct SendingEnd<G: Gate, M: Message> {
     sender_role: Role,
-    channel_id: ChannelId,
-    inner: Arc<GatewaySender>,
+    channel_id: ChannelId<G>,
+    inner: Arc<GatewaySender<G>>,
     _phantom: PhantomData<M>,
 }
 
 /// Sending channels, indexed by (role, step).
 #[derive(Default)]
-pub(super) struct GatewaySenders {
-    pub(super) inner: DashMap<ChannelId, Arc<GatewaySender>>,
+pub(super) struct GatewaySenders<G: Gate> {
+    pub(super) inner: DashMap<ChannelId<G>, Arc<GatewaySender<G>>>,
 }
 
-pub(super) struct GatewaySender {
-    channel_id: ChannelId,
+pub(super) struct GatewaySender<G: Gate> {
+    channel_id: ChannelId<G>,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
 }
 
-pub(super) struct GatewaySendStream {
-    inner: Arc<GatewaySender>,
+pub(super) struct GatewaySendStream<G: Gate> {
+    inner: Arc<GatewaySender<G>>,
 }
 
-impl GatewaySender {
-    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
+impl<G: Gate> GatewaySender<G> {
+    fn new(channel_id: ChannelId<G>, tx: OrderingSender, total_records: TotalRecords) -> Self {
         Self {
             channel_id,
             ordering_tx: tx,
@@ -94,8 +95,12 @@ impl GatewaySender {
     }
 }
 
-impl<M: Message> SendingEnd<M> {
-    pub(super) fn new(sender: Arc<GatewaySender>, role: Role, channel_id: &ChannelId) -> Self {
+impl<G: Gate, M: Message> SendingEnd<G, M> {
+    pub(super) fn new(
+        sender: Arc<GatewaySender<G>>,
+        role: Role,
+        channel_id: &ChannelId<G>,
+    ) -> Self {
         Self {
             sender_role: role,
             channel_id: channel_id.clone(),
@@ -129,16 +134,16 @@ impl<M: Message> SendingEnd<M> {
     }
 }
 
-impl GatewaySenders {
+impl<G: Gate> GatewaySenders<G> {
     /// Returns or creates a new communication channel. In case if channel is newly created,
     /// returns the receiving end of it as well. It must be send over to the receiver in order for
     /// messages to get through.
     pub(crate) fn get_or_create<M: Message>(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &ChannelId<G>,
         capacity: NonZeroUsize,
         total_records: TotalRecords, // TODO track children for indeterminate senders
-    ) -> (Arc<GatewaySender>, Option<GatewaySendStream>) {
+    ) -> (Arc<GatewaySender<G>>, Option<GatewaySendStream<G>>) {
         assert!(
             total_records.is_specified(),
             "unspecified total records for {channel_id:?}"
@@ -183,7 +188,7 @@ impl GatewaySenders {
     }
 }
 
-impl Stream for GatewaySendStream {
+impl<G: Gate> Stream for GatewaySendStream<G> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

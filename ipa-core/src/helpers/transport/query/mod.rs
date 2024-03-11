@@ -13,7 +13,7 @@ use crate::{
         transport::{BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
-    protocol::{step::Step, QueryId},
+    protocol::QueryId,
 };
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]

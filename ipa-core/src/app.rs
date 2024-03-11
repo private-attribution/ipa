@@ -1,3 +1,5 @@
+use ipa_step::Gate;
+
 use crate::{
     helpers::{
         query::{QueryConfig, QueryInput},
@@ -18,21 +20,21 @@ pub struct Setup {
 
 /// The API layer to interact with a helper.
 #[must_use]
-pub struct HelperApp {
+pub struct HelperApp<G: Gate> {
     query_processor: Arc<QueryProcessor>,
-    transport: TransportImpl,
+    transport: TransportImpl<G>,
 }
 
 impl Setup {
     #[must_use]
-    pub fn new() -> (Self, TransportCallbacks<TransportImpl>) {
+    pub fn new<G: Gate>() -> (Self, TransportCallbacks<TransportImpl<G>>) {
         Self::with_key_registry(KeyRegistry::empty())
     }
 
     #[must_use]
-    pub fn with_key_registry(
+    pub fn with_key_registry<G: Gate>(
         key_registry: KeyRegistry<KeyPair>,
-    ) -> (Self, TransportCallbacks<TransportImpl>) {
+    ) -> (Self, TransportCallbacks<TransportImpl<G>>) {
         let query_processor = Arc::new(QueryProcessor::new(key_registry));
         let this = Self {
             query_processor: Arc::clone(&query_processor),
@@ -43,7 +45,7 @@ impl Setup {
     }
 
     /// Instantiate [`HelperApp`] by connecting it to the provided transport implementation
-    pub fn connect(self, transport: TransportImpl) -> HelperApp {
+    pub fn connect<G: Gate>(self, transport: TransportImpl<G>) -> HelperApp<G> {
         HelperApp::new(transport, self.query_processor)
     }
 
@@ -84,8 +86,8 @@ impl Setup {
     }
 }
 
-impl HelperApp {
-    pub fn new(transport: TransportImpl, query_processor: Arc<QueryProcessor>) -> Self {
+impl<G: Gate> HelperApp<G> {
+    pub fn new(transport: TransportImpl<G>, query_processor: Arc<QueryProcessor>) -> Self {
         Self {
             query_processor,
             transport,

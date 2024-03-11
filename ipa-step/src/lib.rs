@@ -75,4 +75,4 @@ pub trait CompactStep: Step {
 /// gates in a protocol.  It can be mapped to and from strings and has a default value.
 /// In most cases, implementations will also implement `StepNarrow` for different types,
 /// but this is not strictly required.
-pub trait Gate: Default + AsRef<str> + for<'a> From<&'a str> + Ord {}
+pub trait Gate: Default + Clone + AsRef<str> + for<'a> From<&'a str> + Ord {}

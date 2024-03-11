@@ -22,14 +22,14 @@ macro_rules! module_file {
 #[macro_export]
 macro_rules! load_steps {
     (@ $f:expr, $m:ident) => {
-        mod $m {
+        pub mod $m {
             include!($f);
         }
     };
 
     (@ $f:expr, $a:ident::$b:ident$(::$c:ident)*) => {
-        mod $a {
-            load_steps!(@ $f, $b(::$c)*, $($n),*);
+        pub mod $a {
+            ::ipa_step::load_steps!(@ $f, $b$(::$c)*);
         }
     };
 
@@ -38,7 +38,7 @@ macro_rules! load_steps {
     // But for modules (including ".../mod.rs") without simple names:
     // step_module(module::name @ "path/to/mod.rs", other::module)
     ($($a:ident$(::$b:ident)* $(@ $f:expr)?),*) => {
-        $(load_steps!(@ ::ipa_step::module_file!($a$(::$b)* $(@ $f)?), $a$(::$b)*);)*
+        $(::ipa_step::load_steps!(@ ::ipa_step::module_file!($a$(::$b)* $(@ $f)?), $a$(::$b)*);)*
     };
 }
 

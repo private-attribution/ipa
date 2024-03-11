@@ -3,6 +3,7 @@ name = "ipa-core"
 version = "0.1.0"
 rust-version = "1.75.0"
 edition = "2021"
+build = "build.rs"
 
 [features]
 default = [
@@ -57,10 +58,8 @@ dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
 step-trace = ["ipa-step/descriptive", "ipa-step/trace"]
-# The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
-# of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
+# Descriptive gates should be enabled by default as the vast majority of unit tests rely on it.
 descriptive-gate = ["ipa-step/descriptive"]
-compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
 # Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
@@ -75,8 +74,8 @@ aggregate-circuit = []
 ipa-prf = []
 
 [dependencies]
-ipa-macros = { version = "*", path = "../ipa-macros" }
 ipa-step = { version = "*", path = "../ipa-step" }
+ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"
@@ -159,6 +158,8 @@ tikv-jemallocator = "0.5.0"
 
 [build-dependencies]
 cfg_aliases = "0.1.1"
+ipa-step = { version = "*", path = "../ipa-step", features = ["build"] }
+ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
 
 [dev-dependencies]
 command-fds = "0.2.2"
@@ -234,5 +235,4 @@ required-features = [
     "web-app",
     "real-world-infra",
     "test-fixture",
-    "compact-gate",
 ]
