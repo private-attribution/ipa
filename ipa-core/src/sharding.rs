@@ -33,7 +33,7 @@ pub trait ShardConfiguration {
             "Current shard index '{this}' >= '{max}' (total number of shards)"
         );
 
-        max.preceding().filter(move |&v| v != this)
+        max.iter().filter(move |&v| v != this)
     }
 }
 
@@ -41,7 +41,7 @@ impl ShardIndex {
     pub const FIRST: Self = Self(0);
 
     /// Returns an iterator over all shard indices that precede this one, excluding this one.
-    pub fn preceding(self) -> impl Iterator<Item = Self> {
+    pub fn iter(self) -> impl Iterator<Item = Self> {
         (0..self.0).map(Self)
     }
 }
@@ -71,8 +71,8 @@ mod tests {
 
     #[test]
     fn iter() {
-        assert!(ShardIndex::FIRST.preceding().eq(empty()));
-        assert!(shards([0, 1, 2]).eq(ShardIndex::from(3).preceding()));
+        assert!(ShardIndex::FIRST.iter().eq(empty()));
+        assert!(shards([0, 1, 2]).eq(ShardIndex::from(3).iter()));
     }
 
     /// It is often useful to keep a collection of elements indexed by shard.
