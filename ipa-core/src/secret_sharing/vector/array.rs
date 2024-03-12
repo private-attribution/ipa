@@ -6,12 +6,12 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::U32;
+use typenum::{U16, U256, U32, U64};
 
 use crate::{
     error::LengthError,
     ff::{Field, Fp32BitPrime, Serializable},
-    protocol::prss::{FromRandom, FromRandomU128},
+    protocol::prss::FromRandom,
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
 
@@ -277,13 +277,23 @@ impl<F: SharedValue + FromRandom> FromRandom for StdArray<F, 1> {
     }
 }
 
-impl FromRandom for StdArray<Fp32BitPrime, 32> {
-    type SourceLength = U32;
+macro_rules! impl_from_random {
+    ($value_ty:ty, $width:expr, $source_len:ty, $item_len:expr) => {
+        impl FromRandom for StdArray<$value_ty, $width> {
+            type SourceLength = $source_len;
 
-    fn from_random(src: GenericArray<u128, U32>) -> Self {
-        Self(array::from_fn(|i| Fp32BitPrime::from_random_u128(src[i])))
-    }
+            fn from_random(src: GenericArray<u128, Self::SourceLength>) -> Self {
+                Self(array::from_fn(|i| {
+                    <$value_ty>::from_random(
+                        GenericArray::from_slice(&src[$item_len * i..$item_len * (i + 1)]).clone(),
+                    )
+                }))
+            }
+        }
+    };
 }
+
+impl_from_random!(Fp32BitPrime, 32, U32, 1);
 
 impl<V: SharedValue> Serializable for StdArray<V, 1> {
     type Size = <V as Serializable>::Size;
@@ -298,33 +308,44 @@ impl<V: SharedValue> Serializable for StdArray<V, 1> {
     }
 }
 
-impl<V: SharedValue> Serializable for StdArray<V, 32>
-where
-    V: SharedValue,
-    <V as Serializable>::Size: Mul<U32>,
-    <<V as Serializable>::Size as Mul<U32>>::Output: ArrayLength,
-{
-    type Size = <<V as Serializable>::Size as Mul<U32>>::Output;
-    type DeserializationError = <V as Serializable>::DeserializationError;
+macro_rules! impl_serializable {
+    ($width:expr, $width_ty:ty) => {
+        impl<V: SharedValue> Serializable for StdArray<V, $width>
+        where
+            V: SharedValue,
+            <V as Serializable>::Size: Mul<$width_ty>,
+            <<V as Serializable>::Size as Mul<$width_ty>>::Output: ArrayLength,
+        {
+            type Size = <<V as Serializable>::Size as Mul<$width_ty>>::Output;
+            type DeserializationError = <V as Serializable>::DeserializationError;
 
-    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
-        for i in 0..32 {
-            self.0[i].serialize(
-                GenericArray::try_from_mut_slice(&mut buf[sz * i..sz * (i + 1)]).unwrap(),
-            );
-        }
-    }
+            fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+                let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
+                for i in 0..$width {
+                    self.0[i].serialize(
+                        GenericArray::try_from_mut_slice(&mut buf[sz * i..sz * (i + 1)]).unwrap(),
+                    );
+                }
+            }
 
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
-        let mut res = [V::ZERO; 32];
-        for i in 0..32 {
-            res[i] = V::deserialize(GenericArray::from_slice(&buf[sz * i..sz * (i + 1)]))?;
+            fn deserialize(
+                buf: &GenericArray<u8, Self::Size>,
+            ) -> Result<Self, Self::DeserializationError> {
+                let sz: usize = (<V as SharedValue>::BITS / 8).try_into().unwrap();
+                let mut res = [V::ZERO; $width];
+                for i in 0..$width {
+                    res[i] = V::deserialize(GenericArray::from_slice(&buf[sz * i..sz * (i + 1)]))?;
+                }
+                Ok(StdArray(res))
+            }
         }
-        Ok(StdArray(res))
-    }
+    };
 }
+
+impl_serializable!(16, U16);
+impl_serializable!(32, U32);
+impl_serializable!(64, U64);
+impl_serializable!(256, U256);
 
 #[cfg(all(test, unit_test))]
 mod test {

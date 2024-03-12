@@ -216,6 +216,11 @@ path = "benches/oneshot/ipa.rs"
 harness = false
 required-features = ["enable-benches", "descriptive-gate"]
 
+[[bench]]
+name = "transpose"
+harness = false
+required-features = ["enable-benches"]
+
 [[test]]
 name = "helper_networks"
 required-features = [

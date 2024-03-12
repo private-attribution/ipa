@@ -269,6 +269,18 @@ macro_rules! boolean_array_impl {
             impl $name {
                 #[cfg(all(test, unit_test))]
                 const STORE_LEN: usize = bitvec::mem::elts::<u8>($bits);
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_slice(&self) -> &[u8] {
+                    self.0.as_raw_slice()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_mut_slice(&mut self) -> &mut [u8] {
+                    self.0.as_raw_mut_slice()
+                }
             }
 
             impl ArrayAccess for $name {
@@ -736,11 +748,20 @@ boolean_array_impl_small!(boolean_array_5, BA5, 5, fallible);
 boolean_array_impl_small!(boolean_array_6, BA6, 6, fallible);
 boolean_array_impl_small!(boolean_array_7, BA7, 7, fallible);
 boolean_array_impl_small!(boolean_array_8, BA8, 8, infallible);
+boolean_array_impl_small!(boolean_array_16, BA16, 16, infallible);
 boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
 boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
 boolean_array_impl!(boolean_array_256, BA256, 256, infallible);
+
+impl Vectorizable<256> for BA64 {
+    type Array = StdArray<BA64, 256>;
+}
+
+impl Vectorizable<256> for BA256 {
+    type Array = StdArray<BA256, 256>;
+}
 
 // used to convert into Fp25519
 impl From<(u128, u128)> for BA256 {
