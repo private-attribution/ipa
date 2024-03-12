@@ -23,7 +23,7 @@ use crate::{
 ///  * It disables by-index access to individual elements of the array, which
 ///    should never be necessary in properly vectorized code.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StdArray<V: SharedValue, const N: usize>([V; N]);
+pub struct StdArray<V: SharedValue, const N: usize>(pub(super) [V; N]);
 
 impl<V, T, const N: usize> PartialEq<T> for StdArray<V, N>
 where
