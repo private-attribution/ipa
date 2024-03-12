@@ -8,6 +8,7 @@ use generic_array::GenericArray;
 
 mod buffers;
 mod error;
+mod futures;
 mod gateway;
 pub(crate) mod prss_protocol;
 mod transport;
@@ -18,6 +19,7 @@ use std::ops::{Index, IndexMut};
 #[cfg(test)]
 pub use buffers::OrderingSender;
 pub use error::{Error, Result};
+pub use futures::MaybeFuture;
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
