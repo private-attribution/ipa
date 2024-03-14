@@ -15,7 +15,7 @@ use x25519_dalek::PublicKey;
 
 use super::step::Gate;
 use crate::{
-    protocol::RecordId,
+    protocol::{step::GateId, RecordId},
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
@@ -26,13 +26,13 @@ use crate::{
 /// a given step.
 #[cfg(debug_assertions)]
 struct UsedSet {
-    key: Gate,
+    key: GateId,
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
 #[cfg(debug_assertions)]
 impl UsedSet {
-    fn new(key: Gate) -> Self {
+    fn new(key: GateId) -> Self {
         Self {
             key,
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -51,7 +51,7 @@ impl UsedSet {
         } else {
             assert!(
                 self.used.lock().unwrap().insert(raw_index as usize),
-                "Generated randomness for index '{index}' twice using the same key '{}'",
+                "Generated randomness for index '{index}' twice using the same key '{:?}'",
                 self.key,
             );
         }
@@ -61,7 +61,7 @@ impl UsedSet {
 #[cfg(debug_assertions)]
 impl Debug for UsedSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IndicesSet(key={})", self.key)
+        write!(f, "IndicesSet(key={:?})", self.key)
     }
 }
 
@@ -270,7 +270,7 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    items: HashMap<Gate, EndpointItem>,
+    items: HashMap<GateId, EndpointItem>,
 }
 
 impl EndpointInner {
@@ -278,22 +278,23 @@ impl EndpointInner {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
-        let item = if let Some(item) = self.items.get(key) {
+        let key = key.id().clone();
+        let item = if let Some(item) = self.items.get(&key) {
             item
         } else {
             self.items.entry(key.clone()).or_insert_with_key(|k| {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
-                    left: self.left.generator(k.as_ref().as_bytes()),
-                    right: self.right.generator(k.as_ref().as_bytes()),
+                    left: self.left.generator(&k),
+                    right: self.right.generator(&k),
                     #[cfg(debug_assertions)]
-                    used: UsedSet::new(key.clone()),
+                    used: UsedSet::new(k.clone()),
                 }))
             })
         };
         if let EndpointItem::Indexed(idxd) = item {
             Arc::clone(idxd)
         } else {
-            panic!("Attempt to get an indexed PRSS for {key} after retrieving a sequential PRSS");
+            panic!("Attempt to get an indexed PRSS for {key:?} after retrieving a sequential PRSS");
         }
     }
 
@@ -301,14 +302,15 @@ impl EndpointInner {
         &mut self,
         key: &Gate,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        let key = key.id().clone();
         let prev = self.items.insert(key.clone(), EndpointItem::Sequential);
         assert!(
             prev.is_none(),
-            "Attempt access a sequential PRSS for {key} after another access"
+            "Attempt access a sequential PRSS for {key:?} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_ref().as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_ref().as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.as_slice())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_slice())),
         )
     }
 }

@@ -7,12 +7,17 @@ mod descriptive;
 pub use compact::Compact;
 #[cfg(feature = "descriptive-gate")]
 pub use descriptive::Descriptive;
+use generic_array::{GenericArray, ArrayLength};
 use ipa_macros::Step;
+use tinyvec::ArrayVec;
 
 #[cfg(feature = "descriptive-gate")]
 pub type Gate = descriptive::Descriptive;
 #[cfg(feature = "compact-gate")]
 pub type Gate = compact::Compact;
+
+pub type GateIdArray = [u8; 14];
+pub type GateId = ArrayVec<GateIdArray>;
 
 pub trait StepNarrow<S: Step + ?Sized> {
     #[must_use]
@@ -33,15 +38,21 @@ pub trait StepNarrow<S: Step + ?Sized> {
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Step: AsRef<str> {}
+pub trait Step: ToString {
+    #[cfg(feature = "compact-gate")]
+    type Length: ArrayLength;
+
+    #[cfg(feature = "compact-gate")]
+    fn as_bytes(&self) -> GenericArray<u8, Self::Length>;
+}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 // Note: Since the creation of the `derive(Step)` macro, hardly any code is
 // required to define a step. Doing so is highly encouraged, even in tests.
-#[cfg(test)]
+#[cfg(all(test, not(feature = "compact-gate")))]
 impl Step for String {}
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "compact-gate")))]
 impl Step for str {}
 
 /// A step generator for bitwise secure operations.

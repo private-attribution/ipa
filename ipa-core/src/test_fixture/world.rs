@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "compact-gate", allow(unused_imports))]
+
 use std::{fmt::Debug, io::stdout, iter::zip};
 
 use async_trait::async_trait;
@@ -11,8 +13,8 @@ use crate::{
     helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
     protocol::{
         context::{
-            Context, MaliciousContext, SemiHonestContext, UpgradableContext, UpgradeContext,
-            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
+            Context, SemiHonestContext, UpgradableContext, UpgradeContext,
+            UpgradeToMalicious, UpgradedContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         QueryId,
@@ -31,6 +33,8 @@ use crate::{
         logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
     },
 };
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::{MaliciousContext, UpgradedMaliciousContext};
 
 // This is used by the metrics tests in `protocol::context`. It otherwise would/should not be pub.
 #[derive(Step)]
@@ -160,6 +164,7 @@ impl TestWorld {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
+    #[cfg(feature = "descriptive-gate")]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
@@ -229,6 +234,7 @@ pub trait Runner {
         R: Future<Output = O> + Send;
 
     /// Run with a context that can be upgraded to malicious.
+    #[cfg(feature = "descriptive-gate")]
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -238,6 +244,7 @@ pub trait Runner {
         R: Future<Output = O> + Send;
 
     /// Run with a context that has already been upgraded to malicious.
+    #[cfg(feature = "descriptive-gate")]
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
         &'a self,
         input: I,
@@ -284,6 +291,7 @@ impl Runner for TestWorld {
         .await
     }
 
+    #[cfg(feature = "descriptive-gate")]
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -301,6 +309,7 @@ impl Runner for TestWorld {
         .await
     }
 
+    #[cfg(feature = "descriptive-gate")]
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
         &'a self,
         input: I,

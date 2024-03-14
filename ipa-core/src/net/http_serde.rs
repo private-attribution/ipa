@@ -142,7 +142,7 @@ pub mod query {
             write!(
                 f,
                 "query_type={qt}&field_type={f:?}&size={size}",
-                qt = self.query_type.as_ref(),
+                qt = self.query_type.to_string(),
                 f = self.field_type,
                 size = self.size
             )?;
@@ -422,7 +422,7 @@ pub mod query {
                         "{}/{}/step/{}",
                         BASE_AXUM_PATH,
                         self.query_id.as_ref(),
-                        self.gate.as_ref()
+                        self.gate.to_string()
                     ))
                     .build()?;
                 Ok(hyper::Request::post(uri).body(self.body)?)

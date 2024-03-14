@@ -1,4 +1,7 @@
+use std::fmt::Display;
+
 use futures_util::future::try_join4;
+use generic_array::GenericArray;
 use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
 
@@ -13,13 +16,21 @@ use crate::{
 
 pub struct PrssExchangeStep;
 
-impl AsRef<str> for PrssExchangeStep {
-    fn as_ref(&self) -> &str {
-        "prss_exchange"
+impl Display for PrssExchangeStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("prss_exchange")
     }
 }
 
-impl Step for PrssExchangeStep {}
+impl Step for PrssExchangeStep {
+    #[cfg(feature = "compact-gate")]
+    type Length = generic_array::typenum::U1;
+
+    #[cfg(feature = "compact-gate")]
+    fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
+        [0u8].into()
+    }
+}
 
 /// establish the prss endpoint by exchanging public keys with the other helpers
 /// # Errors

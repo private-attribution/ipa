@@ -44,9 +44,9 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     fn narrow(&self, step: &S) -> Self {
+        let s = step.to_string();
         #[cfg(debug_assertions)]
         {
-            let s = String::from(step.as_ref());
             assert!(!s.contains('/'), "The string for a step cannot contain '/'");
         }
 
@@ -55,7 +55,7 @@ impl<S: Step + ?Sized> StepNarrow<S> for Descriptive {
         {
             id += [std::any::type_name::<S>(), "::"].concat().as_ref();
         }
-        id += step.as_ref();
+        id += &s;
         #[cfg(feature = "step-trace")]
         {
             metrics::increment_counter!(STEP_NARROWED, STEP => id.clone());

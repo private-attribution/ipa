@@ -190,7 +190,7 @@ impl<'a> MetricAssertion<'a> {
     /// ## Panics
     /// Panics if value is not equal to expected
     pub fn per_step<I: TryInto<u64>>(&self, gate: &Gate, expected: I) -> Self {
-        let actual = self.get_dimension(labels::STEP).get(gate.as_ref()).copied();
+        let actual = self.get_dimension(labels::STEP).get(&*gate.to_string()).copied();
 
         let expected = expected.try_into().ok();
 

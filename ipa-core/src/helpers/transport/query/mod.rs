@@ -5,6 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
+use generic_array::GenericArray;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -213,17 +214,26 @@ impl QueryType {
 }
 
 /// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
-impl AsRef<str> for QueryType {
-    fn as_ref(&self) -> &str {
-        match self {
+impl Display for QueryType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let id = match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
-        }
+        };
+        f.write_str(id)
     }
 }
 
-impl Step for QueryType {}
+impl Step for QueryType {
+    #[cfg(feature = "compact-gate")]
+    type Length = generic_array::typenum::U1;
+
+    #[cfg(feature = "compact-gate")]
+    fn as_bytes(&self) -> GenericArray<u8, Self::Length> {
+        [1u8].into()
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]

@@ -38,6 +38,7 @@ mod shuffle;
 
 #[derive(Step)]
 pub(crate) enum Step {
+    PRFKeyGen,
     ConvertFp25519,
     EvalPrf,
     ConvertInputRowsToPrf,
@@ -226,7 +227,7 @@ where
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
-    let prf_key = gen_prf_key(&convert_ctx);
+    let prf_key = gen_prf_key(&ctx.narrow(&Step::PRFKeyGen));
 
     ctx.try_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
         let convert_ctx = convert_ctx.clone();
