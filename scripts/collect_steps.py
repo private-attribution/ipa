@@ -12,7 +12,7 @@ IPA_ENV = [["RUST_LOG", "ipa_core=DEBUG"]]
 QUERY_SIZE = 100
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
 ATTRIBUTION_WINDOW = [0, 86400]
-ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
+ROOT_STEP_PREFIX = "protocol/ipa_core::test_fixture::world::TestExecutionStep::iter0"
 BREAKDOWN_KEYS = 256
 USER_CAP = [8, 16, 32, 64, 128]
 SECURITY_MODEL = "semi-honest"
