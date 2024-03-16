@@ -100,24 +100,15 @@ where
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
     /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
     pub fn eval(&self, polynomial: &Polynomial<F, N>) -> GenericArray<F, M> {
-        let mut result = GenericArray::generate(|_| F::ONE);
-        self.mult_result_by_evaluation(polynomial, &mut result);
-        result
-    }
-
-    /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
-    /// the "y coordinates" of the evaluation are multiplied to `result`
-    pub fn mult_result_by_evaluation(
-        &self,
-        polynomial: &Polynomial<F, N>,
-        result: &mut GenericArray<F, M>,
-    ) {
-        for (y, base) in result.iter_mut().zip(self.table.iter()) {
-            *y *= base
-                .iter()
-                .zip(polynomial.y_coordinates.iter())
-                .fold(F::ZERO, |acc, (&base, &y)| acc + base * y);
-        }
+        self.table
+            .iter()
+            .map(|table_row| {
+                table_row
+                    .iter()
+                    .zip(polynomial.y_coordinates.iter())
+                    .fold(F::ZERO, |acc, (&base, &y)| acc + base * y)
+            })
+            .collect()
     }
 
     /// helper function to compute a single row of `LagrangeTable`
@@ -200,18 +191,20 @@ mod test {
         where
             M: ArrayLength,
         {
-            // evaluate polynomial p at evaluation_points and random point using monomial base
-            let mut y_values = GenericArray::generate(|_| F::ZERO);
-            for (x, y) in x_output.iter().zip(y_values.iter_mut()) {
-                // monomial base, i.e. `x^k`
-                let mut base = F::ONE;
-                // evaluate p via `sum_k coefficient_k * x^k`
-                for coefficient in &self.coefficients {
-                    *y += *coefficient * base;
-                    base *= *x;
-                }
-            }
-            y_values
+            x_output
+                .iter()
+                .map(|&x| {
+                    // monomial base, i.e. `x^k`
+                    // evaluate p via `sum_k coefficient_k * x^k`
+                    let (_, y) = self
+                        .coefficients
+                        .iter()
+                        .fold((F::ONE, F::ZERO), |(base, y), &coef| {
+                            (base * x, y + coef * base)
+                        });
+                    y
+                })
+                .collect()
         }
     }
 
@@ -259,7 +252,7 @@ mod test {
         let polynomial_monomial_form = MonomialFormPolynomial {
             coefficients: GenericArray::<TestField, U8>::from_array(input_points),
         };
-        // the canonical x coordinates are 0..15, the outputs use coordinates 8..15:
+        // the canonical x coordinates are 0..7, the outputs use coordinates 8..15:
         let x_coordinates_output = GenericArray::<_, U7>::generate(|i| {
             TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap()
         });
