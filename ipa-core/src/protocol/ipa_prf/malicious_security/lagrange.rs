@@ -1,4 +1,4 @@
-use std::{fmt::Debug, iter::repeat};
+use std::fmt::Debug;
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
@@ -46,10 +46,8 @@ where
 
         Self {
             denominator: (0..N::U128)
-                .into_iter()
                 .map(|i| {
                     (0..N::U128)
-                        .into_iter()
                         .filter(|&j| i != j)
                         .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
                         .fold(F::ONE, |acc, a| acc * a)
@@ -129,9 +127,8 @@ where
         N: ArrayLength,
     {
         (0..N::U128)
-            .zip(repeat(0..N::U128))
-            .map(|(i, range)| {
-                range
+            .map(|i| {
+                (0..N::U128)
                     .filter(|&j| j != i)
                     .fold(F::ONE, |acc, j| acc * (*x_output - F::try_from(j).unwrap()))
             })
