@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-use std::iter::repeat;
+use std::{fmt::Debug, iter::repeat};
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
