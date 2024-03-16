@@ -3,13 +3,13 @@ use std::{
     ops::{Add, Sub},
 };
 
-use generic_array::{arr, sequence::GenericSequence, ArrayLength, GenericArray};
-use typenum::{Diff, Sum, Unsigned, U1};
+use generic_array::{ArrayLength, GenericArray};
+use typenum::{Diff, Sum, U1};
 
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
-        CanonicalLagrangeDenominator, LagrangeTable, Polynomial,
+        CanonicalLagrangeDenominator, LagrangeTable,
     },
 };
 
@@ -55,19 +55,10 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::fmt::Debug;
-
-    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
-    use proptest::{prelude::*, proptest};
-    use typenum::{U1, U32, U4, U7, U8};
+    use typenum::U4;
 
     use super::ProofGenerator;
-    use crate::{
-        ff::{Field, Fp31, U128Conversions},
-        protocol::ipa_prf::malicious_security::lagrange::{
-            CanonicalLagrangeDenominator, LagrangeTable, Polynomial,
-        },
-    };
+    use crate::ff::{Fp31, U128Conversions};
 
     #[test]
     fn sample_proof() {
