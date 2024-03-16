@@ -35,7 +35,7 @@ where
         // assertion that field is large enough
         // when it is large enough, `F::try_from().unwrap()` below does not panic
         assert!(
-            F::PRIME.into() < u128::from(N::U64),
+            u128::from(N::U64) < F::PRIME.into(),
             "Field size {} is not large enough to hold {} points",
             F::PRIME.into(),
             N::U64

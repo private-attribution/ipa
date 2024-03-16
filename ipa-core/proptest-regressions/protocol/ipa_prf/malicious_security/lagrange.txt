@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5fd58b084a75b9fc188b694b964d593b56de3d8e675ed7cb1a81d8045941fc93 # shrinks to input_points = [0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 1_mod4294967291]
+cc a73d38b94cf18ac7c571f1a772378f0487040c74338f5de6b0587807041ee2d4 # shrinks to output_point = 0_mod4294967291, input_points = [1_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 0_mod4294967291, 25418_mod4294967291]
