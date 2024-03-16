@@ -136,8 +136,7 @@ where
 
 impl<F, N, M> From<CanonicalLagrangeDenominator<F, N>> for LagrangeTable<F, N, M>
 where
-    F: Field + TryFrom<u128>,
-    <F as TryFrom<u128>>::Error: Debug,
+    F: PrimeField,
     N: ArrayLength,
     M: ArrayLength,
 {
@@ -145,11 +144,11 @@ where
         // assertion that field is large enough
         // when it is large enough, `F::try_from().unwrap()` below does not panic
         assert!(
-            F::BITS > usize::BITS - (N::USIZE + M::USIZE).leading_zeros(),
+            u128::from(N::U64 + M::U64) < F::PRIME.into(),
             "Field size {} is not large enough to hold {} + {} points",
-            F::BITS,
-            N::USIZE,
-            M::USIZE
+            F::PRIME.into(),
+            N::U64,
+            M::U64
         );
 
         // assertion that table is not too large for the stack
