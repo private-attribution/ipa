@@ -45,11 +45,11 @@ where
                 q.into_iter().chain(q_extrapolated),
             )
             .map(|(a, b)| a * b)
-            .collect::<GenericArray<F,_>>()
+            .collect::<GenericArray<F, _>>()
         });
-        extrapolated_points.reduce(|acc, pts| {
-            zip(acc, pts).map(|(a, b)| a + b).collect()
-        }).unwrap()
+        extrapolated_points
+            .reduce(|acc, pts| zip(acc, pts).map(|(a, b)| a + b).collect())
+            .unwrap()
     }
 }
 
