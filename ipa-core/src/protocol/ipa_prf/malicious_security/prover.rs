@@ -41,8 +41,8 @@ where
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
         let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
         let extrapolated_points = (0..s).map(|i| {
-            let p: GenericArray<F, λ> = (0..λ::USIZE).map(|j| self.u[i * λ::USIZE + j]).collect();
-            let q: GenericArray<F, λ> = (0..λ::USIZE).map(|j| self.v[i * λ::USIZE + j]).collect();
+            let p = (0..λ::USIZE).map(|j| self.u[i * λ::USIZE + j]).collect();
+            let q = (0..λ::USIZE).map(|j| self.v[i * λ::USIZE + j]).collect();
             let p_extrapolated = lagrange_table.eval(&p);
             let q_extrapolated = lagrange_table.eval(&q);
             zip(
