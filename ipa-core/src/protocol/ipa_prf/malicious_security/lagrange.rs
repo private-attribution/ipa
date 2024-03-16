@@ -70,6 +70,7 @@ where
 /// The "x coordinates" of the output points `x_N` to `x_(N+M-1)` are `N*F::ONE` to `(N+M-1)*F::ONE`
 /// when generated using `from(denominator)`
 /// unless generated using `new(denominator, x_output)` for a specific output "x coordinate" `x_output`.
+#[derive(Debug)]
 pub struct LagrangeTable<F: Field, N: ArrayLength, M: ArrayLength> {
     table: GenericArray<GenericArray<F, N>, M>,
 }
@@ -101,13 +102,13 @@ where
 {
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
     /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
-    pub fn eval(&self, polynomial: &Polynomial<F, N>) -> GenericArray<F, M> {
+    pub fn eval(&self, y_coordinates: &GenericArray<F, N>) -> GenericArray<F, M> {
         self.table
             .iter()
             .map(|table_row| {
                 table_row
                     .iter()
-                    .zip(polynomial.y_coordinates.iter())
+                    .zip(y_coordinates.iter())
                     .fold(F::ZERO, |acc, (&base, &y)| acc + base * y)
             })
             .collect()
@@ -245,7 +246,7 @@ mod test {
         let denominator = CanonicalLagrangeDenominator::<TestField, U32>::new();
         // generate table using new
         let lagrange_table = LagrangeTable::<TestField, U32, U1>::new(&denominator, &output_point);
-        let output = lagrange_table.eval(&polynomial);
+        let output = lagrange_table.eval(&polynomial.y_coordinates);
         assert_eq!(output, output_expected);
     }
 
@@ -269,7 +270,7 @@ mod test {
         let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
         // generate table using from
         let lagrange_table = LagrangeTable::<TestField, U8, U7>::from(denominator);
-        let output = lagrange_table.eval(&polynomial);
+        let output = lagrange_table.eval(&polynomial.y_coordinates);
         assert_eq!(output, output_expected);
     }
 
