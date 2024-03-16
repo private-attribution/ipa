@@ -18,26 +18,31 @@ pub struct ProofGenerator<F: PrimeField> {
     v: Vec<F>,
 }
 
+///
+/// Distributed Zero Knowledge Proofs algorithm drawn from
+/// `https://eprint.iacr.org/2023/909.pdf`
+///
 impl<F> ProofGenerator<F>
 where
     F: PrimeField,
 {
-    pub fn compute_proof<N: ArrayLength>(self) -> GenericArray<F, Diff<Sum<N, N>, U1>>
+    #![allow(non_camel_case_types)]
+    pub fn compute_proof<λ: ArrayLength>(self) -> GenericArray<F, Diff<Sum<λ, λ>, U1>>
     where
-        N: ArrayLength + Add + Sub<U1>,
-        <N as Add>::Output: Sub<U1>,
-        <<N as Add>::Output as Sub<U1>>::Output: ArrayLength,
-        <N as Sub<U1>>::Output: ArrayLength,
+        λ: ArrayLength + Add + Sub<U1>,
+        <λ as Add>::Output: Sub<U1>,
+        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
+        <λ as Sub<U1>>::Output: ArrayLength,
     {
-        assert!(self.u.len() % N::USIZE == 0); // We should pad with zeroes eventually
+        assert!(self.u.len() % λ::USIZE == 0); // We should pad with zeroes eventually
 
-        let strip_len = self.u.len() / N::USIZE;
+        let s = self.u.len() / λ::USIZE;
 
-        let denominator = CanonicalLagrangeDenominator::<F, N>::new();
-        let lagrange_table = LagrangeTable::<F, N, <N as Sub<U1>>::Output>::from(denominator);
-        let extrapolated_points = (0..strip_len).map(|i| {
-            let p: GenericArray<F, N> = (0..N::USIZE).map(|j| self.u[i * N::USIZE + j]).collect();
-            let q: GenericArray<F, N> = (0..N::USIZE).map(|j| self.v[i * N::USIZE + j]).collect();
+        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
+        let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
+        let extrapolated_points = (0..s).map(|i| {
+            let p: GenericArray<F, λ> = (0..λ::USIZE).map(|j| self.u[i * λ::USIZE + j]).collect();
+            let q: GenericArray<F, λ> = (0..λ::USIZE).map(|j| self.v[i * λ::USIZE + j]).collect();
             let p_extrapolated = lagrange_table.eval(&p);
             let q_extrapolated = lagrange_table.eval(&q);
             zip(
