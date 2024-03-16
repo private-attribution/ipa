@@ -35,23 +35,28 @@ where
         // assertion that field is large enough
         // when it is large enough, `F::try_from().unwrap()` below does not panic
         assert!(
-            F::BITS > usize::BITS - N::USIZE.leading_zeros(),
+            u128::from(N::U64) < F::PRIME.into(),
             "Field size {} is not large enough to hold {} points",
-            F::BITS,
-            N::USIZE
+            F::PRIME.into(),
+            N::U64
         );
 
         // assertion that table is not too large for the stack
         assert!(<F as Serializable>::Size::USIZE * N::USIZE < 2024);
 
-        let mut denominator = GenericArray::generate(|_| F::ONE);
-        for (d, i) in denominator.iter_mut().zip(0u64..) {
-            for j in (0..N::U64).filter(|&j| i != j) {
-                *d *= F::try_from(u128::from(i)).unwrap() - F::try_from(u128::from(j)).unwrap();
-            }
-            *d = d.invert();
+        Self {
+            denominator: (0..u128::from(N::U64))
+                .into_iter()
+                .map(|i| {
+                    (0..u128::from(N::U64))
+                        .into_iter()
+                        .filter(|&j| i != j)
+                        .map(|j| F::try_from(i).unwrap() - F::try_from(j).unwrap())
+                        .fold(F::ONE, |acc, a| acc * a)
+                        .invert()
+                })
+                .collect(),
         }
-        Self { denominator }
     }
 }
 
