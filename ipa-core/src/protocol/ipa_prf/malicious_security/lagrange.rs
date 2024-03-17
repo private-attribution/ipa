@@ -1,7 +1,6 @@
 use std::{
     borrow::Borrow,
     fmt::Debug,
-    iter::{repeat, zip},
 };
 
 use generic_array::{ArrayLength, GenericArray};
@@ -95,8 +94,10 @@ where
     N: ArrayLength,
     M: ArrayLength,
 {
-    /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
-    /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
+    /// This function uses the `LagrangeTable` to evaluate `polynomial` on the _output_ "x coordinates"
+    /// that were used to generate this table. 
+    /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
+    /// that were used to generate this table.
     pub fn eval<I, J>(&self, y_coordinates: I) -> GenericArray<F, M>
     where
         I: IntoIterator<Item = J> + Copy,
@@ -110,7 +111,7 @@ where
             .map(|table_row| {
                 table_row
                     .iter()
-                    .zip(y_coordinates.into_iter())
+                    .zip(y_coordinates)
                     .fold(F::ZERO, |acc, (&base, y)| acc + base * (*y.borrow()))
             })
             .collect()
@@ -173,7 +174,7 @@ where
 mod test {
     use std::{borrow::Borrow, fmt::Debug};
 
-    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+    use generic_array::{ArrayLength, GenericArray};
     use proptest::{prelude::*, proptest};
     use typenum::{U1, U32, U7, U8};
 
