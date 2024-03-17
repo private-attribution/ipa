@@ -41,10 +41,7 @@ where
     pub fn compute_proof<λ: ArrayLength>(
         &self,
         r: F,
-    ) -> (
-        ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
-        ProofGenerator<F>,
-    )
+    ) -> (ZeroKnowledgeProof<F, TwoNMinusOne<λ>>, ProofGenerator<F>)
     where
         λ: ArrayLength + Add + Sub<U1>,
         <λ as Add>::Output: Sub<U1>,
