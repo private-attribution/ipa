@@ -1,5 +1,5 @@
 use std::{
-    iter::{zip, once},
+    iter::zip,
     ops::{Add, Sub},
 };
 
@@ -15,7 +15,6 @@ use crate::{
 
 pub struct ZeroKnowledgeProof<F: PrimeField, N: ArrayLength> {
     g: GenericArray<F, N>,
-    r: F,
 }
 
 pub struct ProofGenerator<F: PrimeField> {
@@ -34,10 +33,7 @@ where
 {
     pub fn new(u: Vec<F>, v: Vec<F>) -> Self {
         debug_assert_eq!(u.len(), v.len(), "u and v must be of equal length");
-        Self {
-            u,
-            v,
-        }
+        Self { u, v }
     }
 
     pub fn compute_proof<λ: ArrayLength>(
@@ -57,7 +53,10 @@ where
 
         let s = self.u.len() / λ::USIZE;
 
-        assert!(s > 1, "When the output is this small, you should call `compute_final_proof`");
+        assert!(
+            s > 1,
+            "When the output is this small, you should call `compute_final_proof`"
+        );
 
         let mut next_proof_generator = ProofGenerator {
             u: Vec::<F>::with_capacity(s),
@@ -90,7 +89,6 @@ where
             g: extrapolated_points
                 .reduce(|acc, pts| zip(acc, pts).map(|(a, b)| a + b).collect())
                 .unwrap(),
-            r,
         };
         (proof, next_proof_generator)
     }

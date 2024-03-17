@@ -1,7 +1,4 @@
-use std::{
-    borrow::Borrow,
-    fmt::Debug,
-};
+use std::{borrow::Borrow, fmt::Debug};
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
@@ -95,7 +92,7 @@ where
     M: ArrayLength,
 {
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the _output_ "x coordinates"
-    /// that were used to generate this table. 
+    /// that were used to generate this table.
     /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
     /// that were used to generate this table.
     pub fn eval<I, J>(&self, y_coordinates: I) -> GenericArray<F, M>
