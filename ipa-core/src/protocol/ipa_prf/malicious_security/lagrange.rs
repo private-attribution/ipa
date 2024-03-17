@@ -1,17 +1,9 @@
-use std::fmt::Debug;
+use std::{borrow::Borrow, fmt::Debug};
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
 
 use crate::ff::{Field, PrimeField, Serializable};
-
-/// A degree `N-1` polynomial is stored as `N` points `(x,y)`
-/// where the "x coordinates" of the input points are `x_0` to `x_N` are `F::ZERO` to `(N-1)*F::ONE`
-/// Therefore, we only need to store the `y` coordinates.
-#[derive(Debug, PartialEq, Clone)]
-pub struct Polynomial<F: Field, N: ArrayLength> {
-    y_coordinates: GenericArray<F, N>,
-}
 
 /// The Canonical Lagrange denominator is defined as the denominator of the Lagrange base polynomials
 /// `https://en.wikipedia.org/wiki/Lagrange_polynomial`
@@ -99,16 +91,25 @@ where
     N: ArrayLength,
     M: ArrayLength,
 {
-    /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
-    /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
-    pub fn eval(&self, polynomial: &Polynomial<F, N>) -> GenericArray<F, M> {
+    /// This function uses the `LagrangeTable` to evaluate `polynomial` on the _output_ "x coordinates"
+    /// that were used to generate this table.
+    /// It is assumed that the `y_coordinates` provided to this function correspond the values of the _input_ "x coordinates"
+    /// that were used to generate this table.
+    pub fn eval<I, J>(&self, y_coordinates: I) -> GenericArray<F, M>
+    where
+        I: IntoIterator<Item = J> + Copy,
+        I::IntoIter: ExactSizeIterator,
+        J: Borrow<F>,
+    {
+        debug_assert_eq!(y_coordinates.into_iter().len(), N::USIZE);
+
         self.table
             .iter()
             .map(|table_row| {
                 table_row
                     .iter()
-                    .zip(polynomial.y_coordinates.iter())
-                    .fold(F::ZERO, |acc, (&base, &y)| acc + base * y)
+                    .zip(y_coordinates)
+                    .fold(F::ZERO, |acc, (&base, y)| acc + base * (*y.borrow()))
             })
             .collect()
     }
@@ -168,66 +169,61 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::fmt::Debug;
+    use std::{borrow::Borrow, fmt::Debug};
 
-    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+    use generic_array::{ArrayLength, GenericArray};
     use proptest::{prelude::*, proptest};
     use typenum::{U1, U32, U7, U8};
 
     use crate::{
-        ff::Field,
+        ff::PrimeField,
         protocol::ipa_prf::malicious_security::lagrange::{
-            CanonicalLagrangeDenominator, LagrangeTable, Polynomial,
+            CanonicalLagrangeDenominator, LagrangeTable,
         },
     };
 
     type TestField = crate::ff::Fp32BitPrime;
 
     #[derive(Debug, PartialEq, Clone)]
-    struct MonomialFormPolynomial<F: Field, N: ArrayLength> {
+    struct MonomialFormPolynomial<F: PrimeField, N: ArrayLength> {
         coefficients: GenericArray<F, N>,
     }
 
     impl<F, N> MonomialFormPolynomial<F, N>
     where
-        F: Field,
+        F: PrimeField,
         N: ArrayLength,
     {
+        fn gen_y_values_of_canonical_points(self) -> GenericArray<F, N> {
+            // Sadly, we cannot just use the range (0..N::U128) because it does not implement ExactSizeIterator
+            let canonical_points =
+                (0..N::USIZE).map(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
+            self.eval(canonical_points)
+        }
+
         /// test helper function that evaluates a polynomial in monomial form, i.e. `sum_i c_i x^i` on points `x_output`
         /// where `c_0` to `c_N` are stored in `polynomial`
-        fn eval<M>(&self, x_output: &GenericArray<F, M>) -> GenericArray<F, M>
+        fn eval<M, I, J>(&self, x_output: I) -> GenericArray<F, M>
         where
+            I: IntoIterator<Item = J>,
+            I::IntoIter: ExactSizeIterator,
+            J: Borrow<F>,
             M: ArrayLength,
         {
             x_output
-                .iter()
-                .map(|&x| {
+                .into_iter()
+                .map(|x| {
                     // monomial base, i.e. `x^k`
                     // evaluate p via `sum_k coefficient_k * x^k`
                     let (_, y) = self
                         .coefficients
                         .iter()
                         .fold((F::ONE, F::ZERO), |(base, y), &coef| {
-                            (base * x, y + coef * base)
+                            (base * (*x.borrow()), y + coef * base)
                         });
                     y
                 })
                 .collect()
-        }
-    }
-
-    impl<F, N> From<MonomialFormPolynomial<F, N>> for Polynomial<F, N>
-    where
-        F: Field + TryFrom<u128>,
-        <F as TryFrom<u128>>::Error: Debug,
-        N: ArrayLength,
-    {
-        fn from(value: MonomialFormPolynomial<F, N>) -> Self {
-            let canonical_points: GenericArray<F, N> =
-                GenericArray::generate(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
-            Polynomial {
-                y_coordinates: value.eval(&canonical_points),
-            }
         }
     }
 
@@ -238,14 +234,12 @@ mod test {
         let polynomial_monomial_form = MonomialFormPolynomial {
             coefficients: GenericArray::<TestField, U32>::from_array(input_points),
         };
-        let output_expected = polynomial_monomial_form.eval(
-            &GenericArray::<TestField, U1>::from_array([output_point; 1]),
-        );
-        let polynomial = Polynomial::from(polynomial_monomial_form.clone());
+        let output_expected = polynomial_monomial_form.eval(&[output_point]);
         let denominator = CanonicalLagrangeDenominator::<TestField, U32>::new();
         // generate table using new
         let lagrange_table = LagrangeTable::<TestField, U32, U1>::new(&denominator, &output_point);
-        let output = lagrange_table.eval(&polynomial);
+        let output =
+            lagrange_table.eval(&polynomial_monomial_form.gen_y_values_of_canonical_points());
         assert_eq!(output, output_expected);
     }
 
@@ -261,15 +255,14 @@ mod test {
             coefficients: GenericArray::<TestField, U8>::from_array(input_points),
         };
         // the canonical x coordinates are 0..7, the outputs use coordinates 8..15:
-        let x_coordinates_output = GenericArray::<_, U7>::generate(|i| {
-            TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap()
-        });
-        let output_expected = polynomial_monomial_form.eval(&x_coordinates_output);
-        let polynomial = Polynomial::from(polynomial_monomial_form.clone());
+        let x_coordinates_output =
+            (0..7).map(|i| TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap());
+        let output_expected = polynomial_monomial_form.eval(x_coordinates_output);
         let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
         // generate table using from
         let lagrange_table = LagrangeTable::<TestField, U8, U7>::from(denominator);
-        let output = lagrange_table.eval(&polynomial);
+        let output =
+            lagrange_table.eval(&polynomial_monomial_form.gen_y_values_of_canonical_points());
         assert_eq!(output, output_expected);
     }
 
