@@ -95,12 +95,6 @@ where
     N: ArrayLength,
     M: ArrayLength,
 {
-    pub fn print(&self) {
-        for table_row in &self.table {
-            println!("{:?}", table_row);
-        }
-    }
-
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
     /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
     pub fn eval<I, J>(&self, y_coordinates: I) -> GenericArray<F, M>
@@ -109,18 +103,7 @@ where
         I::IntoIter: ExactSizeIterator,
         J: Borrow<F>,
     {
-        // let y_coordinates = y_coordinates.into_iter();
-        // debug_assert_eq!(y_coordinates.len(), N::USIZE);
-        // y_coordinates
-        //     .enumerate()
-        //     .map(|(i, y_coord)| {
-        //         self.table
-        //             .iter()
-        //             .map(|table_row| table_row[i] * (*y_coord.borrow()))
-        //             .collect::<GenericArray<F, _>>()
-        //     })
-        //     .reduce(|vec_a, vec_b| zip(vec_a, vec_b).map(|(a, b)| a + b).collect())
-        //     .unwrap()
+        debug_assert_eq!(y_coordinates.into_iter().len(), N::USIZE);
 
         self.table
             .iter()

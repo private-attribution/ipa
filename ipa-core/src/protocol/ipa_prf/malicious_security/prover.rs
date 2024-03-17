@@ -60,7 +60,6 @@ where
 
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
         let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
-        lagrange_table_r.print();
         let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
         let extrapolated_points = (0..s).map(|i| {
             let start = i * λ::USIZE;
