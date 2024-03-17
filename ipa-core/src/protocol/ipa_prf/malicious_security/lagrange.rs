@@ -1,4 +1,8 @@
-use std::fmt::Debug;
+use std::{
+    borrow::Borrow,
+    fmt::Debug,
+    iter::{repeat, zip},
+};
 
 use generic_array::{ArrayLength, GenericArray};
 use typenum::{Unsigned, U1};
@@ -91,16 +95,40 @@ where
     N: ArrayLength,
     M: ArrayLength,
 {
+    pub fn print(&self) {
+        for table_row in &self.table {
+            println!("{:?}", table_row);
+        }
+    }
+
     /// This function uses the `LagrangeTable` to evaluate `polynomial` on the specified output "x coordinates"
     /// outputs the "y coordinates" such that `(x,y)` lies on `polynomial`
-    pub fn eval(&self, y_coordinates: &GenericArray<F, N>) -> GenericArray<F, M> {
+    pub fn eval<I, J>(&self, y_coordinates: I) -> GenericArray<F, M>
+    where
+        I: IntoIterator<Item = J> + Copy,
+        I::IntoIter: ExactSizeIterator,
+        J: Borrow<F>,
+    {
+        // let y_coordinates = y_coordinates.into_iter();
+        // debug_assert_eq!(y_coordinates.len(), N::USIZE);
+        // y_coordinates
+        //     .enumerate()
+        //     .map(|(i, y_coord)| {
+        //         self.table
+        //             .iter()
+        //             .map(|table_row| table_row[i] * (*y_coord.borrow()))
+        //             .collect::<GenericArray<F, _>>()
+        //     })
+        //     .reduce(|vec_a, vec_b| zip(vec_a, vec_b).map(|(a, b)| a + b).collect())
+        //     .unwrap()
+
         self.table
             .iter()
             .map(|table_row| {
                 table_row
                     .iter()
-                    .zip(y_coordinates.iter())
-                    .fold(F::ZERO, |acc, (&base, &y)| acc + base * y)
+                    .zip(y_coordinates.into_iter())
+                    .fold(F::ZERO, |acc, (&base, y)| acc + base * (*y.borrow()))
             })
             .collect()
     }
@@ -160,7 +188,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use std::fmt::Debug;
+    use std::{borrow::Borrow, fmt::Debug};
 
     use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use proptest::{prelude::*, proptest};
@@ -186,27 +214,31 @@ mod test {
         N: ArrayLength,
     {
         fn gen_y_values_of_canonical_points(self) -> GenericArray<F, N> {
-            let canonical_points: GenericArray<F, N> =
-                GenericArray::generate(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
-            self.eval(&canonical_points)
+            // Sadly, we cannot just use the range (0..N::U128) because it does not implement ExactSizeIterator
+            let canonical_points =
+                (0..N::USIZE).map(|i| F::try_from(u128::try_from(i).unwrap()).unwrap());
+            self.eval(canonical_points)
         }
 
         /// test helper function that evaluates a polynomial in monomial form, i.e. `sum_i c_i x^i` on points `x_output`
         /// where `c_0` to `c_N` are stored in `polynomial`
-        fn eval<M>(&self, x_output: &GenericArray<F, M>) -> GenericArray<F, M>
+        fn eval<M, I, J>(&self, x_output: I) -> GenericArray<F, M>
         where
+            I: IntoIterator<Item = J>,
+            I::IntoIter: ExactSizeIterator,
+            J: Borrow<F>,
             M: ArrayLength,
         {
             x_output
-                .iter()
-                .map(|&x| {
+                .into_iter()
+                .map(|x| {
                     // monomial base, i.e. `x^k`
                     // evaluate p via `sum_k coefficient_k * x^k`
                     let (_, y) = self
                         .coefficients
                         .iter()
                         .fold((F::ONE, F::ZERO), |(base, y), &coef| {
-                            (base * x, y + coef * base)
+                            (base * (*x.borrow()), y + coef * base)
                         });
                     y
                 })
@@ -221,9 +253,7 @@ mod test {
         let polynomial_monomial_form = MonomialFormPolynomial {
             coefficients: GenericArray::<TestField, U32>::from_array(input_points),
         };
-        let output_expected = polynomial_monomial_form.eval(
-            &GenericArray::<TestField, U1>::from_array([output_point; 1]),
-        );
+        let output_expected = polynomial_monomial_form.eval(&[output_point]);
         let denominator = CanonicalLagrangeDenominator::<TestField, U32>::new();
         // generate table using new
         let lagrange_table = LagrangeTable::<TestField, U32, U1>::new(&denominator, &output_point);
@@ -244,10 +274,9 @@ mod test {
             coefficients: GenericArray::<TestField, U8>::from_array(input_points),
         };
         // the canonical x coordinates are 0..7, the outputs use coordinates 8..15:
-        let x_coordinates_output = GenericArray::<_, U7>::generate(|i| {
-            TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap()
-        });
-        let output_expected = polynomial_monomial_form.eval(&x_coordinates_output);
+        let x_coordinates_output =
+            (0..7).map(|i| TestField::try_from(u128::try_from(i).unwrap() + 8).unwrap());
+        let output_expected = polynomial_monomial_form.eval(x_coordinates_output);
         let denominator = CanonicalLagrangeDenominator::<TestField, U8>::new();
         // generate table using from
         let lagrange_table = LagrangeTable::<TestField, U8, U7>::from(denominator);
