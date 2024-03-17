@@ -22,6 +22,8 @@ pub struct ProofGenerator<F: PrimeField> {
     v: Vec<F>,
 }
 
+type TwoNMinusOne<N> = Diff<Sum<N, N>, U1>;
+
 ///
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
@@ -40,7 +42,7 @@ where
         &self,
         r: F,
     ) -> (
-        ZeroKnowledgeProof<F, Diff<Sum<λ, λ>, U1>>,
+        ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
         ProofGenerator<F>,
     )
     where
