@@ -106,8 +106,8 @@ where
     {
         assert_eq!(self.u.len(), λ::USIZE); // We should pad with zeroes eventually
 
+        // We need a table of size `λ + 1` since we add a random point at x=0
         let denominator = CanonicalLagrangeDenominator::<F, Sum<λ, U1>>::new();
-        //let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
         let lagrange_table = LagrangeTable::<F, Sum<λ, U1>, λ>::from(denominator);
 
         let mut p = vec![p_0];
@@ -117,14 +117,13 @@ where
         let p_extrapolated = lagrange_table.eval(&p);
         let q_extrapolated = lagrange_table.eval(&q);
 
-        // let p_r = lagrange_table_r.eval(&p)[0];
-        // let q_r = lagrange_table_r.eval(&q)[0];
-
         ZeroKnowledgeProof {
-            g: zip(p, q)
-                .map(|(a, b)| a * b)
-                .chain(zip(p_extrapolated, q_extrapolated).map(|(a, b)| a * b))
-                .collect(),
+            g: zip(
+                p.into_iter().chain(p_extrapolated),
+                q.into_iter().chain(q_extrapolated),
+            )
+            .map(|(a, b)| a * b)
+            .collect(),
         }
     }
 }
