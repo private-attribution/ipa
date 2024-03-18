@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        basics::Reveal,
+        basics::{reveal, Reveal},
         boolean::{
             bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
         },
@@ -136,7 +136,8 @@ where
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
             .await?;
-    if F::from_array(&c_b.reveal(ctx.narrow(&Step::RevealC), record_id).await?) == F::ZERO {
+
+    if F::from_array(&reveal(ctx.narrow(&Step::RevealC), record_id, &c_b).await?) == F::ZERO {
         return Ok(false);
     }
     Ok(true)
