@@ -14,7 +14,7 @@ impl Display for ShardIndex {
 /// the total number of shards in the system.
 pub trait ShardConfiguration {
     /// Returns the index of the current shard.
-    fn shard_index(&self) -> ShardIndex;
+    fn shard_id(&self) -> ShardIndex;
 
     /// Total number of shards present on this helper. It is expected that all helpers have the
     /// same number of shards.
@@ -26,7 +26,7 @@ pub trait ShardConfiguration {
     /// ## Panics
     /// if current shard index is greater or equal to the total number of shards.
     fn peer_shards(&self) -> impl Iterator<Item = ShardIndex> {
-        let this = self.shard_index();
+        let this = self.shard_id();
         let max = self.shard_count();
         assert!(
             this < max,
@@ -87,7 +87,7 @@ mod tests {
 
         struct StaticConfig(u32, u32);
         impl ShardConfiguration for StaticConfig {
-            fn shard_index(&self) -> ShardIndex {
+            fn shard_id(&self) -> ShardIndex {
                 self.0.into()
             }
 
