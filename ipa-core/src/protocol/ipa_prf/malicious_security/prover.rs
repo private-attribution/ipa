@@ -147,10 +147,6 @@ where
         }
         true
     }
-
-    fn ne(&self, other: &(&[u128], &[u128])) -> bool {
-        !self.eq(other)
-    }
 }
 
 #[cfg(all(test, unit_test))]
