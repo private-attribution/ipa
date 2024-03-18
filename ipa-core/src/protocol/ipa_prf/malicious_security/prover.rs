@@ -17,6 +17,7 @@ pub struct ZeroKnowledgeProof<F: PrimeField, N: ArrayLength> {
     g: GenericArray<F, N>,
 }
 
+#[derive(Debug)]
 pub struct ProofGenerator<F: PrimeField> {
     u: Vec<F>,
     v: Vec<F>,
@@ -128,6 +129,30 @@ where
     }
 }
 
+impl<F> PartialEq<(&[u128], &[u128])> for ProofGenerator<F>
+where
+    F: PrimeField + std::cmp::PartialEq<u128>,
+{
+    fn eq(&self, other: &(&[u128], &[u128])) -> bool {
+        let (cmp_a, cmp_b) = other;
+        for (i, elem) in cmp_a.iter().enumerate() {
+            if !self.u[i].eq(elem) {
+                return false;
+            }
+        }
+        for (i, elem) in cmp_b.iter().enumerate() {
+            if !self.v[i].eq(elem) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn ne(&self, other: &(&[u128], &[u128])) -> bool {
+        !self.eq(other)
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use typenum::{U2, U4};
@@ -174,8 +199,7 @@ mod test {
             proof.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             EXPECTED_1,
         );
-        assert_eq!(pg_2.u.iter().map(Fp31::as_u128).collect::<Vec<_>>(), U_2,);
-        assert_eq!(pg_2.v.iter().map(Fp31::as_u128).collect::<Vec<_>>(), V_2,);
+        assert_eq!(pg_2, (&U_2[..], &V_2[..]));
 
         // next iteration
         let (proof_2, pg_3) = pg_2.compute_proof::<U4>(Fp31::try_from(R_2).unwrap());
@@ -183,8 +207,7 @@ mod test {
             proof_2.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             EXPECTED_2,
         );
-        assert_eq!(pg_3.u.iter().map(Fp31::as_u128).collect::<Vec<_>>(), U_3,);
-        assert_eq!(pg_3.v.iter().map(Fp31::as_u128).collect::<Vec<_>>(), V_3,);
+        assert_eq!(pg_3, (&U_3[..], &V_3[..]));
 
         // final iteration
         let proof_3 = pg_3.compute_final_proof::<U2>(
