@@ -21,7 +21,7 @@ pub trait ShardConfiguration {
     fn shard_count(&self) -> ShardIndex;
 
     /// Returns an iterator that yields shard indices for all shards present in the system, except
-    /// this once. Shards are yielded in ascending order.
+    /// this one. Shards are yielded in ascending order.
     ///
     /// ## Panics
     /// if current shard index is greater or equal to the total number of shards.

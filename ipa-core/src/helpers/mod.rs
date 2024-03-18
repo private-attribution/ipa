@@ -407,6 +407,7 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct ChannelId<I: transport::Identity> {
+    /// Entity we are talking to through this channel. It can be a source or a destination.
     pub peer: I,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
