@@ -1,15 +1,19 @@
 use std::{
-    pin::Pin,
+    pin::{pin, Pin},
     task::{Context, Poll},
 };
 
 use futures::Stream;
 use futures_util::StreamExt;
+use pin_project::pin_project;
 use tracing::error;
 
 use crate::{
     error::BoxError,
-    helpers::transport::stream::{StreamCollection, StreamKey},
+    helpers::{
+        transport::stream::{StreamCollection, StreamKey},
+        TransportIdentity,
+    },
 };
 
 /// Adapt a stream of `Result<T: Into<Vec<u8>>, Error>` to a stream of `Vec<u8>`.
@@ -66,47 +70,49 @@ where
 /// If stream is not received yet, each poll generates a waker that is used internally to wake up
 /// the task when stream is received.
 /// Once stream is received, it is moved to this struct and it acts as a proxy to it.
-pub struct ReceiveRecords<S> {
-    inner: ReceiveRecordsInner<S>,
+#[pin_project]
+pub struct ReceiveRecords<I, S> {
+    #[pin]
+    inner: ReceiveRecordsInner<I, S>,
 }
 
-impl<S> ReceiveRecords<S> {
-    pub(crate) fn new(key: StreamKey, coll: StreamCollection<S>) -> Self {
+impl<I, S> ReceiveRecords<I, S> {
+    pub(crate) fn new(key: StreamKey<I>, coll: StreamCollection<I, S>) -> Self {
         Self {
             inner: ReceiveRecordsInner::Pending(key, coll),
         }
     }
 }
 
-impl<S: Stream + Unpin> Stream for ReceiveRecords<S> {
+impl<I: TransportIdentity, S: Stream> Stream for ReceiveRecords<I, S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::get_mut(self).inner.poll_next_unpin(cx)
+        self.project().inner.poll_next(cx)
     }
 }
 
 /// Inner state for [`ReceiveRecords`] struct
-enum ReceiveRecordsInner<S> {
-    Pending(StreamKey, StreamCollection<S>),
-    Ready(S),
+#[pin_project(project = ReceiveRecordsInnerProj)]
+enum ReceiveRecordsInner<I, S> {
+    Pending(StreamKey<I>, StreamCollection<I, S>),
+    Ready(#[pin] S),
 }
 
-impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
+impl<I: TransportIdentity, S: Stream> Stream for ReceiveRecordsInner<I, S> {
     type Item = S::Item;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = Pin::get_mut(self);
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match this {
-                Self::Pending(key, streams) => {
+            match self.as_mut().project() {
+                ReceiveRecordsInnerProj::Pending(key, streams) => {
                     if let Some(stream) = streams.add_waker(key, cx.waker()) {
-                        *this = Self::Ready(stream);
+                        self.set(Self::Ready(stream));
                     } else {
                         return Poll::Pending;
                     }
                 }
-                Self::Ready(stream) => return stream.poll_next_unpin(cx),
+                ReceiveRecordsInnerProj::Ready(stream) => return stream.poll_next(cx),
             }
         }
     }

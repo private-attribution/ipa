@@ -11,7 +11,7 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{Error, Message},
+    helpers::{Error, Message, Role},
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
@@ -160,7 +160,7 @@ pub enum ReceiveError<M: Message> {
     #[error("Error deserializing {0:?} record: {1}")]
     DeserializationError(RecordId, #[source] M::DeserializationError),
     #[error(transparent)]
-    InfraError(#[from] Error),
+    InfraError(#[from] Error<Role>),
 }
 
 impl<S, C> OperatingState<S, C>

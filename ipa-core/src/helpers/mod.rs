@@ -18,7 +18,7 @@ use std::ops::{Index, IndexMut};
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::OrderingSender;
-pub use error::{Error, Result};
+pub use error::Error;
 pub use futures::MaybeFuture;
 
 #[cfg(feature = "stall-detection")]
@@ -51,9 +51,10 @@ pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
 pub use transport::{
-    callbacks::*, query, BodyStream, BytesStream, LengthDelimitedStream, LogErrors,
-    NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams,
-    StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
+    callbacks::*, query, BodyStream, BytesStream, Identity as TransportIdentity,
+    LengthDelimitedStream, LogErrors, NoResourceIdentifier, QueryIdBinding, ReceiveRecords,
+    RecordsStream, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
+    WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]
 pub use transport::{InMemoryNetwork, InMemoryTransport};
@@ -407,23 +408,26 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ChannelId {
-    pub role: Role,
+pub struct ChannelId<I: transport::Identity> {
+    /// Entity we are talking to through this channel. It can be a source or a destination.
+    pub peer: I,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
     pub gate: Gate,
 }
 
-impl ChannelId {
+pub type HelperChannelId = ChannelId<Role>;
+
+impl<I: transport::Identity> ChannelId<I> {
     #[must_use]
-    pub fn new(role: Role, gate: Gate) -> Self {
-        Self { role, gate }
+    pub fn new(peer: I, gate: Gate) -> Self {
+        Self { peer, gate }
     }
 }
 
-impl Debug for ChannelId {
+impl<I: transport::Identity> Debug for ChannelId<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.gate.as_ref())
+        write!(f, "channel[{:?},{:?}]", self.peer, self.gate.as_ref())
     }
 }
 
