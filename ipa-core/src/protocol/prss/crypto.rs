@@ -13,7 +13,7 @@ use crate::{
     ff::Field,
     protocol::prss::PrssIndex,
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
 };
@@ -69,14 +69,30 @@ impl<T: FromRandomU128> FromRandom for T {
 ///
 /// In the first case, `FromPrss` is implemented for a tuple type, while in the second case,
 /// `FromPrss` is implemented for a secret-shared type.
-pub trait FromPrss: Sized {
-    fn from_prss<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> Self;
+pub trait FromPrss<Params = ()>
+where
+    Self: Sized,
+    Params: Default,
+{
+    fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+        prss: &P,
+        index: I,
+        params: Params,
+    ) -> Self;
+
+    fn from_prss<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> Self {
+        Self::from_prss_with(prss, index, Default::default())
+    }
 }
 
 /// Generate two random values, one that is known to the left helper
 /// and one that is known to the right helper.
 impl<T: FromRandom> FromPrss for (T, T) {
-    fn from_prss<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(prss: &P, index: I) -> (T, T) {
+    fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+        prss: &P,
+        index: I,
+        _params: (),
+    ) -> (T, T) {
         let (l, r) = prss.generate_arrays(index);
         (T::from_random(l), T::from_random(r))
     }
@@ -88,24 +104,68 @@ impl<T: FromRandom> FromPrss for (T, T) {
 /// "Efficient Bit-Decomposition and Modulus Conversion Protocols with an Honest Majority"
 /// by Ryo Kikuchi, Dai Ikarashi, Takahiro Matsuda, Koki Hamada, and Koji Chida
 /// <https://eprint.iacr.org/2018/387.pdf>
-impl<T: FromRandom + SharedValue> FromPrss for Replicated<T> {
-    fn from_prss<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+impl<T: FromRandom + SharedValue> FromPrss for AdditiveShare<T> {
+    fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
         prss: &P,
         index: I,
-    ) -> Replicated<T> {
+        _params: (),
+    ) -> AdditiveShare<T> {
         let (l, r) = <(T, T) as FromPrss>::from_prss(prss, index);
-        Replicated::new(l, r)
+        AdditiveShare::new(l, r)
+    }
+}
+
+/// Generate a replicated secret sharing of a random value, which none
+/// of the helpers knows. This is an implementation of the functionality 2.1 `F_rand`
+/// described on page 5 of the paper:
+/// "Efficient Bit-Decomposition and Modulus Conversion Protocols with an Honest Majority"
+/// by Ryo Kikuchi, Dai Ikarashi, Takahiro Matsuda, Koki Hamada, and Koji Chida
+/// <https://eprint.iacr.org/2018/387.pdf>
+impl<T: FromRandom + SharedValue> FromPrss<usize> for AdditiveShare<T> {
+    fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+        prss: &P,
+        index: I,
+        len: usize,
+    ) -> AdditiveShare<T> {
+        assert_eq!(
+            u32::try_from(len).unwrap(),
+            <T as SharedValue>::BITS,
+            "incorrect length {len} for AdditiveShare::FromPrss, expected {}",
+            <T as SharedValue>::BITS,
+        );
+        let (l, r) = <(T, T) as FromPrss>::from_prss(prss, index);
+        AdditiveShare::new(l, r)
     }
 }
 
 pub trait SharedRandomness {
+    type ChunksIter<'a, Z: ArrayLength>: Iterator<
+        Item = (GenericArray<u128, Z>, GenericArray<u128, Z>),
+    >
+    where
+        Self: 'a;
+
+    /// Return an iterator over chunks of generated randomness.
+    ///
+    /// The iterator returns 2-tuples of `GenericArray<u128, Z>` chunks, one that is known to the
+    /// left helper and one that is known to the right helper.
+    ///
+    /// This functionality is intended for use generating large vectorized values.
+    #[must_use]
+    fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
+        &self,
+        index: I,
+    ) -> Self::ChunksIter<'_, Z>;
+
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
     fn generate_arrays<I: Into<PrssIndex>, N: ArrayLength>(
         &self,
         index: I,
-    ) -> (GenericArray<u128, N>, GenericArray<u128, N>);
+    ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
+        Self::generate_chunks_iter(self, index).next().unwrap()
+    }
 
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
@@ -131,6 +191,18 @@ pub trait SharedRandomness {
     #[must_use]
     fn generate<T: FromPrss, I: Into<PrssIndex>>(&self, index: I) -> T {
         T::from_prss(self, index)
+    }
+
+    /// Generate something that implements the `FromPrss` trait, passing parameters.
+    ///
+    /// Generation by `FromPrss` is described in more detail in the `FromPrss` documentation.
+    #[must_use]
+    fn generate_with<T: FromPrss<P>, I: Into<PrssIndex>, P: Default>(
+        &self,
+        index: I,
+        params: P,
+    ) -> T {
+        T::from_prss_with(self, index, params)
     }
 
     /// Generate a non-replicated additive secret sharing of zero.

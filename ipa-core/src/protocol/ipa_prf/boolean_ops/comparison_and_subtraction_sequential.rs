@@ -238,7 +238,6 @@ mod test {
     use std::{
         array,
         iter::{repeat, repeat_with, zip},
-        time::Instant,
     };
 
     use futures::stream::iter as stream_iter;
@@ -419,9 +418,10 @@ mod test {
 
             let result = world
                 .semi_honest((x.clone().into_iter(), y), |ctx, (x, y)| async move {
-                    let begin = Instant::now();
+                    #[cfg(not(debug_assertions))]
+                    let begin = std::time::Instant::now();
                     let ctx = ctx.set_total_records(x.len());
-                    let res = seq_join(
+                    let res: Vec<AdditiveShare<Boolean>> = seq_join(
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
@@ -429,9 +429,10 @@ mod test {
                             },
                         )),
                     )
-                    .try_collect::<Vec<AdditiveShare<Boolean>>>()
+                    .try_collect()
                     .await
                     .unwrap();
+                    #[cfg(not(debug_assertions))]
                     tracing::info!("Execution time: {:?}", begin.elapsed());
                     res
                 })
@@ -494,10 +495,10 @@ mod test {
             let xa_iter = xa.clone().into_iter();
             let result = world
                 .semi_honest((xa_iter, ya.clone()), |ctx, (x, y)| async move {
-                    println!("Processing {} records", x.len());
-                    let begin = Instant::now();
+                    #[cfg(not(debug_assertions))]
+                    let begin = std::time::Instant::now();
                     let ctx = ctx.set_total_records(x.len());
-                    let res = seq_join(
+                    let res: Vec<AdditiveShare<Boolean, N>> = seq_join(
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
@@ -505,9 +506,10 @@ mod test {
                             },
                         )),
                     )
-                    .try_collect::<Vec<AdditiveShare<Boolean, N>>>()
+                    .try_collect()
                     .await
                     .unwrap();
+                    #[cfg(not(debug_assertions))]
                     tracing::info!("Execution time: {:?}", begin.elapsed());
                     res
                 })

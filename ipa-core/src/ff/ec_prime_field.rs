@@ -5,10 +5,13 @@ use generic_array::GenericArray;
 use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
+    ff::{boolean_array::BA256, Expand, Field, Serializable},
     impl_shared_value_common,
-    protocol::prss::FromRandom,
-    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
+    protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
+    },
 };
 
 impl Block for Scalar {
@@ -125,6 +128,20 @@ impl std::ops::MulAssign for Fp25519 {
     }
 }
 
+impl<const N: usize> Expand for AdditiveShare<Fp25519, N>
+where
+    Fp25519: Vectorizable<N>,
+{
+    type Input = AdditiveShare<Fp25519>;
+
+    fn expand(v: &Self::Input) -> Self {
+        AdditiveShare::new_arr(
+            <Fp25519 as Vectorizable<N>>::Array::expand(&v.left()),
+            <Fp25519 as Vectorizable<N>>::Array::expand(&v.right()),
+        )
+    }
+}
+
 impl From<Scalar> for Fp25519 {
     fn from(s: Scalar) -> Self {
         Fp25519(s)
@@ -185,6 +202,30 @@ impl FieldVectorizable<1> for Fp25519 {
     type ArrayAlias = StdArray<Self, 1>;
 }
 
+impl Vectorizable<16> for Fp25519 {
+    type Array = StdArray<Self, 16>;
+}
+
+impl FieldVectorizable<16> for Fp25519 {
+    type ArrayAlias = StdArray<Self, 16>;
+}
+
+impl Vectorizable<64> for Fp25519 {
+    type Array = StdArray<Self, 64>;
+}
+
+impl FieldVectorizable<64> for Fp25519 {
+    type ArrayAlias = StdArray<Self, 64>;
+}
+
+impl Vectorizable<256> for Fp25519 {
+    type Array = StdArray<Self, 256>;
+}
+
+impl FieldVectorizable<256> for Fp25519 {
+    type ArrayAlias = StdArray<Self, 256>;
+}
+
 impl Field for Fp25519 {
     const NAME: &'static str = "Fp25519";
 
@@ -202,6 +243,31 @@ impl FromRandom for Fp25519 {
         Fp25519::deserialize_infallible(<&GenericArray<u8, U32>>::from(&src_bytes))
     }
 }
+
+macro_rules! impl_share_from_random {
+    ($width:expr) => {
+        impl FromPrss for AdditiveShare<Fp25519, $width> {
+            fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+                prss: &P,
+                index: I,
+                _params: (),
+            ) -> AdditiveShare<Fp25519, $width> {
+                let (l_arr, r_arr) = StdArray::from_tuple_iter(
+                    prss.generate_chunks_iter::<_, U2>(index)
+                        .map(|(l_rand, r_rand)| {
+                            (Fp25519::from_random(l_rand), Fp25519::from_random(r_rand))
+                        })
+                        .take($width),
+                );
+                AdditiveShare::new_arr(l_arr, r_arr)
+            }
+        }
+    };
+}
+
+impl_share_from_random!(16);
+impl_share_from_random!(64);
+impl_share_from_random!(256);
 
 #[cfg(all(test, unit_test))]
 mod test {

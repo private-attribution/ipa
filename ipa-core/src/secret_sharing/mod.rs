@@ -23,8 +23,8 @@ use rand::{
 };
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 pub use vector::{
-    FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, StdArray, TransposeFrom,
-    Vectorizable,
+    BoolVectorLookup, BoolVectorTrait, FieldArray, FieldSimd, FieldVectorizable, SharedValueArray,
+    StdArray, TransposeFrom, Vectorizable,
 };
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
