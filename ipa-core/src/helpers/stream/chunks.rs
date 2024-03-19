@@ -125,9 +125,9 @@ where
 
 /// Stream returned by `ProcessChunks::process_chunks`.
 //
-// We implement structural pinning for `process_fn` to avoid adding a bunch of `C: Unpin` bounds to
-// the protocol code (even if those bounds are satisfiable). Structural pinning could be implemented
-// for `dummy_fn` as well, but that isn't currently required to avoid `Unpin` bounds.
+// We could avoid pin projection and instead require that `SliceChunkProcessor` (and its fields) be
+// `Unpin`.  Requiring `D: Unpin` is easy, but requiring `F: Unpin` in turn requires a bunch of `C:
+// Unpin` bounds in protocols.
 #[pin_project]
 pub struct SliceChunkProcessor<'a, T, U, F, Fut, D, const N: usize>
 where
@@ -156,7 +156,7 @@ where
     T: Clone,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
     Fut: Future<Output = Result<[U; N], Error>> + 'a,
-    D: Fn() -> T + Unpin,
+    D: Fn() -> T,
 {
     fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<U, Fut, N>> {
         let this = self.project();
@@ -193,7 +193,7 @@ where
     T: Clone,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
     Fut: Future<Output = Result<[U; N], Error>> + 'a,
-    D: Fn() -> T + Unpin,
+    D: Fn() -> T,
 {
     type Item = ChunkFuture<U, Fut, N>;
 
@@ -217,7 +217,7 @@ pub trait ProcessChunks<'a, T: Clone, const N: usize> {
     where
         F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
         Fut: Future<Output = Result<[U; N], Error>> + 'a,
-        D: Fn() -> T + Unpin;
+        D: Fn() -> T;
 }
 
 impl<'a, T: Clone, const N: usize> ProcessChunks<'a, T, N> for &'a [T] {
@@ -229,7 +229,7 @@ impl<'a, T: Clone, const N: usize> ProcessChunks<'a, T, N> for &'a [T] {
     where
         F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
         Fut: Future<Output = Result<[U; N], Error>> + 'a,
-        D: Fn() -> T + Unpin,
+        D: Fn() -> T,
     {
         SliceChunkProcessor {
             slice: self,
