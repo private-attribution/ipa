@@ -554,7 +554,6 @@ mod tests {
     #![allow(clippy::needless_range_loop)]
 
     use std::{
-        array,
         cmp::min,
         fmt::Debug,
         iter::repeat_with,
