@@ -10,8 +10,8 @@ use tracing::{Instrument, Level, Span};
 
 use crate::{
     helpers::{
-        Gateway, GatewayConfig, InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport, Role,
-        RoleAssignment,
+        Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
+        InMemoryTransport, Role, RoleAssignment,
     },
     protocol::{
         context::{
@@ -283,9 +283,12 @@ impl TestWorldConfig {
 
     #[must_use]
     pub fn role_assignment(&self) -> &RoleAssignment {
-        self.role_assignment
-            .as_ref()
-            .unwrap_or(&RoleAssignment::DEFAULT)
+        const DEFAULT_ASSIGNMENT: RoleAssignment = RoleAssignment::new([
+            HelperIdentity::ONE,
+            HelperIdentity::TWO,
+            HelperIdentity::THREE,
+        ]);
+        self.role_assignment.as_ref().unwrap_or(&DEFAULT_ASSIGNMENT)
     }
 }
 

@@ -164,6 +164,9 @@ pub struct Base<'a, B: ShardBinding = NoSharding> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
+    /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
+    /// would be to move it to [`Inner`] struct.
     sharding: B,
 }
 
@@ -290,36 +293,11 @@ struct Inner<'a> {
     pub gateway: &'a Gateway,
 }
 
-// #[derive(Clone)]
-// struct WithShardInfo<'a> {
-//     base: Inner<'a>,
-//     shard: Shard,
-// }
-//
 impl<'a> Inner<'a> {
     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self { prss, gateway }
     }
 }
-//
-// impl<'a> WithShardInfo<'a> {
-//     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway, shard: Shard) -> Self {
-//         Self {
-//             base: Inner::new(prss, gateway),
-//             shard,
-//         }
-//     }
-// }
-
-// impl ShardConfiguration for WithShardInfo<'_> {
-//     fn shard_index(&self) -> ShardIndex {
-//         self.shard.shard_id
-//     }
-//
-//     fn shard_count(&self) -> ShardIndex {
-//         self.shard.shard_count
-//     }
-// }
 
 #[cfg(all(test, unit_test))]
 mod tests {
