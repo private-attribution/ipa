@@ -16,6 +16,7 @@ use std::{array, iter::repeat_with, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use ipa_core::{
+    error::UnwrapInfallible,
     ff::boolean_array::BA64,
     secret_sharing::{
         vector::{transpose_16x16, transpose_8x8},
@@ -75,7 +76,7 @@ fn bench_8x8(c: &mut Criterion) {
             cols: 8,
             iters: 100,
         },
-        transpose_8x8,
+        |m| transpose_8x8(m),
     );
 }
 
@@ -101,7 +102,7 @@ fn bench_64x64(c: &mut Criterion) {
         },
         |src| {
             let mut dst = array::from_fn(|_| BA64::ZERO);
-            dst.transpose_from(src);
+            dst.transpose_from(src).unwrap_infallible();
             dst
         },
     );
