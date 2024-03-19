@@ -133,7 +133,8 @@ impl<I: IdentityHandlerExt> InMemoryTransport<I> {
 }
 
 #[async_trait]
-impl<I: IdentityHandlerExt> Transport<I> for Weak<InMemoryTransport<I>> {
+impl<I: IdentityHandlerExt> Transport for Weak<InMemoryTransport<I>> {
+    type Identity = I;
     type RecordsStream = ReceiveRecords<I, InMemoryStream>;
     type Error = Error<I>;
 

@@ -8,19 +8,19 @@ use futures::Stream;
 
 use crate::{
     helpers::{
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteId,
-        RouteParams, StepBinding, Transport, TransportImpl,
+        NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteId, RouteParams,
+        StepBinding, Transport, TransportImpl,
     },
     protocol::{step::Gate, QueryId},
 };
 
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to send to {0:?}: {1:?}")]
-pub struct SendToRoleError(Role, <TransportImpl as Transport<HelperIdentity>>::Error);
+pub struct SendToRoleError(Role, <TransportImpl as Transport>::Error);
 
 /// This struct exists to hide the generic type used to index streams internally.
 #[pin_project::pin_project]
-pub struct RoleRecordsStream(#[pin] <TransportImpl as Transport<HelperIdentity>>::RecordsStream);
+pub struct RoleRecordsStream(#[pin] <TransportImpl as Transport>::RecordsStream);
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
@@ -41,7 +41,8 @@ impl Stream for RoleRecordsStream {
 }
 
 #[async_trait]
-impl Transport<Role> for RoleResolvingTransport {
+impl Transport for RoleResolvingTransport {
+    type Identity = Role;
     type RecordsStream = RoleRecordsStream;
     type Error = SendToRoleError;
 

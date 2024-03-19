@@ -35,7 +35,7 @@ pub type TransportImpl = super::transport::InMemoryTransport<HelperIdentity>;
 #[cfg(feature = "real-world-infra")]
 pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
 
-pub type TransportError = <TransportImpl as Transport<HelperIdentity>>::Error;
+pub type TransportError = <TransportImpl as Transport>::Error;
 
 /// Gateway into IPA Network infrastructure. It allows helpers send and receive messages.
 pub struct Gateway {
