@@ -7,7 +7,6 @@
 // because of performance implications which shouldn't be a concern for unit testing.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
-pub mod chunkscan;
 #[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
 #[cfg(all(feature = "enable-serde", feature = "web-app"))]
@@ -29,7 +28,6 @@ pub mod telemetry;
 pub mod test_fixture;
 
 mod app;
-mod exact;
 mod seq_join;
 #[cfg(feature = "enable-serde")]
 mod serde;

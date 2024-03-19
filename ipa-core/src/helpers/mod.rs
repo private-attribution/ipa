@@ -11,6 +11,7 @@ mod error;
 mod futures;
 mod gateway;
 pub(crate) mod prss_protocol;
+pub mod stream;
 mod transport;
 
 use std::ops::{Index, IndexMut};
