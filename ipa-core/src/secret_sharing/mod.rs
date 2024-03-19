@@ -3,7 +3,10 @@ pub mod replicated;
 mod decomposed;
 mod into_shares;
 mod scheme;
+#[cfg(not(feature = "enable-benches"))]
 mod vector;
+#[cfg(feature = "enable-benches")]
+pub mod vector;
 
 use std::{
     fmt::Debug,
@@ -20,7 +23,8 @@ use rand::{
 };
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 pub use vector::{
-    FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, StdArray, Vectorizable,
+    FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, StdArray, TransposeFrom,
+    Vectorizable,
 };
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]

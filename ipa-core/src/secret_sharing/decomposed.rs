@@ -1,4 +1,8 @@
-use std::{fmt::Debug, ops::Deref, slice};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    slice,
+};
 
 use crate::{
     error::Error,
@@ -12,7 +16,7 @@ pub struct BitDecomposed<S> {
 }
 
 impl<S> BitDecomposed<S> {
-    const MAX: usize = 64;
+    const MAX: usize = 256;
 
     /// Create a new value from an iterator.
     /// # Panics
@@ -99,6 +103,12 @@ impl<S> BitDecomposed<S> {
     }
 }
 
+impl<S: Clone> BitDecomposed<S> {
+    pub fn resize(&mut self, new_len: usize, value: S) {
+        self.bits.resize(new_len, value);
+    }
+}
+
 impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
     type Error = Error;
     fn try_from(bits: Vec<S>) -> Result<Self, Self::Error> {
@@ -145,6 +155,12 @@ impl<S> Deref for BitDecomposed<S> {
     type Target = [S];
     fn deref(&self) -> &Self::Target {
         &self.bits
+    }
+}
+
+impl<S> DerefMut for BitDecomposed<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bits
     }
 }
 

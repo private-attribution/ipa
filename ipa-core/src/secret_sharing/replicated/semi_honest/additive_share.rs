@@ -102,6 +102,28 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
     pub fn right_arr(&self) -> &<V as Vectorizable<N>>::Array {
         &self.1
     }
+
+    pub(in crate::secret_sharing) fn left_arr_mut(&mut self) -> &mut <V as Vectorizable<N>>::Array {
+        &mut self.0
+    }
+
+    pub(in crate::secret_sharing) fn right_arr_mut(
+        &mut self,
+    ) -> &mut <V as Vectorizable<N>>::Array {
+        &mut self.1
+    }
+
+    pub fn into_arr_tuple(self) -> (<V as Vectorizable<N>>::Array, <V as Vectorizable<N>>::Array) {
+        let Self(left, right) = self;
+        (left, right)
+    }
+
+    pub fn from_fns<LF: FnMut(usize) -> V, RF: FnMut(usize) -> V>(lf: LF, rf: RF) -> Self {
+        Self(
+            <V as Vectorizable<N>>::Array::from_fn(lf),
+            <V as Vectorizable<N>>::Array::from_fn(rf),
+        )
+    }
 }
 
 impl<V: SharedValue> AdditiveShare<V>

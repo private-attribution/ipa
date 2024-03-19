@@ -51,6 +51,10 @@
 mod array;
 mod impls;
 mod traits;
+mod transpose;
 
 pub use array::StdArray;
 pub use traits::{FieldArray, FieldSimd, FieldVectorizable, SharedValueArray, Vectorizable};
+pub use transpose::TransposeFrom;
+#[cfg(feature = "enable-benches")]
+pub use transpose::{transpose_16x16, transpose_8x8};
