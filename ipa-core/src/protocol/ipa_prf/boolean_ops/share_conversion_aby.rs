@@ -349,19 +349,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{
-            boolean::Boolean,
-            boolean_array::{BA256, BA64},
-            ec_prime_field::Fp25519,
-            ArrayAccess, Serializable,
-        },
+        ff::{boolean_array::BA64, Serializable},
         helpers::stream::{ProcessChunks, TryFlattenItersExt},
-        protocol::{
-            context::Context,
-            ipa_prf::boolean_ops::share_conversion_aby::{convert_to_fp25519, expand_array},
-        },
         rand::thread_rng,
-        secret_sharing::{SharedValue, TransposeFrom},
         seq_join::{seq_join, SeqJoin},
         test_executor::run,
         test_fixture::{ReconstructArr, Runner, TestWorld},

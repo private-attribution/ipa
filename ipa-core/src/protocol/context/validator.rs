@@ -14,15 +14,10 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::{
-        replicated::{
-            malicious::{
-                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
-            },
-            semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        SharedValue,
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
+        semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
     sync::{Mutex, Weak},
 };
@@ -32,6 +27,7 @@ use crate::{
     protocol::basics::Reveal,
     protocol::context::Context,
     protocol::context::{MaliciousContext, UpgradedMaliciousContext},
+    secret_sharing::SharedValue,
     sync::Arc,
 };
 
