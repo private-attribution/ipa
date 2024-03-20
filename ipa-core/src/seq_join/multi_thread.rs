@@ -177,7 +177,7 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{future::Future, num::NonZeroUsize, pin::Pin};
+    use std::{future::Future, num::NonZeroUsize, pin::Pin, time::Duration};
 
     use futures_util::future::lazy;
 
@@ -223,7 +223,7 @@ mod tests {
                                 }
                                 break;
                             }
-                            tokio::task::yield_now().await;
+                            tokio::time::sleep(Duration::from_millis(1)).await;
                         }
                         Ok::<_, ()>(())
                     }
