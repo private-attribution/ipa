@@ -46,17 +46,6 @@ impl InMemoryMpcNetwork {
         }
     }
 
-    #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn identities(&self) -> [HelperIdentity; 3] {
-        self.transports
-            .iter()
-            .map(|t| t.identity())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
-    }
-
     /// Returns the transport to communicate with the given helper.
     ///
     /// ## Panics

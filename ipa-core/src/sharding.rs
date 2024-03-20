@@ -79,12 +79,6 @@ impl From<u32> for ShardIndex {
     }
 }
 
-impl From<ShardIndex> for u32 {
-    fn from(value: ShardIndex) -> Self {
-        value.0
-    }
-}
-
 impl From<ShardIndex> for u64 {
     fn from(value: ShardIndex) -> Self {
         u64::from(value.0)

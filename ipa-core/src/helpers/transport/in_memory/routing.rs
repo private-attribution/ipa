@@ -1,7 +1,4 @@
-use std::{
-    borrow::Borrow,
-    fmt::{Debug, Formatter},
-};
+use std::{borrow::Borrow, fmt::Debug};
 
 use serde::de::DeserializeOwned;
 
@@ -11,6 +8,7 @@ use crate::{
 };
 
 /// The header/metadata of the incoming request.
+#[derive(Debug)]
 pub(super) struct Addr<I> {
     pub route: RouteId,
     pub origin: Option<I>,
@@ -51,15 +49,5 @@ impl<I: TransportIdentity> Addr<I> {
             gate: Some(gate),
             params: String::new(),
         }
-    }
-}
-
-impl<I: Debug> Debug for Addr<I> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Addr[route={:?}, from={:?}, query_id={:?}, step={:?}, params={}]",
-            self.route, self.origin, self.query_id, self.gate, self.params
-        )
     }
 }
