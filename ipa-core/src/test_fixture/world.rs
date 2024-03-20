@@ -60,8 +60,8 @@ pub trait ShardingScheme {
 
 /// Helper trait to parametrize [`Runner`] trait based on the sharding scheme chosen. The whole
 /// purpose of it is to be able to say for sharded runs, the input must be in a form of a [`Vec`]
-pub trait RunnerInput<W: ShardingScheme, A: Send>: Send {
-    fn share(self) -> [W::Container<A>; 3];
+pub trait RunnerInput<S: ShardingScheme, A: Send>: Send {
+    fn share(self) -> [S::Container<A>; 3];
 }
 
 /// This indicates how many shards need to be created in test environment.
@@ -210,7 +210,7 @@ impl TestWorld<NoSharding> {
     }
 }
 
-impl<W: ShardingScheme> Drop for TestWorld<W> {
+impl<S: ShardingScheme> Drop for TestWorld<S> {
     fn drop(&mut self) {
         if tracing::span_enabled!(Level::DEBUG) {
             let metrics = self.metrics_handle.snapshot();
