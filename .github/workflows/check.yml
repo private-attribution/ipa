@@ -175,9 +175,6 @@ jobs:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/rm
     - uses: dtolnay/rust-toolchain@nightly
-      with:
-        # More recent nightlies don't work, probably https://github.com/rust-lang/rust/issues/122399
-        toolchain: nightly-2024-03-11
     - name: Add Miri
       run: rustup component add miri
     - name: Setup Miri
