@@ -10,7 +10,10 @@ use crate::{
     sharding::ShardIndex,
 };
 
+/// Trait for in-memory request handlers. MPC handlers need to be able to process query requests,
+/// while shard traffic does not need to and therefore does not make use of it.
 ///
+/// See [`HelperRequestHandler`].
 pub trait RequestHandler<I: TransportIdentity>: Send {
     fn handle(
         &mut self,
