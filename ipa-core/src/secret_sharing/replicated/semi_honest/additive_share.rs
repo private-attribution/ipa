@@ -113,11 +113,6 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
         &mut self.1
     }
 
-    pub fn into_arr_tuple(self) -> (<V as Vectorizable<N>>::Array, <V as Vectorizable<N>>::Array) {
-        let Self(left, right) = self;
-        (left, right)
-    }
-
     pub fn from_fns<LF: FnMut(usize) -> V, RF: FnMut(usize) -> V>(lf: LF, rf: RF) -> Self {
         Self(
             <V as Vectorizable<N>>::Array::from_fn(lf),
