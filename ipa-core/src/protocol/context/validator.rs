@@ -10,7 +10,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::{Base, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext},
+        context::{Base, UpgradableContext, UpgradedSemiHonestContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -19,6 +19,7 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
+    sharding::ShardBinding,
     sync::{Mutex, Weak},
 };
 #[cfg(feature = "descriptive-gate")]
@@ -37,13 +38,13 @@ pub trait Validator<B: UpgradableContext, F: ExtendableField> {
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
-pub struct SemiHonest<'a, F: ExtendableField> {
-    context: UpgradedSemiHonestContext<'a, F>,
+pub struct SemiHonest<'a, B: ShardBinding, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, B, F>,
     _f: PhantomData<F>,
 }
 
-impl<'a, F: ExtendableField> SemiHonest<'a, F> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         Self {
             context: UpgradedSemiHonestContext::new(inner),
             _f: PhantomData,
@@ -52,8 +53,10 @@ impl<'a, F: ExtendableField> SemiHonest<'a, F> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
-    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> Validator<super::semi_honest::Context<'a, B>, F>
+    for SemiHonest<'a, B, F>
+{
+    fn context(&self) -> UpgradedSemiHonestContext<'a, B, F> {
         self.context.clone()
     }
 
@@ -63,9 +66,14 @@ impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<
     }
 }
 
-impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+impl<B: ShardBinding, F: ExtendableField> Debug for SemiHonest<'_, B, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+        write!(
+            f,
+            "SemiHonestValidator<{:?}, {:?}>",
+            type_name::<B>(),
+            type_name::<F>()
+        )
     }
 }
 

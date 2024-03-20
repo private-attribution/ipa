@@ -152,6 +152,10 @@ where
     }
 }
 
+impl Reconstruct<()> for [(); 3] {
+    fn reconstruct(&self) {}
+}
+
 #[cfg(feature = "descriptive-gate")]
 impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
 where

@@ -25,8 +25,8 @@ pub(super) struct GatewayReceivers {
 }
 
 pub(super) type UR = UnorderedReceiver<
-    <RoleResolvingTransport as Transport<Role>>::RecordsStream,
-    <<RoleResolvingTransport as Transport<Role>>::RecordsStream as Stream>::Item,
+    <RoleResolvingTransport as Transport>::RecordsStream,
+    <<RoleResolvingTransport as Transport>::RecordsStream as Stream>::Item,
 >;
 
 impl<M: Message> ReceivingEnd<M> {

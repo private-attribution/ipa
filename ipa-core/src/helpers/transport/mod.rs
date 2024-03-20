@@ -16,7 +16,7 @@ mod receive;
 mod stream;
 
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
@@ -25,7 +25,10 @@ pub use stream::{
     WrappedBoxBodyStream,
 };
 
-use crate::{helpers::Role, sharding::ShardIndex};
+use crate::{
+    helpers::{Role, TransportIdentity},
+    sharding::ShardIndex,
+};
 
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
@@ -138,16 +141,22 @@ impl RouteParams<RouteId, QueryId, Gate> for (RouteId, QueryId, Gate) {
 
 /// Transport that supports per-query,per-step channels
 #[async_trait]
-pub trait Transport<I: Identity>: Clone + Send + Sync + 'static {
+pub trait Transport: Clone + Send + Sync + 'static {
+    type Identity: TransportIdentity;
     type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
     type Error: std::fmt::Debug;
 
-    fn identity(&self) -> I;
+    fn identity(&self) -> Self::Identity;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
     /// party
-    async fn send<D, Q, S, R>(&self, dest: I, route: R, data: D) -> Result<(), Self::Error>
+    async fn send<D, Q, S, R>(
+        &self,
+        dest: Self::Identity,
+        route: R,
+        data: D,
+    ) -> Result<(), Self::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
@@ -160,7 +169,7 @@ pub trait Transport<I: Identity>: Clone + Send + Sync + 'static {
     /// and step
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        from: I,
+        from: Self::Identity,
         route: R,
     ) -> Self::RecordsStream;
 

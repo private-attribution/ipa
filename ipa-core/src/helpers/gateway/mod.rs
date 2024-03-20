@@ -19,8 +19,7 @@ use crate::{
         gateway::{
             receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
         },
-        HelperChannelId, HelperIdentity, Message, Role, RoleAssignment, RouteId, TotalRecords,
-        Transport,
+        HelperChannelId, Message, Role, RoleAssignment, RouteId, TotalRecords, Transport,
     },
     protocol::QueryId,
 };
@@ -30,12 +29,12 @@ use crate::{
 /// To avoid proliferation of type parameters, most code references this concrete type alias, rather
 /// than a type parameter `T: Transport`.
 #[cfg(feature = "in-memory-infra")]
-pub type TransportImpl = super::transport::InMemoryTransport<HelperIdentity>;
+pub type TransportImpl = super::transport::InMemoryTransport<crate::helpers::HelperIdentity>;
 
 #[cfg(feature = "real-world-infra")]
 pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
 
-pub type TransportError = <TransportImpl as Transport<HelperIdentity>>::Error;
+pub type TransportError = <TransportImpl as Transport>::Error;
 
 /// Gateway into IPA Network infrastructure. It allows helpers send and receive messages.
 pub struct Gateway {

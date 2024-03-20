@@ -15,9 +15,11 @@ use async_trait::async_trait;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
+pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
+pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
 use crate::{
     error::Error,
@@ -33,6 +35,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -157,37 +160,46 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct Base<'a> {
+pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
+    /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
+    /// would be to move it to [`Inner`] struct.
+    sharding: B,
 }
 
-impl<'a> Base<'a> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+impl<'a, B: ShardBinding> Base<'a, B> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
         Self::new_complete(
             participant,
             gateway,
             Gate::default(),
             TotalRecords::Unspecified,
+            sharding,
         )
     }
+}
 
+impl<'a, B: ShardBinding> Base<'a, B> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
         gate: Gate,
         total_records: TotalRecords,
+        sharding: B,
     ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            sharding,
         }
     }
 }
 
-impl<'a> Context for Base<'a> {
+impl<'a, B: ShardBinding> Context for Base<'a, B> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -204,6 +216,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -212,6 +225,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -251,7 +265,23 @@ impl<'a> Context for Base<'a> {
     }
 }
 
-impl<'a> SeqJoin for Base<'a> {
+/// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
+/// via [`ShardConfiguration`] trait.
+pub trait ShardedContext: Context + ShardConfiguration {}
+
+impl ShardConfiguration for Base<'_, Sharded> {
+    fn shard_id(&self) -> ShardIndex {
+        self.sharding.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.sharding.shard_count
+    }
+}
+
+impl<'a> ShardedContext for Base<'a, Sharded> {}
+
+impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.gateway.config().active_work()
     }

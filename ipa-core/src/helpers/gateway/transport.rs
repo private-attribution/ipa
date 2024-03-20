@@ -1,26 +1,17 @@
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
 use async_trait::async_trait;
 use futures::Stream;
 
 use crate::{
     helpers::{
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteId,
-        RouteParams, StepBinding, Transport, TransportImpl,
+        NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment, RouteId, RouteParams,
+        StepBinding, Transport, TransportImpl,
     },
     protocol::{step::Gate, QueryId},
 };
 
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to send to {0:?}: {1:?}")]
-pub struct SendToRoleError(Role, <TransportImpl as Transport<HelperIdentity>>::Error);
-
-/// This struct exists to hide the generic type used to index streams internally.
-#[pin_project::pin_project]
-pub struct RoleRecordsStream(#[pin] <TransportImpl as Transport<HelperIdentity>>::RecordsStream);
+pub struct SendToRoleError(Role, <TransportImpl as Transport>::Error);
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
@@ -32,17 +23,10 @@ pub struct RoleResolvingTransport {
     pub(super) inner: TransportImpl,
 }
 
-impl Stream for RoleRecordsStream {
-    type Item = Vec<u8>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().0.poll_next(cx)
-    }
-}
-
 #[async_trait]
-impl Transport<Role> for RoleResolvingTransport {
-    type RecordsStream = RoleRecordsStream;
+impl Transport for RoleResolvingTransport {
+    type Identity = Role;
+    type RecordsStream = <TransportImpl as Transport>::RecordsStream;
     type Error = SendToRoleError;
 
     fn identity(&self) -> Role {
@@ -89,6 +73,6 @@ impl Transport<Role> for RoleResolvingTransport {
             "can't receive message from itself"
         );
 
-        RoleRecordsStream(self.inner.receive(origin_helper, route))
+        self.inner.receive(origin_helper, route)
     }
 }
