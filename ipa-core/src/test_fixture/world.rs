@@ -170,7 +170,8 @@ impl<const SHARDS: usize> TestWorld<WithShards<SHARDS>> {
             .iter()
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap_or_else(|_| unreachable!())
+            .ok()
+            .unwrap()
     }
 }
 
