@@ -8,12 +8,12 @@ use std::{
 pub struct ShardIndex(u32);
 
 #[derive(Debug, Copy, Clone)]
-pub struct Shard {
+pub struct Sharded {
     pub shard_id: ShardIndex,
     pub shard_count: ShardIndex,
 }
 
-impl ShardConfiguration for Shard {
+impl ShardConfiguration for Sharded {
     fn shard_id(&self) -> ShardIndex {
         self.shard_id
     }
@@ -59,10 +59,10 @@ pub trait ShardConfiguration {
 pub trait ShardBinding: Debug + Send + Sync + Clone {}
 
 #[derive(Debug, Copy, Clone)]
-pub struct NoSharding;
+pub struct NotSharded;
 
-impl ShardBinding for NoSharding {}
-impl ShardBinding for Shard {}
+impl ShardBinding for NotSharded {}
+impl ShardBinding for Sharded {}
 
 impl ShardIndex {
     pub const FIRST: Self = Self(0);

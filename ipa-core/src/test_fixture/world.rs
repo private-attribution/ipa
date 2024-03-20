@@ -26,7 +26,7 @@ use crate::{
         replicated::malicious::{DowngradeMalicious, ExtendableField},
         IntoShares,
     },
-    sharding::{NoSharding, Shard, ShardBinding, ShardIndex},
+    sharding::{NotSharded, ShardBinding, ShardIndex, Sharded},
     sync::atomic::{AtomicUsize, Ordering},
     telemetry::{stats::Metrics, StepStatsCsvExporter},
     test_fixture::{
@@ -49,7 +49,7 @@ pub trait ShardingScheme {
     /// Multi-shard system must inform MPC circuits about shard they operate on and total number
     /// of shards within the system.
     ///
-    /// See [`NoSharding`], [`Shard`] and [`ShardBinding`]
+    /// See [`NotSharded`], [`WithShards`] and [`ShardBinding`]
     type ShardBinding: ShardBinding;
     /// Number of shards used inside the test world.
     const SHARDS: usize;
@@ -65,7 +65,7 @@ pub trait RunnerInput<S: ShardingScheme, A: Send>: Send {
 }
 
 /// This indicates how many shards need to be created in test environment.
-pub struct Sharded<const SHARDS: usize>;
+pub struct WithShards<const SHARDS: usize>;
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -75,8 +75,8 @@ pub struct Sharded<const SHARDS: usize>;
 /// Test environment is parametrized by [`S`] that indicates the sharding scheme used. By default,
 /// there is no sharding involved and the system operates as a single MPC circuit.
 ///
-/// To construct a sharded environment, use [`TestWorld::<Sharded>::with_shards`] method.
-pub struct TestWorld<S: ShardingScheme = NoSharding> {
+/// To construct a sharded environment, use [`TestWorld::<WithShards>::with_shards`] method.
+pub struct TestWorld<S: ShardingScheme = NotSharded> {
     shards: Box<[ShardWorld<S::ShardBinding>]>,
     metrics_handle: MetricsHandle,
     _shard_network: InMemoryShardNetwork,
@@ -96,7 +96,7 @@ pub struct TestWorldConfig {
     pub seed: u64,
 }
 
-impl ShardingScheme for NoSharding {
+impl ShardingScheme for NotSharded {
     /// For single-sharded worlds, there is no need to have the ability to distribute data across
     /// shards. Any MPC circuit can take even a single share as input and produce meaningful outcome.
     type Container<A> = A;
@@ -114,11 +114,11 @@ impl ShardingScheme for NoSharding {
     }
 }
 
-impl<const N: usize> ShardingScheme for Sharded<N> {
+impl<const N: usize> ShardingScheme for WithShards<N> {
     /// The easiest way to distribute data across shards is to take a collection with a known size
     /// as input.
     type Container<A> = Vec<A>;
-    type ShardBinding = Shard;
+    type ShardBinding = Sharded;
     const SHARDS: usize = N;
 
     fn bind_shard(shard_id: ShardIndex) -> Self::ShardBinding {
@@ -135,7 +135,7 @@ impl<const N: usize> ShardingScheme for Sharded<N> {
     }
 }
 
-impl<const SHARDS: usize> Sharded<SHARDS> {
+impl<const SHARDS: usize> WithShards<SHARDS> {
     /// Partitions the input vector into a smaller vectors where each vector holds the input
     /// for a single shard.
     ///
@@ -156,13 +156,16 @@ impl Default for TestWorld {
     }
 }
 
-impl<const SHARDS: usize> TestWorld<Sharded<SHARDS>> {
+impl<const SHARDS: usize> TestWorld<WithShards<SHARDS>> {
+    /// For backward compatibility, this method must have a different name than [`non_sharded`] method.
+    ///
+    /// [`non_sharded`]: TestWorld::<NotSharded>::new_with
     #[must_use]
     pub fn with_shards<B: Borrow<TestWorldConfig>>(config: B) -> Self {
         Self::with_config(config.borrow())
     }
 
-    fn shards(&self) -> [&ShardWorld<Shard>; SHARDS] {
+    fn shards(&self) -> [&ShardWorld<Sharded>; SHARDS] {
         self.shards
             .iter()
             .collect::<Vec<_>>()
@@ -172,7 +175,7 @@ impl<const SHARDS: usize> TestWorld<Sharded<SHARDS>> {
 }
 
 /// Backward-compatible API for tests that don't use sharding.
-impl TestWorld<NoSharding> {
+impl TestWorld<NotSharded> {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
@@ -292,13 +295,13 @@ impl TestWorldConfig {
     }
 }
 
-impl<I: IntoShares<A> + Send, A: Send> RunnerInput<NoSharding, A> for I {
+impl<I: IntoShares<A> + Send, A: Send> RunnerInput<NotSharded, A> for I {
     fn share(self) -> [A; 3] {
         I::share(self)
     }
 }
 
-impl<const SHARDS: usize, I, A> RunnerInput<Sharded<SHARDS>, A> for I
+impl<const SHARDS: usize, I, A> RunnerInput<WithShards<SHARDS>, A> for I
 where
     I: IntoShares<Vec<A>> + Send,
     A: Send,
@@ -364,27 +367,30 @@ fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3])
 }
 
 #[async_trait]
-impl<const SHARDS: usize> Runner<Sharded<SHARDS>> for TestWorld<Sharded<SHARDS>> {
+impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SHARDS>> {
     type SemiHonestContext<'ctx> = ShardedSemiHonestContext<'ctx>;
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
     where
-        I: RunnerInput<Sharded<SHARDS>, A>,
+        I: RunnerInput<WithShards<SHARDS>, A>,
         A: Send,
         O: Send + Debug,
-        H: Fn(Self::SemiHonestContext<'a>, <Sharded<SHARDS> as ShardingScheme>::Container<A>) -> R
+        H: Fn(
+                Self::SemiHonestContext<'a>,
+                <WithShards<SHARDS> as ShardingScheme>::Container<A>,
+            ) -> R
             + Send
             + Sync,
         R: Future<Output = O> + Send,
     {
         let shards = self.shards();
-        let [h1, h2, h3] = input.share().map(Sharded::<SHARDS>::shard);
+        let [h1, h2, h3] = input.share().map(WithShards::<SHARDS>::shard);
 
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
         let shard_fn = |ctx, input| helper_fn(ctx, input);
         zip(shards.into_iter(), zip(zip(h1, h2), h3))
             .map(|(shard, ((h1, h2), h3))| {
-                ShardWorld::<Shard>::run_either(
+                ShardWorld::<Sharded>::run_either(
                     shard.contexts(),
                     self.metrics_handle.span(),
                     [h1, h2, h3],
@@ -431,18 +437,18 @@ impl<const SHARDS: usize> Runner<Sharded<SHARDS>> for TestWorld<Sharded<SHARDS>>
 }
 
 #[async_trait]
-impl Runner<NoSharding> for TestWorld<NoSharding> {
+impl Runner<NotSharded> for TestWorld<NotSharded> {
     type SemiHonestContext<'ctx> = SemiHonestContext<'ctx>;
 
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        I: RunnerInput<NoSharding, A>,
+        I: RunnerInput<NotSharded, A>,
         A: Send,
         O: Send + Debug,
         H: Fn(Self::SemiHonestContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        ShardWorld::<NoSharding>::run_either(
+        ShardWorld::<NotSharded>::run_either(
             self.contexts(),
             self.metrics_handle.span(),
             input.share(),
@@ -459,7 +465,7 @@ impl Runner<NoSharding> for TestWorld<NoSharding> {
         H: Fn(MaliciousContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
     {
-        ShardWorld::<NoSharding>::run_either(
+        ShardWorld::<NotSharded>::run_either(
             self.malicious_contexts(),
             self.metrics_handle.span(),
             input.share(),
@@ -627,13 +633,14 @@ mod tests {
         protocol::{context::Context, prss::SharedRandomness},
         sharding::ShardConfiguration,
         test_executor::run,
-        test_fixture::{world::Sharded, Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{world::WithShards, Reconstruct, Runner, TestWorld, TestWorldConfig},
     };
 
     #[test]
     fn two_shards() {
         run(|| async {
-            let world: TestWorld<Sharded<2>> = TestWorld::with_shards(TestWorldConfig::default());
+            let world: TestWorld<WithShards<2>> =
+                TestWorld::with_shards(TestWorldConfig::default());
             let input = vec![BA3::truncate_from(0_u32), BA3::truncate_from(1_u32)];
             let r = world
                 .semi_honest(input.clone().into_iter(), |ctx, input| async move {
@@ -652,7 +659,8 @@ mod tests {
     #[test]
     fn small_input_size() {
         run(|| async {
-            let world: TestWorld<Sharded<10>> = TestWorld::with_shards(TestWorldConfig::default());
+            let world: TestWorld<WithShards<10>> =
+                TestWorld::with_shards(TestWorldConfig::default());
             let input = vec![BA3::truncate_from(0_u32), BA3::truncate_from(1_u32)];
             let r = world
                 .semi_honest(input.clone().into_iter(), |_, input| async move { input })
@@ -668,7 +676,8 @@ mod tests {
     #[test]
     fn unique_prss_per_shard() {
         run(|| async {
-            let world: TestWorld<Sharded<3>> = TestWorld::with_shards(TestWorldConfig::default());
+            let world: TestWorld<WithShards<3>> =
+                TestWorld::with_shards(TestWorldConfig::default());
             let input = vec![(), (), ()];
             let duplicates = Arc::new(Mutex::new(HashMap::new()));
             let _ = world

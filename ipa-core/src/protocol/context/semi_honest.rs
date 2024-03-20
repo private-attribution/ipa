@@ -27,14 +27,14 @@ use crate::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
     },
     seq_join::SeqJoin,
-    sharding::{NoSharding, Shard, ShardBinding, ShardConfiguration, ShardIndex},
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
 
 #[derive(Clone)]
 pub struct Context<'a, B: ShardBinding> {
     inner: Base<'a, B>,
 }
-impl ShardConfiguration for Context<'_, Shard> {
+impl ShardConfiguration for Context<'_, Sharded> {
     fn shard_id(&self) -> ShardIndex {
         self.inner.shard_id()
     }
@@ -52,14 +52,18 @@ impl<'a, B: ShardBinding> Context<'a, B> {
     }
 }
 
-impl<'a> Context<'a, NoSharding> {
+impl<'a> Context<'a, NotSharded> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self::new_complete(participant, gateway, NoSharding)
+        Self::new_complete(participant, gateway, NotSharded)
     }
 }
 
-impl<'a> Context<'a, Shard> {
-    pub fn new_sharded(participant: &'a PrssEndpoint, gateway: &'a Gateway, shard: Shard) -> Self {
+impl<'a> Context<'a, Sharded> {
+    pub fn new_sharded(
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        shard: Sharded,
+    ) -> Self {
         Self::new_complete(participant, gateway, shard)
     }
 }

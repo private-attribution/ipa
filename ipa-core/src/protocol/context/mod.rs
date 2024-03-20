@@ -18,8 +18,8 @@ use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRand
 pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
-pub type SemiHonestContext<'a, B = NoSharding> = semi_honest::Context<'a, B>;
-pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Shard>;
+pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
+pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
 use crate::{
     error::Error,
@@ -35,7 +35,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
-    sharding::{NoSharding, Shard, ShardBinding, ShardConfiguration, ShardIndex},
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -160,7 +160,7 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct Base<'a, B: ShardBinding = NoSharding> {
+pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
@@ -269,7 +269,7 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
 /// via [`ShardConfiguration`] trait.
 pub trait ShardedContext: Context + ShardConfiguration {}
 
-impl ShardConfiguration for Base<'_, Shard> {
+impl ShardConfiguration for Base<'_, Sharded> {
     fn shard_id(&self) -> ShardIndex {
         self.sharding.shard_id
     }
@@ -279,7 +279,7 @@ impl ShardConfiguration for Base<'_, Shard> {
     }
 }
 
-impl<'a> ShardedContext for Base<'a, Shard> {}
+impl<'a> ShardedContext for Base<'a, Sharded> {}
 
 impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
