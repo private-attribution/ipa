@@ -22,13 +22,14 @@ use crate::{
     error::BoxError,
     helpers::{
         transport::in_memory::{
-            handlers::{IdentityHandlerExt, RequestHandler},
+            handlers::{HelperRequestHandler, RequestHandler},
             routing::Addr,
         },
-        NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams, StepBinding,
-        StreamCollection, Transport,
+        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
+        StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     protocol::{step::Gate, QueryId},
+    sharding::ShardIndex,
     sync::{Arc, Weak},
 };
 
@@ -65,7 +66,7 @@ pub struct InMemoryTransport<I> {
     record_streams: StreamCollection<I, InMemoryStream>,
 }
 
-impl<I: IdentityHandlerExt> InMemoryTransport<I> {
+impl<I: TransportIdentity> InMemoryTransport<I> {
     #[must_use]
     fn new(identity: I, connections: HashMap<I, ConnectionTx<I>>) -> Self {
         Self {
@@ -84,7 +85,11 @@ impl<I: IdentityHandlerExt> InMemoryTransport<I> {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(self: &Arc<Self>, mut callbacks: I::Handler, mut rx: ConnectionRx<I>) {
+    fn listen<L: ListenerSetup<Identity = I>>(
+        self: &Arc<Self>,
+        mut callbacks: L::Handler,
+        mut rx: ConnectionRx<I>,
+    ) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -133,7 +138,7 @@ impl<I: IdentityHandlerExt> InMemoryTransport<I> {
 }
 
 #[async_trait]
-impl<I: IdentityHandlerExt> Transport for Weak<InMemoryTransport<I>> {
+impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     type Identity = I;
     type RecordsStream = ReceiveRecords<I, InMemoryStream>;
     type Error = Error<I>;
@@ -251,7 +256,7 @@ pub struct Setup<I> {
     connections: HashMap<I, ConnectionTx<I>>,
 }
 
-impl<I: IdentityHandlerExt> Setup<I> {
+impl<I: TransportIdentity> Setup<I> {
     #[must_use]
     pub fn new(identity: I) -> Self {
         let (tx, rx) = channel(16);
@@ -278,19 +283,47 @@ impl<I: IdentityHandlerExt> Setup<I> {
             .is_none());
     }
 
-    fn into_active_conn<H: Into<I::Handler>>(
+    fn into_active_conn<H: Into<<Self as ListenerSetup>::Handler>>(
         self,
         callbacks: H,
-    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
+    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>)
+    where
+        Self: ListenerSetup<Identity = I>,
+    {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
-        transport.listen(callbacks.into(), self.rx);
+        transport.listen::<Self>(callbacks.into(), self.rx);
 
         (self.tx, transport)
     }
+}
 
-    #[must_use]
-    pub fn start<H: Into<I::Handler>>(self, callbacks: H) -> Arc<InMemoryTransport<I>> {
-        self.into_active_conn(callbacks).1
+/// Trait to tie up different transports to the requests handlers they can use inside their
+/// listen loop.
+pub trait ListenerSetup {
+    type Identity: TransportIdentity;
+    type Handler: RequestHandler<Self::Identity> + 'static;
+    type Listener;
+
+    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener;
+}
+
+impl ListenerSetup for Setup<HelperIdentity> {
+    type Identity = HelperIdentity;
+    type Handler = HelperRequestHandler;
+    type Listener = Arc<InMemoryTransport<Self::Identity>>;
+
+    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener {
+        self.into_active_conn(handler).1
+    }
+}
+
+impl ListenerSetup for Setup<ShardIndex> {
+    type Identity = ShardIndex;
+    type Handler = ();
+    type Listener = Arc<InMemoryTransport<Self::Identity>>;
+
+    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener {
+        self.into_active_conn(handler).1
     }
 }
 
@@ -314,7 +347,9 @@ mod tests {
         helpers::{
             query::{QueryConfig, QueryType::TestMultiply},
             transport::in_memory::{
-                transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
+                transport::{
+                    Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport, ListenerSetup,
+                },
                 InMemoryMpcNetwork, Setup,
             },
             HelperIdentity, OrderingSender, RouteId, Transport, TransportCallbacks,

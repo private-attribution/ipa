@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        transport::in_memory::transport::{InMemoryTransport, Setup},
+        transport::in_memory::transport::{InMemoryTransport, ListenerSetup, Setup},
         HelperIdentity,
     },
     sharding::ShardIndex,

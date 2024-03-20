@@ -7,7 +7,7 @@ pub use sharding::InMemoryShardNetwork;
 pub use transport::Setup;
 
 use crate::{
-    helpers::{HelperIdentity, TransportCallbacks},
+    helpers::{transport::in_memory::transport::ListenerSetup, HelperIdentity, TransportCallbacks},
     sync::{Arc, Weak},
 };
 

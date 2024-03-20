@@ -19,19 +19,6 @@ pub trait RequestHandler<I: TransportIdentity>: Send {
     ) -> impl Future<Output = Result<(), Error<I>>> + Send;
 }
 
-/// Helper trait to bind in-memory request handlers to transport identity.
-pub trait IdentityHandlerExt: TransportIdentity {
-    type Handler: RequestHandler<Self>;
-}
-
-impl IdentityHandlerExt for HelperIdentity {
-    type Handler = HelperRequestHandler;
-}
-
-impl IdentityHandlerExt for ShardIndex {
-    type Handler = ();
-}
-
 impl RequestHandler<ShardIndex> for () {
     async fn handle(
         &mut self,
