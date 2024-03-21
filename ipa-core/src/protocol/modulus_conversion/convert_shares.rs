@@ -365,9 +365,7 @@ where
     let stream = unfold(
         (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
-            let Some((triple, residual)) = locally_converted.next().await else {
-                return None;
-            };
+            let (triple, residual) = locally_converted.next().await?;
             let bit_contexts = (0..).map(|i| ctx.narrow(&ConvertSharesStep::ConvertBit(i)));
             let converted =
                 ctx.parallel_join(zip(bit_contexts, triple).map(|(ctx, triple)| async move {

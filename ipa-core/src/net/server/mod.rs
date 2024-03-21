@@ -351,9 +351,7 @@ impl ClientCertRecognizingAcceptor {
         network_config: &NetworkConfig,
         cert_option: Option<&Certificate>,
     ) -> Option<ClientIdentity> {
-        let Some(cert) = cert_option else {
-            return None;
-        };
+        let cert = cert_option?;
         // We currently require an exact match with the peer cert (i.e. we don't support verifying
         // the certificate against a truststore and identifying the peer by the certificate
         // subject). This could be changed if the need arises.
