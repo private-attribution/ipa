@@ -10,8 +10,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteId, RouteParams,
+        transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
+        GatewayConfig, RoleAssignment, RouteParams,
     },
     protocol::{step::Step, QueryId},
 };
@@ -106,6 +106,26 @@ pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for PrepareQuery {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::PrepareQuery
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {

@@ -8,7 +8,6 @@
 //! `net::transport::tests`.
 
 #![allow(clippy::missing_panics_doc)]
-
 use std::{
     array,
     net::{SocketAddr, TcpListener},
@@ -23,7 +22,7 @@ use crate::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
-    helpers::{HelperIdentity, TransportCallbacks},
+    helpers::{HelperIdentity, PanickingHandler, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
@@ -204,8 +203,6 @@ impl TestConfigBuilder {
     }
 }
 
-type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
-
 pub struct TestServer {
     pub addr: SocketAddr,
     pub handle: JoinHandle<()>,
@@ -232,7 +229,7 @@ impl TestServer {
 
 #[derive(Default)]
 pub struct TestServerBuilder {
-    callbacks: Option<HttpTransportCallbacks>,
+    handler: Option<Box<dyn RequestHandler<Identity = HelperIdentity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
@@ -241,8 +238,11 @@ pub struct TestServerBuilder {
 
 impl TestServerBuilder {
     #[must_use]
-    pub fn with_callbacks(mut self, callbacks: HttpTransportCallbacks) -> Self {
-        self.callbacks = Some(callbacks);
+    pub fn with_request_handler(
+        mut self,
+        handler: Box<dyn RequestHandler<Identity = HelperIdentity>>,
+    ) -> Self {
+        self.handler = Some(handler);
         self
     }
 
@@ -300,7 +300,8 @@ impl TestServerBuilder {
             server_config,
             network_config.clone(),
             clients,
-            self.callbacks.unwrap_or_default(),
+            self.handler
+                .unwrap_or_else(|| Box::<PanickingHandler>::default()),
         );
         let (addr, handle) = server.start_on(Some(server_socket), self.metrics).await;
         // Get the config for HelperIdentity::ONE

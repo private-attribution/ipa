@@ -19,7 +19,8 @@ use crate::{
         gateway::{
             receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
         },
-        HelperChannelId, Message, Role, RoleAssignment, RouteId, TotalRecords, Transport,
+        transport::routing::RouteId,
+        HelperChannelId, Message, Role, RoleAssignment, TotalRecords, Transport,
     },
     protocol::QueryId,
 };

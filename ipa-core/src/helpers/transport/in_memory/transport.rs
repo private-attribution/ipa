@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    convert,
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
@@ -21,22 +20,18 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        transport::in_memory::{
-            handlers::{HelperRequestHandler, RequestHandler},
-            routing::Addr,
-        },
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportIdentity,
+        transport::routing::{Addr, RouteId},
+        ApiError, BodyStream, HelperResponse, NoResourceIdentifier, QueryIdBinding, ReceiveRecords,
+        RequestHandler, RouteParams, StepBinding, StreamCollection, Transport, TransportIdentity,
     },
     protocol::{step::Gate, QueryId},
-    sharding::ShardIndex,
     sync::{Arc, Weak},
 };
 
 type Packet<I> = (
     Addr<I>,
     InMemoryStream,
-    oneshot::Sender<Result<(), Error<I>>>,
+    oneshot::Sender<Result<HelperResponse, ApiError>>,
 );
 type ConnectionTx<I> = Sender<Packet<I>>;
 type ConnectionRx<I> = Receiver<Packet<I>>;
@@ -54,6 +49,11 @@ pub enum Error<I> {
         dest: I,
         #[source]
         inner: BoxError,
+    },
+    #[error(transparent)]
+    DeserializationFailed {
+        #[from]
+        inner: serde_json::Error,
     },
 }
 
@@ -85,15 +85,14 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen<L: ListenerSetup<Identity = I>>(
+    fn listen(
         self: &Arc<Self>,
-        mut callbacks: L::Handler,
+        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
         mut rx: ConnectionRx<I>,
     ) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
-                let this = Arc::downgrade(self);
                 async move {
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
@@ -104,10 +103,23 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                                 let gate = addr.gate.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, gate), stream);
-                                Ok(())
+                                Ok(HelperResponse::ok())
                             }
-                            RouteId::ReceiveQuery | RouteId::PrepareQuery => {
-                                callbacks.handle(Clone::clone(&this), addr).await
+                            RouteId::ReceiveQuery
+                            | RouteId::PrepareQuery
+                            | RouteId::QueryInput
+                            | RouteId::QueryStatus
+                            | RouteId::CompleteQuery => {
+                                handler
+                                    .as_ref()
+                                    .expect("Request handler is provided")
+                                    .handle(
+                                        addr,
+                                        BodyStream::from_infallible(
+                                            stream.map(Vec::into_boxed_slice),
+                                        ),
+                                    )
+                                    .await
                             }
                         };
 
@@ -164,7 +176,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
-        let addr = Addr::from_route(this.identity, route);
+        let addr = Addr::from_route(Some(this.identity), route);
         let (ack_tx, ack_rx) = oneshot::channel();
 
         channel
@@ -179,8 +191,13 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
             .map_err(|_recv_error| Error::Rejected {
                 dest,
                 inner: "channel closed".into(),
-            })
-            .and_then(convert::identity)
+            })?
+            .map_err(|e| Error::Rejected {
+                dest,
+                inner: e.into(),
+            })?;
+
+        Ok(())
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
@@ -283,47 +300,21 @@ impl<I: TransportIdentity> Setup<I> {
             .is_none());
     }
 
-    fn into_active_conn<H: Into<<Self as ListenerSetup>::Handler>>(
+    pub(crate) fn start(
         self,
-        callbacks: H,
-    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>)
-    where
-        Self: ListenerSetup<Identity = I>,
-    {
+        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
+    ) -> Arc<InMemoryTransport<I>> {
+        self.into_active_conn(handler).1
+    }
+
+    fn into_active_conn(
+        self,
+        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
+    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
-        transport.listen::<Self>(callbacks.into(), self.rx);
+        transport.listen(handler, self.rx);
 
         (self.tx, transport)
-    }
-}
-
-/// Trait to tie up different transports to the requests handlers they can use inside their
-/// listen loop.
-pub trait ListenerSetup {
-    type Identity: TransportIdentity;
-    type Handler: RequestHandler<Self::Identity> + 'static;
-    type Listener;
-
-    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener;
-}
-
-impl ListenerSetup for Setup<HelperIdentity> {
-    type Identity = HelperIdentity;
-    type Handler = HelperRequestHandler;
-    type Listener = Arc<InMemoryTransport<Self::Identity>>;
-
-    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener {
-        self.into_active_conn(handler).1
-    }
-}
-
-impl ListenerSetup for Setup<ShardIndex> {
-    type Identity = ShardIndex;
-    type Handler = ();
-    type Listener = Arc<InMemoryTransport<Self::Identity>>;
-
-    fn start<I: Into<Self::Handler>>(self, handler: I) -> Self::Listener {
-        self.into_active_conn(handler).1
     }
 }
 
@@ -331,7 +322,7 @@ impl ListenerSetup for Setup<ShardIndex> {
 mod tests {
     use std::{
         collections::HashMap,
-        convert, io,
+        io,
         io::ErrorKind,
         num::NonZeroUsize,
         panic::AssertUnwindSafe,
@@ -345,14 +336,15 @@ mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::{QueryConfig, QueryType::TestMultiply},
-            transport::in_memory::{
-                transport::{
-                    Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport, ListenerSetup,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            transport::{
+                in_memory::{
+                    transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
+                    InMemoryMpcNetwork, Setup,
                 },
-                InMemoryMpcNetwork, Setup,
+                routing::RouteId,
             },
-            HelperIdentity, OrderingSender, RouteId, Transport, TransportCallbacks,
+            HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment, Transport,
             TransportIdentity,
         },
         protocol::{step::Gate, QueryId},
@@ -368,41 +360,46 @@ mod tests {
     ) {
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
-        rx.await
-            .map_err(|_e| Error::Io {
+        let _ = rx
+            .await
+            .map_err(|_e| Error::<I>::Io {
                 inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
             })
-            .and_then(convert::identity)
+            .unwrap()
             .unwrap();
     }
 
     #[tokio::test]
-    async fn callback_is_called() {
+    async fn handler_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
-                receive_query: Box::new(move |_transport, query_config| {
-                    let signal_tx = Arc::clone(&signal_tx);
-                    Box::pin(async move {
-                        // this works because callback is only called once
-                        signal_tx
-                            .lock()
-                            .unwrap()
-                            .take()
-                            .expect("query callback invoked more than once")
-                            .send(query_config)
-                            .unwrap();
-                        Ok(QueryId)
-                    })
-                }),
-                ..Default::default()
-            });
+        let (tx, _) = Setup::new(HelperIdentity::ONE).into_active_conn(Some(Box::new(
+            move |addr: Addr<HelperIdentity>, _| {
+                let RouteId::ReceiveQuery = addr.route else {
+                    panic!("unexpected call: {addr:?}")
+                };
+                let query_config = addr.into::<QueryConfig>().unwrap();
+
+                // this works because callback is only called once
+                signal_tx
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("query callback invoked more than once")
+                    .send(query_config)
+                    .unwrap();
+                Ok(HelperResponse::from(PrepareQuery {
+                    query_id: QueryId,
+                    config: query_config,
+                    roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                }))
+            },
+        )));
         let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(
             &tx,
-            Addr::from_route(HelperIdentity::TWO, &expected),
+            Addr::from_route(Some(HelperIdentity::TWO), expected),
             InMemoryStream::empty(),
         )
         .await;
@@ -412,8 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
@@ -436,8 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let expected = vec![vec![1], vec![2]];
 
         send_and_ack(
@@ -500,8 +495,8 @@ mod tests {
 
         setup1.connect(&mut setup2);
 
-        let transport1 = setup1.start(TransportCallbacks::default());
-        let transport2 = setup2.start(TransportCallbacks::default());
+        let transport1 = setup1.start(None);
+        let transport2 = setup2.start(None);
         let transports = HashMap::from([
             (HelperIdentity::ONE, Arc::downgrade(&transport1)),
             (HelperIdentity::TWO, Arc::downgrade(&transport2)),
@@ -513,8 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
-        let (tx, owned_transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, owned_transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let gate = Gate::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);

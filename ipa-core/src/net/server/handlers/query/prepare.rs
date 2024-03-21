@@ -2,7 +2,8 @@ use axum::{response::IntoResponse, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    net::{http_serde, server::ClientIdentity, HttpTransport},
+    helpers::{BodyStream, Transport},
+    net::{http_serde, server::ClientIdentity, Error, HttpTransport},
     query::PrepareQueryError,
     sync::Arc,
 };
@@ -13,8 +14,14 @@ async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     _: Extension<ClientIdentity>, // require that client is an authenticated helper
     req: http_serde::query::prepare::Request,
-) -> Result<(), PrepareQueryError> {
-    Arc::clone(&transport).prepare_query(req.data).await
+) -> Result<(), Error> {
+    let transport = Transport::clone_ref(&*transport);
+    let _ = transport
+        .dispatch(req.data, BodyStream::empty())
+        .await
+        .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(())
 }
 
 impl IntoResponse for PrepareQueryError {
@@ -31,7 +38,6 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::future::ready;
 
     use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
@@ -40,7 +46,8 @@ mod tests {
         ff::FieldType,
         helpers::{
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            HelperIdentity, RoleAssignment, TransportCallbacks,
+            routing::{Addr, RouteId},
+            BodyStream, HelperIdentity, HelperResponse, RoleAssignment,
         },
         net::{
             http_serde,
@@ -65,15 +72,21 @@ mod tests {
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         });
         let expected_prepare_query = req.data.clone();
+        let TestServer { transport, .. } = TestServer::builder()
+            .with_request_handler(Box::new(
+                move |addr: Addr<HelperIdentity>, _data: BodyStream| {
+                    let RouteId::PrepareQuery = addr.route else {
+                        panic!("unexpected call");
+                    };
 
-        let cb = TransportCallbacks {
-            prepare_query: Box::new(move |_transport, prepare_query| {
-                assert_eq!(prepare_query, expected_prepare_query);
-                Box::pin(ready(Ok(())))
-            }),
-            ..Default::default()
-        };
-        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+                    let query_config = addr.into::<PrepareQuery>().unwrap();
+                    assert_eq!(query_config, expected_prepare_query);
+                    Ok(HelperResponse::ok())
+                },
+            ))
+            .build()
+            .await;
+
         handler(
             Extension(transport),
             Extension(ClientIdentity(HelperIdentity::TWO)),

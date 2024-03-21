@@ -8,13 +8,17 @@ use crate::{
     protocol::{step::Gate, QueryId},
 };
 
-pub mod callbacks;
+mod handler;
 #[cfg(feature = "in-memory-infra")]
 mod in_memory;
 pub mod query;
 mod receive;
+pub mod routing;
 mod stream;
 
+pub use handler::{
+    make_boxed_handler, Error as ApiError, HelperResponse, PanickingHandler, RequestHandler,
+};
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 pub use receive::{LogErrors, ReceiveRecords};
@@ -26,7 +30,7 @@ pub use stream::{
 };
 
 use crate::{
-    helpers::{Role, TransportIdentity},
+    helpers::{transport::routing::RouteId, Role, TransportIdentity},
     sharding::ShardIndex,
 };
 
@@ -57,13 +61,6 @@ pub struct NoResourceIdentifier;
 pub struct NoQueryId;
 pub struct NoStep;
 
-#[derive(Debug, Copy, Clone)]
-pub enum RouteId {
-    Records,
-    ReceiveQuery,
-    PrepareQuery,
-}
-
 impl ResourceIdentifier for NoResourceIdentifier {}
 impl ResourceIdentifier for RouteId {}
 
@@ -90,6 +87,9 @@ where
     Option<QueryId>: From<Q>,
     Option<Gate>: From<S>,
 {
+    // This is not great and definitely not a zero-cost abstraction. We serialize parameters
+    // here, only to deserialize them again inside the request handler. I am not too worried
+    // about it as long as the data we serialize is tiny, which is the case right now.
     type Params: Borrow<str>;
 
     fn resource_identifier(&self) -> R;
@@ -132,6 +132,26 @@ impl RouteParams<RouteId, QueryId, Gate> for (RouteId, QueryId, Gate) {
 
     fn gate(&self) -> Gate {
         self.2.clone()
+    }
+
+    fn extra(&self) -> Self::Params {
+        ""
+    }
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
+    type Params = &'static str;
+
+    fn resource_identifier(&self) -> RouteId {
+        self.0
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.1
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
     }
 
     fn extra(&self) -> Self::Params {

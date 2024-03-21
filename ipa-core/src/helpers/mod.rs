@@ -52,9 +52,10 @@ pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
 pub use transport::{
-    callbacks::*, query, BodyStream, BytesStream, Identity as TransportIdentity,
-    LengthDelimitedStream, LogErrors, NoResourceIdentifier, QueryIdBinding, ReceiveRecords,
-    RecordsStream, RouteId, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
+    make_boxed_handler, query, routing, ApiError, BodyStream, BytesStream, HelperResponse,
+    Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
+    NoResourceIdentifier, NoStep, PanickingHandler, QueryIdBinding, ReceiveRecords, RecordsStream,
+    RequestHandler, RouteParams, StepBinding, StreamCollection, StreamKey, Transport,
     WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]

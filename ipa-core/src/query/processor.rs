@@ -154,8 +154,8 @@ impl Processor {
 
         // Inform other parties about new query. If any of them rejects it, this join will fail
         try_join(
-            transport.send(left, &prepare_request, stream::empty()),
-            transport.send(right, &prepare_request, stream::empty()),
+            transport.send(left, prepare_request.clone(), stream::empty()),
+            transport.send(right, prepare_request.clone(), stream::empty()),
         )
         .await
         .map_err(NewQueryError::Transport)?;
@@ -204,7 +204,7 @@ impl Processor {
     /// if query is not registered on this helper.
     ///
     /// ## Panics
-    /// If failed to obtain an exclusive access to the query collection.
+    /// If failed to obtain exclusive access to the query collection.
     pub fn receive_inputs(
         &self,
         transport: TransportImpl,
@@ -278,7 +278,7 @@ impl Processor {
     /// if query is not registered on this helper.
     ///
     /// ## Panics
-    /// If failed to obtain an exclusive access to the query collection.
+    /// If failed to obtain exclusive access to the query collection.
     pub async fn complete(
         &self,
         query_id: QueryId,
@@ -321,9 +321,10 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
+            make_boxed_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            HelperIdentity, InMemoryMpcNetwork, PrepareQueryCallback, RoleAssignment, Transport,
-            TransportCallbacks,
+            ApiError, HelperIdentity, HelperResponse, InMemoryMpcNetwork, RequestHandler,
+            RoleAssignment, Transport,
         },
         protocol::QueryId,
         query::{
@@ -331,12 +332,19 @@ mod tests {
         },
     };
 
-    fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
+    fn prepare_query_handler<F, Fut>(cb: F) -> Box<dyn RequestHandler<Identity = HelperIdentity>>
     where
-        F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(), PrepareQueryError>> + Send + 'static,
+        F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
     {
-        Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
+        make_boxed_handler(move |req, _| {
+            let prepare_query = req.into().unwrap();
+            cb(prepare_query)
+        })
+    }
+
+    fn respond_ok() -> Box<dyn RequestHandler<Identity = HelperIdentity>> {
+        prepare_query_handler(move |_| async move { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -346,29 +354,23 @@ mod tests {
     #[tokio::test]
     async fn new_query() {
         let barrier = Arc::new(Barrier::new(3));
-        let cb2_barrier = Arc::clone(&barrier);
-        let cb3_barrier = Arc::clone(&barrier);
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(move |_, _| {
-                let barrier = Arc::clone(&cb2_barrier);
-                async move {
-                    barrier.wait().await;
-                    Ok(())
-                }
-            }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(move |_, _| {
-                let barrier = Arc::clone(&cb3_barrier);
-                async move {
-                    barrier.wait().await;
-                    Ok(())
-                }
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2_barrier = Arc::clone(&barrier);
+        let h3_barrier = Arc::clone(&barrier);
+        let h2 = prepare_query_handler(move |_| {
+            let barrier = Arc::clone(&h2_barrier);
+            async move {
+                barrier.wait().await;
+                Ok(HelperResponse::ok())
+            }
+        });
+        let h3 = prepare_query_handler(move |_| {
+            let barrier = Arc::clone(&h3_barrier);
+            async move {
+                barrier.wait().await;
+                Ok(HelperResponse::ok())
+            }
+        });
+        let network = InMemoryMpcNetwork::new([None, Some(h2), Some(h3)]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -402,11 +404,12 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let cb = array::from_fn(|_| TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
+        let handlers = array::from_fn(|_| {
+            Some(prepare_query_handler(|_| async {
+                Ok(HelperResponse::ok())
+            }))
         });
-        let network = InMemoryMpcNetwork::new(cb);
+        let network = InMemoryMpcNetwork::new(handlers);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -423,17 +426,11 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_error() {
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                Err(PrepareQueryError::WrongTarget)
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2 = respond_ok().into();
+        let h3 = Some(prepare_query_handler(|_| async move {
+            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+        }));
+        let network = InMemoryMpcNetwork::new([None, h2, h3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -446,17 +443,11 @@ mod tests {
 
     #[tokio::test]
     async fn can_recover_from_prepare_error() {
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                Err(PrepareQueryError::WrongTarget)
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryMpcNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2 = respond_ok().into();
+        let h3 = Some(prepare_query_handler(|_| async move {
+            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+        }));
+        let network = InMemoryMpcNetwork::new([None, h2, h3]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
