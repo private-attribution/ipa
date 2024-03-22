@@ -182,16 +182,14 @@ impl KeyRegistries {
         network: &NetworkConfig,
     ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
         // Get the configs, if all three peers have one
-        let Some(configs) = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
+        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
             if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
                 vec.push(hpke_config);
                 Some(vec)
             } else {
                 None
             }
-        }) else {
-            return None;
-        };
+        })?;
 
         // Create key registries
         self.0 = configs
