@@ -56,10 +56,10 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = ["descriptive-gate"]
+step-trace = ["ipa-step/descriptive", "ipa-step/trace"]
 # The following two features are mutually exclusive. Descriptive should be enabled by deafult as the vast majority
 # of unit tests use it. Compact uses memory-efficient gates and is suitable for production.
-descriptive-gate = []
+descriptive-gate = ["ipa-step/descriptive"]
 compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
@@ -76,6 +76,7 @@ ipa-prf = []
 
 [dependencies]
 ipa-macros = { version = "*", path = "../ipa-macros" }
+ipa-step = { version = "*", path = "../ipa-step" }
 
 aes = "0.8.3"
 async-trait = "0.1.68"

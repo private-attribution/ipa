@@ -115,7 +115,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
     let mut const_arrays = Vec::new();
     let mut arms = Vec::new();
 
-    for v in data.variants.iter() {
+    for v in &data.variants {
         let ident = &v.ident;
         let ident_snake_case = ident.to_string().to_snake_case();
         let ident_upper_case = ident_snake_case.to_uppercase();
@@ -128,7 +128,7 @@ fn impl_as_ref(ident: &syn::Ident, data: &syn::DataEnum) -> Result<TokenStream2,
 
             // create an array of `num_steps` strings and use the variant index as array index
             let steps = (0..num_steps)
-                .map(|i| format!("{}{}", ident_snake_case, i))
+                .map(|i| format!("{ident_snake_case}{i}"))
                 .collect::<Vec<_>>();
             let steps_array_ident = format_ident!("{}_DYNAMIC_STEP", ident_upper_case);
             const_arrays.extend(quote!(
@@ -269,14 +269,10 @@ fn get_meta_data_for(
             `#[cfg(feature = \"descriptive-gate\")]`.",
             ))
         }
-        1 => {
-            Ok(target_steps[0]
-                .iter()
-                .map(|s|
-                    // we want to retain the references to the parents, so we use `upgrade()`
-                    s.upgrade())
-                .collect::<Vec<_>>())
-        }
+        1 => Ok(target_steps[0]
+            .iter()
+            .map(Node::upgrade)
+            .collect::<Vec<_>>()),
         _ => Err(syn::Error::new_spanned(
             ident,
             "ipa_macros::step found multiple enums that have the same name and contain at \
@@ -314,8 +310,7 @@ fn get_dynamic_step_count(variant: &syn::Variant) -> Result<usize, syn::Error> {
             dynamic_attr,
             format!(
                 "ipa_macros::step \"dynamic\" attribute expects a number of steps \
-                            (<= {}) in parentheses: #[dynamic(...)].",
-                MAX_DYNAMIC_STEPS,
+                            (<= {MAX_DYNAMIC_STEPS}) in parentheses: #[dynamic(...)].",
             ),
         )),
     }
