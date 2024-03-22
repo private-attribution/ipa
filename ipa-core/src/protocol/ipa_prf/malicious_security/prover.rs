@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Sub},
 };
 
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Diff, Sum, U1};
 
 use crate::{
@@ -14,7 +14,22 @@ use crate::{
 };
 
 pub struct ZeroKnowledgeProof<F: PrimeField, N: ArrayLength> {
-    g: GenericArray<F, N>,
+    pub g: GenericArray<F, N>,
+}
+
+impl<F, N> ZeroKnowledgeProof<F, N>
+where
+    F: PrimeField,
+    N: ArrayLength,
+{
+    pub fn new<I>(g: I) -> Self
+    where
+        I: IntoIterator<Item = F>,
+    {
+        ZeroKnowledgeProof {
+            g: g.into_iter().collect(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -23,8 +38,8 @@ pub struct ProofGenerator<F: PrimeField> {
     v: Vec<F>,
 }
 
-type TwoNMinusOne<N> = Diff<Sum<N, N>, U1>;
-type TwoNPlusOne<N> = Sum<Sum<N, N>, U1>;
+pub type TwoNMinusOne<N> = Diff<Sum<N, N>, U1>;
+pub type TwoNPlusOne<N> = Sum<Sum<N, N>, U1>;
 
 ///
 /// Distributed Zero Knowledge Proofs algorithm drawn from
@@ -84,13 +99,11 @@ where
             zip(p, q)
                 .map(|(a, b)| *a * *b)
                 .chain(zip(p_extrapolated, q_extrapolated).map(|(a, b)| a * b))
-                .collect::<GenericArray<F, _>>()
         });
-        let proof = ZeroKnowledgeProof {
-            g: extrapolated_points
-                .reduce(|acc, pts| zip(acc, pts).map(|(a, b)| a + b).collect())
-                .unwrap(),
-        };
+        let proof = ZeroKnowledgeProof::new(extrapolated_points.fold(
+            GenericArray::<F, TwoNMinusOne<λ>>::generate(|_| F::ZERO),
+            |acc, pts| zip(acc, pts).map(|(a, b)| a + b).collect(),
+        ));
         (proof, next_proof_generator)
     }
 
@@ -118,14 +131,13 @@ where
         let p_extrapolated = lagrange_table.eval(&p);
         let q_extrapolated = lagrange_table.eval(&q);
 
-        ZeroKnowledgeProof {
-            g: zip(
+        ZeroKnowledgeProof::new(
+            zip(
                 p.into_iter().chain(p_extrapolated),
                 q.into_iter().chain(q_extrapolated),
             )
-            .map(|(a, b)| a * b)
-            .collect(),
-        }
+            .map(|(a, b)| a * b),
+        )
     }
 }
 
