@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::{
     collections::HashMap,
     fmt::{Debug, Display, Formatter},
+    marker::PhantomData,
 };
 
 pub use crypto::{
@@ -157,20 +158,50 @@ pub struct IndexedSharedRandomness {
 }
 
 impl SharedRandomness for IndexedSharedRandomness {
-    fn generate_arrays<I: Into<PrssIndex>, N: ArrayLength>(
+    type ChunksIter<'a, Z: ArrayLength> = ChunksIter<'a, Z>;
+
+    fn generate_chunks_iter<I: Into<PrssIndex>, Z: ArrayLength>(
         &self,
         index: I,
-    ) -> (GenericArray<u128, N>, GenericArray<u128, N>) {
-        let index = index.into();
+    ) -> Self::ChunksIter<'_, Z> {
+        ChunksIter {
+            inner: self,
+            index: index.into(),
+            offset: 0,
+            phantom_data: PhantomData,
+        }
+    }
+}
+
+pub struct ChunksIter<'a, Z: ArrayLength> {
+    inner: &'a IndexedSharedRandomness,
+    index: PrssIndex,
+    offset: usize,
+    phantom_data: PhantomData<Z>,
+}
+
+impl<'a, Z: ArrayLength> Iterator for ChunksIter<'a, Z> {
+    type Item = (GenericArray<u128, Z>, GenericArray<u128, Z>);
+
+    fn next(&mut self) -> Option<Self::Item> {
         #[cfg(debug_assertions)]
         {
-            for i in 0..N::USIZE {
-                self.used.insert(index.offset(i));
+            for i in self.offset..self.offset + Z::USIZE {
+                self.inner.used.insert(self.index.offset(i));
             }
         }
-        let l = GenericArray::generate(|i| self.left.generate(index.offset(i).into()));
-        let r = GenericArray::generate(|i| self.right.generate(index.offset(i).into()));
-        (l, r)
+        let l = GenericArray::generate(|i| {
+            self.inner
+                .left
+                .generate(self.index.offset(self.offset + i).into())
+        });
+        let r = GenericArray::generate(|i| {
+            self.inner
+                .right
+                .generate(self.index.offset(self.offset + i).into())
+        });
+        self.offset += Z::USIZE;
+        Some((l, r))
     }
 }
 

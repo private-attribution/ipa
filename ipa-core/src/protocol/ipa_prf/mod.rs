@@ -1,5 +1,6 @@
-use std::{num::NonZeroU32, ops::Add};
+use std::{array, num::NonZeroU32, ops::Add};
 
+use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
 use ipa_macros::Step;
 use typenum::{Unsigned, U18};
@@ -8,9 +9,10 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, CustomArray, PrimeField, Serializable,
-        U128Conversions,
+        boolean::Boolean, boolean_array::BA64, ArrayBuild, ArrayBuilder, CustomArray, PrimeField,
+        Serializable, U128Conversions,
     },
+    helpers::stream::{ChunkData, ProcessChunks, TryFlattenItersExt},
     protocol::{
         basics::BooleanArrayMul,
         context::{UpgradableContext, UpgradedContext},
@@ -25,8 +27,10 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        SharedValue,
+        SharedValue, TransposeFrom,
     },
+    seq_join::seq_join,
+    BoolVector,
 };
 
 mod boolean_ops;
@@ -47,8 +51,8 @@ pub(crate) enum Step {
     SortByTimestamp,
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     pub match_key: Replicated<BA64>,
     pub is_trigger: Replicated<Boolean>,
@@ -186,7 +190,7 @@ where
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
+        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), &shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
@@ -212,7 +216,7 @@ where
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
 async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
     ctx: C,
-    input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
+    input_rows: &[OPRFIPAInputRow<BK, TV, TS>],
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
@@ -224,35 +228,77 @@ where
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
-    let ctx = ctx.set_total_records(input_rows.len());
+    const CHUNK: usize = 64;
+
+    let ctx = ctx.set_total_records((input_rows.len() + CHUNK - 1) / CHUNK);
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
     let prf_key = gen_prf_key(&convert_ctx);
 
-    ctx.try_join(input_rows.into_iter().enumerate().map(|(idx, record)| {
-        let convert_ctx = convert_ctx.clone();
-        let eval_ctx = eval_ctx.clone();
-        let prf_key = &prf_key;
-        async move {
-            let record_id = RecordId::from(idx);
-            let elliptic_curve_pt =
-                convert_to_fp25519::<_, BA64>(convert_ctx, record_id, &record.match_key).await?;
-            let elliptic_curve_pt =
-                eval_dy_prf(eval_ctx, record_id, prf_key, &elliptic_curve_pt).await?;
+    seq_join(
+        ctx.active_work(),
+        input_rows.process_chunks(
+            move |idx, records: ChunkData<_, CHUNK>| {
+                let convert_ctx = convert_ctx.clone();
+                let eval_ctx = eval_ctx.clone();
+                let prf_key = prf_key.clone();
 
-            Ok::<_, Error>(PrfShardedIpaInputRow {
-                prf_of_match_key: elliptic_curve_pt,
-                is_trigger_bit: record.is_trigger,
-                breakdown_key: record.breakdown_key,
-                trigger_value: record.trigger_value,
-                timestamp: record.timestamp,
-                sort_key: Replicated::ZERO,
-            })
-        }
-    }))
+                async move {
+                    let record_id = RecordId::from(idx);
+                    let mut match_keys_builder = <BoolVector!(64, CHUNK)>::builder();
+                    for _ in 0..CHUNK {
+                        match_keys_builder.push(Replicated::<Boolean, CHUNK>::ZERO);
+                    }
+                    let mut match_keys = match_keys_builder.build();
+                    let tmp: &dyn Fn(usize) -> Replicated<BA64> =
+                        &|i: usize| records[i].match_key.clone();
+                    match_keys.transpose_from(tmp).unwrap_infallible();
+                    let curve_pts = convert_to_fp25519::<
+                        _,
+                        BoolVector!(64, CHUNK),
+                        BoolVector!(256, CHUNK),
+                        CHUNK,
+                    >(convert_ctx, record_id, match_keys)
+                    .await?;
+
+                    let prf_of_match_keys =
+                        eval_dy_prf::<_, CHUNK>(eval_ctx, record_id, &prf_key, curve_pts).await?;
+
+                    Ok(array::from_fn(|i| {
+                        let OPRFIPAInputRow {
+                            match_key: _,
+                            is_trigger,
+                            breakdown_key,
+                            trigger_value,
+                            timestamp,
+                        } = &records[i];
+
+                        PrfShardedIpaInputRow {
+                            prf_of_match_key: prf_of_match_keys[i],
+                            is_trigger_bit: is_trigger.clone(),
+                            breakdown_key: breakdown_key.clone(),
+                            trigger_value: trigger_value.clone(),
+                            timestamp: timestamp.clone(),
+                            sort_key: Replicated::ZERO,
+                        }
+                    }))
+                }
+            },
+            || OPRFIPAInputRow {
+                match_key: Replicated::<BA64>::ZERO,
+                is_trigger: Replicated::<Boolean>::ZERO,
+                breakdown_key: Replicated::<BK>::ZERO,
+                trigger_value: Replicated::<TV>::ZERO,
+                timestamp: Replicated::<TS>::ZERO,
+            },
+        ),
+    )
+    .try_flatten_iters()
+    .try_collect()
     .await
 }
+
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
     use crate::{

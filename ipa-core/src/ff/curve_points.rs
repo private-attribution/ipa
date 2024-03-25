@@ -42,6 +42,18 @@ impl Vectorizable<1> for RP25519 {
     type Array = StdArray<Self, 1>;
 }
 
+impl Vectorizable<16> for RP25519 {
+    type Array = StdArray<Self, 16>;
+}
+
+impl Vectorizable<64> for RP25519 {
+    type Array = StdArray<Self, 64>;
+}
+
+impl Vectorizable<256> for RP25519 {
+    type Array = StdArray<Self, 256>;
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("{0:?} is not the canonical encoding of a Ristretto point.")]
 pub struct NonCanonicalEncoding(CompressedRistretto);
