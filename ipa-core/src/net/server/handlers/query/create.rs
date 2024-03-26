@@ -46,6 +46,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
+            make_owned_handler,
             query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
             routing::{Addr, RouteId},
             HelperIdentity, HelperResponse, Role, RoleAssignment,
@@ -59,27 +60,29 @@ mod tests {
     };
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let TestServer { server, .. } = TestServer::builder()
-            .with_request_handler(Box::new(move |addr: Addr<HelperIdentity>, _| {
-                let RouteId::ReceiveQuery = addr.route else {
-                    panic!("unexpected call");
-                };
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _| async move {
+                    let RouteId::ReceiveQuery = addr.route else {
+                        panic!("unexpected call");
+                    };
 
-                let query_config = addr.into().unwrap();
-                assert_eq!(query_config, expected_query_config);
-                Ok(HelperResponse::from(PrepareQuery {
-                    query_id: QueryId,
-                    config: query_config,
-                    roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
-                }))
-            }))
+                    let query_config = addr.into().unwrap();
+                    assert_eq!(query_config, expected_query_config);
+                    Ok(HelperResponse::from(PrepareQuery {
+                        query_id: QueryId,
+                        config: query_config,
+                        roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                    }))
+                },
+            ))
             .build()
             .await;
         let req = http_serde::query::create::Request::new(expected_query_config);
         let req = req
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        let resp = server.handle_req(req).await;
+        let resp = test_server.server.handle_req(req).await;
 
         let status = resp.status();
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();

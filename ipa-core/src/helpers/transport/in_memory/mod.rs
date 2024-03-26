@@ -7,7 +7,7 @@ pub use sharding::InMemoryShardNetwork;
 pub use transport::Setup;
 
 use crate::{
-    helpers::{HelperIdentity, RequestHandler},
+    helpers::{HandlerRef, HelperIdentity},
     sync::{Arc, Weak},
 };
 
@@ -27,7 +27,7 @@ impl Default for InMemoryMpcNetwork {
 
 impl InMemoryMpcNetwork {
     #[must_use]
-    pub fn new(handlers: [Option<Box<dyn RequestHandler<Identity = HelperIdentity>>>; 3]) -> Self {
+    pub fn new(handlers: [Option<HandlerRef>; 3]) -> Self {
         let [mut first, mut second, mut third]: [_; 3] =
             HelperIdentity::make_three().map(Setup::new);
 

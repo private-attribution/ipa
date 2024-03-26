@@ -32,6 +32,7 @@ mod tests {
 
     use crate::{
         helpers::{
+            make_owned_handler,
             routing::{Addr, RouteId},
             BodyStream, HelperIdentity, HelperResponse,
         },
@@ -51,9 +52,9 @@ mod tests {
     async fn status_test() {
         let expected_status = QueryStatus::Running;
         let expected_query_id = QueryId;
-        let TestServer { transport, .. } = TestServer::builder()
-            .with_request_handler(Box::new(
-                move |addr: Addr<HelperIdentity>, _data: BodyStream| {
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _data: BodyStream| async move {
                     let RouteId::QueryStatus = addr.route else {
                         panic!("unexpected call");
                     };
@@ -64,7 +65,9 @@ mod tests {
             .build()
             .await;
         let req = http_serde::query::status::Request::new(QueryId);
-        let response = handler(Extension(transport), req.clone()).await.unwrap();
+        let response = handler(Extension(test_server.transport), req.clone())
+            .await
+            .unwrap();
 
         let Json(http_serde::query::status::ResponseBody { status }) = response;
         assert_eq!(status, expected_status);

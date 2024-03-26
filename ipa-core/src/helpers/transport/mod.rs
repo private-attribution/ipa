@@ -17,7 +17,7 @@ pub mod routing;
 mod stream;
 
 pub use handler::{
-    make_boxed_handler, Error as ApiError, HelperResponse, PanickingHandler, RequestHandler,
+    make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
 };
 #[cfg(feature = "in-memory-infra")]
 pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};

@@ -21,8 +21,9 @@ use crate::{
     error::BoxError,
     helpers::{
         transport::routing::{Addr, RouteId},
-        ApiError, BodyStream, HelperResponse, NoResourceIdentifier, QueryIdBinding, ReceiveRecords,
-        RequestHandler, RouteParams, StepBinding, StreamCollection, Transport, TransportIdentity,
+        ApiError, BodyStream, HandlerRef, HelperResponse, NoResourceIdentifier, QueryIdBinding,
+        ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection, Transport,
+        TransportIdentity,
     },
     protocol::{step::Gate, QueryId},
     sync::{Arc, Weak},
@@ -85,11 +86,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(
-        self: &Arc<Self>,
-        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
-        mut rx: ConnectionRx<I>,
-    ) {
+    fn listen(self: &Arc<Self>, handler: Option<HandlerRef<I>>, mut rx: ConnectionRx<I>) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
@@ -112,7 +109,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                             | RouteId::CompleteQuery => {
                                 handler
                                     .as_ref()
-                                    .expect("Request handler is provided")
+                                    .expect("Handler is set")
                                     .handle(
                                         addr,
                                         BodyStream::from_infallible(
@@ -300,16 +297,13 @@ impl<I: TransportIdentity> Setup<I> {
             .is_none());
     }
 
-    pub(crate) fn start(
-        self,
-        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
-    ) -> Arc<InMemoryTransport<I>> {
+    pub(crate) fn start(self, handler: Option<HandlerRef<I>>) -> Arc<InMemoryTransport<I>> {
         self.into_active_conn(handler).1
     }
 
     fn into_active_conn(
         self,
-        handler: Option<Box<dyn RequestHandler<Identity = I>>>,
+        handler: Option<HandlerRef<I>>,
     ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
         let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
         transport.listen(handler, self.rx);
@@ -336,6 +330,7 @@ mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
+            make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             transport::{
                 in_memory::{
@@ -344,8 +339,8 @@ mod tests {
                 },
                 routing::RouteId,
             },
-            HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment, Transport,
-            TransportIdentity,
+            HandlerBox, HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment,
+            Transport, TransportIdentity,
         },
         protocol::{step::Gate, QueryId},
         sync::Arc,
@@ -373,8 +368,9 @@ mod tests {
     async fn handler_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _) = Setup::new(HelperIdentity::ONE).into_active_conn(Some(Box::new(
-            move |addr: Addr<HelperIdentity>, _| {
+        let handler = make_owned_handler(move |addr: Addr<HelperIdentity>, _| {
+            let signal_tx = Arc::clone(&signal_tx);
+            async move {
                 let RouteId::ReceiveQuery = addr.route else {
                     panic!("unexpected call: {addr:?}")
                 };
@@ -393,8 +389,10 @@ mod tests {
                     config: query_config,
                     roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
                 }))
-            },
-        )));
+            }
+        });
+        let (tx, _) = Setup::new(HelperIdentity::ONE)
+            .into_active_conn(Some(HandlerBox::owning_ref(&handler)));
         let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(

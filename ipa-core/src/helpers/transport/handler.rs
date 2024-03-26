@@ -18,6 +18,7 @@ use crate::{
         NewQueryError, PrepareQueryError, ProtocolResult, QueryCompletionError, QueryInputError,
         QueryStatus, QueryStatusError,
     },
+    sync::{Arc, Mutex, Weak},
 };
 
 /// Represents some response sent from MPC helper acting on a given request. It is rudimental now
@@ -32,6 +33,69 @@ use crate::{
 ///
 pub struct HelperResponse {
     body: Vec<u8>,
+}
+
+/// The lifecycle of request handlers is somewhat complicated. First, to initialize [`Transport`],
+/// an instance of [`RequestHandler`] is required upfront. To function properly, each handler must
+/// have a reference to transport.
+///
+/// This lifecycle is managed through this struct. An empty [`Option`], protected by a mutex
+/// is passed over to transport, and it is given a value later, after transport is fully initialized.
+pub struct HandlerBox<I = HelperIdentity> {
+    /// There is a cyclic dependency between handlers and transport.
+    /// Handlers use transports to create MPC infrastructure as response to query requests.
+    /// Transport uses handler to respond to requests.
+    ///
+    /// To break this cycle, transport holds a weak reference to the handler and handler
+    /// uses strong references to transport.
+    inner: Mutex<Option<Weak<dyn RequestHandler<Identity = I>>>>,
+}
+
+impl<I> Default for HandlerBox<I> {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(None),
+        }
+    }
+}
+
+impl<I: TransportIdentity> HandlerBox<I> {
+    #[must_use]
+    pub fn empty() -> HandlerRef<I> {
+        HandlerRef {
+            inner: Arc::new(Self::default()),
+        }
+    }
+
+    pub fn owning_ref(handler: &Arc<dyn RequestHandler<Identity = I>>) -> HandlerRef<I> {
+        HandlerRef {
+            inner: Arc::new(Self {
+                inner: Mutex::new(Some(Arc::downgrade(handler))),
+            }),
+        }
+    }
+
+    fn set_handler(&self, handler: Weak<dyn RequestHandler<Identity = I>>) {
+        let mut guard = self.inner.lock().unwrap();
+        assert!(guard.is_none(), "Handler can be set only once");
+        *guard = Some(handler);
+    }
+
+    fn handler(&self) -> Arc<dyn RequestHandler<Identity = I>> {
+        self.inner
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("Handler is set")
+            .upgrade()
+            .expect("Handler is not destroyed")
+    }
+}
+
+/// This struct is passed over to [`Transport`] to initialize it.
+#[derive(Clone)]
+pub struct HandlerRef<I = HelperIdentity> {
+    inner: Arc<HandlerBox<I>>,
 }
 
 impl Debug for HelperResponse {
@@ -121,26 +185,7 @@ pub trait RequestHandler: Send + Sync {
     ) -> Result<HelperResponse, Error>;
 }
 
-#[async_trait]
-impl<F> RequestHandler for F
-where
-    F: Fn(Addr<HelperIdentity>, BodyStream) -> Result<HelperResponse, Error>
-        + Send
-        + Sync
-        + 'static,
-{
-    type Identity = HelperIdentity;
-
-    async fn handle(
-        &self,
-        req: Addr<Self::Identity>,
-        data: BodyStream,
-    ) -> Result<HelperResponse, Error> {
-        self(req, data)
-    }
-}
-
-pub fn make_boxed_handler<'a, I, F, Fut>(handler: F) -> Box<dyn RequestHandler<Identity = I> + 'a>
+pub fn make_owned_handler<'a, I, F, Fut>(handler: F) -> Arc<dyn RequestHandler<Identity = I> + 'a>
 where
     I: TransportIdentity,
     F: Fn(Addr<I>, BodyStream) -> Fut + Send + Sync + 'a,
@@ -168,34 +213,27 @@ where
         }
     }
 
-    Box::new(Handler {
+    Arc::new(Handler {
         inner: handler,
         phantom: PhantomData,
     })
 }
 
-// This handler panics when [`Self::handle`] method is called.
-pub struct PanickingHandler<I: TransportIdentity = HelperIdentity> {
-    phantom: PhantomData<I>,
-}
-
-impl<I: TransportIdentity> Default for PanickingHandler<I> {
-    fn default() -> Self {
-        Self {
-            phantom: PhantomData,
-        }
+impl<I: TransportIdentity> HandlerRef<I> {
+    pub fn set_handler(&self, handler: Weak<dyn RequestHandler<Identity = I>>) {
+        self.inner.set_handler(handler);
     }
 }
 
 #[async_trait]
-impl<I: TransportIdentity> RequestHandler for PanickingHandler<I> {
+impl<I: TransportIdentity> RequestHandler for HandlerRef<I> {
     type Identity = I;
 
     async fn handle(
         &self,
         req: Addr<Self::Identity>,
-        _data: BodyStream,
+        data: BodyStream,
     ) -> Result<HelperResponse, Error> {
-        panic!("unexpected call: {req:?}");
+        self.inner.handler().handle(req, data).await
     }
 }

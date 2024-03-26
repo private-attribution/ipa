@@ -45,6 +45,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
+            make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
             routing::{Addr, RouteId},
             BodyStream, HelperIdentity, HelperResponse, RoleAssignment,
@@ -72,23 +73,26 @@ mod tests {
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         });
         let expected_prepare_query = req.data.clone();
-        let TestServer { transport, .. } = TestServer::builder()
-            .with_request_handler(Box::new(
-                move |addr: Addr<HelperIdentity>, _data: BodyStream| {
-                    let RouteId::PrepareQuery = addr.route else {
-                        panic!("unexpected call");
-                    };
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _: BodyStream| {
+                    let expected_prepare_query = expected_prepare_query.clone();
+                    async move {
+                        let RouteId::PrepareQuery = addr.route else {
+                            panic!("unexpected call");
+                        };
 
-                    let query_config = addr.into::<PrepareQuery>().unwrap();
-                    assert_eq!(query_config, expected_prepare_query);
-                    Ok(HelperResponse::ok())
+                        let actual_prepare_query = addr.into::<PrepareQuery>().unwrap();
+                        assert_eq!(actual_prepare_query, expected_prepare_query);
+                        Ok(HelperResponse::ok())
+                    }
                 },
             ))
             .build()
             .await;
 
         handler(
-            Extension(transport),
+            Extension(test_server.transport),
             Extension(ClientIdentity(HelperIdentity::TWO)),
             req.clone(),
         )

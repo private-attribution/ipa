@@ -4,7 +4,6 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    app::RequestHandlerSetup,
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
@@ -61,13 +60,8 @@ fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
 impl Default for TestApp {
     fn default() -> Self {
         let (setup, handlers) = unzip_tuple_array(array::from_fn(|_| AppSetup::new()));
-        let handlers_ref = [&handlers[0], &handlers[1], &handlers[2]];
 
-        let network = InMemoryMpcNetwork::new(
-            handlers_ref
-                .map(RequestHandlerSetup::make_handler)
-                .map(Some),
-        );
+        let network = InMemoryMpcNetwork::new(handlers.map(Some));
         let drivers = network
             .transports()
             .iter()
@@ -88,6 +82,7 @@ impl TestApp {
     /// ## Errors
     /// Returns an error if it can't start a query or send query input.
     #[allow(clippy::missing_panics_doc)]
+
     pub async fn start_query<I, A>(
         &self,
         input: I,

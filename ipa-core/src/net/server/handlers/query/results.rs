@@ -35,6 +35,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         helpers::{
+            make_owned_handler,
             routing::{Addr, RouteId},
             BodyStream, HelperIdentity, HelperResponse,
         },
@@ -59,21 +60,26 @@ mod tests {
         ))]);
         let expected_query_id = QueryId;
         let raw_results = expected_results.to_vec();
-        let TestServer { transport, .. } = TestServer::builder()
-            .with_request_handler(Box::new(
-                move |addr: Addr<HelperIdentity>, _data: BodyStream| {
-                    let RouteId::CompleteQuery = addr.route else {
-                        panic!("unexpected call");
-                    };
-                    let results = Box::new(raw_results.clone()) as Box<dyn ProtocolResult>;
-                    assert_eq!(addr.query_id, Some(expected_query_id));
-                    Ok(HelperResponse::from(results))
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _: BodyStream| {
+                    let raw_results = raw_results.clone();
+                    async move {
+                        let RouteId::CompleteQuery = addr.route else {
+                            panic!("unexpected call");
+                        };
+                        let results = Box::new(raw_results.clone()) as Box<dyn ProtocolResult>;
+                        assert_eq!(addr.query_id, Some(expected_query_id));
+                        Ok(HelperResponse::from(results))
+                    }
                 },
             ))
             .build()
             .await;
         let req = http_serde::query::results::Request::new(QueryId);
-        let results = handler(Extension(transport), req.clone()).await.unwrap();
+        let results = handler(Extension(test_server.transport), req.clone())
+            .await
+            .unwrap();
         assert_eq!(results, expected_results.as_bytes());
     }
 

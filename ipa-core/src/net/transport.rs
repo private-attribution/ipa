@@ -16,7 +16,7 @@ use crate::{
     helpers::{
         query::QueryConfig,
         routing::{Addr, RouteId},
-        ApiError, BodyStream, HelperIdentity, HelperResponse, LogErrors, NoQueryId,
+        ApiError, BodyStream, HandlerRef, HelperIdentity, HelperResponse, LogErrors, NoQueryId,
         NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RequestHandler, RouteParams,
         StepBinding, StreamCollection, Transport,
     },
@@ -34,7 +34,7 @@ pub struct HttpTransport {
     // TODO(615): supporting multiple queries likely require a hashmap here. It will be ok if we
     // only allow one query at a time.
     record_streams: StreamCollection<HelperIdentity, LogHttpErrors>,
-    handler: Box<dyn RequestHandler<Identity = HelperIdentity>>,
+    handler: Option<HandlerRef>,
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
@@ -64,7 +64,7 @@ impl HttpTransport {
         server_config: ServerConfig,
         network_config: NetworkConfig,
         clients: [MpcHelperClient; 3],
-        handler: Box<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Option<HandlerRef>,
     ) -> (Arc<Self>, MpcHelperServer) {
         let transport = Self::new_internal(identity, clients, handler);
         let server = MpcHelperServer::new(Arc::clone(&transport), server_config, network_config);
@@ -74,7 +74,7 @@ impl HttpTransport {
     fn new_internal(
         identity: HelperIdentity,
         clients: [MpcHelperClient; 3],
-        handler: Box<dyn RequestHandler<Identity = HelperIdentity>>,
+        handler: Option<HandlerRef>,
     ) -> Arc<Self> {
         Arc::new(Self {
             identity,
@@ -88,6 +88,9 @@ impl HttpTransport {
     ///
     /// ## Errors
     /// Returns an error, if handler rejects the request for any reason.
+    ///
+    /// ## Panics
+    /// This will panic if request handler hasn't been previously set for this transport.
     pub async fn dispatch<Q: QueryIdBinding, R: RouteParams<RouteId, Q, NoStep>>(
         self: Arc<Self>,
         req: R,
@@ -124,7 +127,11 @@ impl HttpTransport {
         }
 
         let route_id = req.resource_identifier();
-        let r = self.handler.handle(Addr::from_route(None, req), body);
+        let r = self
+            .handler
+            .as_ref()
+            .expect("Handler is set")
+            .handle(Addr::from_route(None, req), body);
 
         if let RouteId::CompleteQuery = route_id {
             ClearOnDrop {
@@ -221,7 +228,8 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
-#[cfg(all(test, web_test))]
+// #[cfg(all(test, web_test))] //FIXME
+#[cfg(all(test, feature = "real-world-infra"))]
 mod tests {
     use std::{iter::zip, net::TcpListener, task::Poll};
 
@@ -307,14 +315,14 @@ mod tests {
                     } else {
                         get_test_identity(id)
                     };
-                    let (setup, handler_setup) = AppSetup::new();
+                    let (setup, handler) = AppSetup::new();
                     let clients = MpcHelperClient::from_conf(network_config, identity);
                     let (transport, server) = HttpTransport::new(
                         id,
                         server_config,
                         network_config.clone(),
                         clients,
-                        handler_setup.make_handler(),
+                        Some(handler),
                     );
                     server.start_on(Some(socket), ()).await;
 

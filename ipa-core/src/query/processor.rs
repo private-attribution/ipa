@@ -321,10 +321,10 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            make_boxed_handler,
+            make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            ApiError, HelperIdentity, HelperResponse, InMemoryMpcNetwork, RequestHandler,
-            RoleAssignment, Transport,
+            ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
+            RequestHandler, RoleAssignment, Transport,
         },
         protocol::QueryId,
         query::{
@@ -332,18 +332,18 @@ mod tests {
         },
     };
 
-    fn prepare_query_handler<F, Fut>(cb: F) -> Box<dyn RequestHandler<Identity = HelperIdentity>>
+    fn prepare_query_handler<F, Fut>(cb: F) -> Arc<dyn RequestHandler<Identity = HelperIdentity>>
     where
         F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
     {
-        make_boxed_handler(move |req, _| {
+        make_owned_handler(move |req, _| {
             let prepare_query = req.into().unwrap();
             cb(prepare_query)
         })
     }
 
-    fn respond_ok() -> Box<dyn RequestHandler<Identity = HelperIdentity>> {
+    fn respond_ok() -> Arc<dyn RequestHandler<Identity = HelperIdentity>> {
         prepare_query_handler(move |_| async move { Ok(HelperResponse::ok()) })
     }
 
@@ -370,7 +370,11 @@ mod tests {
                 Ok(HelperResponse::ok())
             }
         });
-        let network = InMemoryMpcNetwork::new([None, Some(h2), Some(h3)]);
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -404,12 +408,10 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let handlers = array::from_fn(|_| {
-            Some(prepare_query_handler(|_| async {
-                Ok(HelperResponse::ok())
-            }))
-        });
-        let network = InMemoryMpcNetwork::new(handlers);
+        let handlers =
+            array::from_fn(|_| prepare_query_handler(|_| async { Ok(HelperResponse::ok()) }));
+        let network =
+            InMemoryMpcNetwork::new(handlers.each_ref().map(HandlerBox::owning_ref).map(Some));
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -426,11 +428,15 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_error() {
-        let h2 = respond_ok().into();
-        let h3 = Some(prepare_query_handler(|_| async move {
+        let h2 = respond_ok();
+        let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
-        }));
-        let network = InMemoryMpcNetwork::new([None, h2, h3]);
+        });
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -443,11 +449,15 @@ mod tests {
 
     #[tokio::test]
     async fn can_recover_from_prepare_error() {
-        let h2 = respond_ok().into();
-        let h3 = Some(prepare_query_handler(|_| async move {
+        let h2 = respond_ok();
+        let h3 = prepare_query_handler(|_| async move {
             Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
-        }));
-        let network = InMemoryMpcNetwork::new([None, h2, h3]);
+        });
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();

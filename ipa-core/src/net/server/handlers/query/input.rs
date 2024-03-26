@@ -31,15 +31,14 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+
     use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
     use tokio::runtime::Handle;
 
     use crate::{
         helpers::{
-            query::QueryInput,
-            routing::{Addr, RouteId},
-            BodyStream, BytesStream, HelperIdentity, HelperResponse,
+            make_owned_handler, query::QueryInput, routing::RouteId, BytesStream, HelperResponse,
         },
         net::{
             http_serde,
@@ -56,7 +55,7 @@ mod tests {
     async fn input_test() {
         let expected_query_id = QueryId;
         let expected_input = &[4u8; 4];
-        let req_handler = Box::new(move |addr: Addr<HelperIdentity>, data: BodyStream| {
+        let req_handler = make_owned_handler(move |addr, data| async move {
             let RouteId::QueryInput = addr.route else {
                 panic!("unexpected call");
             };
@@ -72,7 +71,7 @@ mod tests {
             Ok(HelperResponse::ok())
         });
 
-        let TestServer { transport, .. } = TestServer::builder()
+        let test_server = TestServer::builder()
             .with_request_handler(req_handler)
             .build()
             .await;
@@ -80,7 +79,9 @@ mod tests {
             query_id: expected_query_id,
             input_stream: expected_input.to_vec().into(),
         });
-        handler(Extension(transport), req).await.unwrap();
+        handler(Extension(test_server.transport), req)
+            .await
+            .unwrap();
     }
 
     struct OverrideReq {
