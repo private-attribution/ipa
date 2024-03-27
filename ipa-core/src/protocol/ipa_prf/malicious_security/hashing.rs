@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 use typenum::U32;
 
 use crate::{
-    ff::{Field, Serializable}, helpers::Message, protocol::prss::FromRandomU128
+    ff::{Field, Serializable},
+    helpers::Message,
+    protocol::prss::FromRandomU128,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,7 +56,7 @@ where
 {
     // set up hash
     let mut sha = Sha256::new();
-    
+
     // set state
     let mut buf = GenericArray::default();
     left.serialize(&mut buf);
@@ -76,7 +78,10 @@ where
 mod test {
     use rand::{thread_rng, Rng};
 
-    use crate::{ff::{Fp31, Fp32BitPrime}, protocol::ipa_prf::malicious_security::hashing::hash_to_field};
+    use crate::{
+        ff::{Fp31, Fp32BitPrime},
+        protocol::ipa_prf::malicious_security::hashing::hash_to_field,
+    };
 
     use super::compute_hash;
 
@@ -85,7 +90,7 @@ mod test {
         const LIST_LENGTH: usize = 5;
 
         let mut rng = thread_rng();
-        
+
         let mut list: Vec<Fp31> = Vec::with_capacity(LIST_LENGTH);
         for _ in 0..LIST_LENGTH {
             list.push(rng.gen::<Fp31>());
@@ -102,7 +107,10 @@ mod test {
 
         let hash_2 = compute_hash(&list);
 
-        assert_ne!(hash_1, hash_2, "The hash should change if the input is different");
+        assert_ne!(
+            hash_1, hash_2,
+            "The hash should change if the input is different"
+        );
     }
 
     #[test]
@@ -110,17 +118,14 @@ mod test {
         const LIST_LENGTH: usize = 5;
 
         let mut rng = thread_rng();
-        
+
         let mut left = Vec::with_capacity(LIST_LENGTH);
         let mut right = Vec::with_capacity(LIST_LENGTH);
         for _ in 0..LIST_LENGTH {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(
-            compute_hash(&left),
-            compute_hash(&right),
-        );
+        let r1: Fp32BitPrime = hash_to_field(compute_hash(&left), compute_hash(&right));
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -132,11 +137,11 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(
-            compute_hash(&left),
-            compute_hash(&right),
-        );
+        let r2: Fp32BitPrime = hash_to_field(compute_hash(&left), compute_hash(&right));
 
-        assert_ne!(r1, r2, "any modification to either list should change the hashed field element");
+        assert_ne!(
+            r1, r2,
+            "any modification to either list should change the hashed field element"
+        );
     }
 }

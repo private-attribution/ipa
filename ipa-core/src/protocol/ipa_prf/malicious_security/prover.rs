@@ -107,6 +107,57 @@ where
         (proof, next_proof_generator)
     }
 
+    pub fn compute_proof_only<λ: ArrayLength, I, J>(
+        u: I,
+        v: J,
+    ) -> ZeroKnowledgeProof<F, TwoNMinusOne<λ>>
+    where
+        λ: ArrayLength + Add + Sub<U1>,
+        <λ as Add>::Output: Sub<U1>,
+        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
+        <λ as Sub<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
+    {
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
+
+        debug_assert_eq!(u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
+
+        let s = u.len() / λ::USIZE;
+
+        assert!(
+            s > 1,
+            "When the output is this small, you should call `compute_final_proof`"
+        );
+
+        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
+        let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
+        let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut proof: GenericArray<F, TwoNMinusOne<λ>> = GenericArray::generate(|_| F::ZERO);
+        for _ in 0..s {
+            for i in 0..λ::USIZE {
+                let x = u.next().unwrap_or(F::ZERO);
+                let y = v.next().unwrap_or(F::ZERO);
+                p[i] = x;
+                q[i] = y;
+                proof[i] += x * y;
+            }
+            let p_extrapolated = lagrange_table.eval(&p);
+            let q_extrapolated = lagrange_table.eval(&q);
+
+            for (i, (x, y)) in
+                zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
+            {
+                proof[λ::USIZE + i] += x * y;
+            }
+        }
+        ZeroKnowledgeProof::new(proof)
+    }
+
     pub fn compute_final_proof<λ: ArrayLength>(
         &self,
         p_0: F,
@@ -138,6 +189,56 @@ where
             )
             .map(|(a, b)| a * b),
         )
+    }
+
+    pub fn compute_final_proof_only<λ: ArrayLength, I, J>(
+        u: I,
+        v: J,
+        p_0: F,
+        q_0: F,
+    ) -> ZeroKnowledgeProof<F, TwoNPlusOne<λ>>
+    where
+        λ: ArrayLength + Add + Add<U1>,
+        <λ as Add>::Output: Add<U1>,
+        <<λ as Add>::Output as Add<U1>>::Output: ArrayLength,
+        <λ as Add<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
+    {
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
+
+        assert_eq!(u.len(), λ::USIZE); // We should pad with zeroes eventually
+        assert_eq!(v.len(), λ::USIZE); // We should pad with zeroes eventually
+
+        // We need a table of size `λ + 1` since we add a random point at x=0
+        let denominator = CanonicalLagrangeDenominator::<F, Sum<λ, U1>>::new();
+        let lagrange_table = LagrangeTable::<F, Sum<λ, U1>, λ>::from(denominator);
+
+        let mut p = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
+        let mut proof: GenericArray<F, TwoNPlusOne<λ>> = GenericArray::generate(|_| F::ZERO);
+        p[0] = p_0;
+        q[0] = q_0;
+        proof[0] = p_0 * q_0;
+
+        for i in 0..λ::USIZE {
+            let x = u.next().unwrap_or(F::ZERO);
+            let y = v.next().unwrap_or(F::ZERO);
+            p[i + 1] = x;
+            q[i + 1] = y;
+            proof[i + 1] += x * y;
+        }
+        let p_extrapolated = lagrange_table.eval(&p);
+        let q_extrapolated = lagrange_table.eval(&q);
+
+        for (i, (x, y)) in zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate() {
+            proof[λ::USIZE + 1 + i] += x * y;
+        }
+
+        ZeroKnowledgeProof::new(proof)
     }
 }
 
@@ -209,6 +310,16 @@ mod test {
         );
         assert_eq!(pg_2, (&U_2[..], &V_2[..]));
 
+        // test proof only fn
+        let just_proof_1 = ProofGenerator::<Fp31>::compute_proof_only::<U4, _, _>(
+            U_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+        );
+        assert_eq!(
+            just_proof_1.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
+            EXPECTED_1,
+        );
+
         // next iteration
         let (proof_2, pg_3) = pg_2.compute_proof::<U4>(Fp31::try_from(R_2).unwrap());
         assert_eq!(
@@ -217,6 +328,16 @@ mod test {
         );
         assert_eq!(pg_3, (&U_3[..], &V_3[..]));
 
+        // test proof only fn
+        let just_proof_2 = ProofGenerator::<Fp31>::compute_proof_only::<U4, _, _>(
+            U_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+        );
+        assert_eq!(
+            just_proof_2.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
+            EXPECTED_2,
+        );
+
         // final iteration
         let proof_3 = pg_3.compute_final_proof::<U2>(
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
@@ -224,6 +345,18 @@ mod test {
         );
         assert_eq!(
             proof_3.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
+            EXPECTED_3,
+        );
+
+        // test proof only fn
+        let just_proof_3 = ProofGenerator::<Fp31>::compute_final_proof_only::<U2, _, _>(
+            U_3.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_3.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
+            Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
+        );
+        assert_eq!(
+            just_proof_3.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
             EXPECTED_3,
         );
     }
