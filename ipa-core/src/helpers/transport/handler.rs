@@ -1,8 +1,4 @@
-use std::{
-    fmt::{Debug, Formatter},
-    future::Future,
-    marker::PhantomData,
-};
+use std::{fmt::Debug, future::Future, marker::PhantomData};
 
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -96,12 +92,6 @@ impl<I: TransportIdentity> HandlerBox<I> {
 #[derive(Clone)]
 pub struct HandlerRef<I = HelperIdentity> {
     inner: Arc<HandlerBox<I>>,
-}
-
-impl Debug for HelperResponse {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
 }
 
 impl HelperResponse {

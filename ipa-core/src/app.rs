@@ -28,6 +28,10 @@ pub struct HelperApp {
 
 struct Inner {
     query_processor: QueryProcessor,
+    /// For HTTP implementation this transport is also behind an [`Arc`] which causes double indirection
+    /// on top of atomics and all fun stuff associated with it. I don't see an easy way to avoid that
+    /// if we want to keep the implementation leak-free, but one may be aware if this shows up on
+    /// the flamegraph
     transport: TransportImpl,
 }
 

@@ -120,7 +120,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                             }
                         };
 
-                        ack.send(result).unwrap();
+                        ack.send(result).map_err(|_| "Channel closed").unwrap();
                     }
                 }
             }
