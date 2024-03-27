@@ -228,8 +228,7 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
-// #[cfg(all(test, web_test))] //FIXME
-#[cfg(all(test, feature = "real-world-infra"))]
+#[cfg(all(test, web_test))]
 mod tests {
     use std::{iter::zip, net::TcpListener, task::Poll};
 
