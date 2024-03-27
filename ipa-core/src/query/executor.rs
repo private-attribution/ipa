@@ -36,7 +36,7 @@ use crate::{
 };
 
 pub trait Result: Send + Debug {
-    fn into_bytes(self: Box<Self>) -> Vec<u8>;
+    fn as_bytes(&self) -> Vec<u8>;
 }
 
 impl<T> Result for Vec<T>
@@ -44,9 +44,9 @@ where
     T: Serializable,
     Vec<T>: Debug + Send,
 {
-    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         let mut r = vec![0u8; self.len() * T::Size::USIZE];
-        for (i, row) in self.into_iter().enumerate() {
+        for (i, row) in self.iter().enumerate() {
             row.serialize(GenericArray::from_mut_slice(
                 &mut r[(i * T::Size::USIZE)..((i + 1) * T::Size::USIZE)],
             ));
@@ -156,10 +156,10 @@ mod tests {
     fn serialize_result() {
         let [input, ..] = (0u128..=3).map(Fp31::truncate_from).share();
         let expected = input.clone();
-        let bytes = Box::new(input).into_bytes();
+        let bytes = &input.as_bytes();
         assert_eq!(
             expected,
-            AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+            AdditiveShare::<Fp31>::from_byte_slice(bytes)
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
         );

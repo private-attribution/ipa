@@ -2,7 +2,7 @@ use axum::{routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::Transport,
+    helpers::{routing::RouteId, Transport},
     net::{http_serde, Error, HttpTransport},
     sync::Arc,
 };
@@ -12,10 +12,15 @@ async fn handler(
     req: http_serde::query::input::Request,
 ) -> Result<(), Error> {
     let transport = Transport::clone_ref(&*transport);
-    transport
-        .query_input(req.query_input)
+    let _ = transport
+        .dispatch(
+            (RouteId::QueryInput, req.query_input.query_id),
+            req.query_input.input_stream,
+        )
         .await
-        .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))
+        .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(())
 }
 
 pub fn router(transport: Arc<HttpTransport>) -> Router {
@@ -26,11 +31,15 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
+
     use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
+    use tokio::runtime::Handle;
 
     use crate::{
-        helpers::{query::QueryInput, BytesStream, TransportCallbacks},
+        helpers::{
+            make_owned_handler, query::QueryInput, routing::RouteId, BytesStream, HelperResponse,
+        },
         net::{
             http_serde,
             server::handlers::query::{
@@ -42,26 +51,37 @@ mod tests {
         protocol::QueryId,
     };
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn input_test() {
         let expected_query_id = QueryId;
         let expected_input = &[4u8; 4];
-        let cb = TransportCallbacks {
-            query_input: Box::new(move |_transport, query_input| {
-                Box::pin(async move {
-                    assert_eq!(query_input.query_id, expected_query_id);
-                    assert_eq!(&query_input.input_stream.to_vec().await, expected_input);
-                    Ok(())
-                })
-            }),
-            ..Default::default()
-        };
-        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        let req_handler = make_owned_handler(move |addr, data| async move {
+            let RouteId::QueryInput = addr.route else {
+                panic!("unexpected call");
+            };
+
+            assert_eq!(addr.query_id, Some(expected_query_id));
+            assert_eq!(
+                tokio::task::block_in_place(move || {
+                    Handle::current().block_on(async move { data.to_vec().await })
+                }),
+                expected_input
+            );
+
+            Ok(HelperResponse::ok())
+        });
+
+        let test_server = TestServer::builder()
+            .with_request_handler(req_handler)
+            .build()
+            .await;
         let req = http_serde::query::input::Request::new(QueryInput {
             query_id: expected_query_id,
             input_stream: expected_input.to_vec().into(),
         });
-        handler(Extension(transport), req).await.unwrap();
+        handler(Extension(test_server.transport), req)
+            .await
+            .unwrap();
     }
 
     struct OverrideReq {

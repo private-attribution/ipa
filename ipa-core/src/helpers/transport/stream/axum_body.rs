@@ -4,6 +4,7 @@ use std::{
 };
 
 use axum::extract::{BodyStream, FromRequest, RequestParts};
+use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
 use hyper::Body;
 use pin_project::pin_project;
@@ -27,6 +28,11 @@ impl WrappedAxumBodyStream {
 
     pub(super) fn new_internal(inner: BodyStream) -> Self {
         Self(inner.map_err(axum::Error::into_inner as fn(axum::Error) -> BoxError))
+    }
+
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::from_body(Bytes::new())
     }
 }
 

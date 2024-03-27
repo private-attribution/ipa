@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        transport::in_memory::transport::{InMemoryTransport, ListenerSetup, Setup},
+        transport::in_memory::transport::{InMemoryTransport, Setup},
         HelperIdentity,
     },
     sharding::ShardIndex,
@@ -36,7 +36,7 @@ impl InMemoryShardNetwork {
 
             shard_connections
                 .into_iter()
-                .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(())))
+                .map(|s| tracing::info_span!("", ?h).in_scope(|| s.start(None)))
                 .collect::<Vec<_>>()
                 .into()
         });
@@ -74,7 +74,10 @@ mod tests {
     use tokio_stream::wrappers::ReceiverStream;
 
     use crate::{
-        helpers::{transport::in_memory::InMemoryShardNetwork, HelperIdentity, RouteId, Transport},
+        helpers::{
+            transport::{in_memory::InMemoryShardNetwork, routing::RouteId},
+            HelperIdentity, Transport,
+        },
         protocol::{step::Gate, QueryId},
         sharding::ShardIndex,
         test_executor::run,

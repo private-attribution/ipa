@@ -2,7 +2,7 @@ use axum::{routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::Transport,
+    helpers::{ApiError::NewQuery, BodyStream, Transport},
     net::{http_serde, Error, HttpTransport},
     query::NewQueryError,
     sync::Arc,
@@ -15,9 +15,12 @@ async fn handler(
     req: http_serde::query::create::Request,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
     let transport = Transport::clone_ref(&*transport);
-    match transport.receive_query(req.query_config).await {
-        Ok(query_id) => Ok(Json(http_serde::query::create::ResponseBody { query_id })),
-        Err(err @ NewQueryError::State { .. }) => {
+    match transport
+        .dispatch(req.query_config, BodyStream::empty())
+        .await
+    {
+        Ok(resp) => Ok(Json(resp.try_into()?)),
+        Err(err @ NewQuery(NewQueryError::State { .. })) => {
             Err(Error::application(StatusCode::CONFLICT, err))
         }
         Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
@@ -32,7 +35,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{future::ready, num::NonZeroU32};
+    use std::num::NonZeroU32;
 
     use axum::http::Request;
     use hyper::{
@@ -43,8 +46,10 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
-            TransportCallbacks,
+            make_owned_handler,
+            query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
+            routing::{Addr, RouteId},
+            HelperIdentity, HelperResponse, Role, RoleAssignment,
         },
         net::{
             http_serde,
@@ -55,19 +60,29 @@ mod tests {
     };
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let cb = TransportCallbacks {
-            receive_query: Box::new(move |_transport, query_config| {
-                assert_eq!(query_config, expected_query_config);
-                Box::pin(ready(Ok(QueryId)))
-            }),
-            ..Default::default()
-        };
-        let TestServer { server, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _| async move {
+                    let RouteId::ReceiveQuery = addr.route else {
+                        panic!("unexpected call");
+                    };
+
+                    let query_config = addr.into().unwrap();
+                    assert_eq!(query_config, expected_query_config);
+                    Ok(HelperResponse::from(PrepareQuery {
+                        query_id: QueryId,
+                        config: query_config,
+                        roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                    }))
+                },
+            ))
+            .build()
+            .await;
         let req = http_serde::query::create::Request::new(expected_query_config);
         let req = req
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        let resp = server.handle_req(req).await;
+        let resp = test_server.server.handle_req(req).await;
 
         let status = resp.status();
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
