@@ -80,7 +80,7 @@ mod tests {
         let results = handler(Extension(test_server.transport), req.clone())
             .await
             .unwrap();
-        assert_eq!(results, expected_results.as_bytes());
+        assert_eq!(results, expected_results.to_bytes());
     }
 
     struct OverrideReq {

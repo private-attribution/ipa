@@ -137,7 +137,7 @@ impl From<QueryStatus> for HelperResponse {
 
 impl<R: AsRef<dyn ProtocolResult>> From<R> for HelperResponse {
     fn from(value: R) -> Self {
-        let v = value.as_ref().as_bytes();
+        let v = value.as_ref().to_bytes();
         Self { body: v }
     }
 }

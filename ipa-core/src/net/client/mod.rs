@@ -658,7 +658,7 @@ pub(crate) mod tests {
             results.to_vec(),
             [Replicated::from((expected_results[0], expected_results[1]))]
                 .to_vec()
-                .as_bytes()
+                .to_bytes()
         );
     }
 }

@@ -2,7 +2,7 @@ use axum::{routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{ApiError::NewQuery, BodyStream, Transport},
+    helpers::{ApiError, BodyStream, Transport},
     net::{http_serde, Error, HttpTransport},
     query::NewQueryError,
     sync::Arc,
@@ -20,7 +20,7 @@ async fn handler(
         .await
     {
         Ok(resp) => Ok(Json(resp.try_into()?)),
-        Err(err @ NewQuery(NewQueryError::State { .. })) => {
+        Err(err @ ApiError::NewQuery(NewQueryError::State { .. })) => {
             Err(Error::application(StatusCode::CONFLICT, err))
         }
         Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),

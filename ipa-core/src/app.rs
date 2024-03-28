@@ -115,7 +115,7 @@ impl HelperApp {
             .query_processor
             .complete(query_id)
             .await?
-            .as_bytes())
+            .to_bytes())
     }
 }
 
