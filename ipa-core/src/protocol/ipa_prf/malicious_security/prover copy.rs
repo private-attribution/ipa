@@ -84,7 +84,7 @@ where
             "When the output is this small, you should validate the proof with a more straightforward reveal"
         );
 
-        let r: F = hash_to_field(&compute_hash(&proof_left), &compute_hash(&proof_right));
+        let r: F = hash_to_field(compute_hash(&proof_left), compute_hash(&proof_right));
         let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();

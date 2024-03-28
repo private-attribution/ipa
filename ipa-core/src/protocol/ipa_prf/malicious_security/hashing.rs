@@ -1,35 +1,33 @@
 use std::convert::Infallible;
 
 use generic_array::GenericArray;
-use sha2::{Digest, Sha256};
-use typenum::U32;
+use sha2::{
+    digest::{Output, OutputSizeUser},
+    Digest, Sha256,
+};
 
 use crate::{
     ff::{Field, Serializable},
-    helpers::Message,
     protocol::prss::FromRandomU128,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Hash(pub(crate) GenericArray<u8, U32>);
+#[derive(Debug, PartialEq)]
+pub struct Hash(Output<Sha256>);
 
 impl Serializable for Hash {
-    type Size = U32;
+    type Size = <Sha256 as OutputSizeUser>::OutputSize;
+
     type DeserializationError = Infallible;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        *buf = self.0;
+        buf.copy_from_slice(&self.0);
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        Ok(Hash(*buf))
+        Ok(Hash(*Output::<Sha256>::from_slice(buf)))
     }
 }
 
-impl Message for Hash {}
-
-/// This function allows to compute a hash of a slice of shared values.
-/// The output is a single `Hash` struct that can be sent over the network channel to other helper parties.
 pub fn compute_hash<'a, I, S>(input: I) -> Hash
 where
     I: IntoIterator<Item = &'a S>,
@@ -37,20 +35,25 @@ where
 {
     // set up hash
     let mut sha = Sha256::new();
+    let mut buf = GenericArray::default();
+    let mut is_empty = true;
+
     // set state
     for x in input {
-        let mut buf = GenericArray::default();
+        is_empty = false;
         x.serialize(&mut buf);
-        sha.update(buf);
+        sha.update(&buf);
     }
+
+    assert!(!is_empty, "must not provide an empty iterator");
     // compute hash
-    Hash(*GenericArray::<u8, U32>::from_slice(&sha.finalize()[0..32]))
+    Hash(sha.finalize())
 }
 
-/// This function allows to hash a vector of field elements into a single field element
+/// This function takes two hash a vector of field elements into a single field element
 /// # Panics
 /// does not panic
-pub fn hash_to_field<F>(left: Hash, right: Hash) -> F
+pub fn hash_to_field<F>(left: &Hash, right: &Hash) -> F
 where
     F: Field + FromRandomU128,
 {
@@ -78,12 +81,11 @@ where
 mod test {
     use rand::{thread_rng, Rng};
 
+    use super::compute_hash;
     use crate::{
         ff::{Fp31, Fp32BitPrime},
         protocol::ipa_prf::malicious_security::hashing::hash_to_field,
     };
-
-    use super::compute_hash;
 
     #[test]
     fn hash_changes() {
@@ -111,6 +113,18 @@ mod test {
             hash_1, hash_2,
             "The hash should change if the input is different"
         );
+
+        // swapping two elements should change the hash
+        let index_1 = rng.gen_range(0..LIST_LENGTH);
+        let index_2 = (index_1 + rng.gen_range(1..LIST_LENGTH)) % LIST_LENGTH;
+        list.swap(index_1, index_2);
+
+        let hash_3 = compute_hash(&list);
+
+        assert_ne!(
+            hash_2, hash_3,
+            "The hash should change if two elements are swapped"
+        );
     }
 
     #[test]
@@ -125,7 +139,7 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(compute_hash(&left), compute_hash(&right));
+        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -137,7 +151,7 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(compute_hash(&left), compute_hash(&right));
+        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
 
         assert_ne!(
             r1, r2,
