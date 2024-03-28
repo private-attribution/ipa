@@ -24,9 +24,9 @@ pub type BreakdownKey = Gf8Bit;
 pub type TriggerValue = Gf3Bit;
 pub type Timestamp = Gf20Bit;
 
-// #[cfg(feature = "compact-gate")]
-// pub type Gate = ProtocolGate;
-// #[cfg(not(feature = "compact-gate"))]
+#[cfg(all(feature = "compact-gate", not(test), not(unit_test)))]
+pub type Gate = ProtocolGate;
+#[cfg(not(all(feature = "compact-gate", not(test), not(unit_test))))]
 pub type Gate = ipa_step::descriptive::Descriptive;
 
 /// Unique identifier of the MPC query requested by report collectors
