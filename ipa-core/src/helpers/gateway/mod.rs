@@ -6,7 +6,6 @@ mod transport;
 
 use std::num::NonZeroUsize;
 
-use ipa_step::Gate;
 pub(super) use receive::ReceivingEnd;
 pub(super) use send::SendingEnd;
 #[cfg(all(test, feature = "shuttle"))]
@@ -29,27 +28,27 @@ use crate::{
 /// To avoid proliferation of type parameters, most code references this concrete type alias, rather
 /// than a type parameter `T: Transport`.
 #[cfg(feature = "in-memory-infra")]
-pub type TransportImpl<G> = super::transport::InMemoryTransport<G>;
+pub type TransportImpl = super::transport::InMemoryTransport;
 
 #[cfg(feature = "real-world-infra")]
-pub type TransportImpl<G> = crate::sync::Arc<crate::net::HttpTransport<G>>;
+pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
 
-pub type TransportError<G> = <TransportImpl<G> as Transport<G>>::Error;
+pub type TransportError = <TransportImpl as Transport>::Error;
 
 /// Gateway into IPA Network infrastructure. It allows helpers send and receive messages.
-pub struct Gateway<G: Gate> {
+pub struct Gateway {
     config: GatewayConfig,
-    transport: RoleResolvingTransport<G>,
+    transport: RoleResolvingTransport,
     #[cfg(feature = "stall-detection")]
-    inner: crate::sync::Arc<State<G>>,
+    inner: crate::sync::Arc<State>,
     #[cfg(not(feature = "stall-detection"))]
-    inner: State<G>,
+    inner: State,
 }
 
 #[derive(Default)]
-pub struct State<G: Gate> {
-    senders: GatewaySenders<G>,
-    receivers: GatewayReceivers<G>,
+pub struct State {
+    senders: GatewaySenders,
+    receivers: GatewayReceivers,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -65,13 +64,13 @@ pub struct GatewayConfig {
     pub progress_check_interval: std::time::Duration,
 }
 
-impl<G: Gate> Gateway<G> {
+impl Gateway {
     #[must_use]
     pub fn new(
         query_id: QueryId,
         config: GatewayConfig,
         roles: RoleAssignment,
-        transport: TransportImpl<G>,
+        transport: TransportImpl,
     ) -> Self {
         #[allow(clippy::useless_conversion)] // not useless in stall-detection build
         Self {
@@ -102,9 +101,9 @@ impl<G: Gate> Gateway<G> {
     #[must_use]
     pub fn get_sender<M: Message>(
         &self,
-        channel_id: &ChannelId<G>,
+        channel_id: &ChannelId,
         total_records: TotalRecords,
-    ) -> send::SendingEnd<G, M> {
+    ) -> send::SendingEnd<M> {
         let (tx, maybe_stream) = self.inner.senders.get_or_create::<M>(
             channel_id,
             self.config.active_work(),
@@ -128,10 +127,7 @@ impl<G: Gate> Gateway<G> {
     }
 
     #[must_use]
-    pub fn get_receiver<M: Message>(
-        &self,
-        channel_id: &ChannelId<G>,
-    ) -> receive::ReceivingEnd<G, M> {
+    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> receive::ReceivingEnd<M> {
         receive::ReceivingEnd::new(
             channel_id.clone(),
             self.inner
@@ -181,7 +177,6 @@ mod tests {
     use std::iter::{repeat, zip};
 
     use futures_util::future::{join, try_join, try_join_all};
-    use ipa_step::Gate;
 
     use crate::{
         ff::{Fp31, Fp32BitPrime, Gf2, U128Conversions},
@@ -197,9 +192,9 @@ mod tests {
     /// Gateway must be able to deal with it.
     #[tokio::test]
     async fn can_handle_heterogeneous_channels() {
-        async fn send<G: Gate, M: Message + U128Conversions>(channel: &SendingEnd<G, M>, i: usize) {
+        async fn send<V: Message + U128Conversions>(channel: &SendingEnd<V>, i: usize) {
             channel
-                .send(i.into(), M::truncate_from(u128::try_from(i).unwrap()))
+                .send(i.into(), V::truncate_from(u128::try_from(i).unwrap()))
                 .await
                 .unwrap();
         }

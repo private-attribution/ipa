@@ -1,7 +1,6 @@
 use std::{num::NonZeroU32, ops::Add};
 
 use generic_array::{ArrayLength, GenericArray};
-use ipa_macros::Step;
 use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
@@ -35,15 +34,9 @@ pub mod prf_sharding;
 
 mod quicksort;
 mod shuffle;
+mod step;
 
-#[derive(Step)]
-pub(crate) enum Step {
-    ConvertFp25519,
-    EvalPrf,
-    ConvertInputRowsToPrf,
-    Shuffle,
-    SortByTimestamp,
-}
+use step::IpaPrfStep as Step;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]

@@ -20,7 +20,7 @@ use crate::{
         Transport, TransportCallbacks,
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
     sync::Arc,
 };
 

@@ -69,7 +69,6 @@ impl<T: ObserveState> Observed<T> {
 mod gateway {
 
     use delegate::delegate;
-    use ipa_step::Gate;
 
     use super::{receive, send, AtomicUsize, Debug, Formatter, ObserveState, Observed, Weak};
     use crate::{
@@ -82,14 +81,14 @@ mod gateway {
         sync::Arc,
     };
 
-    pub struct InstrumentedGateway<G: Gate> {
-        gateway: Gateway<G>,
+    pub struct InstrumentedGateway {
+        gateway: Gateway,
         // Gateway owns the sequence number associated with it. When it goes out of scope, sn is destroyed
         // and external observers can see that they no longer need to watch it.
         _sn: Arc<AtomicUsize>,
     }
 
-    impl<G: Gate> Observed<InstrumentedGateway<G>> {
+    impl Observed<InstrumentedGateway> {
         delegate! {
             to self.inner().gateway {
 
@@ -150,9 +149,9 @@ mod gateway {
         #[must_use]
         pub fn get_sender<M: Message>(
             &self,
-            channel_id: &ChannelId<G>,
+            channel_id: &ChannelId,
             total_records: TotalRecords,
-        ) -> SendingEnd<G, M> {
+        ) -> SendingEnd<M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),
                 self.inner().gateway.get_sender(channel_id, total_records),
@@ -160,14 +159,14 @@ mod gateway {
         }
 
         #[must_use]
-        pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId<G>) -> ReceivingEnd<G, M> {
+        pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<M> {
             Observed::wrap(
                 Weak::clone(self.get_sn()),
                 self.inner().gateway.get_receiver(channel_id),
             )
         }
 
-        pub fn to_observed(&self) -> Observed<Weak<State<G>>> {
+        pub fn to_observed(&self) -> Observed<Weak<State>> {
             // todo: inner.inner
             Observed::wrap(
                 Weak::clone(self.get_sn()),
@@ -194,8 +193,8 @@ mod gateway {
         }
     }
 
-    impl<G: Gate> ObserveState for Weak<State<G>> {
-        type State = GatewayWaitingTasks<send::WaitingTasks<G>, receive::WaitingTasks<G>>;
+    impl ObserveState for Weak<State> {
+        type State = GatewayWaitingTasks<send::WaitingTasks, receive::WaitingTasks>;
 
         fn get_state(&self) -> Option<Self::State> {
             self.upgrade().and_then(|state| {
@@ -217,8 +216,6 @@ mod receive {
         fmt::{Debug, Formatter},
     };
 
-    use ipa_step::Gate;
-
     use super::{ObserveState, Observed};
     use crate::{
         helpers::{
@@ -229,7 +226,7 @@ mod receive {
         protocol::RecordId,
     };
 
-    impl<G: Gate, M: Message> Observed<ReceivingEnd<G, M>> {
+    impl<M: Message> Observed<ReceivingEnd<M>> {
         delegate::delegate! {
             to { self.advance(); self.inner() } {
                 #[inline]
@@ -238,9 +235,9 @@ mod receive {
         }
     }
 
-    pub struct WaitingTasks<G: Gate>(BTreeMap<ChannelId<G>, Vec<String>>);
+    pub struct WaitingTasks(BTreeMap<ChannelId, Vec<String>>);
 
-    impl<G: Gate> Debug for WaitingTasks<G> {
+    impl Debug for WaitingTasks {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             for (channel, records) in &self.0 {
                 write!(
@@ -254,8 +251,8 @@ mod receive {
         }
     }
 
-    impl<G: Gate> ObserveState for GatewayReceivers<G> {
-        type State = WaitingTasks<G>;
+    impl ObserveState for GatewayReceivers {
+        type State = WaitingTasks;
 
         fn get_state(&self) -> Option<Self::State> {
             let mut map = BTreeMap::default();
@@ -278,8 +275,6 @@ mod send {
         fmt::{Debug, Formatter},
     };
 
-    use ipa_step::Gate;
-
     use super::{ObserveState, Observed};
     use crate::{
         helpers::{
@@ -290,7 +285,7 @@ mod send {
         protocol::RecordId,
     };
 
-    impl<G: Gate, M: Message> Observed<crate::helpers::gateway::send::SendingEnd<G, M>> {
+    impl<M: Message> Observed<crate::helpers::gateway::send::SendingEnd<M>> {
         delegate::delegate! {
             to { self.advance(); self.inner() } {
                 #[inline]
@@ -299,9 +294,9 @@ mod send {
         }
     }
 
-    pub struct WaitingTasks<G: Gate>(BTreeMap<ChannelId<G>, (TotalRecords, Vec<String>)>);
+    pub struct WaitingTasks(BTreeMap<ChannelId, (TotalRecords, Vec<String>)>);
 
-    impl<G: Gate> Debug for WaitingTasks<G> {
+    impl Debug for WaitingTasks {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             for (channel, (total, records)) in &self.0 {
                 write!(
@@ -315,8 +310,8 @@ mod send {
         }
     }
 
-    impl<G: Gate> ObserveState for GatewaySenders<G> {
-        type State = WaitingTasks<G>;
+    impl ObserveState for GatewaySenders {
+        type State = WaitingTasks;
 
         fn get_state(&self) -> Option<Self::State> {
             let mut state = BTreeMap::new();
@@ -332,7 +327,7 @@ mod send {
         }
     }
 
-    impl<G: Gate> ObserveState for GatewaySender<G> {
+    impl ObserveState for GatewaySender {
         type State = Vec<String>;
 
         fn get_state(&self) -> Option<Self::State> {

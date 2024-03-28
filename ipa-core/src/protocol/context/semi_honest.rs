@@ -6,22 +6,21 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
+use ipa_step::{Step, StepNarrow};
 
 use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
-        basics::{ShareKnownValue, ZeroPositions},
+        basics::{mul::step::UpgradeStep, ShareKnownValue, ZeroPositions},
         context::{
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        Gate, NoRecord, RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -186,16 +185,6 @@ impl<'a, F: ExtendableField> SeqJoin for Upgraded<'a, F> {
     }
 }
 
-// This is a dummy step that is used to narrow (but never executed) the semi-honest
-// context. Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
-// `UpgradeToMalicious::upgrade()` narrows but these will end up in
-// `UpgradedContext::upgrade_one()` or `UpgradedContext::upgrade_sparse()` which both
-// return Ok() and never trigger communications.
-#[derive(Step)]
-pub(crate) enum UpgradeStep {
-    UpgradeSemiHonest,
-}
-
 #[async_trait]
 impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     type Share = Replicated<F>;
@@ -223,7 +212,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), NoRecord)
+        UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
             .upgrade(input)
             .await
     }
@@ -233,7 +222,7 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         T: Send,
         UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), record_id)
+        UpgradeContext::new(self.narrow(&UpgradeStep), record_id)
             .upgrade(input)
             .await
     }

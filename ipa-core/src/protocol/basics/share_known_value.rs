@@ -1,18 +1,14 @@
 use crate::{
     ff::Field,
     helpers::Role,
-    protocol::context::Context,
+    protocol::context::{Context, UpgradedContext, UpgradedMaliciousContext},
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        replicated::{
+            malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
         SharedValue,
-    },
-};
-#[cfg(feature = "descriptive-gate")]
-use crate::{
-    protocol::context::UpgradedContext,
-    protocol::context::UpgradedMaliciousContext,
-    secret_sharing::replicated::malicious::{
-        AdditiveShare as MaliciousReplicated, ExtendableField,
     },
 };
 
@@ -34,7 +30,6 @@ impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> ShareKnownValue<UpgradedMaliciousContext<'a, F>, F>
     for MaliciousReplicated<F>
 {

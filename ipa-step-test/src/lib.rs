@@ -11,7 +11,7 @@ mod tests {
     };
 
     #[test]
-    fn it_works() {
+    fn narrows() {
         assert_eq!(ComplexGate::default().as_ref(), "/");
         assert_eq!(
             ComplexGate::default().narrow(&ComplexStep::One).as_ref(),

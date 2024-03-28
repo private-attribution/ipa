@@ -6,41 +6,27 @@
 
 use std::{borrow::Borrow, iter::repeat, ops::Not};
 
-#[cfg(all(test, unit_test))]
-use ipa_macros::Step;
-
-#[cfg(all(test, unit_test))]
-use crate::secret_sharing::FieldVectorizable;
 use crate::{
     error::Error,
-    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, CustomArray, Expand, Field},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
+        boolean::step::BitOpStep,
         context::Context,
-        step::BitOpStep,
+        ipa_prf::boolean_ops::step::SaturatedSubtractionStep as Step,
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, FieldSimd, FieldVectorizable, SharedValue,
+    },
 };
-#[cfg(all(test, unit_test))]
-use crate::{
-    ff::{CustomArray, Expand},
-    secret_sharing::SharedValue,
-};
-
-#[cfg(all(test, unit_test))]
-#[derive(Step)]
-pub(crate) enum Step {
-    SaturatedSubtraction,
-    MultiplyWithCarry,
-}
 
 /// Comparison operation
 ///
 /// Outputs x>=y for length(x) >= log2(y).
 /// # Errors
 /// Propagates errors from multiply
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 pub async fn compare_geq<C, F, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -114,7 +100,7 @@ where
 /// when y>x, it outputs 0. Only correct when length(x) >= log2(y).
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 pub async fn integer_sat_sub<F, C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,

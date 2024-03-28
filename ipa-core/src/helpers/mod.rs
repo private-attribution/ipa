@@ -5,7 +5,6 @@ use std::{
 };
 
 use generic_array::GenericArray;
-use ipa_step::Gate;
 
 mod buffers;
 mod error;
@@ -27,9 +26,9 @@ mod gateway_exports {
         gateway::{stall_detection::Observed, InstrumentedGateway},
     };
 
-    pub type Gateway<G> = Observed<InstrumentedGateway<G>>;
-    pub type SendingEnd<G, M> = Observed<gateway::SendingEnd<G, M>>;
-    pub type ReceivingEnd<G, M> = Observed<gateway::ReceivingEnd<G, M>>;
+    pub type Gateway = Observed<InstrumentedGateway>;
+    pub type SendingEnd<M> = Observed<gateway::SendingEnd<M>>;
+    pub type ReceivingEnd<M> = Observed<gateway::ReceivingEnd<M>>;
 }
 
 #[cfg(not(feature = "stall-detection"))]
@@ -65,7 +64,7 @@ use crate::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
-    protocol::RecordId,
+    protocol::{Gate, RecordId},
     secret_sharing::Sendable,
 };
 
@@ -406,21 +405,21 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ChannelId<G: Gate> {
+pub struct ChannelId {
     pub role: Role,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
-    pub gate: G,
+    pub gate: Gate,
 }
 
-impl<G: Gate> ChannelId<G> {
+impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, gate: G) -> Self {
+    pub fn new(role: Role, gate: Gate) -> Self {
         Self { role, gate }
     }
 }
 
-impl<G: Gate> Debug for ChannelId<G> {
+impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "channel[{:?},{:?}]", self.role, self.gate.as_ref())
     }

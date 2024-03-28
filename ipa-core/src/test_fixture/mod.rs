@@ -21,6 +21,7 @@ use std::fmt::Debug;
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::TryFuture;
+use ipa_step::{Step, StepNarrow};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
@@ -29,11 +30,7 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 
 use crate::{
     ff::{Field, U128Conversions},
-    protocol::{
-        context::Context,
-        prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-    },
+    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Gate},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
     },

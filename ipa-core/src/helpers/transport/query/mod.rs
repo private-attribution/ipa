@@ -5,6 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
+use ipa_step::Step;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{

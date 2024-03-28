@@ -7,6 +7,7 @@ use std::{
 use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
+use ipa_step::StepNarrow;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
@@ -23,11 +24,7 @@ use crate::{
         BodyStream, Gateway,
     },
     hpke::{KeyPair, KeyRegistry},
-    protocol::{
-        context::SemiHonestContext,
-        prss::Endpoint as PrssEndpoint,
-        step::{Gate, StepNarrow},
-    },
+    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
     query::{
         runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,

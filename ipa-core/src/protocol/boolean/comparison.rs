@@ -1,17 +1,18 @@
-use ipa_macros::Step;
-
-use super::or::or;
+use super::{or::or, step::BitOpStep};
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        boolean::random_bits_generator::RandomBitsGenerator,
+        boolean::{random_bits_generator::RandomBitsGenerator, step::ComparisonStep},
         context::{Context, UpgradedContext},
-        step::BitOpStep,
         BasicProtocols, RecordId,
     },
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
+
+#[path = "comparison_step.rs"]
+mod comparison_step;
+use comparison_step::GreaterThanConstantStep as Step;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //
@@ -75,8 +76,6 @@ where
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     for<'a> &'a S: LinearRefOps<'a, S, F>,
 {
-    use GreaterThanConstantStep as Step;
-
     assert!(c < F::PRIME.into());
 
     let r = rbg.generate(record_id).await?;
@@ -144,14 +143,6 @@ fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
     RBounds { r_lo, r_hi, invert }
 }
 
-#[derive(Step)]
-pub(crate) enum GreaterThanConstantStep {
-    Reveal,
-    CompareLo,
-    CompareHi,
-    And,
-}
-
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
 ///
 /// Rabbit: Efficient Comparison for Secure Multi-Party Computation
@@ -182,7 +173,13 @@ where
     let first_diff_bit = first_differing_bit(&ctx, record_id, a, c).await?;
 
     // Compute the dot-product [a] x `first_diff_bit`. 1 iff a > c.
-    S::sum_of_products(ctx.narrow(&Step::DotProduct), record_id, &first_diff_bit, a).await
+    S::sum_of_products(
+        ctx.narrow(&ComparisonStep::DotProduct),
+        record_id,
+        &first_diff_bit,
+        a,
+    )
+    .await
 }
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a < c`
@@ -221,7 +218,7 @@ where
 
     // Compute the dot-product [~a] x `first_diff_bit`. 1 iff a < c.
     S::sum_of_products(
-        ctx.narrow(&Step::DotProduct),
+        ctx.narrow(&ComparisonStep::DotProduct),
         record_id,
         &first_diff_bit,
         &not_a,
@@ -259,7 +256,7 @@ where
 
     // Compute prefix-or of the xor'ed bits. This yields 0's followed by 1's with the transition
     // from 0 to 1 occurring at the index of the first different bit.
-    let prefix_or_context = ctx.narrow(&Step::PrefixOr);
+    let prefix_or_context = ctx.narrow(&ComparisonStep::PrefixOr);
     let mut first_diff_bit = Vec::with_capacity(xored_bits.len());
     let mut previous_bit = xored_bits.last().cloned().unwrap();
     first_diff_bit.push(previous_bit.clone());
@@ -290,12 +287,6 @@ where
     first_diff_bit.reverse();
 
     Ok(first_diff_bit)
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    PrefixOr,
-    DotProduct,
 }
 
 #[cfg(all(test, unit_test))]

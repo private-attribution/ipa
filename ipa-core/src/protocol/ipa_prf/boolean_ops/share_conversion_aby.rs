@@ -1,7 +1,5 @@
 use std::ops::Neg;
 
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::{
@@ -10,22 +8,19 @@ use crate::{
     },
     helpers::Role,
     protocol::{
-        basics::Reveal, context::Context, ipa_prf::boolean_ops::addition_sequential::integer_add,
-        prss::SharedRandomness, RecordId,
+        basics::Reveal,
+        context::Context,
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add, step::Fp25519ConversionStep as Step,
+        },
+        prss::SharedRandomness,
+        RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
     },
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    GenerateSecretSharing,
-    IntegerAddBetweenMasks,
-    IntegerAddMaskToX,
-    RevealY,
-}
 
 /// share conversion
 /// from Boolean array of size n to integer mod p, where p is modulus of elliptic curve field `Fp25519`

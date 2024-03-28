@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use futures::future::try_join;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -18,11 +17,9 @@ use crate::{
     },
 };
 
-#[derive(Step)]
-pub(crate) enum Step {
-    DuplicateSop,
-    RandomnessForValidation,
-}
+#[path = "step.rs"]
+mod step;
+use step::Step;
 
 ///
 /// Implementation drawn from:

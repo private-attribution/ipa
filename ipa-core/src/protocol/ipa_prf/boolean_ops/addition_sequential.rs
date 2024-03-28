@@ -1,21 +1,14 @@
-#[cfg(all(test, unit_test))]
-use ipa_macros::Step;
-
-#[cfg(all(test, unit_test))]
-use crate::secret_sharing::{FieldSimd, FieldVectorizable};
 use crate::{
     error::Error,
     ff::{ArrayAccess, CustomArray, Field},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+    protocol::{
+        basics::SecureMul, boolean::step::BitOpStep, context::Context,
+        ipa_prf::boolean_ops::step::SaturatedAdditionStep as Step, RecordId,
+    },
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, FieldSimd, FieldVectorizable, SharedValue,
+    },
 };
-
-#[cfg(all(test, unit_test))]
-#[derive(Step)]
-pub(crate) enum Step {
-    SaturatedAddition,
-    IfElse,
-}
 
 /// Non-saturated unsigned integer addition
 /// This function adds y to x.
@@ -25,6 +18,7 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// propagates errors from multiply
+#[allow(dead_code)]
 pub async fn integer_add<C, XS, YS>(
     ctx: C,
     record_id: RecordId,
@@ -47,7 +41,7 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
+#[allow(dead_code)]
 pub async fn integer_sat_add<F, C, S, const N: usize>(
     ctx: C,
     record_id: RecordId,

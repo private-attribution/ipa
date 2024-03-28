@@ -2,6 +2,8 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod sum;
+#[cfg(feature = "build")]
+mod track;
 mod variant;
 
 use std::env;
@@ -15,40 +17,30 @@ use variant::Generator;
 
 use crate::variant::VariantAttribute;
 
-/// Derive an implementation of `Step` and `CompactStep`.
-///
-/// # Panics
-/// This can fail in a bunch of ways.
-/// * The derive attribute needs to be used on a enum.
-/// * Attributes need to be set correctly.
-#[proc_macro_derive(CompactStep, attributes(step))]
-pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
-    let output = match derive_step_impl(&parse_macro_input!(input as DeriveInput)) {
-        Ok(s) => s,
-        Err(e) => e.into_compile_error(),
-    };
-    TokenStreamBasic::from(output)
-}
-
-#[proc_macro_derive(CompactGate)]
-pub fn derive_gate(input: TokenStreamBasic) -> TokenStreamBasic {
-    TokenStreamBasic::from(derive_gate_impl(&parse_macro_input!(input as DeriveInput)))
-}
-
 /// A utility trait that allows for more streamlined error reporting.
 trait IntoSpan {
-    fn into_span(self) -> Result<Span, syn::Error>;
+    fn into_span(self) -> syn::Result<Span>;
 
-    fn error<T>(self, msg: &str) -> Result<T, syn::Error>
+    fn error<T>(self, msg: &str) -> syn::Result<T>
     where
         Self: Sized,
     {
-        Err(syn::Error::new(self.into_span()?, msg))
+        Err(self.raw_err(msg))
+    }
+
+    fn raw_err(self, msg: &str) -> syn::Error
+    where
+        Self: Sized,
+    {
+        match self.into_span() {
+            Ok(span) => syn::Error::new(span, msg),
+            Err(e) => e,
+        }
     }
 }
 
 impl IntoSpan for Span {
-    fn into_span(self) -> Result<Span, syn::Error> {
+    fn into_span(self) -> syn::Result<Span> {
         Ok(self)
     }
 }
@@ -57,9 +49,41 @@ impl<T> IntoSpan for &T
 where
     T: syn::spanned::Spanned,
 {
-    fn into_span(self) -> Result<Span, syn::Error> {
+    fn into_span(self) -> syn::Result<Span> {
         Ok(self.span())
     }
+}
+
+fn wrap_impl(res: Result<TokenStream, syn::Error>) -> TokenStreamBasic {
+    TokenStreamBasic::from(match res {
+        Ok(s) => s,
+        Err(e) => e.into_compile_error(),
+    })
+}
+
+/// Derive an implementation of `Step` and `CompactStep`.
+///
+/// # Panics
+/// This can fail in a bunch of ways.
+/// * The derive attribute needs to be used on a enum.
+/// * Attributes need to be set correctly.
+#[proc_macro_derive(CompactStep, attributes(step))]
+pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
+    wrap_impl(derive_step_impl(&parse_macro_input!(input as DeriveInput)))
+}
+
+/// Generate a `Gate` implementation from an implementation of `CompactStep`.
+/// The resulting object will be the top-level entry-point for a complete protocol.
+#[proc_macro_derive(CompactGate)]
+pub fn derive_gate(input: TokenStreamBasic) -> TokenStreamBasic {
+    TokenStreamBasic::from(derive_gate_impl(&parse_macro_input!(input as DeriveInput)))
+}
+
+/// Used to generate a map of steps for use in a build script.
+#[cfg(feature = "build")]
+#[proc_macro]
+pub fn track_steps(input: TokenStreamBasic) -> TokenStreamBasic {
+    wrap_impl(track::track_steps_impl(TokenStream::from(input)))
 }
 
 fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {

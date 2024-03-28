@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -9,6 +8,7 @@ use crate::{
     protocol::{
         boolean::{
             bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
+            step::SolvedBitsStep as Step,
         },
         context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
@@ -137,13 +137,6 @@ where
         return Ok(false);
     }
     Ok(true)
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    RandomBits,
-    IsPLessThanB,
-    RevealC,
 }
 
 #[cfg(all(test, unit_test))]

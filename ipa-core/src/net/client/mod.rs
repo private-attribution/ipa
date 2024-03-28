@@ -26,7 +26,7 @@ use crate::{
         HelperIdentity,
     },
     net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
-    protocol::{step::Gate, QueryId},
+    protocol::{Gate, QueryId},
 };
 
 #[derive(Clone, Default)]

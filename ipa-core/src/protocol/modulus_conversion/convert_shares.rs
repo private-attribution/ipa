@@ -28,7 +28,6 @@ use std::{
 };
 
 use futures::stream::{unfold, Stream, StreamExt};
-use ipa_macros::Step;
 use pin_project::pin_project;
 
 use crate::{
@@ -49,14 +48,9 @@ use crate::{
     seq_join::seq_join,
 };
 
-#[derive(Step)]
-pub(crate) enum ConvertSharesStep {
-    #[dynamic(64)]
-    ConvertBit(u32),
-    Upgrade,
-    Xor1,
-    Xor2,
-}
+#[path = "convert_step.rs"]
+mod convert_step;
+use convert_step::ConvertSharesStep;
 
 #[derive(Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
@@ -366,9 +360,7 @@ where
     let stream = unfold(
         (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
-            let Some((triple, residual)) = locally_converted.next().await else {
-                return None;
-            };
+            let (triple, residual) = locally_converted.next().await?;
             let bit_contexts = (0..).map(|i| ctx.narrow(&ConvertSharesStep::ConvertBit(i)));
             let converted =
                 ctx.parallel_join(zip(bit_contexts, triple).map(|(ctx, triple)| async move {

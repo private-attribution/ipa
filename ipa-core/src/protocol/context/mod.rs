@@ -1,7 +1,7 @@
-#[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
+pub mod step;
 pub mod upgrade;
 
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
@@ -12,7 +12,7 @@ pub mod validator;
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
-#[cfg(feature = "descriptive-gate")]
+use ipa_step::{Step, StepNarrow};
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
@@ -22,12 +22,7 @@ pub use validator::Validator;
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
-    protocol::{
-        basics::ZeroPositions,
-        prss::Endpoint as PrssEndpoint,
-        step::{Gate, Step, StepNarrow},
-        RecordId,
-    },
+    protocol::{basics::ZeroPositions, prss::Endpoint as PrssEndpoint, Gate, RecordId},
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
         SecretSharing,
@@ -274,6 +269,7 @@ mod tests {
     use std::iter::repeat;
 
     use futures_util::{future::join_all, try_join};
+    use ipa_step::StepNarrow;
     use rand::{
         distributions::{Distribution, Standard},
         Rng,
@@ -285,12 +281,11 @@ mod tests {
         helpers::{Direction, Role},
         protocol::{
             context::{
-                validator::Step::MaliciousProtocol, Context, UpgradableContext, UpgradedContext,
-                Validator,
+                step::MaliciousProtocolStep::MaliciousProtocol, Context, UpgradableContext,
+                UpgradedContext, Validator,
             },
             prss::SharedRandomness,
-            step::{Gate, StepNarrow},
-            RecordId,
+            Gate, RecordId,
         },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},

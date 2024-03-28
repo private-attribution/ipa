@@ -4,7 +4,6 @@ mod step_stats;
 pub use step_stats::CsvExporter as StepStatsCsvExporter;
 
 pub mod labels {
-    #[cfg(any(feature = "descriptive-gate", debug_assertions))]
     pub use ::ipa_step::descriptive::labels::STEP;
     pub const ROLE: &str = "role";
 }
@@ -17,7 +16,6 @@ pub mod metrics {
     pub const BYTES_SENT: &str = "bytes.sent";
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
-    #[cfg(any(feature = "descriptive-gate", debug_assertions))]
     pub use ::ipa_step::descriptive::labels::STEP_NARROWED;
 
     #[cfg(feature = "web-app")]

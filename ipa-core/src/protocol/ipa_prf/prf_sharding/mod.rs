@@ -8,9 +8,7 @@ use futures::{
     stream::{iter as stream_iter, unfold},
     Stream, StreamExt, TryStreamExt,
 };
-use ipa_macros::Step;
 
-use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
     error::Error,
     ff::{
@@ -23,9 +21,13 @@ use crate::{
         basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_add,
-            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+        ipa_prf::{
+            boolean_ops::{
+                addition_sequential::integer_add,
+                comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+                expand_shared_array_in_place,
+            },
+            prf_sharding::step::{AttributionStep as Step, UserNthRowStep},
         },
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         RecordId,
@@ -41,8 +43,8 @@ use crate::{
 };
 
 pub mod bucket;
-#[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
+mod step;
 
 #[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
@@ -296,52 +298,6 @@ impl<
     {
         (self.triple_range(role, indices), ())
     }
-}
-
-#[derive(Step)]
-pub enum UserNthRowStep {
-    #[dynamic(64)]
-    Row(usize),
-}
-
-impl From<usize> for UserNthRowStep {
-    fn from(v: usize) -> Self {
-        Self::Row(v)
-    }
-}
-
-#[derive(Step)]
-pub enum BinaryTreeDepthStep {
-    #[dynamic(64)]
-    Depth(usize),
-}
-
-impl From<usize> for BinaryTreeDepthStep {
-    fn from(v: usize) -> Self {
-        Self::Depth(v)
-    }
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    BinaryValidator,
-    PrimeFieldValidator,
-    EverEncounteredSourceEvent,
-    DidTriggerGetAttributed,
-    AttributedBreakdownKey,
-    AttributedTriggerValue,
-    AttributedEventCheckFlag,
-    CheckAttributionWindow,
-    ComputeTimeDelta,
-    CompareTimeDeltaToAttributionWindow,
-    SourceEventTimestamp,
-    ComputeSaturatingSum,
-    IsSaturatedAndPrevRowNotSaturated,
-    ComputeDifferenceToCap,
-    ComputedCappedAttributedTriggerValueNotSaturatedCase,
-    ComputedCappedAttributedTriggerValueJustSaturatedCase,
-    ModulusConvertBreakdownKeyBitsAndTriggerValues,
-    MoveValueToCorrectBreakdown,
 }
 
 pub trait GroupingKey {

@@ -2,17 +2,17 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
-use ipa_macros::Step;
+use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
         basics::ZeroPositions,
-        context::UpgradedContext,
+        boolean::step::BitOpStep,
+        context::{step::UpgradeTripleStep, UpgradedContext},
         modulus_conversion::BitConversionTriple,
-        step::{BitOpStep, Gate, Step, StepNarrow},
-        NoRecord, RecordBinding, RecordId,
+        Gate, NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -28,7 +28,6 @@ use crate::{
 /// record ID and the other can use something like a `BitOpStep`.
 ///
 ///
-#[cfg_attr(not(feature = "descriptive-gate"), doc = "```ignore")]
 /// ```no_run
 /// use ipa_core::protocol::{context::{UpgradeContext, UpgradeToMalicious, UpgradedMaliciousContext as C}, NoRecord, RecordId};
 /// use ipa_core::ff::Fp32BitPrime as F;
@@ -93,13 +92,6 @@ where
     T: Send,
 {
     async fn upgrade(self, input: T) -> Result<M, Error>;
-}
-
-#[derive(Step)]
-pub(crate) enum UpgradeTripleStep {
-    UpgradeBitTriple0,
-    UpgradeBitTriple1,
-    UpgradeBitTriple2,
 }
 
 #[async_trait]
@@ -244,7 +236,7 @@ where
 
 // This could also work on a record-bound context, but it's only used in one place for tests where
 // that's not currently required.
-#[cfg(all(test, feature = "descriptive-gate"))]
+#[cfg(test)]
 impl<'a, C: UpgradedContext<F>, F: ExtendableField> UpgradeContext<'a, C, F, NoRecord> {
     pub(super) async fn upgrade_sparse(
         self,

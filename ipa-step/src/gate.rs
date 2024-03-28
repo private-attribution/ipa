@@ -9,51 +9,6 @@ use syn::{parse2, parse_str, Ident, Path};
 
 use crate::{name::GateName, CompactGateIndex, CompactStep};
 
-#[macro_export]
-macro_rules! module_file {
-    ($a:ident$(::$b:ident)* @ $f:expr) => {
-        $f
-    };
-    ($a:ident$(::$b:ident)*) => {
-        concat!("src/", stringify!($a), $("/", stringify!($b)),* ".rs")
-    };
-}
-
-#[macro_export]
-macro_rules! load_steps {
-    (@ $f:expr, $m:ident) => {
-        pub mod $m {
-            include!($f);
-        }
-    };
-
-    (@ $f:expr, $a:ident::$b:ident$(::$c:ident)*) => {
-        pub mod $a {
-            ::ipa_step::load_steps!(@ $f, $b$(::$c)*);
-        }
-    };
-
-    // The typical form for the macro:
-    // step_module(module::name, other::module)
-    // But for modules (including ".../mod.rs") without simple names:
-    // step_module(module::name @ "path/to/mod.rs", other::module)
-    ($($a:ident$(::$b:ident)* $(@ $f:expr)?),*) => {
-        $(::ipa_step::load_steps!(@ ::ipa_step::module_file!($a$(::$b)* $(@ $f)?), $a$(::$b)*);)*
-    };
-}
-
-#[macro_export]
-macro_rules! track_steps {
-    ($($a:ident$(::$b:ident)* $(@ $f:expr)*),*) => {
-        $(println!("cargo:rerun-if-changed={f}", f = ::ipa_step::module_file!($a$(::$b)* $(@ $f)?));)*
-        println!("cargo:rerun-if-changed={f}", f = ::std::file!());
-        assert!(::std::env::var(::ipa_step::COMPACT_GATE_INCLUDE_ENV).is_err(),
-                "setting `{e}` in the environment will cause build errors",
-                e = ::ipa_step::COMPACT_GATE_INCLUDE_ENV);
-        println!("cargo:rustc-env={e}=true", e = ::ipa_step::COMPACT_GATE_INCLUDE_ENV);
-    };
-}
-
 fn crate_path(p: &str) -> String {
     let Some((_, p)) = p.split_once("::") else {
         panic!("unable to handle name of type `{p}`");

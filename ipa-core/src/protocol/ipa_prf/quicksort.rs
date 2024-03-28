@@ -5,26 +5,22 @@ use std::{
 
 use bitvec::prelude::{BitVec, Lsb0};
 use futures::stream::{iter as stream_iter, TryStreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray},
     protocol::{
-        basics::Reveal, context::Context,
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
+        basics::Reveal,
+        context::Context,
+        ipa_prf::{
+            boolean_ops::comparison_and_subtraction_sequential::compare_gt,
+            step::QuicksortStep as Step,
+        },
+        RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
     seq_join::seq_join,
 };
-
-#[derive(Step)]
-pub(crate) enum Step {
-    #[dynamic(1024)]
-    QuicksortPass(usize),
-    Compare,
-    Reveal,
-}
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
 ///
@@ -160,7 +156,7 @@ pub mod tests {
         iter::{repeat, repeat_with},
     };
 
-    use ipa_macros::Step;
+    use ipa_step_derive::CompactStep;
     use rand::Rng;
 
     use crate::{
@@ -175,7 +171,7 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    #[derive(Step)]
+    #[derive(CompactStep)]
     pub(crate) enum Step {
         TestReverse,
     }

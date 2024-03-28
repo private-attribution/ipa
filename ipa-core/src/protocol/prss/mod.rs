@@ -13,9 +13,8 @@ pub use crypto::{
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use x25519_dalek::PublicKey;
 
-use super::step::Gate;
 use crate::{
-    protocol::RecordId,
+    protocol::{Gate, RecordId},
     rand::{CryptoRng, RngCore},
     sync::{Arc, Mutex},
 };
@@ -346,6 +345,7 @@ impl EndpointSetup {
 
 #[cfg(all(test, unit_test))]
 pub mod test {
+    use ipa_step::StepNarrow;
     use rand::prelude::SliceRandom;
 
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
@@ -353,7 +353,7 @@ pub mod test {
         ff::{Field, Fp31, U128Conversions},
         protocol::{
             prss::{Endpoint, PrssIndex, SharedRandomness},
-            step::{Gate, StepNarrow},
+            Gate,
         },
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,

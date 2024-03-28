@@ -206,8 +206,8 @@ pub(in crate::protocol) mod test {
         },
         protocol::{
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
+            boolean::step::BitOpStep,
             context::{Context, UpgradableContext, UpgradedContext, Validator},
-            step::BitOpStep,
             RecordId,
         },
         rand::{thread_rng, Rng},

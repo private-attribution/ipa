@@ -34,6 +34,7 @@ mod tests {
     use axum::http::Request;
     use futures::{stream::poll_immediate, StreamExt};
     use hyper::{Body, StatusCode};
+    use ipa_step::StepNarrow;
 
     use super::*;
     use crate::{
@@ -45,10 +46,7 @@ mod tests {
             },
             test::TestServer,
         },
-        protocol::{
-            step::{Gate, StepNarrow},
-            QueryId,
-        },
+        protocol::{Gate, QueryId},
     };
 
     const DATA_LEN: usize = 3;

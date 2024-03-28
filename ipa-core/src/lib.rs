@@ -161,7 +161,3 @@ macro_rules! mutually_incompatible {
 }
 
 mutually_incompatible!("in-memory-infra", "real-world-infra");
-mutually_incompatible!("compact-gate", "descriptive-gate");
-
-#[cfg(all(not(feature = "compact-gate"), not(feature = "descriptive-gate")))]
-compile_error!("feature \"compact-gate\" or \"descriptive-gate\" must be enabled");

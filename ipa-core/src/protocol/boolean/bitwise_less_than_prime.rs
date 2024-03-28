@@ -1,15 +1,14 @@
 use std::cmp::Ordering;
 
 use futures::future::try_join;
-use ipa_macros::Step;
+use ipa_step_derive::CompactStep;
 
 use crate::{
     error::Error,
     ff::PrimeField,
     protocol::{
-        boolean::{any_ones, multiply_all_shares, or::or},
+        boolean::{any_ones, multiply_all_shares, or::or, step::BitOpStep},
         context::Context,
-        step::BitOpStep,
         BasicProtocols, RecordId,
     },
     secret_sharing::Linear as LinearSecretSharing,
@@ -191,7 +190,7 @@ impl BitwiseLessThanPrime {
     }
 }
 
-#[derive(Step)]
+#[derive(CompactStep)]
 pub(crate) enum Step {
     CheckTrimmed,
     CheckIfAnyOnes,

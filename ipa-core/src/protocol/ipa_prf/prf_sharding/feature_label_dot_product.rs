@@ -2,7 +2,6 @@ use std::{iter::zip, pin::pin};
 
 use futures::{stream::iter as stream_iter, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
@@ -11,6 +10,7 @@ use crate::{
         basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
+        ipa_prf::prf_sharding::step::{FeatureLabelDotProductStep as Step, UserNthRowStep},
         modulus_conversion::convert_bits,
         RecordId,
     },
@@ -107,30 +107,6 @@ impl InputsRequiredFromPrevRow {
 
         Ok(capped_attributed_feature_vector)
     }
-}
-
-#[derive(Step)]
-pub enum UserNthRowStep {
-    #[dynamic(64)]
-    Row(usize),
-}
-
-impl From<usize> for UserNthRowStep {
-    fn from(v: usize) -> Self {
-        Self::Row(v)
-    }
-}
-
-#[derive(Step)]
-pub(crate) enum Step {
-    BinaryValidator,
-    PrimeFieldValidator,
-    EverEncounteredTriggerEvent,
-    DidSourceReceiveAttribution,
-    ComputeSaturatingSum,
-    IsAttributedSourceAndPrevRowNotSaturated,
-    ComputedCappedFeatureVector,
-    ModulusConvertFeatureVectorBits,
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>

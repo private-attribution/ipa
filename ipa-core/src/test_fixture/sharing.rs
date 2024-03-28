@@ -152,7 +152,6 @@ where
     }
 }
 
-#[cfg(feature = "descriptive-gate")]
 impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
 where
     F: Field + U128Conversions,

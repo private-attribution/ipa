@@ -5,7 +5,6 @@ use crate::{
     protocol::{context::Context, RecordId},
 };
 
-#[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
 

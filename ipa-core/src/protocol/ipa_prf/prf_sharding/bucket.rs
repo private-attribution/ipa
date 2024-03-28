@@ -1,42 +1,18 @@
 use embed_doc_image::embed_doc_image;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::{PrimeField, Serializable},
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        basics::SecureMul,
+        context::UpgradedContext,
+        ipa_prf::prf_sharding::step::{BinaryTreeDepthStep, BucketStep},
         RecordId,
     },
     secret_sharing::{
         replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
     },
 };
-
-#[derive(Step)]
-pub enum BucketStep {
-    #[dynamic(256)]
-    Bit(usize),
-}
-
-impl TryFrom<u32> for BucketStep {
-    type Error = String;
-
-    fn try_from(v: u32) -> Result<Self, Self::Error> {
-        let val = usize::try_from(v);
-        let val = match val {
-            Ok(val) => Self::Bit(val),
-            Err(error) => panic!("{error:?}"),
-        };
-        Ok(val)
-    }
-}
-
-impl From<usize> for BucketStep {
-    fn from(v: usize) -> Self {
-        Self::Bit(v)
-    }
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum MoveToBucketError {

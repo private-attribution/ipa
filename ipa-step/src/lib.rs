@@ -1,6 +1,5 @@
 #![allow(clippy::module_name_repetitions)]
 
-#[cfg(any(feature = "descriptive", debug_assertions))]
 pub mod descriptive;
 #[cfg(feature = "build")]
 pub mod gate;
@@ -30,10 +29,7 @@ pub type CompactGateIndex = u16;
 pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
-#[cfg(any(feature = "descriptive", debug_assertions))]
 impl Step for String {}
-
-#[cfg(any(feature = "descriptive", debug_assertions))]
 impl Step for str {}
 
 /// For a gate identifier, this takes a step toward an adjacent gate.

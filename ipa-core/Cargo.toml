@@ -12,13 +12,14 @@ default = [
     # by default remove all TRACE, DEBUG spans from release builds
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
-    "descriptive-gate",
+    "compact-gate",
     "aggregate-circuit",
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
 ]
 cli = ["comfy-table", "clap"]
+compact-gate = []
 enable-serde = ["serde", "serde_json"]
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
@@ -57,9 +58,7 @@ real-world-infra = []
 dhat-heap = ["cli", "test-fixture"]
 # Enable this feature to enable our colossally weak Fp31.
 weak-field = []
-step-trace = ["ipa-step/descriptive", "ipa-step/trace"]
-# Descriptive gates should be enabled by default as the vast majority of unit tests rely on it.
-descriptive-gate = ["ipa-step/descriptive"]
+step-trace = ["ipa-step/trace"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
 # Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
@@ -159,7 +158,7 @@ tikv-jemallocator = "0.5.0"
 [build-dependencies]
 cfg_aliases = "0.1.1"
 ipa-step = { version = "*", path = "../ipa-step", features = ["build"] }
-ipa-step-derive = { version = "*", path = "../ipa-step-derive" }
+ipa-step-derive = { version = "*", path = "../ipa-step-derive", features = ["build"] }
 
 [dev-dependencies]
 command-fds = "0.2.2"
@@ -198,25 +197,25 @@ bench = false
 name = "criterion_arithmetic"
 path = "benches/ct/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "iai_arithmetic"
 path = "benches/iai/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "oneshot_arithmetic"
 path = "benches/oneshot/arithmetic_circuit.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[bench]]
 name = "oneshot_ipa"
 path = "benches/oneshot/ipa.rs"
 harness = false
-required-features = ["enable-benches", "descriptive-gate"]
+required-features = ["enable-benches"]
 
 [[test]]
 name = "helper_networks"
@@ -225,7 +224,6 @@ required-features = [
     "web-app",
     "real-world-infra",
     "test-fixture",
-    "descriptive-gate",
 ]
 
 [[test]]

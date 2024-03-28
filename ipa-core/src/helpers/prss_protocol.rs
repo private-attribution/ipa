@@ -1,22 +1,23 @@
-#[path = "prss_step.rs"]
-mod prss_step;
-
 use futures_util::future::try_join4;
-use prss_step::{PrssExchangeGate, PrssExchangeStep};
+use ipa_step::StepNarrow;
 use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
 
 use crate::{
     helpers::{ChannelId, Direction, Error, Gateway, TotalRecords},
-    protocol::{prss, RecordId},
+    protocol::{prss, Gate, RecordId},
 };
+
+#[path = "prss_step.rs"]
+mod prss_step;
+pub use prss_step::PrssExchangeStep;
 
 /// establish the prss endpoint by exchanging public keys with the other helpers
 /// # Errors
 /// if communication with other helpers fails
 pub async fn negotiate<R: RngCore + CryptoRng>(
-    gateway: &Gateway<PrssExchangeGate>,
-    gate: &PrssExchangeGate,
+    gateway: &Gateway,
+    gate: &Gate,
     rng: &mut R,
 ) -> Result<prss::Endpoint, Error> {
     // setup protocol to exchange prss public keys. This protocol sends one message per peer.

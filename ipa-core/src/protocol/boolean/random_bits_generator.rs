@@ -3,8 +3,6 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use ipa_macros::Step;
-
 use crate::{
     error::Error,
     ff::PrimeField,
@@ -16,6 +14,10 @@ use crate::{
     },
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
+
+#[path = "fallback_step.rs"]
+mod fallback_step;
+use fallback_step::FallbackStep;
 
 /// A struct that generates random sharings of bits from the
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
@@ -31,14 +33,6 @@ pub struct RandomBitsGenerator<F, C, S> {
     _marker: PhantomData<(F, S)>,
 }
 
-/// Special context that is used when values generated using the standard method are larger
-/// than the prime for the field. It is grossly inefficient to use, because communications
-/// are unbuffered, but a prime that is close to a power of 2 helps reduce how often we need it.
-#[derive(Step)]
-pub(crate) enum FallbackStep {
-    Fallback,
-}
-
 impl<F, C, S> RandomBitsGenerator<F, C, S>
 where
     F: PrimeField,
@@ -49,7 +43,7 @@ where
     #[must_use]
     pub fn new(ctx: C) -> Self {
         let fallback_ctx = ctx
-            .narrow(&FallbackStep::Fallback)
+            .narrow(&FallbackStep)
             .set_total_records(TotalRecords::Indeterminate);
         Self {
             ctx,
