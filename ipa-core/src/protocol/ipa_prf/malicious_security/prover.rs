@@ -56,55 +56,6 @@ where
         Self { u, v }
     }
 
-    pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
-        proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
-        proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
-        u: I,
-        v: J,
-    ) -> ProofGenerator<F>
-    where
-        λ: ArrayLength + Add + Sub<U1>,
-        <λ as Add>::Output: Sub<U1>,
-        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
-        <λ as Sub<U1>>::Output: ArrayLength,
-        I: IntoIterator<Item = F>,
-        J: IntoIterator<Item = F>,
-        I::IntoIter: ExactSizeIterator,
-        J::IntoIter: ExactSizeIterator,
-    {
-        let mut u = u.into_iter();
-        let mut v = v.into_iter();
-
-        debug_assert_eq!(u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
-
-        let s = u.len() / λ::USIZE;
-
-        assert!(
-            s > 1,
-            "When the output is this small, you should validate the proof with a more straightforward reveal"
-        );
-
-        let r: F = hash_to_field(&compute_hash(proof_left), &compute_hash(proof_right));
-        let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
-        let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
-        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
-        let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
-
-        let pairs = (0..s).map(|_| {
-            for i in 0..λ::USIZE {
-                let x = u.next().unwrap_or(F::ZERO);
-                let y = v.next().unwrap_or(F::ZERO);
-                p[i] = x;
-                q[i] = y;
-            }
-            let p_r = lagrange_table_r.eval(&p)[0];
-            let q_r = lagrange_table_r.eval(&q)[0];
-            (p_r, q_r)
-        });
-        let (u, v) = pairs.unzip();
-        ProofGenerator::new(u, v)
-    }
-
     pub fn compute_proof<λ: ArrayLength, I, J>(
         u: I,
         v: J,
@@ -204,6 +155,55 @@ where
         }
 
         ZeroKnowledgeProof::new(proof)
+    }
+
+    pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
+        proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
+        proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
+        u: I,
+        v: J,
+    ) -> ProofGenerator<F>
+    where
+        λ: ArrayLength + Add + Sub<U1>,
+        <λ as Add>::Output: Sub<U1>,
+        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
+        <λ as Sub<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
+    {
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
+
+        debug_assert_eq!(u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
+
+        let s = u.len() / λ::USIZE;
+
+        assert!(
+            s > 1,
+            "When the output is this small, you should validate the proof with a more straightforward reveal"
+        );
+
+        let r: F = hash_to_field(&compute_hash(proof_left), &compute_hash(proof_right));
+        let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
+        let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
+
+        let pairs = (0..s).map(|_| {
+            for i in 0..λ::USIZE {
+                let x = u.next().unwrap_or(F::ZERO);
+                let y = v.next().unwrap_or(F::ZERO);
+                p[i] = x;
+                q[i] = y;
+            }
+            let p_r = lagrange_table_r.eval(&p)[0];
+            let q_r = lagrange_table_r.eval(&q)[0];
+            (p_r, q_r)
+        });
+        let (u, v) = pairs.unzip();
+        ProofGenerator::new(u, v)
     }
 }
 
