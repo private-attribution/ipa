@@ -1,5 +1,6 @@
 mod basic_step;
 mod complex_step;
+mod module;
 
 #[cfg(test)]
 mod tests {
@@ -8,6 +9,10 @@ mod tests {
     use crate::{
         basic_step::BasicStep,
         complex_step::{ComplexGate, ComplexStep},
+        module::{
+            a::{Alpha, AlphaGate},
+            b::Beta,
+        },
     };
 
     #[test]
@@ -48,5 +53,14 @@ mod tests {
     #[should_panic(expected = "unexpected narrow for ComplexGate(/two2/one) => BasicStep(two)")]
     fn bad_narrow() {
         _ = ComplexGate::from("/two2/one").narrow(&BasicStep::Two);
+    }
+
+    /// Test that the alpha and beta gates work.
+    #[test]
+    fn alpha_and_beta() {
+        assert_eq!(
+            AlphaGate::default().narrow(&Alpha).narrow(&Beta::One),
+            AlphaGate::from("/alpha/one")
+        );
     }
 }

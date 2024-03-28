@@ -36,3 +36,13 @@ pub(crate) enum ComparisonStep {
     PrefixOr,
     DotProduct,
 }
+
+#[derive(CompactStep)]
+pub(crate) enum BitwiseLessThanStep {
+    CheckTrimmed,
+    CheckIfAnyOnes,
+    LeadingOnesOrRest,
+    CheckIfAllOnes,
+    CheckLeastSignificantBits,
+    AllOnesAndFinalBits,
+}

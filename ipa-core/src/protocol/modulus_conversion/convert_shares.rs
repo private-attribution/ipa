@@ -39,6 +39,7 @@ use crate::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,
         context::{Context, UpgradeContext, UpgradeToMalicious, UpgradedContext},
+        modulus_conversion::step::ConvertSharesStep,
         RecordId,
     },
     secret_sharing::{
@@ -47,10 +48,6 @@ use crate::{
     },
     seq_join::seq_join,
 };
-
-#[path = "convert_step.rs"]
-mod convert_step;
-use convert_step::ConvertSharesStep;
 
 #[derive(Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);

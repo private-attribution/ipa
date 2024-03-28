@@ -5,10 +5,11 @@ use std::{
 };
 
 use proc_macro2::{
-    token_stream::IntoIter as TokenTreeIter, Delimiter, Punct, Spacing, TokenStream, TokenTree,
+    token_stream::IntoIter as TokenTreeIter, Delimiter, Punct, Spacing, Span, TokenStream,
+    TokenTree,
 };
 use quote::{quote, ToTokens, TokenStreamExt};
-use syn::{parse::Parser, parse2, Ident, LitStr};
+use syn::{parse::Parser, parse2, token::Pub, Ident, LitStr, Visibility};
 
 use crate::IntoSpan;
 
@@ -26,6 +27,10 @@ impl ModulePath {
 
     fn len(&self) -> usize {
         self.path.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.path.is_empty()
     }
 
     /// Determine if this path is a prefix of the other.
@@ -238,8 +243,16 @@ impl<'p, 'm> ToTokens for ModuleTokens<'p, 'm> {
                 prefix: &prefix,
                 paths: self.paths,
             };
+            let exposure = if self.prefix.is_empty() {
+                TokenStream::new()
+            } else {
+                Visibility::Public(Pub {
+                    span: Span::call_site(),
+                })
+                .into_token_stream()
+            };
             tokens.extend(quote! {
-                mod #label {
+                #exposure mod #label {
                     #inner_tokens
                 }
             });

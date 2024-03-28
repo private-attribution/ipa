@@ -74,12 +74,39 @@ pub fn derive_step(input: TokenStreamBasic) -> TokenStreamBasic {
 
 /// Generate a `Gate` implementation from an implementation of `CompactStep`.
 /// The resulting object will be the top-level entry-point for a complete protocol.
+///
+/// For this macro to work, you need to use `track_steps!` and call
+/// `ipa_step::build_gate::<path::to::your::Step>()` in your `build.rs` file.
 #[proc_macro_derive(CompactGate)]
 pub fn derive_gate(input: TokenStreamBasic) -> TokenStreamBasic {
     TokenStreamBasic::from(derive_gate_impl(&parse_macro_input!(input as DeriveInput)))
 }
 
 /// Used to generate a map of steps for use in a build script.
+///
+/// ```ignore
+/// track_steps! {
+///   fn_name:
+///   path::to::step,
+///   path::to::other_step,
+///   other::path::{a, b @ "src/other/path/b_step.rs"}
+/// }
+/// ```
+///
+/// The first thing that needs to be included is an identifier, followed by a colon.
+/// The macro will generate a function by this name.  Call this function from `main()`.
+///
+/// Next, there is a list of module paths.  You can specify these in much the same
+/// way you would a `use` statement.  The macro will load files from your `src/`
+/// directory by default, inferring the name of the file from the module name.
+/// If you have a `mod.rs` or non-default filename (`#[path = "..."]`) then
+/// you can supply the location of the code by following the module name with `@`
+/// and the location of the file.
+///
+/// To keep things clean, you should put any `CompactStep` definitions in their own
+/// file.  Include as little additional code as possible, because that code will
+/// be compiled twice.  Any dependencies for that code will also need to be listed
+/// in `Cargo.toml` under `[build-dependencies]`.
 #[cfg(feature = "build")]
 #[proc_macro]
 pub fn track_steps(input: TokenStreamBasic) -> TokenStreamBasic {

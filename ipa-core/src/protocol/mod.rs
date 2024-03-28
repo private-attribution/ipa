@@ -5,6 +5,7 @@ pub mod dp;
 pub mod ipa_prf;
 pub mod modulus_conversion;
 pub mod prss;
+pub mod step;
 
 use std::{
     fmt::{Debug, Display, Formatter},
@@ -24,9 +25,9 @@ pub type BreakdownKey = Gf8Bit;
 pub type TriggerValue = Gf3Bit;
 pub type Timestamp = Gf20Bit;
 
-#[cfg(all(feature = "compact-gate", not(test), not(unit_test)))]
+#[cfg(not(descriptive_gate))]
 pub type Gate = ProtocolGate;
-#[cfg(not(all(feature = "compact-gate", not(test), not(unit_test))))]
+#[cfg(descriptive_gate)]
 pub type Gate = ipa_step::descriptive::Descriptive;
 
 /// Unique identifier of the MPC query requested by report collectors
