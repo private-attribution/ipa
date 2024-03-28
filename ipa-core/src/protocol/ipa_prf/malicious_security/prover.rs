@@ -46,7 +46,7 @@ pub type TwoNPlusOne<N> = Sum<Sum<N, N>, U1>;
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
 ///
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::many_single_char_names)]
 impl<F> ProofGenerator<F>
 where
     F: PrimeField,
@@ -57,8 +57,8 @@ where
     }
 
     pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
-        proof_left: GenericArray<F, TwoNMinusOne<λ>>,
-        proof_right: GenericArray<F, TwoNMinusOne<λ>>,
+        proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
+        proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
         u: I,
         v: J,
     ) -> ProofGenerator<F>
@@ -84,7 +84,7 @@ where
             "When the output is this small, you should validate the proof with a more straightforward reveal"
         );
 
-        let r: F = hash_to_field(&compute_hash(&proof_left), &compute_hash(&proof_right));
+        let r: F = hash_to_field(&compute_hash(proof_left), &compute_hash(proof_right));
         let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
@@ -277,8 +277,8 @@ mod test {
 
         // fiat-shamir
         let pg_2 = ProofGenerator::gen_challenge_and_recurse::<U4, _, _>(
-            proof_left_1,
-            proof_right_1,
+            &proof_left_1,
+            &proof_right_1,
             U_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
             V_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
         );
@@ -302,8 +302,8 @@ mod test {
 
         // fiat-shamir
         let pg_3 = ProofGenerator::gen_challenge_and_recurse::<U4, _, _>(
-            proof_left_2,
-            proof_right_2,
+            &proof_left_2,
+            &proof_right_2,
             pg_2.u,
             pg_2.v,
         );

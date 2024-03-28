@@ -115,8 +115,18 @@ mod test {
         );
 
         // swapping two elements should change the hash
-        let index_1 = rng.gen_range(0..LIST_LENGTH);
-        let index_2 = (index_1 + rng.gen_range(1..LIST_LENGTH)) % LIST_LENGTH;
+        let mut index_1 = 0;
+        let mut index_2 = 0;
+        // There is a 1 in 31 chance that these two elements are the exact same value.
+        // To make sure this doesn't become a flaky test, let's just pick two different
+        // elements to swap when that happens.
+        // This will be an infinite loop if all elements are the same. The chances of that
+        // are (1 / 31) ^ (LIST_LENGTH - 1)
+        // which is 1 in 923,521 when LIST_LENGTH is 5. I'm OK with that.
+        while list[index_1] == list[index_2] {
+            index_1 = rng.gen_range(0..LIST_LENGTH);
+            index_2 = (index_1 + rng.gen_range(1..LIST_LENGTH)) % LIST_LENGTH;
+        }
         list.swap(index_1, index_2);
 
         let hash_3 = compute_hash(&list);
