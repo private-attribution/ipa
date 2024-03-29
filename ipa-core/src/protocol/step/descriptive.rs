@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
-use serde::{Deserialize};
+
+use serde::Deserialize;
+
 use super::{Step, StepNarrow};
 #[cfg(feature = "step-trace")]
 use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};

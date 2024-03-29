@@ -8,8 +8,8 @@ pub mod echo {
 
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
-    use serde::{Deserialize, Serialize};
     use hyper::http::uri;
+    use serde::{Deserialize, Serialize};
 
     use crate::net::Error;
 
@@ -79,11 +79,11 @@ pub mod echo {
 }
 
 pub mod query {
-    use serde::Deserialize;
     use std::fmt::{Display, Formatter};
 
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
+    use serde::Deserialize;
 
     use crate::{
         ff::FieldType,
@@ -173,11 +173,11 @@ pub mod query {
     pub const BASE_AXUM_PATH: &str = "/query";
 
     pub mod create {
-        
-        use serde::{Deserialize, Serialize};
+
         use async_trait::async_trait;
         use axum::extract::{FromRequest, RequestParts};
         use hyper::http::uri;
+        use serde::{Deserialize, Serialize};
 
         use crate::{
             helpers::query::QueryConfig,
@@ -235,7 +235,6 @@ pub mod query {
     }
 
     pub mod prepare {
-        use serde::{Deserialize, Serialize};
         use async_trait::async_trait;
         use axum::{
             extract::{FromRequest, Path, RequestParts},
@@ -243,6 +242,7 @@ pub mod query {
             Json,
         };
         use hyper::header::CONTENT_TYPE;
+        use serde::{Deserialize, Serialize};
 
         use crate::{
             helpers::{query::PrepareQuery, RoleAssignment},

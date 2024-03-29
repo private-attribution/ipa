@@ -122,7 +122,6 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
     }
-
 }
 
 impl From<&QueryConfig> for GatewayConfig {
@@ -171,7 +170,6 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
     }
-
 }
 
 pub struct QueryInput {

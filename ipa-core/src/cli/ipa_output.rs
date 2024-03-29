@@ -1,5 +1,7 @@
 use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
+
 use crate::helpers::query::{IpaQueryConfig, QuerySize};
 
 #[derive(Debug, Serialize, Deserialize)]

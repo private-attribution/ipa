@@ -9,7 +9,7 @@
 
 #[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
-#[cfg( feature = "web-app")]
+#[cfg(feature = "web-app")]
 pub mod config;
 pub mod error;
 pub mod ff;

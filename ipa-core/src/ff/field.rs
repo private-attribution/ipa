@@ -3,8 +3,8 @@ use std::{
     ops::{Mul, MulAssign},
 };
 
-use typenum::{U1, U4};
 use serde::{Deserialize, Serialize};
+use typenum::{U1, U4};
 
 use crate::{
     protocol::prss::FromRandom,

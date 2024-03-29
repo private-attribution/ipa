@@ -13,7 +13,6 @@ mod gateway;
 pub(crate) mod prss_protocol;
 pub mod stream;
 mod transport;
-use serde::{Deserialize, Serialize, Serializer};
 use std::ops::{Index, IndexMut};
 
 /// to validate that transport can actually send streams of this type
@@ -21,6 +20,7 @@ use std::ops::{Index, IndexMut};
 pub use buffers::OrderingSender;
 pub use error::Error;
 pub use futures::MaybeFuture;
+use serde::{Deserialize, Serialize, Serializer};
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
