@@ -20,8 +20,7 @@ pub type Epoch = u8;
 /// An offset in seconds into a given epoch. Using an 32-bit value > 20-bit > 604,800 seconds.
 pub type Offset = u32;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecretShare {
     ss: [CipherText; 3],
 }
@@ -119,8 +118,7 @@ impl SecretSharable for u64 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// A timestamp of a source/trigger report represented by epoch and offset.
 ///
 /// Internally, the time is stored in `u32`, but the value is capped at `(Epoch::MAX + 1) * SECONDS_IN_EPOCH - 1`.
@@ -206,8 +204,7 @@ impl From<EventTimestamp> for u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Event {
     // An identifier, set in the user agent, which identifies an individual person. This must never be released (beyond
     /// the match key provider) to any party in unencrypted form. For the purpose of this tool, however, the value is in
@@ -222,8 +219,7 @@ pub struct Event {
     pub timestamp: EventTimestamp,
 }
 
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum GenericReport {
     /// An event produced on websites/apps when a user interacts with an ad (i.e. impression, click).
     Source {
@@ -242,22 +238,20 @@ pub enum GenericReport {
     },
 }
 
-// TODO(taiki): Implement Serialize/Deserialize
-
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 enum QueryType {
     SourceFanout,
     TriggerFanout,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 enum Node {
     Helper1,
     Helper2,
     Helper3,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct IPAQuery {
     /// Caller authentication token.
     auth_token: PlainText,
@@ -278,7 +272,7 @@ struct IPAQuery {
     reports: Vec<GenericReport>,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct SourceFanoutQuery {
     query: IPAQuery,
 
@@ -299,7 +293,7 @@ impl Debug for SourceFanoutQuery {
     }
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct TriggerFanoutQuery {
     query: IPAQuery,
 

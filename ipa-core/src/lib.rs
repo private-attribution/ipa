@@ -9,7 +9,7 @@
 
 #[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
-#[cfg(all(feature = "enable-serde", feature = "web-app"))]
+#[cfg( feature = "web-app")]
 pub mod config;
 pub mod error;
 pub mod ff;
@@ -29,7 +29,6 @@ pub mod test_fixture;
 
 mod app;
 mod seq_join;
-#[cfg(feature = "enable-serde")]
 mod serde;
 mod sharding;
 

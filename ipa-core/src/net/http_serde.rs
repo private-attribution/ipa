@@ -8,12 +8,12 @@ pub mod echo {
 
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
+    use serde::{Deserialize, Serialize};
     use hyper::http::uri;
 
     use crate::net::Error;
 
-    #[derive(Debug, Default, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+    #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Request {
         pub query_params: HashMap<String, String>,
         pub headers: HashMap<String, String>,
@@ -54,7 +54,6 @@ pub mod echo {
         }
     }
 
-    #[cfg(feature = "enable-serde")]
     #[async_trait]
     impl<B: Send> FromRequest<B> for Request {
         type Rejection = Error;
@@ -80,6 +79,7 @@ pub mod echo {
 }
 
 pub mod query {
+    use serde::Deserialize;
     use std::fmt::{Display, Formatter};
 
     use async_trait::async_trait;
@@ -108,7 +108,7 @@ pub mod query {
         type Rejection = Error;
 
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-            #[derive(serde::Deserialize)]
+            #[derive(Deserialize)]
             struct QueryTypeParam {
                 size: QuerySize,
                 field_type: FieldType,
@@ -173,6 +173,8 @@ pub mod query {
     pub const BASE_AXUM_PATH: &str = "/query";
 
     pub mod create {
+        
+        use serde::{Deserialize, Serialize};
         use async_trait::async_trait;
         use axum::extract::{FromRequest, RequestParts};
         use hyper::http::uri;
@@ -224,7 +226,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(Serialize, Deserialize)]
         pub struct ResponseBody {
             pub query_id: QueryId,
         }
@@ -233,6 +235,7 @@ pub mod query {
     }
 
     pub mod prepare {
+        use serde::{Deserialize, Serialize};
         use async_trait::async_trait;
         use axum::{
             extract::{FromRequest, Path, RequestParts},
@@ -303,7 +306,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(Serialize, Deserialize)]
         struct RequestBody {
             roles: RoleAssignment,
         }

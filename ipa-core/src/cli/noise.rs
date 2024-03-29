@@ -4,6 +4,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
 };
 
+use serde::{Deserialize, Serialize};
 use clap::Args;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
@@ -30,8 +31,7 @@ pub struct ApplyDpArgs {
     cap: u32,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NoisyOutput {
     /// Aggregated breakdowns with noise applied. It is important to use unsigned values here
     /// to avoid bias/mean skew
@@ -45,11 +45,10 @@ pub struct NoisyOutput {
 #[derive(Debug, Copy, Clone)]
 pub struct EpsilonBits(f64);
 
-#[cfg(feature = "enable-serde")]
-impl serde::Serialize for EpsilonBits {
+impl Serialize for EpsilonBits {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         serializer.serialize_str(&self.0.to_string())
     }

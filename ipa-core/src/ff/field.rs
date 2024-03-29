@@ -4,6 +4,7 @@ use std::{
 };
 
 use typenum::{U1, U4};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::prss::FromRandom,
@@ -37,8 +38,7 @@ pub trait Field:
     const ONE: Self;
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum FieldType {
     #[cfg(any(test, feature = "weak-field"))]
