@@ -15,7 +15,10 @@ use crate::{
     protocol::{
         basics::{ShareKnownValue, ZeroPositions},
         context::{
-            validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
+            dzkp_semi_honest::DZKPUpgraded,
+            dzkp_validator::{DZKPBaseField, SemiHonestDZKPValidator},
+            validator::SemiHonest as Validator,
+            Base, DZKPUpgradableContext, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
         },
@@ -39,6 +42,12 @@ impl<'a> Context<'a> {
         Self {
             inner: Base::new(participant, gateway),
         }
+    }
+
+    /// this function is added for consistency with the malicious setting
+    #[must_use]
+    pub fn dzkp_upgrade<S: Step + ?Sized>(self) -> DZKPUpgraded<'a> {
+        DZKPUpgraded::new(self.inner)
     }
 
     #[cfg(test)]
@@ -103,6 +112,15 @@ impl<'a> UpgradableContext for Context<'a> {
     type Validator<F: ExtendableField> = Validator<'a, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
+        Self::Validator::new(self.inner)
+    }
+}
+
+impl<'a, DF: DZKPBaseField> DZKPUpgradableContext<DF> for Context<'a> {
+    type UpgradedContext = DZKPUpgraded<'a>;
+    type Validator = SemiHonestDZKPValidator<'a, DF>;
+
+    fn validator(self) -> Self::Validator {
         Self::Validator::new(self.inner)
     }
 }

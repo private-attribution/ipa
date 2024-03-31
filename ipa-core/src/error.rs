@@ -66,6 +66,10 @@ pub enum Error {
     DecompressingInvalidCurvePoint(String),
     #[error(transparent)]
     LengthError(#[from] LengthError),
+    #[error("HashMap of DZKP Batch is already initialized: {0}")]
+    DZKPBatchDoubleInitialization(String),
+    #[error("Current Context is unsafe, call validate to make it safe: {0}")]
+    ContextUnsafe(String),
 }
 
 impl Default for Error {

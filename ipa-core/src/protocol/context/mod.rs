@@ -4,6 +4,9 @@ pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
 
+mod dzkp_malicious;
+mod dzkp_semi_honest;
+pub mod dzkp_validator;
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
 /// this flag can be removed
 #[allow(dead_code)]
@@ -24,6 +27,7 @@ use crate::{
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::ZeroPositions,
+        context::dzkp_validator::{DZKPBaseField, DZKPValidator},
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
         RecordId,
@@ -267,6 +271,24 @@ impl<'a> Inner<'a> {
     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self { prss, gateway }
     }
+}
+
+pub trait DZKPUpgradableContext<DF: DZKPBaseField>: Context {
+    type UpgradedContext: DZKPContext;
+    type Validator: DZKPValidator<DF, Self>;
+
+    fn validator(self) -> Self::Validator;
+}
+
+/// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
+pub trait DZKPContext: Context {
+    /// `is_safe()` allows to confirm that there are currently no unverified shares,
+    /// i.e. shares that might have been manipulated.
+    /// when this is the case, it is safe to call functions like `reveal`
+    ///
+    /// ## Errors
+    /// Returns error when context contains unverified values
+    fn is_safe(&self) -> Result<(), Error>;
 }
 
 #[cfg(all(test, unit_test))]

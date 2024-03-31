@@ -14,7 +14,7 @@ use typenum::Unsigned;
 
 use crate::{
     ff::{Field, Gf2, Gf32Bit, PrimeField, Serializable, U128Conversions},
-    protocol::prss::FromRandom,
+    protocol::{context::dzkp_validator::SegmentEntry, prss::FromRandom},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, BitDecomposed,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
@@ -51,6 +51,12 @@ impl<F: PrimeField> ExtendableField for F {
     fn to_extended(&self) -> Self::ExtendedField {
         *self
     }
+}
+
+/// Trait for fields compatible with DZKPs
+/// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
+pub trait DZKPCompatibleField<'a>: Field {
+    fn to_segment_entry(&self) -> SegmentEntry<'a>;
 }
 
 // A binary field (just 2 elements, 0 and 1) is way too small.
