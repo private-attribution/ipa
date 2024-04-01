@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use ipa_macros::Gate;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::StepNarrow;
 use crate::helpers::{prss_protocol::PrssExchangeStep, query::QueryType};

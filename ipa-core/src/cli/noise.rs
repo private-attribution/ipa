@@ -7,7 +7,7 @@ use std::{
 use clap::Args;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::protocol::dp::InsecureDiscreteDp;
 
