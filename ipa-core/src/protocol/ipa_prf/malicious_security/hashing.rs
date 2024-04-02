@@ -81,7 +81,7 @@ where
 mod test {
     use generic_array::{sequence::GenericSequence, GenericArray};
     use rand::{thread_rng, Rng};
-    use typenum::{U64, U8};
+    use typenum::U8;
 
     use super::{compute_hash, Hash};
     use crate::{
