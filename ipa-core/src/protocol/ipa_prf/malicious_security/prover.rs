@@ -59,6 +59,7 @@ where
     pub fn compute_proof<λ: ArrayLength, I, J>(
         u: I,
         v: J,
+        lagrange_table: &LagrangeTable<F, λ, <λ as Sub<U1>>::Output>,
     ) -> ZeroKnowledgeProof<F, TwoNMinusOne<λ>>
     where
         λ: ArrayLength + Add + Sub<U1>,
@@ -82,8 +83,6 @@ where
             "When the output is this small, you should call `compute_final_proof`"
         );
 
-        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
-        let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
         let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let mut proof: GenericArray<F, TwoNMinusOne<λ>> = GenericArray::generate(|_| F::ZERO);
@@ -112,6 +111,7 @@ where
         v: J,
         p_0: F,
         q_0: F,
+        lagrange_table: &LagrangeTable<F, Sum<λ, U1>, λ>,
     ) -> ZeroKnowledgeProof<F, TwoNPlusOne<λ>>
     where
         λ: ArrayLength + Add + Add<U1>,
@@ -129,10 +129,6 @@ where
         assert_eq!(u.len(), λ::USIZE); // We should pad with zeroes eventually
         assert_eq!(v.len(), λ::USIZE); // We should pad with zeroes eventually
 
-        // We need a table of size `λ + 1` since we add a random point at x=0
-        let denominator = CanonicalLagrangeDenominator::<F, Sum<λ, U1>>::new();
-        let lagrange_table = LagrangeTable::<F, Sum<λ, U1>, λ>::from(denominator);
-
         let mut p = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
         let mut q = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
         let mut proof: GenericArray<F, TwoNPlusOne<λ>> = GenericArray::generate(|_| F::ZERO);
@@ -147,6 +143,7 @@ where
             q[i + 1] = y;
             proof[i + 1] += x * y;
         }
+        // We need a table of size `λ + 1` since we add a random point at x=0
         let p_extrapolated = lagrange_table.eval(&p);
         let q_extrapolated = lagrange_table.eval(&q);
 
@@ -230,10 +227,15 @@ where
 #[cfg(all(test, unit_test))]
 mod test {
     use generic_array::{sequence::GenericSequence, GenericArray};
-    use typenum::{U2, U4, U7};
+    use typenum::{U2, U3, U4, U7};
 
     use super::ProofGenerator;
-    use crate::ff::{Fp31, U128Conversions};
+    use crate::{
+        ff::{Fp31, U128Conversions},
+        protocol::ipa_prf::malicious_security::lagrange::{
+            CanonicalLagrangeDenominator, LagrangeTable,
+        },
+    };
 
     #[test]
     fn sample_proof() {
@@ -259,10 +261,14 @@ mod test {
         const P_RANDOM_WEIGHT: u128 = 12;
         const Q_RANDOM_WEIGHT: u128 = 1;
 
+        let denominator = CanonicalLagrangeDenominator::<Fp31, U4>::new();
+        let lagrange_table = LagrangeTable::<Fp31, U4, U3>::from(denominator);
+
         // first iteration
         let proof_1 = ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(
             U_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
             V_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            &lagrange_table,
         );
         assert_eq!(
             proof_1.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
@@ -288,6 +294,7 @@ mod test {
         let proof_2 = ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(
             U_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
             V_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            &lagrange_table,
         );
         assert_eq!(
             proof_2.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
@@ -310,11 +317,14 @@ mod test {
         assert_eq!(pg_3, (&U_3[..], &V_3[..]));
 
         // final iteration
+        let denominator = CanonicalLagrangeDenominator::<Fp31, U3>::new();
+        let lagrange_table = LagrangeTable::<Fp31, U3, U2>::from(denominator);
         let proof_3 = ProofGenerator::<Fp31>::compute_final_proof::<U2, _, _>(
             pg_3.u,
             pg_3.v,
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
+            &lagrange_table,
         );
         assert_eq!(
             proof_3.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
