@@ -127,7 +127,7 @@ fn derive_step_impl(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
         Data::Union(..) => {
             return ast
                 .ident
-                .error("Step can only be derived for a struct or enum")
+                .error("CompactStep can only be derived for a struct or enum")
         }
     };
     Ok(g.generate(ident, &attr))
