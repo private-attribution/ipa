@@ -79,13 +79,27 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
+    use generic_array::{sequence::GenericSequence, GenericArray};
     use rand::{thread_rng, Rng};
+    use typenum::{U64, U8};
 
-    use super::compute_hash;
+    use super::{compute_hash, Hash};
     use crate::{
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, Serializable},
         protocol::ipa_prf::malicious_security::hashing::hash_to_field,
     };
+
+    #[test]
+    fn can_serialize_and_deserialize() {
+        let mut rng = thread_rng();
+        let list: GenericArray<Fp32BitPrime, U8> =
+            GenericArray::generate(|_| rng.gen::<Fp32BitPrime>());
+        let hash: Hash = compute_hash(&list);
+        let mut buf: GenericArray<u8, _> = GenericArray::default();
+        hash.serialize(&mut buf);
+        let deserialized_hash = Hash::deserialize(&buf);
+        assert_eq!(hash, deserialized_hash.unwrap());
+    }
 
     #[test]
     fn hash_changes() {
