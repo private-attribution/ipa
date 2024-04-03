@@ -624,8 +624,9 @@ pub(crate) mod tests {
 
         MpcHelperClient::resp_ok(resp).await.unwrap();
 
-        let mut stream =
-            Arc::clone(&transport).receive(HelperIdentity::ONE, (QueryId, expected_step.clone()));
+        let mut stream = Arc::clone(&transport)
+            .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))
+            .into_bytes_stream();
 
         assert_eq!(
             poll_immediate(&mut stream).next().await,

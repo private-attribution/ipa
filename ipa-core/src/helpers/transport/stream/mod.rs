@@ -16,7 +16,7 @@ pub use input::{LengthDelimitedStream, RecordsStream};
 
 use crate::error::BoxError;
 
-pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
+pub trait BytesStream<R: AsRef<[u8]> = Bytes>: Stream<Item = Result<R, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests
     /// # Panics
     /// if the stream has any failure
@@ -27,11 +27,11 @@ pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     {
         use futures::StreamExt;
 
-        Box::pin(self.map(|item| item.unwrap().to_vec()).concat())
+        Box::pin(self.map(|item| item.unwrap().as_ref().to_vec()).concat())
     }
 }
 
-impl<S: Stream<Item = Result<Bytes, BoxError>> + Send> BytesStream for S {}
+impl<R: AsRef<[u8]>, S: Stream<Item = Result<R, BoxError>> + Send> BytesStream<R> for S {}
 
 pub type BoxBytesStream = Pin<Box<dyn BytesStream>>;
 

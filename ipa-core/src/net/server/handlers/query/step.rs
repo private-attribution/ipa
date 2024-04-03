@@ -70,7 +70,9 @@ mod tests {
         .await
         .unwrap();
 
-        let mut stream = Arc::clone(&transport).receive(HelperIdentity::TWO, (QueryId, step));
+        let mut stream = Arc::clone(&transport)
+            .receive(HelperIdentity::TWO, (QueryId, step))
+            .into_bytes_stream();
 
         assert_eq!(
             poll_immediate(&mut stream).next().await,

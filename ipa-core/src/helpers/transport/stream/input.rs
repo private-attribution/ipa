@@ -154,12 +154,12 @@ enum ExtendResult {
     Error(io::Error),
 }
 
-/// Parse a [`Stream`] of [`Bytes`] into a stream of records of some
+/// Parse a [`Stream`] of bytes into a stream of records of some
 /// fixed-length-[`Serializable`] type `T`.
 #[pin_project]
-pub struct RecordsStream<T, S>
+pub struct RecordsStream<T, S, R: AsRef<[u8]> = Bytes>
 where
-    S: BytesStream,
+    S: BytesStream<R>,
     T: Serializable,
 {
     // Our implementation of `poll_next` turns a `None` from the inner stream into `Some(Err(_))` if
@@ -169,12 +169,12 @@ where
     #[pin]
     stream: Fuse<S>,
     buffer: BufDeque,
-    phantom_data: PhantomData<T>,
+    phantom_data: PhantomData<(T, R)>,
 }
 
-impl<T, S> RecordsStream<T, S>
+impl<T, S, R: AsRef<[u8]>> RecordsStream<T, S, R>
 where
-    S: BytesStream,
+    S: BytesStream<R>,
     T: Serializable,
 {
     #[must_use]

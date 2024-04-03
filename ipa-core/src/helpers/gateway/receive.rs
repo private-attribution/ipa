@@ -1,12 +1,13 @@
 use std::marker::PhantomData;
 
+use bytes::Bytes;
 use dashmap::{mapref::entry::Entry, DashMap};
-use futures::Stream;
 
 use crate::{
+    error::BoxError,
     helpers::{
         buffers::UnorderedReceiver, gateway::transport::RoleResolvingTransport, Error,
-        HelperChannelId, Message, Role, Transport,
+        HelperChannelId, LogErrors, Message, Role, Transport,
     },
     protocol::RecordId,
 };
@@ -25,8 +26,8 @@ pub(super) struct GatewayReceivers {
 }
 
 pub(super) type UR = UnorderedReceiver<
-    <RoleResolvingTransport as Transport>::RecordsStream,
-    <<RoleResolvingTransport as Transport>::RecordsStream as Stream>::Item,
+    LogErrors<<RoleResolvingTransport as Transport>::RecordsStream, Bytes, BoxError>,
+    Vec<u8>,
 >;
 
 impl<M: Message> ReceivingEnd<M> {

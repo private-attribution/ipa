@@ -20,7 +20,7 @@ use crate::{
             receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
         },
         transport::routing::RouteId,
-        HelperChannelId, Message, Role, RoleAssignment, TotalRecords, Transport,
+        HelperChannelId, LogErrors, Message, Role, RoleAssignment, TotalRecords, Transport,
     },
     protocol::QueryId,
 };
@@ -142,10 +142,10 @@ impl Gateway {
             channel_id.clone(),
             self.inner.receivers.get_or_create(channel_id, || {
                 UnorderedReceiver::new(
-                    Box::pin(
-                        self.transport
-                            .receive(channel_id.peer, (self.query_id, channel_id.gate.clone())),
-                    ),
+                    Box::pin(LogErrors::new(self.transport.receive(
+                        channel_id.peer,
+                        (self.query_id, channel_id.gate.clone()),
+                    ))),
                     self.config.active_work(),
                 )
             }),

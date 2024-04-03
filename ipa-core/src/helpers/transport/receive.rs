@@ -84,6 +84,17 @@ impl<I, S> ReceiveRecords<I, S> {
     }
 }
 
+#[cfg(all(test, any(unit_test, web_test)))]
+impl<I: TransportIdentity, S: crate::helpers::BytesStream> ReceiveRecords<I, S> {
+    /// Converts this into a stream that yields owned byte chunks.
+    ///
+    /// ## Panics
+    /// If inner stream yields an [`Err`] chunk.
+    pub(crate) fn into_bytes_stream(self) -> impl Stream<Item = Vec<u8>> {
+        self.inner.map(Result::unwrap).map(Into::into)
+    }
+}
+
 impl<I: TransportIdentity, S: Stream> Stream for ReceiveRecords<I, S> {
     type Item = S::Item;
 
