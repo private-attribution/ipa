@@ -6,6 +6,7 @@ use std::{
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Diff, Sum, U1};
 
+use super::hashing::{compute_hash, hash_to_field};
 use crate::{
     ff::PrimeField,
     protocol::ipa_prf::malicious_security::lagrange::{
@@ -45,7 +46,7 @@ pub type TwoNPlusOne<N> = Sum<Sum<N, N>, U1>;
 /// Distributed Zero Knowledge Proofs algorithm drawn from
 /// `https://eprint.iacr.org/2023/909.pdf`
 ///
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::many_single_char_names)]
 impl<F> ProofGenerator<F>
 where
     F: PrimeField,
@@ -55,89 +56,151 @@ where
         Self { u, v }
     }
 
-    pub fn compute_proof<λ: ArrayLength>(
-        &self,
-        r: F,
-    ) -> (ZeroKnowledgeProof<F, TwoNMinusOne<λ>>, ProofGenerator<F>)
+    pub fn compute_proof<λ: ArrayLength, I, J>(
+        u: I,
+        v: J,
+        lagrange_table: &LagrangeTable<F, λ, <λ as Sub<U1>>::Output>,
+    ) -> ZeroKnowledgeProof<F, TwoNMinusOne<λ>>
     where
         λ: ArrayLength + Add + Sub<U1>,
         <λ as Add>::Output: Sub<U1>,
         <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
         <λ as Sub<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
     {
-        debug_assert_eq!(self.u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
 
-        let s = self.u.len() / λ::USIZE;
+        debug_assert_eq!(u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
+
+        let s = u.len() / λ::USIZE;
 
         assert!(
             s > 1,
             "When the output is this small, you should call `compute_final_proof`"
         );
 
-        let mut next_proof_generator = ProofGenerator {
-            u: Vec::<F>::with_capacity(s),
-            v: Vec::<F>::with_capacity(s),
-        };
+        let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut proof: GenericArray<F, TwoNMinusOne<λ>> = GenericArray::generate(|_| F::ZERO);
+        for _ in 0..s {
+            for i in 0..λ::USIZE {
+                let x = u.next().unwrap_or(F::ZERO);
+                let y = v.next().unwrap_or(F::ZERO);
+                p[i] = x;
+                q[i] = y;
+                proof[i] += x * y;
+            }
+            let p_extrapolated = lagrange_table.eval(&p);
+            let q_extrapolated = lagrange_table.eval(&q);
 
-        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
-        let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
-        let lagrange_table = LagrangeTable::<F, λ, <λ as Sub<U1>>::Output>::from(denominator);
-        let extrapolated_points = (0..s).map(|i| {
-            let start = i * λ::USIZE;
-            let end = start + λ::USIZE;
-            let p = &self.u[start..end];
-            let q = &self.v[start..end];
-            let p_extrapolated = lagrange_table.eval(p);
-            let q_extrapolated = lagrange_table.eval(q);
-            let p_r = lagrange_table_r.eval(p)[0];
-            let q_r = lagrange_table_r.eval(q)[0];
-            next_proof_generator.u.push(p_r);
-            next_proof_generator.v.push(q_r);
-            // p.into_iter() has elements that are &F
-            // p_extrapolated.into_iter() has elements that are F
-            // So these iterators cannot be chained.
-            zip(p, q)
-                .map(|(a, b)| *a * *b)
-                .chain(zip(p_extrapolated, q_extrapolated).map(|(a, b)| a * b))
-        });
-        let proof = ZeroKnowledgeProof::new(extrapolated_points.fold(
-            GenericArray::<F, TwoNMinusOne<λ>>::generate(|_| F::ZERO),
-            |acc, pts| zip(acc, pts).map(|(a, b)| a + b).collect(),
-        ));
-        (proof, next_proof_generator)
+            for (i, (x, y)) in
+                zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate()
+            {
+                proof[λ::USIZE + i] += x * y;
+            }
+        }
+        ZeroKnowledgeProof::new(proof)
     }
 
-    pub fn compute_final_proof<λ: ArrayLength>(
-        &self,
+    pub fn compute_final_proof<λ: ArrayLength, I, J>(
+        u: I,
+        v: J,
         p_0: F,
         q_0: F,
+        lagrange_table: &LagrangeTable<F, Sum<λ, U1>, λ>,
     ) -> ZeroKnowledgeProof<F, TwoNPlusOne<λ>>
     where
         λ: ArrayLength + Add + Add<U1>,
         <λ as Add>::Output: Add<U1>,
         <<λ as Add>::Output as Add<U1>>::Output: ArrayLength,
         <λ as Add<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
     {
-        assert_eq!(self.u.len(), λ::USIZE); // We should pad with zeroes eventually
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
 
+        assert_eq!(u.len(), λ::USIZE); // We should pad with zeroes eventually
+        assert_eq!(v.len(), λ::USIZE); // We should pad with zeroes eventually
+
+        let mut p = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, Sum<λ, U1>>::generate(|_| F::ZERO);
+        let mut proof: GenericArray<F, TwoNPlusOne<λ>> = GenericArray::generate(|_| F::ZERO);
+        p[0] = p_0;
+        q[0] = q_0;
+        proof[0] = p_0 * q_0;
+
+        for i in 0..λ::USIZE {
+            let x = u.next().unwrap_or(F::ZERO);
+            let y = v.next().unwrap_or(F::ZERO);
+            p[i + 1] = x;
+            q[i + 1] = y;
+            proof[i + 1] += x * y;
+        }
         // We need a table of size `λ + 1` since we add a random point at x=0
-        let denominator = CanonicalLagrangeDenominator::<F, Sum<λ, U1>>::new();
-        let lagrange_table = LagrangeTable::<F, Sum<λ, U1>, λ>::from(denominator);
-
-        let mut p = vec![p_0];
-        p.extend_from_slice(&self.u);
-        let mut q = vec![q_0];
-        q.extend_from_slice(&self.v);
         let p_extrapolated = lagrange_table.eval(&p);
         let q_extrapolated = lagrange_table.eval(&q);
 
-        ZeroKnowledgeProof::new(
-            zip(
-                p.into_iter().chain(p_extrapolated),
-                q.into_iter().chain(q_extrapolated),
-            )
-            .map(|(a, b)| a * b),
-        )
+        for (i, (x, y)) in zip(p_extrapolated.into_iter(), q_extrapolated.into_iter()).enumerate() {
+            proof[λ::USIZE + 1 + i] += x * y;
+        }
+
+        ZeroKnowledgeProof::new(proof)
+    }
+
+    pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
+        proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
+        proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
+        u: I,
+        v: J,
+    ) -> ProofGenerator<F>
+    where
+        λ: ArrayLength + Add + Sub<U1>,
+        <λ as Add>::Output: Sub<U1>,
+        <<λ as Add>::Output as Sub<U1>>::Output: ArrayLength,
+        <λ as Sub<U1>>::Output: ArrayLength,
+        I: IntoIterator<Item = F>,
+        J: IntoIterator<Item = F>,
+        I::IntoIter: ExactSizeIterator,
+        J::IntoIter: ExactSizeIterator,
+    {
+        let mut u = u.into_iter();
+        let mut v = v.into_iter();
+
+        debug_assert_eq!(u.len() % λ::USIZE, 0); // We should pad with zeroes eventually
+
+        let s = u.len() / λ::USIZE;
+
+        assert!(
+            s > 1,
+            "When the output is this small, you should validate the proof with a more straightforward reveal"
+        );
+
+        let r: F = hash_to_field(&compute_hash(proof_left), &compute_hash(proof_right));
+        let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
+        let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
+        let lagrange_table_r = LagrangeTable::<F, λ, U1>::new(&denominator, &r);
+
+        let pairs = (0..s).map(|_| {
+            for i in 0..λ::USIZE {
+                let x = u.next().unwrap_or(F::ZERO);
+                let y = v.next().unwrap_or(F::ZERO);
+                p[i] = x;
+                q[i] = y;
+            }
+            let p_r = lagrange_table_r.eval(&p)[0];
+            let q_r = lagrange_table_r.eval(&q)[0];
+            (p_r, q_r)
+        });
+        let (u, v) = pairs.unzip();
+        ProofGenerator::new(u, v)
     }
 }
 
@@ -163,10 +226,16 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    use typenum::{U2, U4};
+    use generic_array::{sequence::GenericSequence, GenericArray};
+    use typenum::{U2, U3, U4, U7};
 
     use super::ProofGenerator;
-    use crate::ff::{Fp31, U128Conversions};
+    use crate::{
+        ff::{Fp31, U128Conversions},
+        protocol::ipa_prf::malicious_security::lagrange::{
+            CanonicalLagrangeDenominator, LagrangeTable,
+        },
+    };
 
     #[test]
     fn sample_proof() {
@@ -178,53 +247,88 @@ mod test {
             0, 0, 0, 30, 0, 0, 0, 1, 30, 30, 30, 30, 0, 0, 30, 30, 0, 30, 0, 30, 0, 0, 0, 1, 0, 0,
             1, 1, 0, 0, 1, 1,
         ];
-        const EXPECTED_1: [u128; 7] = [0, 30, 29, 30, 5, 28, 13];
-        const R_1: u128 = 22;
+        const PROOF_1: [u128; 7] = [0, 30, 29, 30, 5, 28, 13];
+        const PROOF_LEFT_1: [u128; 7] = [1, 4, 10, 15, 12, 15, 29];
         const U_2: [u128; 8] = [0, 0, 26, 0, 7, 18, 24, 13];
         const V_2: [u128; 8] = [10, 21, 30, 28, 15, 21, 3, 3];
 
-        const EXPECTED_2: [u128; 7] = [12, 6, 15, 8, 29, 30, 6];
-        const R_2: u128 = 17;
+        const PROOF_2: [u128; 7] = [12, 6, 15, 8, 29, 30, 6];
+        const PROOF_LEFT_2: [u128; 7] = [30, 28, 10, 25, 12, 23, 29];
         const U_3: [u128; 2] = [3, 3];
         const V_3: [u128; 2] = [5, 24];
 
-        const EXPECTED_3: [u128; 5] = [12, 15, 10, 14, 17];
+        const PROOF_3: [u128; 5] = [12, 15, 10, 14, 17];
         const P_RANDOM_WEIGHT: u128 = 12;
         const Q_RANDOM_WEIGHT: u128 = 1;
 
-        let pg: ProofGenerator<Fp31> = ProofGenerator::new(
-            U_1.into_iter()
-                .map(|x| Fp31::try_from(x).unwrap())
-                .collect(),
-            V_1.into_iter()
-                .map(|x| Fp31::try_from(x).unwrap())
-                .collect(),
-        );
+        let denominator = CanonicalLagrangeDenominator::<Fp31, U4>::new();
+        let lagrange_table = LagrangeTable::<Fp31, U4, U3>::from(denominator);
 
         // first iteration
-        let (proof, pg_2) = pg.compute_proof::<U4>(Fp31::try_from(R_1).unwrap());
+        let proof_1 = ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(
+            U_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            &lagrange_table,
+        );
         assert_eq!(
-            proof.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            EXPECTED_1,
+            proof_1.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
+            PROOF_1,
+        );
+
+        // ZKP is secret-shared into two pieces
+        // proof_left comes from PRSS
+        let proof_left_1 =
+            GenericArray::<Fp31, U7>::generate(|i| Fp31::try_from(PROOF_LEFT_1[i]).unwrap());
+        let proof_right_1 = GenericArray::<Fp31, U7>::generate(|i| proof_1.g[i] - proof_left_1[i]);
+
+        // fiat-shamir
+        let pg_2 = ProofGenerator::gen_challenge_and_recurse::<U4, _, _>(
+            &proof_left_1,
+            &proof_right_1,
+            U_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_1.into_iter().map(|x| Fp31::try_from(x).unwrap()),
         );
         assert_eq!(pg_2, (&U_2[..], &V_2[..]));
 
         // next iteration
-        let (proof_2, pg_3) = pg_2.compute_proof::<U4>(Fp31::try_from(R_2).unwrap());
+        let proof_2 = ProofGenerator::<Fp31>::compute_proof::<U4, _, _>(
+            U_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            V_2.into_iter().map(|x| Fp31::try_from(x).unwrap()),
+            &lagrange_table,
+        );
         assert_eq!(
             proof_2.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            EXPECTED_2,
+            PROOF_2,
+        );
+
+        // ZKP is secret-shared into two pieces
+        // proof_left comes from PRSS
+        let proof_left_2 =
+            GenericArray::<Fp31, U7>::generate(|i| Fp31::try_from(PROOF_LEFT_2[i]).unwrap());
+        let proof_right_2 = GenericArray::<Fp31, U7>::generate(|i| proof_2.g[i] - proof_left_2[i]);
+
+        // fiat-shamir
+        let pg_3 = ProofGenerator::gen_challenge_and_recurse::<U4, _, _>(
+            &proof_left_2,
+            &proof_right_2,
+            pg_2.u,
+            pg_2.v,
         );
         assert_eq!(pg_3, (&U_3[..], &V_3[..]));
 
         // final iteration
-        let proof_3 = pg_3.compute_final_proof::<U2>(
+        let denominator = CanonicalLagrangeDenominator::<Fp31, U3>::new();
+        let lagrange_table = LagrangeTable::<Fp31, U3, U2>::from(denominator);
+        let proof_3 = ProofGenerator::<Fp31>::compute_final_proof::<U2, _, _>(
+            pg_3.u,
+            pg_3.v,
             Fp31::try_from(P_RANDOM_WEIGHT).unwrap(),
             Fp31::try_from(Q_RANDOM_WEIGHT).unwrap(),
+            &lagrange_table,
         );
         assert_eq!(
             proof_3.g.iter().map(Fp31::as_u128).collect::<Vec<_>>(),
-            EXPECTED_3,
+            PROOF_3,
         );
     }
 }
