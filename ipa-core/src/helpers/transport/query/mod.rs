@@ -1,5 +1,3 @@
-pub mod oprf_shuffle;
-
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
@@ -310,20 +308,5 @@ impl Default for ContributionBits {
 impl std::fmt::Display for ContributionBits {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SparseAggregateQueryConfig {
-    pub contribution_bits: ContributionBits,
-    pub num_contributions: u32,
-}
-
-impl Default for SparseAggregateQueryConfig {
-    fn default() -> Self {
-        Self {
-            contribution_bits: ContributionBits::default(),
-            num_contributions: 8,
-        }
     }
 }
