@@ -212,7 +212,7 @@ impl Debug for TriggerFanoutQuery {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::{EventTimestamp, Epoch};
+    use super::{Epoch, EventTimestamp};
 
     #[test]
     fn event_timestamp_new() {
