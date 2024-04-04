@@ -8,6 +8,7 @@ use typenum::U32;
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
     impl_shared_value_common,
+    protocol::ipa_prf::PRF_CHUNK,
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
@@ -42,16 +43,8 @@ impl Vectorizable<1> for RP25519 {
     type Array = StdArray<Self, 1>;
 }
 
-impl Vectorizable<16> for RP25519 {
-    type Array = StdArray<Self, 16>;
-}
-
-impl Vectorizable<64> for RP25519 {
-    type Array = StdArray<Self, 64>;
-}
-
-impl Vectorizable<256> for RP25519 {
-    type Array = StdArray<Self, 256>;
+impl Vectorizable<PRF_CHUNK> for RP25519 {
+    type Array = StdArray<Self, PRF_CHUNK>;
 }
 
 #[derive(thiserror::Error, Debug)]
