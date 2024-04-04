@@ -6,8 +6,12 @@ use std::{
 
 use crate::{
     error::Error,
-    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
-    secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
+    ff::{boolean::Boolean, ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
+    protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing, LinearRefOps,
+        SharedValue, Vectorizable,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,9 +107,39 @@ impl<S> BitDecomposed<S> {
     }
 }
 
+// Provides BitDecomposed <-> BooleanArray interoperability. Otherwise just use `new`.
+impl<S> FromIterator<S> for BitDecomposed<S> {
+    fn from_iter<I: IntoIterator<Item = S>>(iter: I) -> Self {
+        Self::new(iter)
+    }
+}
+
 impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
         self.bits.resize(new_len, value);
+    }
+}
+
+impl<A, const N: usize> FromPrss<usize> for BitDecomposed<AdditiveShare<Boolean, N>>
+where
+    A: SharedValue + FromRandom,
+    Boolean: Vectorizable<N, Array = A>,
+{
+    fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+        prss: &P,
+        index: I,
+        len: usize,
+    ) -> Self {
+        let bits = prss
+            .generate_chunks_iter::<_, <A as FromRandom>::SourceLength>(index)
+            .map(|(l_rand, r_rand)| {
+                let l_val = A::from_random(l_rand);
+                let r_val = A::from_random(r_rand);
+                AdditiveShare::new_arr(l_val, r_val)
+            })
+            .take(len)
+            .collect();
+        Self { bits }
     }
 }
 

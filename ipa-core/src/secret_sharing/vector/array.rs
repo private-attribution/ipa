@@ -6,12 +6,13 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{U16, U256, U32, U64};
+use typenum::{U128, U16, U256, U32, U64};
 
 use crate::{
+    const_assert_eq,
     error::LengthError,
-    ff::{Field, Fp32BitPrime, Serializable},
-    protocol::prss::FromRandom,
+    ff::{ec_prime_field::Fp25519, Expand, Field, Fp32BitPrime, Serializable},
+    protocol::{ipa_prf::PRF_CHUNK, prss::FromRandom},
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
 
@@ -104,12 +105,45 @@ where
     }
 }
 
+impl<V: SharedValue, const N: usize> StdArray<V, N>
+where
+    Self: Sendable, // required for `<Self as SharedValueArray>::ZERO`
+{
+    /// Build a pair of `StdArray`s from an iterator over tuples.
+    ///
+    /// # Panics
+    /// If the iterator terminates before producing N items.
+    pub fn from_tuple_iter<T: IntoIterator<Item = (V, V)>>(iter: T) -> (Self, Self) {
+        let mut l_res = Self::ZERO_ARRAY;
+        let mut r_res = Self::ZERO_ARRAY;
+        let mut iter = iter.into_iter();
+
+        for i in 0..N {
+            let (l, r) = iter
+                .next()
+                .unwrap_or_else(|| panic!("Expected iterator to produce {N} items, got only {i}"));
+            l_res.0[i] = l;
+            r_res.0[i] = r;
+        }
+
+        (l_res, r_res)
+    }
+}
+
 impl<V: SharedValue, const N: usize> IntoIterator for StdArray<V, N> {
     type Item = V;
     type IntoIter = std::array::IntoIter<V, N>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl<V: SharedValue, const N: usize> Expand for StdArray<V, N> {
+    type Input = V;
+
+    fn expand(v: &Self::Input) -> Self {
+        Self(array::from_fn(|_| *v))
     }
 }
 
@@ -292,6 +326,13 @@ macro_rules! impl_from_random {
         }
     };
 }
+
+const_assert_eq!(
+    PRF_CHUNK,
+    64,
+    "Appropriate FromRandom implementation required"
+);
+impl_from_random!(Fp25519, 64, U128, 2);
 
 impl_from_random!(Fp32BitPrime, 32, U32, 1);
 

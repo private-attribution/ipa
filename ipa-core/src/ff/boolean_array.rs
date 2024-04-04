@@ -215,8 +215,9 @@ macro_rules! impl_serializable_trait {
     };
 
     ($name: ident, $bits: tt, $store: ty, infallible) => {
-        const _SAFEGUARD: () = assert!(
-            $bits % 8 == 0,
+        $crate::const_assert_eq!(
+            $bits % 8,
+            0,
             "Infallible deserialization is defined for lengths that are multiples of 8 only"
         );
 

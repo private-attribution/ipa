@@ -1,13 +1,18 @@
+use std::{borrow::Borrow, iter::repeat, ops::Not};
+
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
-use crate::secret_sharing::{FieldSimd, FieldVectorizable};
 use crate::{
     error::Error,
-    ff::{ArrayAccess, CustomArray, Field},
+    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
     protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
+};
+#[cfg(all(test, unit_test))]
+use crate::{
+    ff::CustomArray,
+    secret_sharing::{FieldVectorizable, SharedValue},
 };
 
 #[cfg(all(test, unit_test))]
@@ -25,19 +30,20 @@ pub(crate) enum Step {
 ///
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, XS, YS>(
+pub async fn integer_add<C, F, XS, YS, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<XS>,
-    y: &AdditiveShare<YS>,
-) -> Result<(AdditiveShare<XS>, AdditiveShare<XS::Element>), Error>
+    x: &XS,
+    y: &YS,
+) -> Result<(XS, AdditiveShare<F, N>), Error>
 where
     C: Context,
-    YS: SharedValue + CustomArray<Element = XS::Element>,
-    XS: SharedValue + CustomArray,
-    XS::Element: Field,
+    F: Field + FieldSimd<N>,
+    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
+    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
 {
-    let mut carry = AdditiveShare::<XS::Element>::ZERO;
+    let mut carry = AdditiveShare::<F, N>::ZERO;
     let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
 }
@@ -59,6 +65,7 @@ where
     C: Context,
     S: SharedValue + CustomArray<Element = F>,
     AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
+    AdditiveShare<F>: Not<Output = AdditiveShare<F>>,
 {
     use crate::{ff::Expand, protocol::basics::if_else};
     let mut carry = AdditiveShare::<F>::ZERO;
@@ -95,35 +102,41 @@ where
 /// propagates errors from multiply
 ///
 ///
-async fn addition_circuit<C, XS, YS>(
+async fn addition_circuit<C, F, XS, YS, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<XS>,
-    y: &AdditiveShare<YS>,
-    carry: &mut AdditiveShare<XS::Element>,
-) -> Result<AdditiveShare<XS>, Error>
+    x: &XS,
+    y: &YS,
+    carry: &mut AdditiveShare<F, N>,
+) -> Result<XS, Error>
 where
     C: Context,
-    XS: SharedValue + CustomArray,
-    YS: SharedValue + CustomArray<Element = XS::Element>,
-    XS::Element: Field,
+    F: Field + FieldSimd<N>,
+    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
+    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
 {
-    let mut result = AdditiveShare::<XS>::ZERO;
-    for (i, v) in x.iter().enumerate() {
-        result.set(
-            i,
+    let x = x.iter();
+    let y = y.iter();
+
+    let mut result = XS::builder().with_capacity(x.len());
+    for (i, (xb, yb)) in x
+        .zip(y.chain(repeat(YS::make_ref(&AdditiveShare::<F, N>::ZERO))))
+        .enumerate()
+    {
+        result.push(
             bit_adder(
                 ctx.narrow(&BitOpStep::from(i)),
                 record_id,
-                &v,
-                y.get(i).as_ref(),
+                xb.borrow(),
+                yb.borrow(),
                 carry,
             )
             .await?,
         );
     }
 
-    Ok(result)
+    Ok(result.build())
 }
 
 ///
@@ -145,26 +158,23 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn bit_adder<C, S>(
+async fn bit_adder<C, F, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<S>,
-    y: Option<&AdditiveShare<S>>,
-    carry: &mut AdditiveShare<S>,
-) -> Result<AdditiveShare<S>, Error>
+    x: &AdditiveShare<F, N>,
+    y: &AdditiveShare<F, N>,
+    carry: &mut AdditiveShare<F, N>,
+) -> Result<AdditiveShare<F, N>, Error>
 where
     C: Context,
-    S: Field,
+    F: Field + FieldSimd<N>,
+    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
 {
-    let output = x + y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry;
+    let output = x + y + &*carry;
 
     *carry = &*carry
         + (x + &*carry)
-            .multiply(
-                &(y.unwrap_or(&AdditiveShare::<S>::ZERO) + &*carry),
-                ctx,
-                record_id,
-            )
+            .multiply(&(y + &*carry), ctx, record_id)
             .await?;
 
     Ok(output)
@@ -185,6 +195,7 @@ mod test {
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
         },
         rand::thread_rng,
+        secret_sharing::replicated::semi_honest::AdditiveShare,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -207,7 +218,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, BA64, BA64>(
+                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0,
@@ -275,7 +286,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, BA64, BA32>(
+                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA32>, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0,
@@ -296,7 +307,7 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, BA32, BA64>(
+                    integer_add::<_, _, AdditiveShare<BA32>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0,

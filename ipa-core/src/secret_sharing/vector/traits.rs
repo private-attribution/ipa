@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     error::LengthError,
-    ff::Field,
+    ff::{Expand, Field},
     protocol::prss::FromRandom,
     secret_sharing::{Sendable, SharedValue},
 };
@@ -96,6 +96,7 @@ pub trait SharedValueArray<V>:
     + for<'a> Sub<&'a Self, Output = Self>
     + SubAssign<Self>
     + for<'a> SubAssign<&'a Self>
+    + Expand<Input = V>
 {
     const ZERO_ARRAY: Self;
 

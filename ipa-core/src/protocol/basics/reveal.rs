@@ -176,8 +176,9 @@ impl<'a, F: ExtendableField> Reveal<UpgradedMaliciousContext<'a, F>, 1> for Mali
     }
 }
 
-// Workaround for https://github.com/rust-lang/rust/issues/100013. Calling this wrapper function
-// instead of `Reveal::reveal` seems to hide the `impl Future` GAT.
+// Workaround for https://github.com/rust-lang/rust/issues/100013. Calling these wrapper functions
+// instead of the trait methods seems to hide the `impl Future` GAT.
+
 pub fn reveal<'fut, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -188,6 +189,19 @@ where
     S: Reveal<C, 1>,
 {
     S::reveal(v, ctx, record_id)
+}
+
+pub fn partial_reveal<'fut, C, S, const N: usize>(
+    ctx: C,
+    record_id: RecordId,
+    excluded: Role,
+    v: &'fut S,
+) -> impl Future<Output = Result<Option<S::Output>, Error>> + Send + 'fut
+where
+    C: Context + 'fut,
+    S: Reveal<C, N>,
+{
+    S::partial_reveal(v, ctx, record_id, excluded)
 }
 
 #[cfg(all(test, unit_test))]
