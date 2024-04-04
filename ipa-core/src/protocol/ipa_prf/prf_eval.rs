@@ -6,14 +6,13 @@ use crate::{
     error::Error,
     ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     protocol::{
-        basics::{Reveal, SecureMul},
+        basics::{BooleanProtocols, Reveal, SecureMul},
         context::Context,
         prss::{FromPrss, SharedRandomness},
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare, FieldSimd, FieldVectorizable, Sendable, StdArray,
-        Vectorizable,
+        replicated::semi_honest::AdditiveShare, FieldSimd, Sendable, StdArray, Vectorizable,
     },
 };
 
@@ -92,7 +91,7 @@ where
     Fp25519: Vectorizable<N>,
     RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: Reveal<C, N, Output = <Boolean as FieldVectorizable<N>>::ArrayAlias>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
     AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
     StdArray<RP25519, N>: Sendable,
 {
