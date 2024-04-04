@@ -133,6 +133,9 @@ where
     // in the source of this function -- it is behind the XS and YS parameters.)
     const BITS: usize = 256;
 
+    // Ensure that the probability of leaking information is less than 1/(2^128).
+    debug_assert!(x.iter().count() < (BITS - 128));
+
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
     let (sh_r, sh_s) =
