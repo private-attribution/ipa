@@ -475,28 +475,6 @@ macro_rules! impl_transpose_shares_ba_to_bool {
                 dst.transpose_from(src)
             }
         }
-
-        impl TransposeFrom<Vec<AdditiveShare<$src_row>>>
-            for BitDecomposed<AdditiveShare<Boolean, $src_rows>>
-        {
-            type Error = LengthError;
-            fn transpose_from(
-                &mut self,
-                src: Vec<AdditiveShare<$src_row>>,
-            ) -> Result<(), LengthError> {
-                self.resize($src_cols, AdditiveShare::<Boolean, $src_rows>::ZERO);
-                let src = <&[AdditiveShare<$src_row>; $src_rows]>::try_from(src.as_slice())
-                    .map_err(|_| LengthError {
-                        expected: $src_rows,
-                        actual: src.len(),
-                    })?;
-                let dst =
-                    <&mut [AdditiveShare<Boolean, $src_rows>; $src_cols]>::try_from(&mut **self)
-                        .unwrap();
-                dst.transpose_from(src).unwrap_infallible();
-                Ok(())
-            }
-        }
     };
 }
 
