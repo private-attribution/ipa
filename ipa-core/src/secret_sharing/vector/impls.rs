@@ -1,25 +1,23 @@
 //! Supported vectorizations
 
 use crate::{
+    const_assert_eq,
     ff::{
         boolean::Boolean,
         boolean_array::{BA16, BA20, BA256, BA3, BA32, BA5, BA64, BA8},
         ec_prime_field::Fp25519,
         Fp32BitPrime,
     },
+    protocol::ipa_prf::{MK_BITS, PRF_CHUNK},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd, FieldVectorizable,
-        ReplicatedSecretSharing, Vectorizable,
+        ReplicatedSecretSharing, SharedValue, Vectorizable,
     },
 };
 
 impl FieldSimd<32> for Fp32BitPrime {}
 
-impl FieldSimd<16> for Fp25519 {}
-
-impl FieldSimd<64> for Fp25519 {}
-
-impl FieldSimd<256> for Fp25519 {}
+impl FieldSimd<PRF_CHUNK> for Fp25519 {}
 
 macro_rules! boolean_vector {
     ($dim:expr, $vec:ty) => {
@@ -86,22 +84,24 @@ pub trait BoolVectorTrait<const B: usize, const N: usize> {
 
 pub struct BoolVectorLookup;
 
+const_assert_eq!(
+    MK_BITS,
+    64,
+    "Appropriate BoolVectorTrait implementation required"
+);
 impl BoolVectorTrait<64, 1> for BoolVectorLookup {
     type Share = AdditiveShare<BA64>;
 }
 
+const_assert_eq!(
+    Fp25519::BITS,
+    256,
+    "Appropriate BoolVectorTrait implementation required"
+);
 impl BoolVectorTrait<256, 1> for BoolVectorLookup {
     type Share = AdditiveShare<BA256>;
 }
 
-impl<const B: usize> BoolVectorTrait<B, 16> for BoolVectorLookup {
-    type Share = BitDecomposed<AdditiveShare<Boolean, 16>>;
-}
-
-impl<const B: usize> BoolVectorTrait<B, 64> for BoolVectorLookup {
-    type Share = BitDecomposed<AdditiveShare<Boolean, 64>>;
-}
-
-impl<const B: usize> BoolVectorTrait<B, 256> for BoolVectorLookup {
-    type Share = BitDecomposed<AdditiveShare<Boolean, 256>>;
+impl<const B: usize> BoolVectorTrait<B, PRF_CHUNK> for BoolVectorLookup {
+    type Share = BitDecomposed<AdditiveShare<Boolean, PRF_CHUNK>>;
 }

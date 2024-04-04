@@ -7,7 +7,10 @@ use typenum::{U2, U32};
 use crate::{
     ff::{boolean_array::BA256, Expand, Field, Serializable},
     impl_shared_value_common,
-    protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
+    protocol::{
+        ipa_prf::PRF_CHUNK,
+        prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
+    },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
@@ -202,28 +205,12 @@ impl FieldVectorizable<1> for Fp25519 {
     type ArrayAlias = StdArray<Self, 1>;
 }
 
-impl Vectorizable<16> for Fp25519 {
-    type Array = StdArray<Self, 16>;
+impl Vectorizable<PRF_CHUNK> for Fp25519 {
+    type Array = StdArray<Self, PRF_CHUNK>;
 }
 
-impl FieldVectorizable<16> for Fp25519 {
-    type ArrayAlias = StdArray<Self, 16>;
-}
-
-impl Vectorizable<64> for Fp25519 {
-    type Array = StdArray<Self, 64>;
-}
-
-impl FieldVectorizable<64> for Fp25519 {
-    type ArrayAlias = StdArray<Self, 64>;
-}
-
-impl Vectorizable<256> for Fp25519 {
-    type Array = StdArray<Self, 256>;
-}
-
-impl FieldVectorizable<256> for Fp25519 {
-    type ArrayAlias = StdArray<Self, 256>;
+impl FieldVectorizable<PRF_CHUNK> for Fp25519 {
+    type ArrayAlias = StdArray<Self, PRF_CHUNK>;
 }
 
 impl Field for Fp25519 {
@@ -265,9 +252,7 @@ macro_rules! impl_share_from_random {
     };
 }
 
-impl_share_from_random!(16);
-impl_share_from_random!(64);
-impl_share_from_random!(256);
+impl_share_from_random!(PRF_CHUNK);
 
 #[cfg(all(test, unit_test))]
 mod test {

@@ -41,17 +41,39 @@ use std::borrow::Borrow;
 use std::{array, convert::Infallible};
 
 use crate::{
+    const_assert_eq,
     error::{LengthError, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA16, BA256, BA64},
-        ArrayAccess,
+        boolean_array::{BA256, BA64},
+        ec_prime_field::Fp25519,
     },
+    protocol::ipa_prf::{MK_BITS, PRF_CHUNK},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         BitDecomposed, SharedValue, StdArray,
     },
 };
+
+// The following constants are hardcoded in various places throughout this file (including in type
+// names like `BA256` where they cannot be substituted directly).
+//
+// The symbolic names are referenced in a comment adjacent to each use.
+const_assert_eq!(
+    Fp25519::BITS,
+    256,
+    "Appropriate transpose implementations required"
+);
+const_assert_eq!(
+    MK_BITS,
+    64,
+    "Appropriate transpose implementations required"
+);
+const_assert_eq!(
+    PRF_CHUNK,
+    64,
+    "Appropriate transpose implementations required"
+);
 
 /// Trait for overwriting a value with the transpose of a source value.
 pub trait TransposeFrom<T> {
@@ -153,8 +175,12 @@ pub fn transpose_16x16(src: &[u8; 32]) -> [u8; 32] {
     dst
 }
 
-// Degenerate transposes.
+// Degenerate transposes
+//
+// These can be particularly confusing, because an Mx1 matrix may be stored as a `BA{M}` rather
+// than a `[Boolean; M]`.
 
+// Usage: Share conversion input (convert_to_fp25519 test). M = PRF_CHUNK, N = MK_BITS.
 impl<'a> TransposeFrom<&'a [AdditiveShare<BA64>; 1]> for AdditiveShare<BA64, 1> {
     type Error = Infallible;
     fn transpose_from(&mut self, src: &'a [AdditiveShare<BA64>; 1]) -> Result<(), Infallible> {
@@ -163,20 +189,7 @@ impl<'a> TransposeFrom<&'a [AdditiveShare<BA64>; 1]> for AdditiveShare<BA64, 1> 
     }
 }
 
-impl TransposeFrom<Vec<AdditiveShare<BA256>>> for AdditiveShare<BA256, 1> {
-    type Error = LengthError;
-    fn transpose_from(&mut self, mut src: Vec<AdditiveShare<BA256>>) -> Result<(), LengthError> {
-        if src.len() != 1 {
-            return Err(LengthError {
-                expected: 1,
-                actual: src.len(),
-            });
-        }
-        *self = src.remove(0);
-        Ok(())
-    }
-}
-
+// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = PRF_CHUNK.
 impl<'a> TransposeFrom<&'a AdditiveShare<BA256, 1>> for Vec<AdditiveShare<BA256>> {
     type Error = Infallible;
     fn transpose_from(&mut self, src: &'a AdditiveShare<BA256, 1>) -> Result<(), Infallible> {
@@ -185,24 +198,7 @@ impl<'a> TransposeFrom<&'a AdditiveShare<BA256, 1>> for Vec<AdditiveShare<BA256>
     }
 }
 
-impl TransposeFrom<AdditiveShare<BA256, 1>> for Vec<AdditiveShare<BA256>> {
-    type Error = Infallible;
-
-    fn transpose_from(&mut self, src: AdditiveShare<BA256, 1>) -> Result<(), Infallible> {
-        *self = vec![src];
-        Ok(())
-    }
-}
-
-impl TransposeFrom<Vec<StdArray<Boolean, 1>>> for Vec<BA256> {
-    type Error = Infallible;
-
-    fn transpose_from(&mut self, src: Vec<StdArray<Boolean, 1>>) -> Result<(), Infallible> {
-        *self = vec![src.iter().map(Boolean::from_array).collect::<BA256>()];
-        Ok(())
-    }
-}
-
+// Usage: Share conversion output (y). M = Fp25519::BITS, N = PRF_CHUNK.
 impl<'a> TransposeFrom<&'a [StdArray<Boolean, 1>; 256]> for Vec<BA256> {
     type Error = Infallible;
     fn transpose_from(&mut self, src: &'a [StdArray<Boolean, 1>; 256]) -> Result<(), Infallible> {
@@ -211,32 +207,7 @@ impl<'a> TransposeFrom<&'a [StdArray<Boolean, 1>; 256]> for Vec<BA256> {
     }
 }
 
-impl TransposeFrom<&dyn Fn(usize) -> AdditiveShare<BA64>> for AdditiveShare<BA64> {
-    type Error = Infallible;
-    fn transpose_from(
-        &mut self,
-        src: &dyn Fn(usize) -> AdditiveShare<BA64>,
-    ) -> Result<(), Infallible> {
-        *self = src(0);
-        Ok(())
-    }
-}
-
-impl TransposeFrom<&dyn Fn(usize) -> AdditiveShare<BA64>>
-    for BitDecomposed<AdditiveShare<Boolean>>
-{
-    type Error = Infallible;
-    fn transpose_from(
-        &mut self,
-        src: &dyn Fn(usize) -> AdditiveShare<BA64>,
-    ) -> Result<(), Infallible> {
-        let src = src(0);
-        *self = BitDecomposed::decompose(64, |i| src.get(i).unwrap());
-        Ok(())
-    }
-}
-
-// Matrix transposes
+// Matrix transpose helpers
 
 /// Perform a larger transpose using an 16x16 kernel.
 ///
@@ -325,16 +296,16 @@ macro_rules! impl_transpose_ba_to_ba {
     };
 }
 
-impl_transpose_ba_to_ba!(BA16, BA64, 16, 64, test_transpose_ba_16x64);
+// Usage: Transpose benchmark.
 impl_transpose_ba_to_ba!(BA64, BA64, 64, 64, test_transpose_ba_64x64);
-impl_transpose_ba_to_ba!(BA256, BA16, 256, 16, test_transpose_ba_256x16);
+
+// Usage: Share conversion output (y). M = Fp25519::BITS, N = PRF_CHUNK.
 impl_transpose_ba_to_ba!(BA256, BA64, 256, 64, test_transpose_ba_256x64);
-impl_transpose_ba_to_ba!(BA256, BA256, 256, 256, test_transpose_ba_256x256);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<Boolean, N>; <M>]` into a NxM bit matrix represented as `[AdditiveShare<BA<M>>; N]`.
 ///
-/// For MxN = 256x64, the invocation looks like `impl_transpose_bool_to_ba!(BA256, 256, 64)`.
+/// For MxN = 256x64, the invocation looks like `impl_transpose_shares_bool_to_ba!(BA256, 256, 64)`.
 macro_rules! impl_transpose_shares_bool_to_ba {
     ($dst_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
         impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
@@ -422,9 +393,8 @@ macro_rules! impl_transpose_shares_bool_to_ba {
     };
 }
 
-impl_transpose_shares_bool_to_ba!(BA256, 256, 16, test_transpose_shares_bool_to_ba_256x16);
+// Usage: Share conversion output (r/s). M = Fp25519::BITS, N = PRF_CHUNK.
 impl_transpose_shares_bool_to_ba!(BA256, 256, 64, test_transpose_shares_bool_to_ba_256x64);
-impl_transpose_shares_bool_to_ba!(BA256, 256, 256, test_transpose_shares_bool_to_ba_256x256);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
@@ -530,9 +500,9 @@ macro_rules! impl_transpose_shares_ba_to_bool {
     };
 }
 
-impl_transpose_shares_ba_to_bool!(BA64, 16, 64, test_transpose_shares_ba_to_bool_16x64);
+// Usage: Share conversion input (convert_to_fp25519 test). M = PRF_CHUNK, N = MK_BITS.
+// Note first macro argument is `BA{N}`, not `BA{M}`.
 impl_transpose_shares_ba_to_bool!(BA64, 64, 64, test_transpose_shares_ba_to_bool_64x64);
-impl_transpose_shares_ba_to_bool!(BA64, 256, 64, test_transpose_shares_ba_to_bool_256x64);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits accessed via
 /// `Fn(usize) -> AdditiveShare<BA{N}>` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
@@ -621,114 +591,9 @@ macro_rules! impl_transpose_shares_ba_fn_to_bool {
     };
 }
 
-impl_transpose_shares_ba_fn_to_bool!(BA64, 16, 64, test_transpose_shares_ba_fn_to_bool_16x64);
+// Usage: Share conversion input (compute_prf_for_inputs). M = PRF_CHUNK, N = MK_BITS.
+// Note first macro argument is `BA{N}`, not `BA{M}`.
 impl_transpose_shares_ba_fn_to_bool!(BA64, 64, 64, test_transpose_shares_ba_fn_to_bool_64x64);
-impl_transpose_shares_ba_fn_to_bool!(BA64, 256, 64, test_transpose_shares_ba_fn_to_bool_256x64);
-
-/// Implement a transpose of a MxN matrix of secret-shared bits represented as
-/// `[AdditiveShare<Boolean, N>; <M>]` into a NxM bit matrix represented as `[AdditiveShare<Boolean<M>>; N]`.
-///
-/// For MxN = 256x64, the invocation looks like `impl_transpose_bool_to_bool!(BA64, 256, 64)`.
-macro_rules! impl_transpose_shares_bool_to_bool {
-    ($src_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident) => {
-        impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
-            for [AdditiveShare<Boolean, $src_rows>; $src_cols]
-        {
-            type Error = Infallible;
-
-            fn transpose_from(
-                &mut self,
-                src: &[AdditiveShare<Boolean, $src_cols>; $src_rows],
-            ) -> Result<(), Infallible> {
-                // Transpose left share
-                do_transpose_16(
-                    $src_rows / 16,
-                    $src_cols / 16,
-                    |i, j| {
-                        let mut d = [0u8; 32];
-                        for k in 0..16 {
-                            d[2 * k..2 * (k + 1)].copy_from_slice(
-                                &src[16 * i + k].left_arr().as_raw_slice()[2 * j..2 * (j + 1)],
-                            );
-                        }
-                        d
-                    },
-                    |i, j, d| {
-                        for k in 0..16 {
-                            self[16 * i + k].left_arr_mut().as_raw_mut_slice()[2 * j..2 * (j + 1)]
-                                .copy_from_slice(&d[2 * k..2 * (k + 1)]);
-                        }
-                    },
-                );
-                // Transpose right share
-                do_transpose_16(
-                    $src_rows / 16,
-                    $src_cols / 16,
-                    |i, j| {
-                        let mut d = [0u8; 32];
-                        for k in 0..16 {
-                            d[2 * k..2 * (k + 1)].copy_from_slice(
-                                &src[16 * i + k].right_arr().as_raw_slice()[2 * j..2 * (j + 1)],
-                            );
-                        }
-                        d
-                    },
-                    |i, j, d| {
-                        for k in 0..16 {
-                            self[16 * i + k].right_arr_mut().as_raw_mut_slice()[2 * j..2 * (j + 1)]
-                                .copy_from_slice(&d[2 * k..2 * (k + 1)]);
-                        }
-                    },
-                );
-                Ok(())
-            }
-        }
-
-        #[cfg(all(test, unit_test))]
-        #[test]
-        fn $test_fn() {
-            tests::test_transpose_shares_bool_to_bool::<$src_rows, $src_cols>();
-        }
-
-        impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>]>
-            for BitDecomposed<AdditiveShare<Boolean, $src_rows>>
-        {
-            type Error = LengthError;
-            fn transpose_from(
-                &mut self,
-                src: &[AdditiveShare<Boolean, $src_cols>],
-            ) -> Result<(), LengthError> {
-                let src = <&[AdditiveShare<Boolean, $src_cols>; $src_rows]>::try_from(src)
-                    .map_err(|_| LengthError {
-                        expected: $src_rows,
-                        actual: src.len(),
-                    })?;
-                self.transpose_from(src).unwrap_infallible();
-                Ok(())
-            }
-        }
-
-        impl TransposeFrom<&[AdditiveShare<Boolean, $src_cols>; $src_rows]>
-            for BitDecomposed<AdditiveShare<Boolean, $src_rows>>
-        {
-            type Error = Infallible;
-            fn transpose_from(
-                &mut self,
-                src: &[AdditiveShare<Boolean, $src_cols>; $src_rows],
-            ) -> Result<(), Infallible> {
-                self.resize($src_cols, AdditiveShare::<Boolean, $src_rows>::ZERO);
-                let dst =
-                    <&mut [AdditiveShare<Boolean, $src_rows>; $src_cols]>::try_from(&mut **self)
-                        .unwrap();
-                dst.transpose_from(src)
-            }
-        }
-    };
-}
-
-impl_transpose_shares_bool_to_bool!(BA64, 16, 64, test_transpose_shares_bool_to_bool_16x64);
-impl_transpose_shares_bool_to_bool!(BA64, 64, 64, test_transpose_shares_bool_to_bool_64x64);
-impl_transpose_shares_bool_to_bool!(BA64, 256, 64, test_transpose_shares_bool_to_bool_256x64);
 
 #[cfg(all(test, unit_test))]
 mod tests {
@@ -745,7 +610,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::secret_sharing::Vectorizable;
+    use crate::{ff::ArrayAccess, secret_sharing::Vectorizable};
 
     fn random_array<T, const N: usize>() -> [T; N]
     where
@@ -986,7 +851,7 @@ mod tests {
         let step = min(SM, DM);
         let m = ba_shares_test_matrix::<SR, SM, DM>(step);
         let m_t = t_impl(&m);
-        assert_eq!(m_t, bool_shares_test_matrix::<DM, SM>(step),);
+        assert_eq!(m_t, bool_shares_test_matrix::<DM, SM>(step));
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
@@ -1029,7 +894,7 @@ mod tests {
         let m = ba_shares_test_matrix::<SR, SM, DM>(step);
         let m_func = |i| AdditiveShare::<SR>::clone(&m[i]);
         let m_t = t_impl(&m_func);
-        assert_eq!(m_t, bool_shares_test_matrix::<DM, SM>(step),);
+        assert_eq!(m_t, bool_shares_test_matrix::<DM, SM>(step));
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
@@ -1071,7 +936,7 @@ mod tests {
         let step = min(SM, DM);
         let m = bool_shares_test_matrix::<SM, DM>(step);
         let m_t = t_impl(&m);
-        assert_eq!(m_t, ba_shares_test_matrix::<DR, DM, SM>(step),);
+        assert_eq!(m_t, ba_shares_test_matrix::<DR, DM, SM>(step));
 
         let mut left_rng = thread_rng();
         let mut right_rng = thread_rng();
@@ -1083,43 +948,6 @@ mod tests {
         #[rustfmt::skip]
         verify_transpose(SM, DM,
             |i, j| (m_t[i].get(j).unwrap().left(), m_t[i].get(j).unwrap().right()),
-            |i, j| (m[i].left_arr().get(j).unwrap(), m[i].right_arr().get(j).unwrap()),
-        );
-    }
-
-    pub(super) fn test_transpose_shares_bool_to_bool<
-        const SM: usize, // Source rows (== dest cols)
-        const DM: usize, // Destination rows (== source cols)
-    >()
-    where
-        Boolean: Vectorizable<DM>,
-        <Boolean as Vectorizable<DM>>::Array: ArrayAccess<Output = Boolean>,
-        Boolean: Vectorizable<SM>,
-        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
-        [AdditiveShare<Boolean, SM>; DM]:
-            for<'a> TransposeFrom<&'a [AdditiveShare<Boolean, DM>; SM], Error = Infallible>,
-    {
-        let t_impl = |src| {
-            let mut dst = [AdditiveShare::<Boolean, SM>::ZERO; DM];
-            dst.transpose_from(src).unwrap_infallible();
-            dst
-        };
-
-        let step = min(SM, DM);
-        let m = bool_shares_test_matrix::<SM, DM>(step);
-        let m_t = t_impl(&m);
-        assert_eq!(m_t, bool_shares_test_matrix::<DM, SM>(step));
-
-        let mut left_rng = thread_rng();
-        let mut right_rng = thread_rng();
-        let m = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
-            .take(SM)
-            .collect::<Vec<_>>();
-        let m_t = t_impl(<&[AdditiveShare<Boolean, DM>; SM]>::try_from(m.as_slice()).unwrap());
-
-        #[rustfmt::skip]
-        verify_transpose(SM, DM,
-            |i, j| (m_t[i].left_arr().get(j).unwrap(), m_t[i].right_arr().get(j).unwrap()),
             |i, j| (m[i].left_arr().get(j).unwrap(), m[i].right_arr().get(j).unwrap()),
         );
     }

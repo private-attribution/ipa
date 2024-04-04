@@ -145,6 +145,26 @@ pub(crate) mod test_executor {
     }
 }
 
+#[macro_export]
+macro_rules! const_assert {
+    ($x:expr $(,)?) => {
+        const _: () = assert!($x, stringify!($x));
+    };
+    ($x:expr, $msg:expr $(,)?) => {
+        const _: () = assert!($x, $msg);
+    };
+}
+
+#[macro_export]
+macro_rules! const_assert_eq {
+    ($x:expr, $y:expr $(,)?) => {
+        $crate::const_assert!($x == $y);
+    };
+    ($x:expr, $y:expr, $msg:expr $(,)?) => {
+        $crate::const_assert!($x == $y, $msg);
+    };
+}
+
 macro_rules! mutually_incompatible {
     ($feature1:literal,$feature2:literal) => {
         #[cfg(all(feature = $feature1, feature = $feature2))]

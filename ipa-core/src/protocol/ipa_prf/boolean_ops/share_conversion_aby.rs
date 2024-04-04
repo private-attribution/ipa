@@ -468,25 +468,9 @@ mod tests {
     }
 
     #[test]
-    fn semi_honest_convert_into_fp25519_vec16() {
-        test_semi_honest_convert_into_fp25519::<BoolVector!(64, 16), BoolVector!(256, 16), 31, 16>(
-        );
-    }
-
-    #[test]
     fn semi_honest_convert_into_fp25519_vec64() {
         test_semi_honest_convert_into_fp25519::<BoolVector!(64, 64), BoolVector!(256, 64), 65, 64>(
         );
-    }
-
-    #[test]
-    fn semi_honest_convert_into_fp25519_vec256() {
-        test_semi_honest_convert_into_fp25519::<
-            BoolVector!(64, 256),
-            BoolVector!(256, 256),
-            512,
-            256,
-        >();
     }
 
     #[test]

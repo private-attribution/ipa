@@ -1,4 +1,4 @@
-use std::{array, num::NonZeroU32, ops::Add};
+use std::{array, iter, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
@@ -9,8 +9,8 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ArrayBuild, ArrayBuilder, CustomArray, PrimeField,
-        Serializable, U128Conversions,
+        boolean::Boolean, boolean_array::BA64, CustomArray, PrimeField, Serializable,
+        U128Conversions,
     },
     helpers::stream::{ChunkData, ProcessChunks, TryFlattenItersExt},
     protocol::{
@@ -41,6 +41,12 @@ pub mod prf_sharding;
 mod malicious_security;
 mod quicksort;
 mod shuffle;
+
+/// Match key size
+pub const MK_BITS: usize = 64;
+
+/// Vectorization dimension for PRF
+pub const PRF_CHUNK: usize = 64;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -228,9 +234,7 @@ where
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
 {
-    const CHUNK: usize = 64;
-
-    let ctx = ctx.set_total_records((input_rows.len() + CHUNK - 1) / CHUNK);
+    let ctx = ctx.set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
     let eval_ctx = ctx.narrow(&Step::EvalPrf);
 
@@ -239,31 +243,30 @@ where
     seq_join(
         ctx.active_work(),
         input_rows.process_chunks(
-            move |idx, records: ChunkData<_, CHUNK>| {
+            move |idx, records: ChunkData<_, PRF_CHUNK>| {
                 let convert_ctx = convert_ctx.clone();
                 let eval_ctx = eval_ctx.clone();
                 let prf_key = prf_key.clone();
 
                 async move {
                     let record_id = RecordId::from(idx);
-                    let mut match_keys_builder = <BoolVector!(64, CHUNK)>::builder();
-                    for _ in 0..CHUNK {
-                        match_keys_builder.push(Replicated::<Boolean, CHUNK>::ZERO);
-                    }
-                    let mut match_keys = match_keys_builder.build();
-                    let tmp: &dyn Fn(usize) -> Replicated<BA64> =
-                        &|i: usize| records[i].match_key.clone();
-                    match_keys.transpose_from(tmp).unwrap_infallible();
+                    let input_match_keys: &dyn Fn(usize) -> Replicated<BA64> =
+                        &|i| records[i].match_key.clone();
+                    let mut match_keys = iter::empty().collect::<BoolVector!(64, PRF_CHUNK)>();
+                    match_keys
+                        .transpose_from(input_match_keys)
+                        .unwrap_infallible();
                     let curve_pts = convert_to_fp25519::<
                         _,
-                        BoolVector!(64, CHUNK),
-                        BoolVector!(256, CHUNK),
-                        CHUNK,
+                        BoolVector!(64, PRF_CHUNK),
+                        BoolVector!(256, PRF_CHUNK),
+                        PRF_CHUNK,
                     >(convert_ctx, record_id, match_keys)
                     .await?;
 
                     let prf_of_match_keys =
-                        eval_dy_prf::<_, CHUNK>(eval_ctx, record_id, &prf_key, curve_pts).await?;
+                        eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, &prf_key, curve_pts)
+                            .await?;
 
                     Ok(array::from_fn(|i| {
                         let OPRFIPAInputRow {

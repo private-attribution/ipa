@@ -6,12 +6,13 @@ use std::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{U128, U16, U256, U32, U512, U64};
+use typenum::{U128, U16, U256, U32, U64};
 
 use crate::{
+    const_assert_eq,
     error::LengthError,
     ff::{ec_prime_field::Fp25519, Expand, Field, Fp32BitPrime, Serializable},
-    protocol::prss::FromRandom,
+    protocol::{ipa_prf::PRF_CHUNK, prss::FromRandom},
     secret_sharing::{FieldArray, Sendable, SharedValue, SharedValueArray},
 };
 
@@ -326,9 +327,13 @@ macro_rules! impl_from_random {
     };
 }
 
-impl_from_random!(Fp25519, 16, U32, 2);
+const_assert_eq!(
+    PRF_CHUNK,
+    64,
+    "Appropriate FromRandom implementation required"
+);
 impl_from_random!(Fp25519, 64, U128, 2);
-impl_from_random!(Fp25519, 256, U512, 2);
+
 impl_from_random!(Fp32BitPrime, 32, U32, 1);
 
 impl<V: SharedValue> Serializable for StdArray<V, 1> {
