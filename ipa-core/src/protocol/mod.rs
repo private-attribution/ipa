@@ -14,6 +14,7 @@ use std::{
 };
 
 pub use basics::BasicProtocols;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     error::Error,
@@ -30,12 +31,8 @@ pub type Timestamp = Gf20Bit;
 /// them collaborating on constructing this unique id. These details haven't been flushed out yet,
 /// so for now it is just an empty struct. Once we know more about it, we will make necessary
 /// amendments to it
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(into = "&'static str", try_from = "&str")]
 pub struct QueryId;
 
 impl Display for QueryId {
@@ -78,8 +75,7 @@ impl TryFrom<&str> for QueryId {
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RecordId(u32);
 
 impl Display for RecordId {

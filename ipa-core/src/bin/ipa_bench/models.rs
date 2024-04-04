@@ -1,15 +1,12 @@
 use std::{
     fmt::{Debug, Formatter},
-    io::{Error as IoError, ErrorKind as IoErrorKind},
     ops::Range,
 };
 
-use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
-pub type CipherText = Vec<u8>;
 type PlainText = String;
 pub type MatchKey = u64;
 pub type Number = u32;
@@ -20,107 +17,7 @@ pub type Epoch = u8;
 /// An offset in seconds into a given epoch. Using an 32-bit value > 20-bit > 604,800 seconds.
 pub type Offset = u32;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct SecretShare {
-    ss: [CipherText; 3],
-}
-
-impl SecretShare {
-    fn combine(&self) -> Vec<u8> {
-        let mut result = Vec::new();
-
-        assert!(self.ss[0].len() == self.ss[1].len());
-        assert!(self.ss[0].len() == self.ss[2].len());
-
-        for i in 0..self.ss[0].len() {
-            result.push(self.ss[0][i] ^ self.ss[1][i] ^ self.ss[2][i]);
-        }
-
-        result
-    }
-
-    // TODO: Add Shamir's SS
-
-    fn xor<R: RngCore + CryptoRng>(data: &[u8], rng: &mut R) -> Self {
-        let mut ss = [Vec::new(), Vec::new(), Vec::new()];
-
-        for x in data {
-            let ss1 = rng.gen::<u8>();
-            let ss2 = rng.gen::<u8>();
-            let ss3 = ss1 ^ ss2 ^ x;
-
-            ss[0].push(ss1);
-            ss[1].push(ss2);
-            ss[2].push(ss3);
-        }
-
-        SecretShare { ss }
-    }
-}
-
-pub trait SecretSharable {
-    /// Splits the number into secret shares
-    fn xor_split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare;
-
-    /// Combines the given secret shares back to [Self]
-    /// # Errors
-    /// if the combined data overflows [Self]
-    fn combine(data: &SecretShare) -> Result<Self, IoError>
-    where
-        Self: Sized;
-}
-
-impl SecretSharable for u32 {
-    fn xor_split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare {
-        SecretShare::xor(&self.to_be_bytes(), rng)
-    }
-
-    fn combine(data: &SecretShare) -> Result<Self, IoError> {
-        let ss = data.combine();
-
-        let mut high = ss[0..ss.len() - 4].to_vec();
-        high.retain(|x| *x != 0);
-
-        if ss.len() > 4 && !high.is_empty() {
-            return Err(IoError::from(IoErrorKind::InvalidData));
-        }
-
-        let mut bytes = [0u8; 4];
-        for (i, v) in ss[ss.len() - 4..].iter().enumerate() {
-            bytes[i] = *v;
-        }
-
-        Ok(u32::from_be_bytes(bytes))
-    }
-}
-
-impl SecretSharable for u64 {
-    fn xor_split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare {
-        SecretShare::xor(&self.to_be_bytes(), rng)
-    }
-
-    fn combine(data: &SecretShare) -> Result<Self, IoError> {
-        let ss = data.combine();
-
-        let mut high = ss[0..ss.len() - 8].to_vec();
-        high.retain(|x| *x != 0);
-
-        if ss.len() > 8 && !high.is_empty() {
-            return Err(IoError::from(IoErrorKind::InvalidData));
-        }
-
-        let mut bytes = [0u8; 8];
-        for (i, v) in ss[ss.len() - 8..].iter().enumerate() {
-            bytes[i] = *v;
-        }
-
-        Ok(u64::from_be_bytes(bytes))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// A timestamp of a source/trigger report represented by epoch and offset.
 ///
 /// Internally, the time is stored in `u32`, but the value is capped at `(Epoch::MAX + 1) * SECONDS_IN_EPOCH - 1`.
@@ -206,8 +103,7 @@ impl From<EventTimestamp> for u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Event {
     // An identifier, set in the user agent, which identifies an individual person. This must never be released (beyond
     /// the match key provider) to any party in unencrypted form. For the purpose of this tool, however, the value is in
@@ -222,8 +118,7 @@ pub struct Event {
     pub timestamp: EventTimestamp,
 }
 
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum GenericReport {
     /// An event produced on websites/apps when a user interacts with an ad (i.e. impression, click).
     Source {
@@ -242,22 +137,20 @@ pub enum GenericReport {
     },
 }
 
-// TODO(taiki): Implement Serialize/Deserialize
-
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 enum QueryType {
     SourceFanout,
     TriggerFanout,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 enum Node {
     Helper1,
     Helper2,
     Helper3,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct IPAQuery {
     /// Caller authentication token.
     auth_token: PlainText,
@@ -278,7 +171,7 @@ struct IPAQuery {
     reports: Vec<GenericReport>,
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct SourceFanoutQuery {
     query: IPAQuery,
 
@@ -299,7 +192,7 @@ impl Debug for SourceFanoutQuery {
     }
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Serialize)]
 struct TriggerFanoutQuery {
     query: IPAQuery,
 
@@ -319,8 +212,7 @@ impl Debug for TriggerFanoutQuery {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use super::EventTimestamp;
-    use crate::models::Epoch;
+    use super::{Epoch, EventTimestamp};
 
     #[test]
     fn event_timestamp_new() {

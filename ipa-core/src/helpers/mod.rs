@@ -13,7 +13,6 @@ mod gateway;
 pub(crate) mod prss_protocol;
 pub mod stream;
 mod transport;
-
 use std::ops::{Index, IndexMut};
 
 /// to validate that transport can actually send streams of this type
@@ -21,6 +20,7 @@ use std::ops::{Index, IndexMut};
 pub use buffers::OrderingSender;
 pub use error::Error;
 pub use futures::MaybeFuture;
+use serde::{Deserialize, Serialize, Serializer};
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
@@ -81,22 +81,18 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "usize")
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize)]
+#[serde(try_from = "usize")]
 pub struct HelperIdentity {
     id: u8,
 }
 
 // Serialize as `serde(transparent)` would. Don't see how to enable that
 // for only one of (de)serialization.
-impl serde::Serialize for HelperIdentity {
+impl Serialize for HelperIdentity {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         self.id.serialize(serializer)
     }
@@ -219,26 +215,18 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
-)]
+#[serde(into = "&'static str", try_from = "&str")]
 pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
-)]
+#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }

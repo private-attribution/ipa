@@ -50,7 +50,6 @@ pub enum Error {
     #[error("runtime error")]
     RuntimeError(JoinError),
     #[error("failed to parse json: {0}")]
-    #[cfg(feature = "enable-serde")]
     Serde(#[from] serde_json::Error),
     #[error("MPC Infrastructure error: {0}")]
     MpcInfraError(#[from] crate::helpers::Error<Role>),

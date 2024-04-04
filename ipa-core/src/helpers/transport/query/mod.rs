@@ -1,5 +1,3 @@
-pub mod oprf_shuffle;
-
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
@@ -16,15 +14,13 @@ use crate::{
     protocol::{step::Step, QueryId},
 };
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 pub struct QuerySize(u32);
 
 impl QuerySize {
     pub const MAX: u32 = 1_000_000_000;
 }
 
-#[cfg(feature = "enable-serde")]
 impl<'de> Deserialize<'de> for QuerySize {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -84,9 +80,8 @@ impl From<QuerySize> for usize {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
     pub size: QuerySize,
     pub field_type: FieldType,
@@ -99,9 +94,8 @@ pub enum QueryConfigError {
     BadQuerySize(#[from] BadQuerySizeError),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
@@ -123,14 +117,8 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -177,14 +165,8 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -199,8 +181,7 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
@@ -225,8 +206,7 @@ impl AsRef<str> for QueryType {
 
 impl Step for QueryType {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
@@ -328,21 +308,5 @@ impl Default for ContributionBits {
 impl std::fmt::Display for ContributionBits {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct SparseAggregateQueryConfig {
-    pub contribution_bits: ContributionBits,
-    pub num_contributions: u32,
-}
-
-impl Default for SparseAggregateQueryConfig {
-    fn default() -> Self {
-        Self {
-            contribution_bits: ContributionBits::default(),
-            num_contributions: 8,
-        }
     }
 }
