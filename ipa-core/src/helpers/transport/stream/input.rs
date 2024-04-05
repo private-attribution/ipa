@@ -202,7 +202,7 @@ impl Mode for Batch {
 /// fixed-length-[`Serializable`] type `T`.
 ///
 /// Depending on `M`, the provided stream can yield a single record `T` or multiples of `T`. See
-// [`SingleRecord`], [`MultipleRecords`] and [`StreamMode`].
+/// [`Single`], [`Batch`] and [`Mode`]
 #[pin_project]
 pub struct RecordsStream<T, S, M = Batch>
 where
