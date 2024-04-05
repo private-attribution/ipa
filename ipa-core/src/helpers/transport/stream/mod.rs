@@ -27,7 +27,7 @@ pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     {
         use futures::StreamExt;
 
-        Box::pin(self.map(|item| item.unwrap().as_ref().to_vec()).concat())
+        Box::pin(self.map(|item| item.unwrap().to_vec()).concat())
     }
 }
 
