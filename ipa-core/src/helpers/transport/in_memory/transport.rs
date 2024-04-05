@@ -11,6 +11,7 @@ use ::tokio::sync::{
     oneshot,
 };
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::{Stream, StreamExt};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
@@ -36,7 +37,7 @@ type Packet<I> = (
 );
 type ConnectionTx<I> = Sender<Packet<I>>;
 type ConnectionRx<I> = Receiver<Packet<I>>;
-type StreamItem = Vec<u8>;
+type StreamItem = Result<Bytes, BoxError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error<I> {
@@ -110,12 +111,7 @@ impl<I: TransportIdentity> InMemoryTransport<I> {
                                 handler
                                     .as_ref()
                                     .expect("Handler is set")
-                                    .handle(
-                                        addr,
-                                        BodyStream::from_infallible(
-                                            stream.map(Vec::into_boxed_slice),
-                                        ),
-                                    )
+                                    .handle(addr, BodyStream::from_bytes_stream(stream))
                                     .await
                             }
                         };
@@ -177,7 +173,11 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
         let (ack_tx, ack_rx) = oneshot::channel();
 
         channel
-            .send((addr, InMemoryStream::wrap(data), ack_tx))
+            .send((
+                addr,
+                InMemoryStream::wrap(data.map(Bytes::from).map(Ok)),
+                ack_tx,
+            ))
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
@@ -216,26 +216,9 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
-    #[cfg(all(test, unit_test))]
-    fn empty() -> Self {
-        Self::from_iter(std::iter::empty())
-    }
-
     fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {
         Self {
             inner: Box::pin(value),
-        }
-    }
-
-    #[cfg(all(test, unit_test))]
-    fn from_iter<I>(input: I) -> Self
-    where
-        I: IntoIterator<Item = StreamItem>,
-        I::IntoIter: Send + 'static,
-    {
-        use futures_util::stream;
-        Self {
-            inner: Box::pin(stream::iter(input)),
         }
     }
 }
@@ -324,8 +307,11 @@ mod tests {
         task::Poll,
     };
 
+    use bytes::Bytes;
+    use futures::{stream, Stream};
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use tokio::sync::{mpsc::channel, oneshot};
+    use tokio_stream::wrappers::ReceiverStream;
 
     use crate::{
         ff::{FieldType, Fp31},
@@ -348,11 +334,12 @@ mod tests {
 
     const STEP: &str = "in-memory-transport";
 
-    async fn send_and_ack<I: TransportIdentity>(
+    async fn send_and_ack<I: TransportIdentity, S: Stream<Item = Vec<u8>> + Send + 'static>(
         sender: &ConnectionTx<I>,
         addr: Addr<I>,
-        data: InMemoryStream,
+        data: S,
     ) {
+        let data = InMemoryStream::wrap(data.map(Bytes::from).map(Ok));
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
         let _ = rx
@@ -398,7 +385,7 @@ mod tests {
         send_and_ack(
             &tx,
             Addr::from_route(Some(HelperIdentity::TWO), expected),
-            InMemoryStream::empty(),
+            stream::empty(),
         )
         .await;
 
@@ -411,7 +398,9 @@ mod tests {
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
+        let mut stream = transport
+            .receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)))
+            .into_bytes_stream();
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -421,7 +410,7 @@ mod tests {
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
-            InMemoryStream::from_iter(expected.clone()),
+            stream::iter(expected.clone()),
         )
         .await;
 
@@ -436,12 +425,13 @@ mod tests {
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
-            InMemoryStream::from_iter(expected.clone()),
+            stream::iter(expected.clone()),
         )
         .await;
 
-        let stream =
-            Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
+        let stream = Arc::downgrade(&transport)
+            .receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)))
+            .into_bytes_stream();
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -454,13 +444,15 @@ mod tests {
             transports: &HashMap<HelperIdentity, Weak<InMemoryTransport<HelperIdentity>>>,
         ) {
             let (stream_tx, stream_rx) = channel(1);
-            let stream = InMemoryStream::from(stream_rx);
+            let stream = ReceiverStream::new(stream_rx);
 
             let from_transport = transports.get(&from).unwrap();
             let to_transport = transports.get(&to).unwrap();
             let gate = Gate::from(STEP);
 
-            let mut recv = to_transport.receive(from, (QueryId, gate.clone()));
+            let mut recv = to_transport
+                .receive(from, (QueryId, gate.clone()))
+                .into_bytes_stream();
             assert!(matches!(
                 poll_immediate(&mut recv).next().await,
                 Some(Poll::Pending)
@@ -509,10 +501,12 @@ mod tests {
         let (tx, owned_transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let gate = Gate::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
-        let stream = InMemoryStream::from(stream_rx);
+        let stream = ReceiverStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
 
-        let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, gate.clone()));
+        let mut recv_stream = transport
+            .receive(HelperIdentity::TWO, (QueryId, gate.clone()))
+            .into_bytes_stream();
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, gate.clone()),
@@ -562,7 +556,9 @@ mod tests {
             )
             .await
             .unwrap();
-        let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, gate));
+        let mut recv = transport2
+            .receive(HelperIdentity::ONE, (QueryId, gate))
+            .into_bytes_stream();
 
         tx.send(0, Fp31::try_from(0_u128).unwrap()).await;
         // can't receive the value at index 0 because of buffering inside the sender

@@ -198,7 +198,7 @@ impl Mode for Batch {
     }
 }
 
-/// Parse a [`Stream`] of [`Bytes`] into a stream of records of some
+/// Parse a [`Stream`] of bytes into a stream of records of some
 /// fixed-length-[`Serializable`] type `T`.
 ///
 /// Depending on `M`, the provided stream can yield a single record `T` or multiples of `T`. See
