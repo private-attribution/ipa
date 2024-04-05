@@ -7,7 +7,6 @@ use std::{
 use ::tokio::sync::oneshot;
 use futures::FutureExt;
 use generic_array::GenericArray;
-use ipa_step::StepNarrow;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
@@ -24,7 +23,7 @@ use crate::{
         BodyStream, Gateway,
     },
     hpke::{KeyPair, KeyRegistry},
-    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, Gate},
+    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint},
     query::{
         runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
@@ -127,9 +126,9 @@ where
     let join_handle = tokio::spawn(async move {
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
-        // Negotiate PRSS first
-        let step = Gate::default().narrow(&config.query_type);
-        let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
+        // Negotiate PRSS using the initial gate for the protocol (no narrowing).
+        let gate = (&config.query_type).into();
+        let prss = negotiate_prss(&gateway, &gate, &mut rng).await.unwrap();
 
         tx.send(query_impl(&prss, &gateway, &config, input_stream).await)
             .unwrap();

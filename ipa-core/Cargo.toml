@@ -12,15 +12,14 @@ default = [
     # by default remove all TRACE, DEBUG spans from release builds
     "tracing/max_level_trace",
     "tracing/release_max_level_info",
-    "compact-gate",
     "aggregate-circuit",
     "stall-detection",
     "aggregate-circuit",
     "ipa-prf",
 ]
 cli = ["comfy-table", "clap"]
-compact-gate = []
-enable-serde = ["serde", "serde_json"]
+# Enabling compact gates disables any tests that rely on descriptive gates.
+compact-gate = ["ipa-step/string-step"]
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
@@ -30,7 +29,6 @@ web-app = [
     "base64",
     "clap",
     "comfy-table",
-    "enable-serde",
     "hyper",
     "hyper-rustls",
     "rcgen",
@@ -42,7 +40,7 @@ web-app = [
     "tower",
     "tower-http",
 ]
-test-fixture = ["enable-serde", "weak-field"]
+test-fixture = ["weak-field"]
 # Include observability instruments that detect lack of progress inside MPC. If there is a bug that leads to helper
 # miscommunication, this feature helps to detect it. Turning it on has some cost.
 # If "shuttle" feature is enabled, turning this on has no effect.
@@ -133,8 +131,8 @@ rustls-pemfile = { version = "1", optional = true }
 # we can remove pinning
 rustls-webpki = "^0.101.4"
 # TODO consider using zerocopy or serde_bytes or in-house serialization
-serde = { version = "1.0", optional = true, features = ["derive"] }
-serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
@@ -159,14 +157,17 @@ tikv-jemallocator = "0.5.0"
 cfg_aliases = "0.1.1"
 ipa-step = { version = "*", path = "../ipa-step", features = ["build"] }
 ipa-step-derive = { version = "*", path = "../ipa-step-derive", features = ["build"] }
+serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 command-fds = "0.2.2"
 hex = "0.4"
+ipa-step = { version = "*", path = "../ipa-step", features = ["build", "string-step"] }
 permutation = "0.4.1"
 proptest = "1.4"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 tempfile = "3"
+
 
 [lib]
 path = "src/lib.rs"
@@ -180,7 +181,7 @@ bench = false
 [[bin]]
 name = "ipa_bench"
 path = "src/bin/ipa_bench/ipa_bench.rs"
-required-features = ["cli", "enable-serde"]
+required-features = ["cli"]
 bench = false
 
 [[bin]]
@@ -230,6 +231,7 @@ required-features = [
 name = "compact_gate"
 required-features = [
     "cli",
+    "compact-gate",
     "web-app",
     "real-world-infra",
     "test-fixture",

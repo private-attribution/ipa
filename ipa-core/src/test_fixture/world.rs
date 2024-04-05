@@ -1,34 +1,32 @@
 use std::{fmt::Debug, io::stdout, iter::zip};
 
+#[cfg(descriptive_gate)]
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng};
+use rand::rngs::StdRng;
+#[cfg(descriptive_gate)]
+use rand::{distributions::Standard, prelude::Distribution};
 use rand_core::{RngCore, SeedableRng};
 use tracing::{Instrument, Level, Span};
 
 use crate::{
     helpers::{Gateway, GatewayConfig, InMemoryNetwork, Role, RoleAssignment},
-    protocol::{
-        context::{
-            Context, MaliciousContext, SemiHonestContext, UpgradableContext, UpgradeContext,
-            UpgradeToMalicious, UpgradedContext, UpgradedMaliciousContext, Validator,
-        },
-        prss::Endpoint as PrssEndpoint,
-        QueryId,
-    },
+    protocol::{context::UpgradableContext, prss::Endpoint as PrssEndpoint, QueryId},
     rand::thread_rng,
-    secret_sharing::{
-        replicated::malicious::{DowngradeMalicious, ExtendableField},
-        IntoShares,
-    },
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    secret_sharing::IntoShares,
+    sync::{atomic::AtomicUsize, Arc},
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::{
-        logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
+};
+#[cfg(descriptive_gate)]
+use crate::{
+    protocol::context::{
+        Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
+        UpgradedContext, UpgradedMaliciousContext, Validator,
     },
+    secret_sharing::replicated::malicious::{DowngradeMalicious, ExtendableField},
+    sync::atomic::Ordering,
+    test_fixture::{sharing::ValidateMalicious, Reconstruct},
 };
 
 /// Test environment for protocols to run tests that require communication between helpers.
@@ -134,6 +132,7 @@ impl TestWorld {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
+    #[cfg(descriptive_gate)]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
@@ -151,6 +150,7 @@ impl TestWorld {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
+    #[cfg(descriptive_gate)]
     pub fn malicious_contexts(&self) -> [MaliciousContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Relaxed);
         zip(&self.participants, &self.gateways)
@@ -168,6 +168,7 @@ impl TestWorld {
     }
 
     #[must_use]
+    #[cfg(descriptive_gate)]
     pub fn execution_step(execution: usize) -> String {
         format!("run-{execution}")
     }
@@ -213,6 +214,7 @@ impl Drop for TestWorld {
 }
 
 #[async_trait]
+#[cfg(descriptive_gate)]
 pub trait Runner {
     /// Run with a context that can be upgraded, but is only good for semi-honest.
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
@@ -261,6 +263,7 @@ fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3])
 }
 
 #[async_trait]
+#[cfg(descriptive_gate)]
 impl Runner for TestWorld {
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where

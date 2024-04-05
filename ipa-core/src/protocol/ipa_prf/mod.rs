@@ -28,13 +28,13 @@ use crate::{
     },
 };
 
-mod boolean_ops;
+pub(crate) mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
 
 mod quicksort;
-mod shuffle;
-mod step;
+pub(crate) mod shuffle;
+pub(crate) mod step;
 
 use step::IpaPrfStep as Step;
 
@@ -176,8 +176,7 @@ where
     Replicated<F>: Serializable,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
-    let mut prfd_inputs =
-        compute_prf_for_inputs(ctx.narrow(&Step::ConvertInputRowsToPrf), shuffled).await?;
+    let mut prfd_inputs = compute_prf_for_inputs(ctx.clone(), shuffled).await?;
 
     prfd_inputs.sort_by(|a, b| a.prf_of_match_key.cmp(&b.prf_of_match_key));
 
@@ -192,7 +191,7 @@ where
     .await?;
 
     attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
-        ctx,
+        ctx.narrow(&Step::Attribution),
         prfd_inputs,
         attribution_window_seconds,
         &histogram,

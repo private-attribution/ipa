@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[path = "step.rs"]
-mod step;
+pub(crate) mod step;
 use step::Step;
 
 ///

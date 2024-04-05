@@ -7,16 +7,14 @@ use ipa_step_derive::track_steps;
 
 track_steps!(
     setup_steps:
-    helpers::prss_protocol::prss_step @ "src/helpers/prss_step.rs",
     protocol::{
         basics::{
             mul::step,
             step,
-            sum_of_product::step,
+            sum_of_product::malicious::step @ "src/protocol/basics/sum_of_product/step.rs",
         },
         boolean::{
-            comparison_step,
-            fallback_step,
+            random_bits_generator::fallback_step @ "src/protocol/boolean/fallback_step.rs",
             step,
         },
         context::step,
@@ -40,8 +38,9 @@ fn main() {
     // env, etc.
     // https://docs.rs/tectonic_cfg_support/latest/tectonic_cfg_support/struct.TargetConfiguration.html
     cfg_aliases! {
-        descriptive_gate: { not(all(feature = "compact-gate", not(test), not(unit_test))) },
-        unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra") },
+        compact_gate: { feature = "compact-gate" },
+        descriptive_gate: { not(compact_gate) },
+        unit_test: { all(not(feature = "shuttle"), feature = "in-memory-infra", descriptive_gate) },
         web_test: { all(not(feature = "shuttle"), feature = "real-world-infra") },
     }
 }

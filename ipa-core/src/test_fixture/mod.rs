@@ -8,7 +8,7 @@ mod world;
 #[cfg(feature = "in-memory-infra")]
 mod app;
 
-#[cfg(feature = "in-memory-infra")]
+#[cfg(all(feature = "in-memory-infra", descriptive_gate))]
 pub mod circuit;
 mod event_gen;
 pub mod ipa;
@@ -25,8 +25,10 @@ use ipa_step::{Step, StepNarrow};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
+#[cfg(all(feature = "in-memory-infra", descriptive_gate))]
+pub use world::Runner;
 #[cfg(feature = "in-memory-infra")]
-pub use world::{Runner, TestWorld, TestWorldConfig};
+pub use world::{TestWorld, TestWorldConfig};
 
 use crate::{
     ff::{Field, U128Conversions},

@@ -12,8 +12,7 @@ pub mod echo {
 
     use crate::net::Error;
 
-    #[derive(Debug, Default, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+    #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub struct Request {
         pub query_params: HashMap<String, String>,
         pub headers: HashMap<String, String>,
@@ -54,7 +53,6 @@ pub mod echo {
         }
     }
 
-    #[cfg(feature = "enable-serde")]
     #[async_trait]
     impl<B: Send> FromRequest<B> for Request {
         type Rejection = Error;
@@ -224,7 +222,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(serde::Serialize, serde::Deserialize)]
         pub struct ResponseBody {
             pub query_id: QueryId,
         }
@@ -303,7 +301,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(serde::Serialize, serde::Deserialize)]
         struct RequestBody {
             roles: RoleAssignment,
         }

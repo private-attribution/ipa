@@ -2,14 +2,12 @@ use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "enable-serde")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WeightedIndex<T> {
     pub index: T,
     pub weight: f64,
 }
 
-#[cfg(feature = "enable-serde")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub devices_per_user: Vec<WeightedIndex<u8>>,

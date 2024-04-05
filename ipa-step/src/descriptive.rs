@@ -31,13 +31,19 @@ pub struct Descriptive {
     id: String,
 }
 
+impl Descriptive {
+    pub fn new(n: impl AsRef<str>) -> Self {
+        Self {
+            id: String::from(n.as_ref()),
+        }
+    }
+}
+
 impl Gate for Descriptive {}
 
 impl Default for Descriptive {
     fn default() -> Self {
-        Self {
-            id: String::from("protocol"),
-        }
+        Self::new("protocol")
     }
 }
 

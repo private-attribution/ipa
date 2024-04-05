@@ -5,7 +5,7 @@ use std::{
     num::NonZeroU32,
 };
 
-use ipa_step::Step;
+use ipa_step::{descriptive::Descriptive, Step, StepNarrow};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
@@ -14,23 +14,21 @@ use crate::{
         transport::{BodyStream, NoQueryId, NoStep},
         GatewayConfig, RoleAssignment, RouteId, RouteParams,
     },
-    protocol::QueryId,
+    protocol::{
+        step::{ProtocolGate, ProtocolStep},
+        QueryId,
+    },
 };
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 pub struct QuerySize(u32);
 
 impl QuerySize {
     pub const MAX: u32 = 1_000_000_000;
 }
 
-#[cfg(feature = "enable-serde")]
 impl<'de> Deserialize<'de> for QuerySize {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let v = u32::deserialize(deserializer)?;
         Self::try_from(v).map_err(serde::de::Error::custom)
     }
@@ -87,7 +85,7 @@ impl From<QuerySize> for usize {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct QueryConfig {
     pub size: QuerySize,
     pub field_type: FieldType,
@@ -100,9 +98,8 @@ pub enum QueryConfigError {
     BadQuerySize(#[from] BadQuerySizeError),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
@@ -124,14 +121,8 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -178,14 +169,8 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -200,8 +185,7 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
@@ -226,8 +210,25 @@ impl AsRef<str> for QueryType {
 
 impl Step for QueryType {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[allow(clippy::from_over_into)]
+impl Into<ProtocolGate> for &QueryType {
+    fn into(self) -> ProtocolGate {
+        ProtocolGate::default().narrow(&match self {
+            #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+            QueryType::TestMultiply => ProtocolStep::Multiply,
+            QueryType::OprfIpa(_) => ProtocolStep::IpaPrf,
+        })
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<Descriptive> for &QueryType {
+    fn into(self) -> Descriptive {
+        Descriptive::new(self)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
     #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
@@ -332,8 +333,7 @@ impl std::fmt::Display for ContributionBits {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SparseAggregateQueryConfig {
     pub contribution_bits: ContributionBits,
     pub num_contributions: u32,

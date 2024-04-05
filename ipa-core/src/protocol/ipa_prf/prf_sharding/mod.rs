@@ -27,7 +27,11 @@ use crate::{
                 comparison_and_subtraction_sequential::{compare_gt, integer_sub},
                 expand_shared_array_in_place,
             },
-            prf_sharding::step::{AttributionStep as Step, UserNthRowStep},
+            prf_sharding::step::{
+                AttributionPerRowStep as PerRowStep, AttributionStep as Step,
+                AttributionWindowStep as WindowStep, AttributionZeroTriggerStep as ZeroStep,
+                UserNthRowStep,
+            },
         },
         modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
         RecordId,
@@ -44,7 +48,7 @@ use crate::{
 
 pub mod bucket;
 pub mod feature_label_dot_product;
-mod step;
+pub(crate) mod step;
 
 #[derive(Debug)]
 pub struct PrfShardedIpaInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
@@ -154,20 +158,20 @@ where
             source_event_timestamp,
         ) = try_join3(
             or(
-                ctx.narrow(&Step::EverEncounteredSourceEvent),
+                ctx.narrow(&PerRowStep::EverEncounteredSourceEvent),
                 record_id,
                 &is_source_event,
                 &self.ever_encountered_a_source_event,
             ),
             breakdown_key_of_most_recent_source_event(
-                ctx.narrow(&Step::AttributedBreakdownKey),
+                ctx.narrow(&PerRowStep::AttributedBreakdownKey),
                 record_id,
                 &input_row.is_trigger_bit,
                 &self.attributed_breakdown_key_bits,
                 &input_row.breakdown_key,
             ),
             timestamp_of_most_recent_source_event(
-                ctx.narrow(&Step::SourceEventTimestamp),
+                ctx.narrow(&PerRowStep::SourceEventTimestamp),
                 record_id,
                 attribution_window_seconds,
                 &input_row.is_trigger_bit,
@@ -178,7 +182,7 @@ where
         .await?;
 
         let attributed_trigger_value = zero_out_trigger_value_unless_attributed(
-            ctx.narrow(&Step::AttributedTriggerValue),
+            ctx.narrow(&PerRowStep::AttributedTriggerValue),
             record_id,
             &input_row.is_trigger_bit,
             &ever_encountered_a_source_event,
@@ -190,7 +194,7 @@ where
         .await?;
 
         let (updated_sum, overflow_bit) = integer_add(
-            ctx.narrow(&Step::ComputeSaturatingSum),
+            ctx.narrow(&PerRowStep::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
             &attributed_trigger_value,
@@ -200,7 +204,7 @@ where
         let (overflow_bit_and_prev_row_not_saturated, difference_to_cap) = try_join(
             overflow_bit.multiply(
                 &self.is_saturated.clone().not(),
-                ctx.narrow(&Step::IsSaturatedAndPrevRowNotSaturated),
+                ctx.narrow(&PerRowStep::IsSaturatedAndPrevRowNotSaturated),
                 record_id,
             ),
             // It is okay that we are calling `integer_sub` with length(y) > length(x) here.
@@ -209,7 +213,7 @@ where
             // cap, and a `TV::BITS` subtraction of the `TV::BITS` least significant bits of
             // `updated_sum` from zero will correctly compute the difference to the cap.
             integer_sub(
-                ctx.narrow(&Step::ComputeDifferenceToCap),
+                ctx.narrow(&PerRowStep::ComputeDifferenceToCap),
                 record_id,
                 &Replicated::<TV>::ZERO,
                 &updated_sum,
@@ -681,11 +685,11 @@ where
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
             ever_encountered_a_source_event,
-            ctx.narrow(&Step::DidTriggerGetAttributed),
+            ctx.narrow(&ZeroStep::DidTriggerGetAttributed),
             record_id,
         ),
         is_trigger_event_within_attribution_window(
-            ctx.narrow(&Step::CheckAttributionWindow),
+            ctx.narrow(&ZeroStep::CheckAttributionWindow),
             record_id,
             attribution_window_seconds,
             trigger_event_timestamp,
@@ -696,7 +700,7 @@ where
 
     // save 1 multiplication if there is no attribution window
     let zero_out_flag = if attribution_window_seconds.is_some() {
-        let c = ctx.narrow(&Step::AttributedEventCheckFlag);
+        let c = ctx.narrow(&ZeroStep::AttributedEventCheckFlag);
         did_trigger_get_attributed
             .multiply(&is_trigger_within_window, c, record_id)
             .await?
@@ -731,7 +735,7 @@ where
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
-            ctx.narrow(&Step::ComputeTimeDelta),
+            ctx.narrow(&WindowStep::ComputeTimeDelta),
             record_id,
             trigger_event_timestamp,
             source_event_timestamp,
@@ -741,7 +745,7 @@ where
         let constant_bits = TS::truncate_from(attribution_window_seconds.get());
 
         let time_delta_gt_attribution_window = compare_gt(
-            ctx.narrow(&Step::CompareTimeDeltaToAttributionWindow),
+            ctx.narrow(&WindowStep::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
             &Replicated::<TS>::new(constant_bits, constant_bits),
@@ -786,8 +790,10 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<TV>: BooleanArrayMul,
 {
-    let narrowed_ctx1 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueNotSaturatedCase);
-    let narrowed_ctx2 = ctx.narrow(&Step::ComputedCappedAttributedTriggerValueJustSaturatedCase);
+    let narrowed_ctx1 =
+        ctx.narrow(&PerRowStep::ComputedCappedAttributedTriggerValueNotSaturatedCase);
+    let narrowed_ctx2 =
+        ctx.narrow(&PerRowStep::ComputedCappedAttributedTriggerValueJustSaturatedCase);
 
     let attributed_trigger_value_or_zero = select(
         narrowed_ctx1,

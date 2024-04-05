@@ -69,14 +69,14 @@ pub fn build<S: CompactStep>() {
             #i => #s,
         });
         from_arms.extend(quote! {
-            #s => #ident(#i),
+            #s => Ok(#ident(#i)),
         });
         if let Some(t) = S::step_narrow_type(i - 1) {
             step_narrows.entry(t).or_insert_with(Vec::new).push(i);
         }
     }
 
-    let from_panic = format!("unknown string provided to {gate_name}::from: {{s}}");
+    let from_panic = format!("unknown string for {gate_name}: \"{{s}}\"");
     let mut syntax = quote! {
         impl ::std::convert::AsRef<str> for #ident {
             fn as_ref(&self) -> &str {
@@ -88,13 +88,20 @@ pub fn build<S: CompactStep>() {
             }
         }
 
+        impl ::std::str::FromStr for #ident {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "/" => Ok(Self::default()),
+                    #from_arms
+                    _ => Err(format!(#from_panic)),
+                }
+            }
+        }
+
         impl ::std::convert::From<&str> for #ident {
             fn from(s: &str) -> Self {
-                match s {
-                    "/" => Self::default(),
-                    #from_arms
-                    _ => panic!(#from_panic),
-                }
+                <Self as ::std::str::FromStr>::from_str(s).unwrap_or_else(|e| panic!("{e}"))
             }
         }
     };

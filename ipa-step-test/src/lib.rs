@@ -42,7 +42,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unknown string provided to ComplexGate::from: /not/a/gate")]
+    #[should_panic(expected = "unknown string for ComplexGate: \"/not/a/gate\"")]
     fn bad_string() {
         _ = ComplexGate::from("/not/a/gate");
     }

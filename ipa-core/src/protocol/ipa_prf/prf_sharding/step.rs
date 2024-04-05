@@ -2,7 +2,7 @@ use ipa_step_derive::CompactStep;
 
 #[derive(CompactStep)]
 pub enum UserNthRowStep {
-    #[step(count = 64)]
+    #[step(count = 64, child = AttributionPerRowStep)]
     Row(usize),
 }
 
@@ -14,7 +14,7 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(CompactStep)]
 pub enum BinaryTreeDepthStep {
-    #[step(count = 64)]
+    #[step(count = 64, child = BucketStep)]
     Depth(usize),
 }
 
@@ -26,24 +26,42 @@ impl From<usize> for BinaryTreeDepthStep {
 
 #[derive(CompactStep)]
 pub(crate) enum AttributionStep {
+    #[step(child = UserNthRowStep)]
     BinaryValidator,
     PrimeFieldValidator,
+    ModulusConvertBreakdownKeyBitsAndTriggerValues,
+    #[step(child = BinaryTreeDepthStep)]
+    MoveValueToCorrectBreakdown,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum AttributionPerRowStep {
     EverEncounteredSourceEvent,
-    DidTriggerGetAttributed,
     AttributedBreakdownKey,
+    #[step(child = AttributionZeroTriggerStep)]
     AttributedTriggerValue,
-    AttributedEventCheckFlag,
-    CheckAttributionWindow,
-    ComputeTimeDelta,
-    CompareTimeDeltaToAttributionWindow,
     SourceEventTimestamp,
     ComputeSaturatingSum,
     IsSaturatedAndPrevRowNotSaturated,
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     ComputeDifferenceToCap,
     ComputedCappedAttributedTriggerValueNotSaturatedCase,
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
-    ModulusConvertBreakdownKeyBitsAndTriggerValues,
-    MoveValueToCorrectBreakdown,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum AttributionZeroTriggerStep {
+    DidTriggerGetAttributed,
+    #[step(child = AttributionWindowStep)]
+    CheckAttributionWindow,
+    AttributedEventCheckFlag,
+}
+
+#[derive(CompactStep)]
+pub(crate) enum AttributionWindowStep {
+    ComputeTimeDelta,
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
+    CompareTimeDeltaToAttributionWindow,
 }
 
 #[derive(CompactStep)]
@@ -64,16 +82,9 @@ pub enum BucketStep {
     Bit(usize),
 }
 
-impl TryFrom<u32> for BucketStep {
-    type Error = String;
-
-    fn try_from(v: u32) -> Result<Self, Self::Error> {
-        let val = usize::try_from(v);
-        let val = match val {
-            Ok(val) => Self::Bit(val),
-            Err(error) => panic!("{error:?}"),
-        };
-        Ok(val)
+impl From<u32> for BucketStep {
+    fn from(v: u32) -> Self {
+        Self::Bit(usize::try_from(v).unwrap())
     }
 }
 

@@ -182,6 +182,13 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
             }
         }
 
+        impl ::std::str::FromStr for #name {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                unimplemented!()
+            }
+        }
+
         impl ::std::convert::From<&str> for #name {
             fn from(s: &str) -> Self {
                 unimplemented!()

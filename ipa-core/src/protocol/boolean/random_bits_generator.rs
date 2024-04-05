@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[path = "fallback_step.rs"]
-mod fallback_step;
+pub(crate) mod fallback_step;
 use fallback_step::FallbackStep;
 
 /// A struct that generates random sharings of bits from the

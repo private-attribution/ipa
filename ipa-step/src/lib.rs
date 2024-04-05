@@ -10,7 +10,7 @@ pub mod name;
 pub use gate::build as build_gate;
 
 pub const COMPACT_GATE_INCLUDE_ENV: &str = "COMPACT_GATE_INCLUDE";
-pub type CompactGateIndex = u16;
+pub type CompactGateIndex = u32;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -29,7 +29,9 @@ pub type CompactGateIndex = u16;
 pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
+#[cfg(feature = "string-step")]
 impl Step for String {}
+#[cfg(feature = "string-step")]
 impl Step for str {}
 
 /// For a gate identifier, this takes a step toward an adjacent gate.

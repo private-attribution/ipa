@@ -1,7 +1,7 @@
 use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
 
 use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
-#[cfg(feature = "in-memory-infra")]
+#[cfg(descriptive_gate)]
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
@@ -173,7 +173,7 @@ where
 /// # Panics
 /// If any of the IPA protocol modules panic
 #[allow(clippy::too_many_lines)]
-#[cfg(feature = "in-memory-infra")]
+#[cfg(unit_test)]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
     records: Vec<TestRawDataRecord>,

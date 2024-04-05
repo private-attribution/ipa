@@ -15,6 +15,7 @@ pub(crate) enum SaturatedSubtractionStep {
 #[derive(CompactStep)]
 pub(crate) enum Fp25519ConversionStep {
     GenerateSecretSharing,
+    #[step(child = crate::protocol::boolean::step::BitOpStep)]
     IntegerAddBetweenMasks,
     IntegerAddMaskToX,
     RevealY,

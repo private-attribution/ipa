@@ -1,18 +1,17 @@
-use super::{or::or, step::BitOpStep};
 use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
-        boolean::{random_bits_generator::RandomBitsGenerator, step::ComparisonStep},
+        boolean::{
+            or::or,
+            random_bits_generator::RandomBitsGenerator,
+            step::{BitOpStep, ComparisonStep, GreaterThanConstantStep as Step},
+        },
         context::{Context, UpgradedContext},
         BasicProtocols, RecordId,
     },
     secret_sharing::{Linear as LinearSecretSharing, LinearRefOps},
 };
-
-#[path = "comparison_step.rs"]
-mod comparison_step;
-use comparison_step::GreaterThanConstantStep as Step;
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
 //

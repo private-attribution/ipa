@@ -77,12 +77,8 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "usize")
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, serde::Deserialize)]
+#[serde(try_from = "usize")]
 pub struct HelperIdentity {
     id: u8,
 }
@@ -215,26 +211,20 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[serde(into = "&'static str", try_from = "&str")]
 pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
-)]
+#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }

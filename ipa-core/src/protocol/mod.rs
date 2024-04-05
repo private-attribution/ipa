@@ -25,8 +25,9 @@ pub type BreakdownKey = Gf8Bit;
 pub type TriggerValue = Gf3Bit;
 pub type Timestamp = Gf20Bit;
 
-#[cfg(not(descriptive_gate))]
-pub type Gate = ProtocolGate;
+// These two cfg flags are defined to be mutually exclusive.
+#[cfg(compact_gate)]
+pub type Gate = step::ProtocolGate;
 #[cfg(descriptive_gate)]
 pub type Gate = ipa_step::descriptive::Descriptive;
 
@@ -35,12 +36,8 @@ pub type Gate = ipa_step::descriptive::Descriptive;
 /// them collaborating on constructing this unique id. These details haven't been flushed out yet,
 /// so for now it is just an empty struct. Once we know more about it, we will make necessary
 /// amendments to it
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(into = "&'static str", try_from = "&str")]
 pub struct QueryId;
 
 impl Display for QueryId {
@@ -83,8 +80,9 @@ impl TryFrom<&str> for QueryId {
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct RecordId(u32);
 
 impl Display for RecordId {

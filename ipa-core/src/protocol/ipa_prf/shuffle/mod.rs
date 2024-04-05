@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub mod base;
-mod step;
+pub(crate) mod step;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
