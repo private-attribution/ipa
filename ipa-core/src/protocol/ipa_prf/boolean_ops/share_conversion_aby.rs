@@ -1,8 +1,4 @@
-use std::{
-    borrow::Borrow,
-    convert::Infallible,
-    ops::{Neg, Not},
-};
+use std::{borrow::Borrow, convert::Infallible, ops::Neg};
 
 use ipa_macros::Step;
 
@@ -14,7 +10,7 @@ use crate::{
     },
     helpers::Role,
     protocol::{
-        basics::{partial_reveal, Reveal, SecureMul},
+        basics::{partial_reveal, BooleanProtocols},
         context::Context,
         ipa_prf::boolean_ops::addition_sequential::integer_add,
         prss::{FromPrss, SharedRandomness},
@@ -22,7 +18,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
+        FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
 
@@ -119,9 +115,7 @@ where
     YS: ArrayAccessRef<Element = AdditiveShare<Boolean, N>>
         + ArrayBuild<Input = AdditiveShare<Boolean, N>>
         + FromPrss<usize>,
-    AdditiveShare<Boolean, N>: SecureMul<C>
-        + Reveal<C, N, Output = <Boolean as FieldVectorizable<N>>::ArrayAlias>
-        + Not<Output = AdditiveShare<Boolean, N>>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a YS>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<N>>::Array; 256], Error = Infallible>,
@@ -354,6 +348,7 @@ mod tests {
     use crate::{
         ff::{boolean_array::BA64, Serializable},
         helpers::stream::{ProcessChunks, TryFlattenItersExt},
+        protocol::context::SemiHonestContext,
         rand::thread_rng,
         seq_join::{seq_join, SeqJoin},
         test_executor::run,
@@ -379,7 +374,8 @@ mod tests {
             + 'static,
         for<'a> <XS as ArrayAccessRef>::Ref<'a>: Send,
         for<'a> <YS as ArrayAccessRef>::Ref<'a>: Send,
-        AdditiveShare<Boolean, CHUNK>: Not<Output = AdditiveShare<Boolean, CHUNK>>,
+        AdditiveShare<Boolean, CHUNK>:
+            for<'a> BooleanProtocols<SemiHonestContext<'a>, Boolean, CHUNK>,
         Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a YS>,
         Vec<BA256>: for<'a> TransposeFrom<
             &'a [<Boolean as Vectorizable<CHUNK>>::Array; 256],

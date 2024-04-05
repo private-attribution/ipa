@@ -16,7 +16,7 @@ pub use input::{LengthDelimitedStream, RecordsStream};
 
 use crate::error::BoxError;
 
-pub trait BytesStream<R: AsRef<[u8]> = Bytes>: Stream<Item = Result<R, BoxError>> + Send {
+pub trait BytesStream: Stream<Item = Result<Bytes, BoxError>> + Send {
     /// Collects the entire stream into a vec; only intended for use in tests
     /// # Panics
     /// if the stream has any failure
@@ -31,7 +31,7 @@ pub trait BytesStream<R: AsRef<[u8]> = Bytes>: Stream<Item = Result<R, BoxError>
     }
 }
 
-impl<R: AsRef<[u8]>, S: Stream<Item = Result<R, BoxError>> + Send> BytesStream<R> for S {}
+impl<S: Stream<Item = Result<Bytes, BoxError>> + Send> BytesStream for S {}
 
 pub type BoxBytesStream = Pin<Box<dyn BytesStream>>;
 

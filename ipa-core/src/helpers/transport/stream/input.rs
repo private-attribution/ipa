@@ -107,13 +107,23 @@ impl BufDeque {
         })
     }
 
-    /// Deserialize fixed-length items from the buffer.
+    /// Deserialize a single instance of `T` from the buffer with the guarantee that deserialization
+    /// cannot fail, if there is enough bytes in the buffer.
     ///
-    /// Deserializes a single instance of fixed-length-[`Serializable`] type `T` from the stream.
     /// Returns `None` if there is insufficient data available.
-    fn read<T: Serializable<DeserializationError = Infallible>>(&mut self) -> Option<T> {
+    fn read_infallible<T: Serializable<DeserializationError = Infallible>>(&mut self) -> Option<T> {
         self.read_bytes(T::Size::USIZE)
             .map(|bytes| T::deserialize_infallible(GenericArray::from_slice(&bytes)))
+    }
+
+    /// Attempts to deserialize a single instance of `T` from the buffer.
+    /// Returns `None` if there is insufficient data available
+    ///
+    /// ## Errors
+    /// Returns a deserialization error if `T` rejects the bytes from this buffer.
+    fn try_read<T: Serializable>(&mut self) -> Option<Result<T, T::DeserializationError>> {
+        self.read_bytes(T::Size::USIZE)
+            .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)))
     }
 
     /// Update the buffer with the result of polling a stream.
@@ -154,13 +164,51 @@ enum ExtendResult {
     Error(io::Error),
 }
 
+pub trait Mode {
+    type Output<T: Serializable>;
+
+    fn read_from<T: Serializable>(
+        buf: &mut BufDeque,
+    ) -> Option<Result<Self::Output<T>, T::DeserializationError>>;
+}
+
+/// Makes [`RecordsStream`] return one record per poll.
+pub struct Single;
+
+/// Makes [`RecordsStream`] return a vector of elements per poll.
+pub struct Batch;
+
+impl Mode for Single {
+    type Output<T: Serializable> = T;
+
+    fn read_from<T: Serializable>(
+        buf: &mut BufDeque,
+    ) -> Option<Result<Self::Output<T>, T::DeserializationError>> {
+        buf.try_read()
+    }
+}
+impl Mode for Batch {
+    type Output<T: Serializable> = Vec<T>;
+
+    fn read_from<T: Serializable>(
+        buf: &mut BufDeque,
+    ) -> Option<Result<Self::Output<T>, T::DeserializationError>> {
+        let count = max(1, buf.contiguous_len() / T::Size::USIZE);
+        buf.read_multi(count)
+    }
+}
+
 /// Parse a [`Stream`] of bytes into a stream of records of some
 /// fixed-length-[`Serializable`] type `T`.
+///
+/// Depending on `M`, the provided stream can yield a single record `T` or multiples of `T`. See
+/// [`Single`], [`Batch`] and [`Mode`]
 #[pin_project]
-pub struct RecordsStream<T, S, R: AsRef<[u8]> = Bytes>
+pub struct RecordsStream<T, S, M = Batch>
 where
-    S: BytesStream<R>,
+    S: BytesStream,
     T: Serializable,
+    M: Mode,
 {
     // Our implementation of `poll_next` turns a `None` from the inner stream into `Some(Err(_))` if
     // there is extra trailing data. We do not expect to be polled again after that happens, but
@@ -169,13 +217,14 @@ where
     #[pin]
     stream: Fuse<S>,
     buffer: BufDeque,
-    phantom_data: PhantomData<(T, R)>,
+    phantom_data: PhantomData<(T, M)>,
 }
 
-impl<T, S, R: AsRef<[u8]>> RecordsStream<T, S, R>
+impl<T, S, M> RecordsStream<T, S, M>
 where
-    S: BytesStream<R>,
+    S: BytesStream,
     T: Serializable,
+    M: Mode,
 {
     #[must_use]
     pub fn new(stream: S) -> Self {
@@ -187,19 +236,19 @@ where
     }
 }
 
-impl<T, S> Stream for RecordsStream<T, S>
+impl<T, S, M> Stream for RecordsStream<T, S, M>
 where
     S: BytesStream,
     T: Serializable,
+    M: Mode,
 {
-    type Item = Result<Vec<T>, crate::error::Error>;
+    type Item = Result<M::Output<T>, crate::error::Error>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         loop {
-            let count = max(1, this.buffer.contiguous_len() / T::Size::USIZE);
-            if let Some(items) = this.buffer.read_multi(count) {
-                return Poll::Ready(Some(items.map_err(|e: T::DeserializationError| {
+            if let Some(v) = M::read_from(this.buffer) {
+                return Poll::Ready(Some(v.map_err(|e: T::DeserializationError| {
                     crate::error::Error::ParseError(e.into())
                 })));
             }
@@ -218,20 +267,22 @@ where
     }
 }
 
-impl<T, S> FusedStream for RecordsStream<T, S>
+impl<T, S, M> FusedStream for RecordsStream<T, S, M>
 where
     S: BytesStream,
     T: Serializable,
+    M: Mode,
 {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
     }
 }
 
-impl<T, S> Debug for RecordsStream<T, S>
+impl<T, S, M> Debug for RecordsStream<T, S, M>
 where
     S: BytesStream,
     T: Serializable,
+    M: Mode,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -248,13 +299,14 @@ impl<T: Serializable> From<Vec<u8>> for RecordsStream<T, Once<Ready<Result<Bytes
     }
 }
 
-impl<T, Buf, I> From<I>
-    for RecordsStream<T, Map<Iter<I::IntoIter>, fn(Buf) -> Result<Bytes, BoxError>>>
+impl<T, Buf, I, M> From<I>
+    for RecordsStream<T, Map<Iter<I::IntoIter>, fn(Buf) -> Result<Bytes, BoxError>>, M>
 where
     T: Serializable,
     Buf: Into<Bytes>,
     I: IntoIterator<Item = Buf>,
     <I as IntoIterator>::IntoIter: Send,
+    M: Mode,
 {
     fn from(value: I) -> Self {
         RecordsStream::new(iter(value).map(|buf| Ok(buf.into())))
@@ -335,7 +387,7 @@ where
         let mut items = Vec::new();
         loop {
             if this.pending_len.is_none() {
-                if let Some(len) = this.buffer.read::<Length>().map(Into::into) {
+                if let Some(len) = this.buffer.read_infallible::<Length>().map(Into::into) {
                     *this.pending_len = Some(len);
                     consumed_len += <Length as Serializable>::Size::USIZE;
                 }
@@ -598,6 +650,41 @@ mod test {
         }
     }
 
+    mod single_record {
+        use std::iter;
+
+        use bytes::Bytes;
+        use futures_util::{FutureExt, StreamExt, TryStreamExt};
+
+        use crate::{
+            ff::{Fp31, Fp32BitPrime},
+            helpers::{transport::stream::input::Single, RecordsStream},
+            secret_sharing::SharedValue,
+        };
+
+        #[tokio::test]
+        async fn fp31() {
+            let vec = vec![3; 10];
+            let stream = RecordsStream::<Fp31, _, Single>::from(iter::once(Bytes::from(vec)));
+            let collected = stream.try_collect::<Vec<Fp31>>().await.unwrap();
+
+            assert_eq!(collected, vec![Fp31::try_from(3).unwrap(); 10]);
+        }
+
+        #[tokio::test]
+        #[should_panic(expected = "stream terminated with 3 extra bytes")]
+        async fn fp32_bit() {
+            let vec = vec![0; 7];
+            let mut stream =
+                RecordsStream::<Fp32BitPrime, _, Single>::from(iter::once(Bytes::from(vec)));
+            assert_eq!(
+                Fp32BitPrime::ZERO,
+                stream.next().now_or_never().flatten().unwrap().unwrap()
+            );
+            stream.next().now_or_never().flatten().unwrap().unwrap();
+        }
+    }
+
     mod delimited {
         use futures::TryStreamExt;
 
@@ -719,13 +806,27 @@ mod test {
 
         proptest::proptest! {
             #[test]
-            fn test_records_stream_works_with_any_chunks(
+            fn batch_test_records_stream_works_with_any_chunks(
                 (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     // flatten the chunks to compare with expected
                     let collected_bytes = RecordsStream::<TestField, _>::from(chunked_bytes)
                         .try_concat()
+                        .await
+                        .unwrap();
+
+                    assert_eq!(collected_bytes, expected_bytes);
+                });
+            }
+
+            #[test]
+            fn single_test_records_stream_works_with_any_chunks(
+                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(100)
+            ) {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    let collected_bytes = RecordsStream::<TestField, _, Single>::from(chunked_bytes)
+                        .try_collect::<Vec<_>>()
                         .await
                         .unwrap();
 

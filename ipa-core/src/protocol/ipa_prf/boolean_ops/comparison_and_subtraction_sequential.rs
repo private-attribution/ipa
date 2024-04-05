@@ -4,7 +4,7 @@
 //! the bit-width of the first (x) operand, then the excess bits of y must be zero. This condition
 //! is abbreviated below as `length(x) >= log2(y)`.
 
-use std::{borrow::Borrow, iter::repeat, ops::Not};
+use std::{borrow::Borrow, iter::repeat};
 
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
@@ -15,7 +15,7 @@ use crate::{
     error::Error,
     ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
     protocol::{
-        basics::{SecureMul, ShareKnownValue},
+        basics::{BooleanProtocols, SecureMul, ShareKnownValue},
         context::Context,
         step::BitOpStep,
         RecordId,
@@ -52,7 +52,7 @@ where
     F: Field,
     XS: ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F>>,
-    AdditiveShare<F>: SecureMul<C> + Not<Output = AdditiveShare<F>>,
+    AdditiveShare<F>: BooleanProtocols<C, F>,
 {
     // we need to initialize carry to 1 for x>=y,
     let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
@@ -77,7 +77,7 @@ where
     F: Field + FieldSimd<N>,
     XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<F, N>::ZERO;
@@ -102,7 +102,7 @@ where
     F: Field,
     XS: ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F>>,
-    AdditiveShare<F>: SecureMul<C> + Not<Output = AdditiveShare<F>>,
+    AdditiveShare<F>: BooleanProtocols<C, F>,
 {
     // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
@@ -127,7 +127,7 @@ where
     S: SharedValue + CustomArray<Element = F>,
     AdditiveShare<S>:
         ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
-    AdditiveShare<F>: SecureMul<C> + Not<Output = AdditiveShare<F>>,
+    AdditiveShare<F>: BooleanProtocols<C, F>,
     AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
 {
     let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
@@ -170,7 +170,7 @@ where
     F: Field + FieldSimd<N>,
     XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -220,7 +220,7 @@ async fn bit_subtractor<C, F, const N: usize>(
 where
     C: Context,
     F: Field + FieldSimd<N>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     let output = x + !(y + &*carry);
 

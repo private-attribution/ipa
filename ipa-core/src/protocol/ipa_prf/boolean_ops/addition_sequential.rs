@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, iter::repeat, ops::Not};
+use std::{borrow::Borrow, iter::repeat};
 
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
@@ -6,7 +6,12 @@ use ipa_macros::Step;
 use crate::{
     error::Error,
     ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
-    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
+    protocol::{
+        basics::{BooleanProtocols, SecureMul},
+        context::Context,
+        step::BitOpStep,
+        RecordId,
+    },
     secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
 };
 #[cfg(all(test, unit_test))]
@@ -41,7 +46,7 @@ where
     F: Field + FieldSimd<N>,
     XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     let mut carry = AdditiveShare::<F, N>::ZERO;
     let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
@@ -65,7 +70,7 @@ where
     C: Context,
     S: SharedValue + CustomArray<Element = F>,
     AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
-    AdditiveShare<F>: Not<Output = AdditiveShare<F>>,
+    AdditiveShare<F>: BooleanProtocols<C, F>,
 {
     use crate::{ff::Expand, protocol::basics::if_else};
     let mut carry = AdditiveShare::<F>::ZERO;
@@ -114,7 +119,7 @@ where
     F: Field + FieldSimd<N>,
     XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
     YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -168,7 +173,7 @@ async fn bit_adder<C, F, const N: usize>(
 where
     C: Context,
     F: Field + FieldSimd<N>,
-    AdditiveShare<F, N>: SecureMul<C> + Not<Output = AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
 {
     let output = x + y + &*carry;
 
