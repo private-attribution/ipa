@@ -102,6 +102,31 @@ impl<V: SharedValue + Vectorizable<N>, const N: usize> AdditiveShare<V, N> {
     pub fn right_arr(&self) -> &<V as Vectorizable<N>>::Array {
         &self.1
     }
+
+    pub(in crate::secret_sharing) fn left_arr_mut(&mut self) -> &mut <V as Vectorizable<N>>::Array {
+        &mut self.0
+    }
+
+    pub(in crate::secret_sharing) fn right_arr_mut(
+        &mut self,
+    ) -> &mut <V as Vectorizable<N>>::Array {
+        &mut self.1
+    }
+
+    pub fn from_fns<LF: FnMut(usize) -> V, RF: FnMut(usize) -> V>(lf: LF, rf: RF) -> Self {
+        Self(
+            <V as Vectorizable<N>>::Array::from_fn(lf),
+            <V as Vectorizable<N>>::Array::from_fn(rf),
+        )
+    }
+
+    // Providing this as IntoIterator results in conflicting malicious upgrade implementations for
+    // AdditiveShare. It's not clear that the unpacking iterator is a universally appropriate thing
+    // to return from IntoIterator anyways.
+    pub fn into_unpacking_iter(self) -> UnpackIter<V, N> {
+        let Self(left, right) = self;
+        UnpackIter(left.into_iter(), right.into_iter())
+    }
 }
 
 impl<V: SharedValue> AdditiveShare<V>
@@ -451,6 +476,23 @@ where
             ArrayAccess::set(&mut result, i, v);
         }
         result
+    }
+}
+
+pub struct UnpackIter<S: SharedValue + Vectorizable<N>, const N: usize>(
+    <<S as Vectorizable<N>>::Array as IntoIterator>::IntoIter,
+    <<S as Vectorizable<N>>::Array as IntoIterator>::IntoIter,
+);
+
+impl<S: SharedValue + Vectorizable<N>, const N: usize> Iterator for UnpackIter<S, N> {
+    type Item = AdditiveShare<S>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.0.next(), self.1.next()) {
+            (None, None) => None,
+            (Some(left), Some(right)) => Some(AdditiveShare::new(left, right)),
+            _ => unreachable!("unequal left/right length in vectorized AdditiveShare"),
+        }
     }
 }
 

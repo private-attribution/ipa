@@ -1,4 +1,5 @@
 use std::{
+    any::type_name,
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
 };
@@ -16,20 +17,21 @@ use crate::{
         step::{Gate, Step, StepNarrow},
     },
     seq_join::SeqJoin,
+    sharding::ShardBinding,
 };
 
 #[derive(Clone)]
-pub struct DZKPUpgraded<'a> {
-    inner: Base<'a>,
+pub struct DZKPUpgraded<'a, B: ShardBinding> {
+    inner: Base<'a, B>,
 }
 
-impl<'a> DZKPUpgraded<'a> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+impl<'a, B: ShardBinding> DZKPUpgraded<'a, B> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         Self { inner }
     }
 }
 
-impl<'a> super::Context for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> super::Context for DZKPUpgraded<'a, B> {
     fn role(&self) -> Role {
         self.inner.role()
     }
@@ -75,21 +77,21 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
     }
 }
 
-impl<'a> SeqJoin for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.active_work()
     }
 }
 
 #[async_trait]
-impl<'a> DZKPContext for DZKPUpgraded<'a> {
+impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
     fn is_safe(&self) -> Result<(), Error> {
         Ok(())
     }
 }
 
-impl Debug for DZKPUpgraded<'_> {
+impl<B: ShardBinding> Debug for DZKPUpgraded<'_, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DZKPSemiHonestContext")
+        write!(f, "DZKPSemiHonestContext<{:?}>", type_name::<B>())
     }
 }

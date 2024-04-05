@@ -1,21 +1,28 @@
-use std::ops::Neg;
+use std::{
+    borrow::Borrow,
+    convert::Infallible,
+    ops::{Neg, Not},
+};
 
 use ipa_macros::Step;
 
 use crate::{
-    error::Error,
+    error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess, CustomArray,
-        Expand,
+        boolean::Boolean, boolean_array::BA256, ec_prime_field::Fp25519, ArrayAccess,
+        ArrayAccessRef, ArrayBuild, ArrayBuilder, CustomArray, Expand,
     },
     helpers::Role,
     protocol::{
-        basics::Reveal, context::Context, ipa_prf::boolean_ops::addition_sequential::integer_add,
-        prss::SharedRandomness, RecordId,
+        basics::{partial_reveal, Reveal, SecureMul},
+        context::Context,
+        ipa_prf::boolean_ops::addition_sequential::integer_add,
+        prss::{FromPrss, SharedRandomness},
+        RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        SharedValue,
+        FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
 
@@ -24,7 +31,8 @@ pub(crate) enum Step {
     GenerateSecretSharing,
     IntegerAddBetweenMasks,
     IntegerAddMaskToX,
-    RevealY,
+    #[dynamic(256)]
+    RevealY(usize),
 }
 
 /// share conversion
@@ -90,56 +98,53 @@ pub(crate) enum Step {
 /// However, these terms are only non-zero when all `rs_{k}` terms are non-zero
 /// this happens with probability `1/(2^(256-m))` which is negligible for a sufficiently small `m`
 ///
+/// The implementation uses two type parameters to support vectorization. The type `XS` holds match
+/// keys. In the unvectorized case, `XS` is `AdditiveShare<BA64>`. In the vectorized case, `XS` is
+/// `BitDecomposed<AdditiveShare<BA{N}>>`. The type `YS` holds bitwise Fp25519 intermediates. In the
+/// unvectorized case, `YS` is `AdditiveShare<BA256>`. In the vectorized case, `YS` is
+/// `BitDecomposed<AdditiveShare<BA{n}>>`.
+///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
-pub async fn convert_to_fp25519<C, B>(
+pub async fn convert_to_fp25519<C, XS, YS, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<B>,
-) -> Result<AdditiveShare<Fp25519>, Error>
+    x: XS,
+) -> Result<AdditiveShare<Fp25519, N>, Error>
 where
     C: Context,
-    B: SharedValue + CustomArray<Element = Boolean>,
+    Fp25519: Vectorizable<N>,
+    Boolean: FieldSimd<N>,
+    XS: ArrayAccessRef<Element = AdditiveShare<Boolean, N>>,
+    YS: ArrayAccessRef<Element = AdditiveShare<Boolean, N>>
+        + ArrayBuild<Input = AdditiveShare<Boolean, N>>
+        + FromPrss<usize>,
+    AdditiveShare<Boolean, N>: SecureMul<C>
+        + Reveal<C, N, Output = <Boolean as FieldVectorizable<N>>::ArrayAlias>
+        + Not<Output = AdditiveShare<Boolean, N>>,
+    Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a YS>,
+    Vec<BA256>:
+        for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<N>>::Array; 256], Error = Infallible>,
 {
+    // `BITS` is the number of bits in the memory representation of Fp25519 field elements. It does
+    // not vary with vectorization. Where the type `BA256` appears literally in the source of this
+    // function, it is referring to this constant. (It is also possible for `BA256` to be used to
+    // hold width-256 vectorizations, but when it serves that purpose, it does not appear literally
+    // in the source of this function -- it is behind the XS and YS parameters.)
+    const BITS: usize = 256;
+
+    // Ensure that the probability of leaking information is less than 1/(2^128).
+    debug_assert!(x.iter().count() < (BITS - 128));
+
     // generate sh_r = (0, 0, sh_r) and sh_s = (sh_s, 0, 0)
     // the two highest bits are set to 0 to allow carries for two additions
-    let (sh_r, sh_s) = {
-        // this closure generates sh_r, sh_r from PRSS randomness r
-
-        // we generate random values r = (r1,r2,r3) using PRSS
-        // r: H1: (r1,r2), H2: (r2,r3), H3: (r3, r1)
-        let mut r: AdditiveShare<BA256> = ctx
-            .narrow(&Step::GenerateSecretSharing)
-            .prss()
-            .generate(record_id);
-
-        // set 2 highest order bits of r1, r2, r3 to 0
-        r.set(255, AdditiveShare::<Boolean>::ZERO);
-        r.set(254, AdditiveShare::<Boolean>::ZERO);
-
-        // generate sh_r, sh_s
-        // sh_r: H1: (0,0), H2: (0,r3), H3: (r3, 0)
-        // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
-        match ctx.role() {
-            Role::H1 => (
-                AdditiveShare::new(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
-                AdditiveShare::new(r.left(), <BA256 as SharedValue>::ZERO),
-            ),
-            Role::H2 => (
-                AdditiveShare::new(<BA256 as SharedValue>::ZERO, r.right()),
-                AdditiveShare::new(<BA256 as SharedValue>::ZERO, <BA256 as SharedValue>::ZERO),
-            ),
-            Role::H3 => (
-                AdditiveShare::new(r.left(), <BA256 as SharedValue>::ZERO),
-                AdditiveShare::new(<BA256 as SharedValue>::ZERO, r.right()),
-            ),
-        }
-    };
+    let (sh_r, sh_s) =
+        gen_sh_r_and_sh_s::<_, _, BITS, N>(&ctx.narrow(&Step::GenerateSecretSharing), record_id);
 
     // addition r+s might cause carry,
     // this is no problem since we have set bit 254 of sh_r and sh_s to 0
     let sh_rs = {
-        let (mut rs_with_higherorderbits, _) = integer_add::<_, BA256, BA256>(
+        let (mut rs_with_higherorderbits, _) = integer_add::<_, _, YS, YS, N>(
             ctx.narrow(&Step::IntegerAddBetweenMasks),
             record_id,
             &sh_r,
@@ -149,7 +154,7 @@ where
 
         // PRSS/Multiply masks added random highest order bit,
         // remove them to not cause overflow in second addition (which is mod 256):
-        rs_with_higherorderbits.set(255, AdditiveShare::<Boolean>::ZERO);
+        rs_with_higherorderbits.set(BITS - 1, YS::make_ref(&AdditiveShare::<Boolean, N>::ZERO));
 
         // return rs
         rs_with_higherorderbits
@@ -158,28 +163,125 @@ where
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
     let (sh_y, _) =
-        integer_add::<_, BA256, B>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, x)
+        integer_add::<_, _, YS, XS, N>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, &x)
             .await?;
 
     // this leaks information, but with negligible probability
-    let y = AdditiveShare::<BA256>::new(sh_y.left(), sh_y.right())
-        .partial_reveal(ctx.narrow(&Step::RevealY), record_id, Role::H3)
+    let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(N));
+    for i in 0..BITS {
+        let y_bit = partial_reveal(
+            ctx.narrow(&Step::RevealY(i)),
+            record_id,
+            Role::H3,
+            sh_y.get(i).unwrap().borrow(),
+        )
         .await?;
+        match (&mut y, y_bit) {
+            (Some(y), Some(y_bit)) => y.push(y_bit),
+            (None, None) => (),
+            _ => unreachable!("inconsistent partial_reveal behavior"),
+        }
+    }
+
+    let y = y.map(|y| {
+        Vec::<BA256>::transposed_from(y.as_slice().try_into().unwrap()).unwrap_infallible()
+    });
+
+    let sh_r = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_r)
+        .ok()
+        .expect("sh_r was constructed with the correct number of bits");
+    let sh_s = Vec::<AdditiveShare<BA256>>::transposed_from(&sh_s)
+        .ok()
+        .expect("sh_s was constructed with the correct number of bits");
 
     match ctx.role() {
-        Role::H1 => Ok(AdditiveShare::<Fp25519>::new(
-            Fp25519::from(sh_s.left()).neg(),
-            Fp25519::from(y.unwrap()),
+        Role::H1 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
+            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
+                Fp25519::from(sh_s.get(i).unwrap().left()).neg()
+            }),
+            y.unwrap().into_iter().map(Fp25519::from).collect(),
         )),
-        Role::H2 => Ok(AdditiveShare::<Fp25519>::new(
-            Fp25519::from(y.unwrap()),
-            Fp25519::from(sh_r.right()).neg(),
+        Role::H2 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
+            y.unwrap().into_iter().map(Fp25519::from).collect(),
+            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
+                Fp25519::from(sh_r.get(i).unwrap().right()).neg()
+            }),
         )),
-        Role::H3 => Ok(AdditiveShare::<Fp25519>::new(
-            Fp25519::from(sh_r.left()).neg(),
-            Fp25519::from(sh_s.right()).neg(),
+        Role::H3 => Ok(AdditiveShare::<Fp25519, N>::new_arr(
+            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
+                Fp25519::from(sh_r.get(i).unwrap().left()).neg()
+            }),
+            <Fp25519 as Vectorizable<N>>::Array::from_fn(|i| {
+                Fp25519::from(sh_s.get(i).unwrap().right()).neg()
+            }),
         )),
     }
+}
+
+/// Generates `sh_r` and `sh_s` from PRSS randomness (`r`).
+fn gen_sh_r_and_sh_s<C, YS, const BITS: usize, const N: usize>(
+    ctx: &C,
+    record_id: RecordId,
+) -> (YS, YS)
+where
+    C: Context,
+    Boolean: FieldSimd<N>,
+    YS: ArrayAccessRef<Element = AdditiveShare<Boolean, N>>
+        + ArrayBuild<Input = AdditiveShare<Boolean, N>>
+        + FromPrss<usize>,
+{
+    // we generate random values r = (r1,r2,r3) using PRSS
+    // r: H1: (r1,r2), H2: (r2,r3), H3: (r3, r1)
+    let mut r: YS = ctx.prss().generate_with(record_id, BITS);
+
+    // set 2 highest order bits of r1, r2, r3 to 0
+    r.set(BITS - 1, YS::make_ref(&AdditiveShare::<Boolean, N>::ZERO));
+    r.set(BITS - 2, YS::make_ref(&AdditiveShare::<Boolean, N>::ZERO));
+
+    let mut sh_r_builder = YS::builder().with_capacity(BITS);
+    let mut sh_s_builder = YS::builder().with_capacity(BITS);
+    // generate sh_r, sh_s
+    // sh_r: H1: (0,0), H2: (0,r3), H3: (r3, 0)
+    // sh_s: H1: (r1,0), H2: (0,0), H3: (0, r1)
+    match ctx.role() {
+        Role::H1 => {
+            for i in 0..BITS {
+                sh_r_builder.push(AdditiveShare::new_arr(
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                ));
+                sh_s_builder.push(AdditiveShare::new_arr(
+                    r.get(i).unwrap().borrow().left_arr().clone(),
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                ));
+            }
+        }
+        Role::H2 => {
+            for i in 0..BITS {
+                sh_r_builder.push(AdditiveShare::new_arr(
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                    r.get(i).unwrap().borrow().right_arr().clone(),
+                ));
+                sh_s_builder.push(AdditiveShare::new_arr(
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                ));
+            }
+        }
+        Role::H3 => {
+            for i in 0..BITS {
+                sh_r_builder.push(AdditiveShare::new_arr(
+                    r.get(i).unwrap().borrow().left_arr().clone(),
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                ));
+                sh_s_builder.push(AdditiveShare::new_arr(
+                    <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
+                    r.get(i).unwrap().borrow().right_arr().clone(),
+                ));
+            }
+        }
+    }
+    (sh_r_builder.build(), sh_s_builder.build())
 }
 
 /// inserts smaller array in the larger array starting from location offset
@@ -192,9 +294,10 @@ pub fn expand_shared_array_in_place<YS, XS>(
     XS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
 {
     for i in 0..XS::BITS as usize {
-        y.set(
+        ArrayAccess::set(
+            y,
             i + offset,
-            x.get(i).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+            ArrayAccess::get(x, i).unwrap_or(AdditiveShare::<Boolean>::ZERO),
         );
     }
 }
@@ -207,9 +310,10 @@ where
 {
     let mut x = AdditiveShare::<XS>::ZERO;
     for i in 0..XS::BITS as usize {
-        x.set(
+        ArrayAccess::set(
+            &mut x,
             i,
-            y.get(i + offset).unwrap_or(AdditiveShare::<Boolean>::ZERO),
+            ArrayAccess::get(y, i + offset).unwrap_or(AdditiveShare::<Boolean>::ZERO),
         );
     }
     x
@@ -238,58 +342,135 @@ where
 
 #[cfg(all(test, unit_test))]
 mod tests {
+    use std::iter::repeat_with;
+
     use curve25519_dalek::Scalar;
+    use futures::stream::TryStreamExt;
     use generic_array::GenericArray;
     use rand::Rng;
     use typenum::U32;
 
+    use super::*;
     use crate::{
-        ff::{
-            boolean::Boolean,
-            boolean_array::{BA256, BA64},
-            ec_prime_field::Fp25519,
-            ArrayAccess, Serializable,
-        },
-        protocol,
-        protocol::{
-            context::Context,
-            ipa_prf::boolean_ops::share_conversion_aby::{convert_to_fp25519, expand_array},
-        },
+        ff::{boolean_array::BA64, Serializable},
+        helpers::stream::{ProcessChunks, TryFlattenItersExt},
         rand::thread_rng,
-        secret_sharing::SharedValue,
+        seq_join::{seq_join, SeqJoin},
         test_executor::run,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{ReconstructArr, Runner, TestWorld},
+        BoolVector,
     };
 
-    #[test]
-    fn semi_honest_convert_into_fp25519() {
+    fn test_semi_honest_convert_into_fp25519<XS, YS, const COUNT: usize, const CHUNK: usize>()
+    where
+        Fp25519: Vectorizable<CHUNK>,
+        Boolean: FieldSimd<CHUNK>,
+        XS: ArrayAccessRef<Element = AdditiveShare<Boolean, CHUNK>>
+            + ArrayBuild<Input = AdditiveShare<Boolean, CHUNK>>
+            + for<'a> TransposeFrom<&'a [AdditiveShare<BA64>; CHUNK], Error = Infallible>
+            + Send
+            + Sync
+            + 'static,
+        YS: ArrayAccessRef<Element = AdditiveShare<Boolean, CHUNK>>
+            + ArrayBuild<Input = AdditiveShare<Boolean, CHUNK>>
+            + FromPrss<usize>
+            + Send
+            + Sync
+            + 'static,
+        for<'a> <XS as ArrayAccessRef>::Ref<'a>: Send,
+        for<'a> <YS as ArrayAccessRef>::Ref<'a>: Send,
+        AdditiveShare<Boolean, CHUNK>: Not<Output = AdditiveShare<Boolean, CHUNK>>,
+        Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a YS>,
+        Vec<BA256>: for<'a> TransposeFrom<
+            &'a [<Boolean as Vectorizable<CHUNK>>::Array; 256],
+            Error = Infallible,
+        >,
+        [AdditiveShare<Fp25519, CHUNK>; 3]: ReconstructArr<<Fp25519 as Vectorizable<CHUNK>>::Array>,
+    {
         run(|| async move {
             let world = TestWorld::default();
 
             let mut rng = thread_rng();
 
-            let records = rng.gen::<BA64>();
+            let records = repeat_with(|| rng.gen::<BA64>())
+                .take(COUNT)
+                .collect::<Vec<_>>();
 
-            let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+            let expected = records
+                .iter()
+                .map(|record| {
+                    let mut buf: GenericArray<u8, U32> = [0u8; 32].into();
+                    expand_array::<BA64, BA256>(record, None).serialize(&mut buf);
+                    Fp25519::from(<Scalar>::from_bytes_mod_order(<[u8; 32]>::from(buf)))
+                })
+                .collect::<Vec<_>>();
 
-            expand_array::<BA64, BA256>(&records, None).serialize(&mut buf);
-
-            let expected = Fp25519::from(<Scalar>::from_bytes_mod_order(<[u8; 32]>::from(buf)));
-
-            let result = world
-                .semi_honest(records, |ctx, x| async move {
-                    convert_to_fp25519::<_, BA64>(
-                        ctx.set_total_records(1),
-                        protocol::RecordId(0),
-                        &x,
+            let [res0, res1, res2] = world
+                .semi_honest(records.into_iter(), |ctx, records| async move {
+                    #[cfg(not(debug_assertions))]
+                    let begin = std::time::Instant::now();
+                    let res: Result<Vec<AdditiveShare<Fp25519>>, Error> = seq_join(
+                        ctx.active_work(),
+                        records.process_chunks(
+                            |idx, chunk| {
+                                let ctx = ctx.clone();
+                                async move {
+                                    let mut match_keys_builder = XS::builder();
+                                    for _ in 0..CHUNK {
+                                        match_keys_builder
+                                            .push(AdditiveShare::<Boolean, CHUNK>::ZERO);
+                                    }
+                                    let mut match_keys = match_keys_builder.build();
+                                    match_keys.transpose_from(&chunk).unwrap_infallible();
+                                    convert_to_fp25519::<_, XS, YS, CHUNK>(
+                                        ctx.set_total_records((COUNT + CHUNK - 1) / CHUNK),
+                                        RecordId::from(idx),
+                                        match_keys,
+                                    )
+                                    .await
+                                    .map(|shares| {
+                                        shares
+                                            .into_unpacking_iter()
+                                            .collect::<Vec<_>>()
+                                            .try_into()
+                                            .unwrap()
+                                    })
+                                }
+                            },
+                            || AdditiveShare::<BA64>::ZERO,
+                        ),
                     )
-                    .await
-                    .unwrap()
+                    .try_flatten_iters()
+                    .try_collect()
+                    .await;
+                    #[cfg(not(debug_assertions))]
+                    tracing::info!("Execution time: {:?}", begin.elapsed());
+                    res
                 })
                 .await
-                .reconstruct();
+                .map(Result::unwrap);
+            let mut result = Vec::with_capacity(COUNT);
+            for line in res0.into_iter().zip(res1).zip(res2) {
+                let ((s0, s1), s2) = line;
+                result.extend([s0, s1, s2].reconstruct_arr().into_iter());
+            }
             assert_eq!(result, expected);
         });
+    }
+
+    // The third generic parameter in these calls is the number of conversions. It is set to give
+    // reasonable runtime for debug builds. These can also be used for benchmarking, in which case
+    // a size of 4096 is reasonable.
+
+    #[test]
+    fn semi_honest_convert_into_fp25519_novec() {
+        test_semi_honest_convert_into_fp25519::<BoolVector!(64, 1), BoolVector!(256, 1), 2, 1>();
+    }
+
+    #[test]
+    fn semi_honest_convert_into_fp25519_vec64() {
+        test_semi_honest_convert_into_fp25519::<BoolVector!(64, 64), BoolVector!(256, 64), 65, 64>(
+        );
     }
 
     #[test]

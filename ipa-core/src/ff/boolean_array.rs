@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter};
+
 use bitvec::{
     prelude::{BitArr, Lsb0},
     slice::Iter,
@@ -213,8 +215,9 @@ macro_rules! impl_serializable_trait {
     };
 
     ($name: ident, $bits: tt, $store: ty, infallible) => {
-        const _SAFEGUARD: () = assert!(
-            $bits % 8 == 0,
+        $crate::const_assert_eq!(
+            $bits % 8,
+            0,
             "Infallible deserialization is defined for lengths that are multiples of 8 only"
         );
 
@@ -254,12 +257,31 @@ macro_rules! boolean_array_impl {
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
-            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+            #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
+
+            impl Debug for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                    f.write_str(stringify!($name))?;
+                    self.0.data.fmt(f)
+                }
+            }
 
             impl $name {
                 #[cfg(all(test, unit_test))]
                 const STORE_LEN: usize = bitvec::mem::elts::<u8>($bits);
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_slice(&self) -> &[u8] {
+                    self.0.as_raw_slice()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_mut_slice(&mut self) -> &mut [u8] {
+                    self.0.as_raw_mut_slice()
+                }
             }
 
             impl ArrayAccess for $name {
@@ -697,6 +719,13 @@ macro_rules! boolean_array_impl {
                         "Failed to deserialize a valid value: {ba:?}"
                     );
                 }
+
+                #[test]
+                fn debug() {
+                    let expected = format!("{}{:?}", stringify!($name), $name::ZERO.0.data);
+                    let actual = format!("{:?}", $name::ZERO);
+                    assert_eq!(expected, actual);
+                }
             }
         }
 
@@ -720,11 +749,20 @@ boolean_array_impl_small!(boolean_array_5, BA5, 5, fallible);
 boolean_array_impl_small!(boolean_array_6, BA6, 6, fallible);
 boolean_array_impl_small!(boolean_array_7, BA7, 7, fallible);
 boolean_array_impl_small!(boolean_array_8, BA8, 8, infallible);
+boolean_array_impl_small!(boolean_array_16, BA16, 16, infallible);
 boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
 boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
 boolean_array_impl!(boolean_array_256, BA256, 256, infallible);
+
+impl Vectorizable<256> for BA64 {
+    type Array = StdArray<BA64, 256>;
+}
+
+impl Vectorizable<256> for BA256 {
+    type Array = StdArray<BA256, 256>;
+}
 
 // used to convert into Fp25519
 impl From<(u128, u128)> for BA256 {

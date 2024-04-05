@@ -1,5 +1,3 @@
-use std::iter::{repeat, zip};
-
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 
@@ -7,7 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::Context, prss::SharedRandomness, NoRecord, RecordBinding, RecordId},
+    protocol::{context::Context, prss::SharedRandomness, RecordId},
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },
@@ -39,11 +37,11 @@ use crate::{
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<C: Context, B: RecordBinding>: Sized + 'static {
+pub trait Reshare<C: Context>: Sized + 'static {
     async fn reshare<'fut>(
         &self,
         ctx: C,
-        record_binding: B,
+        record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self, Error>
     where
@@ -55,7 +53,7 @@ pub trait Reshare<C: Context, B: RecordBinding>: Sized + 'static {
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-impl<C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
+impl<C: Context, F: Field> Reshare<C> for Replicated<F> {
     async fn reshare<'fut>(
         &self,
         ctx: C,
@@ -108,9 +106,7 @@ impl<C: Context, F: Field> Reshare<C, RecordId> for Replicated<F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
-    for MaliciousReplicated<F>
-{
+impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
     async fn reshare<'fut>(
         &self,
         ctx: UpgradedMaliciousContext<'a, F>,
@@ -134,30 +130,6 @@ impl<'a, F: ExtendableField> Reshare<UpgradedMaliciousContext<'a, F>, RecordId>
         let malicious_input = MaliciousReplicated::new(x, rx);
         random_constant_ctx.accumulate_macs(record_id, &malicious_input);
         Ok(malicious_input)
-    }
-}
-
-#[async_trait]
-impl<S, C: Context> Reshare<C, NoRecord> for Vec<S>
-where
-    S: Reshare<C, RecordId> + Send + Sync,
-{
-    #[tracing::instrument(name = "reshare", skip_all, fields(to = ?to_helper))]
-    async fn reshare<'fut>(
-        &self,
-        ctx: C,
-        _record_binding: NoRecord,
-        to_helper: Role,
-    ) -> Result<Vec<S>, Error>
-    where
-        C: 'fut,
-    {
-        ctx.try_join(
-            zip(repeat(ctx.set_total_records(self.len())), self.iter())
-                .enumerate()
-                .map(|(i, (c, x))| async move { x.reshare(c, RecordId::from(i), to_helper).await }),
-        )
-        .await
     }
 }
 

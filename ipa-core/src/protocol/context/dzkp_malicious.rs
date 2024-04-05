@@ -54,7 +54,7 @@ impl<'a> DZKPContext for DZKPUpgraded<'a> {
         if self.inner.batch.is_empty() {
             Ok(())
         } else {
-            Err(Error::DZKPBatchDoubleInitialization(format!("{self:?}")))
+            Err(Error::ContextUnsafe(format!("{self:?}")))
         }
     }
 }

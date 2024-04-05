@@ -9,11 +9,11 @@ pub mod echo {
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
     use hyper::http::uri;
+    use serde::{Deserialize, Serialize};
 
     use crate::net::Error;
 
-    #[derive(Debug, Default, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+    #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Request {
         pub query_params: HashMap<String, String>,
         pub headers: HashMap<String, String>,
@@ -54,7 +54,6 @@ pub mod echo {
         }
     }
 
-    #[cfg(feature = "enable-serde")]
     #[async_trait]
     impl<B: Send> FromRequest<B> for Request {
         type Rejection = Error;
@@ -84,6 +83,7 @@ pub mod query {
 
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
+    use serde::Deserialize;
 
     use crate::{
         ff::FieldType,
@@ -108,7 +108,7 @@ pub mod query {
         type Rejection = Error;
 
         async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-            #[derive(serde::Deserialize)]
+            #[derive(Deserialize)]
             struct QueryTypeParam {
                 size: QuerySize,
                 field_type: FieldType,
@@ -173,9 +173,11 @@ pub mod query {
     pub const BASE_AXUM_PATH: &str = "/query";
 
     pub mod create {
+
         use async_trait::async_trait;
         use axum::extract::{FromRequest, RequestParts};
         use hyper::http::uri;
+        use serde::{Deserialize, Serialize};
 
         use crate::{
             helpers::query::QueryConfig,
@@ -224,7 +226,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(Serialize, Deserialize)]
         pub struct ResponseBody {
             pub query_id: QueryId,
         }
@@ -240,6 +242,7 @@ pub mod query {
             Json,
         };
         use hyper::header::CONTENT_TYPE;
+        use serde::{Deserialize, Serialize};
 
         use crate::{
             helpers::{query::PrepareQuery, RoleAssignment},
@@ -303,7 +306,7 @@ pub mod query {
             }
         }
 
-        #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(Serialize, Deserialize)]
         struct RequestBody {
             roles: RoleAssignment,
         }

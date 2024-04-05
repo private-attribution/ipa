@@ -18,12 +18,11 @@ use crate::{
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
-            dzkp_validator::{DZKPBaseField, DZKPBatch, MaliciousDZKPValidator},
+            dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
             validator::{Malicious as Validator, MaliciousAccumulator},
-            Base, Context as ContextTrait, DZKPUpgradableContext,
-            InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
-            UpgradableContext, UpgradedContext,
+            Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
+            SpecialAccessToUpgradedContext, UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
@@ -35,6 +34,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::NotSharded,
     sync::Arc,
 };
 
@@ -46,7 +46,7 @@ pub struct Context<'a> {
 impl<'a> Context<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            inner: Base::new(participant, gateway),
+            inner: Base::new(participant, gateway, NotSharded),
         }
     }
 
@@ -145,14 +145,12 @@ impl<'a> UpgradableContext for Context<'a> {
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Validator::new(self)
     }
-}
 
-impl<'a, DF: DZKPBaseField> DZKPUpgradableContext<DF> for Context<'a> {
-    type UpgradedContext = DZKPUpgraded<'a>;
-    type Validator = MaliciousDZKPValidator<'a, DF>;
+    type DZKPUpgradedContext = DZKPUpgraded<'a>;
+    type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn validator(self) -> Self::Validator {
-        MaliciousDZKPValidator::new(self)
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, chunk_size)
     }
 }
 
@@ -209,6 +207,7 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
             self.inner.gateway,
             self.gate.clone(),
             self.total_records,
+            NotSharded,
         )
     }
 }

@@ -3,6 +3,7 @@ use std::{
     ops::{Mul, MulAssign},
 };
 
+use serde::{Deserialize, Serialize};
 use typenum::{U1, U4};
 
 use crate::{
@@ -37,8 +38,7 @@ pub trait Field:
     const ONE: Self;
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum FieldType {
     #[cfg(any(test, feature = "weak-field"))]

@@ -8,6 +8,7 @@ use typenum::U32;
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
     impl_shared_value_common,
+    protocol::ipa_prf::PRF_CHUNK,
     secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
@@ -40,6 +41,10 @@ impl SharedValue for RP25519 {
 
 impl Vectorizable<1> for RP25519 {
     type Array = StdArray<Self, 1>;
+}
+
+impl Vectorizable<PRF_CHUNK> for RP25519 {
+    type Array = StdArray<Self, PRF_CHUNK>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -197,11 +202,7 @@ mod test {
     use typenum::U32;
 
     use crate::{
-        ff::{
-            curve_points::{NonCanonicalEncoding, RP25519},
-            ec_prime_field::Fp25519,
-            Serializable,
-        },
+        ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
     };
 
@@ -258,7 +259,10 @@ mod test {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn non_canonical() {
+        use crate::ff::curve_points::NonCanonicalEncoding;
+
         const ZERO: u128 = 0;
         // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
         let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };

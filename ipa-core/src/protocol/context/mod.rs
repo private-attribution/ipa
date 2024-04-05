@@ -18,16 +18,18 @@ use async_trait::async_trait;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
+pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
+pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
 use crate::{
     error::Error,
     helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         basics::ZeroPositions,
-        context::dzkp_validator::{DZKPBaseField, DZKPValidator},
+        context::dzkp_validator::DZKPValidator,
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
         RecordId,
@@ -37,6 +39,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -97,6 +100,11 @@ pub trait UpgradableContext: Context {
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+
+    type DZKPUpgradedContext: DZKPContext;
+    type DZKPValidator: DZKPValidator<Self>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
 }
 
 #[async_trait]
@@ -161,37 +169,46 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct Base<'a> {
+pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
+    /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
+    /// would be to move it to [`Inner`] struct.
+    sharding: B,
 }
 
-impl<'a> Base<'a> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+impl<'a, B: ShardBinding> Base<'a, B> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
         Self::new_complete(
             participant,
             gateway,
             Gate::default(),
             TotalRecords::Unspecified,
+            sharding,
         )
     }
+}
 
+impl<'a, B: ShardBinding> Base<'a, B> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
         gate: Gate,
         total_records: TotalRecords,
+        sharding: B,
     ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            sharding,
         }
     }
 }
 
-impl<'a> Context for Base<'a> {
+impl<'a, B: ShardBinding> Context for Base<'a, B> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -208,6 +225,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -216,6 +234,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -255,7 +274,23 @@ impl<'a> Context for Base<'a> {
     }
 }
 
-impl<'a> SeqJoin for Base<'a> {
+/// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
+/// via [`ShardConfiguration`] trait.
+pub trait ShardedContext: Context + ShardConfiguration {}
+
+impl ShardConfiguration for Base<'_, Sharded> {
+    fn shard_id(&self) -> ShardIndex {
+        self.sharding.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.sharding.shard_count
+    }
+}
+
+impl<'a> ShardedContext for Base<'a, Sharded> {}
+
+impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.gateway.config().active_work()
     }
@@ -271,13 +306,6 @@ impl<'a> Inner<'a> {
     fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self { prss, gateway }
     }
-}
-
-pub trait DZKPUpgradableContext<DF: DZKPBaseField>: Context {
-    type UpgradedContext: DZKPContext;
-    type Validator: DZKPValidator<DF, Self>;
-
-    fn validator(self) -> Self::Validator;
 }
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
@@ -322,7 +350,7 @@ mod tests {
         telemetry::metrics::{
             BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
         },
-        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{Reconstruct, Runner, TestExecutionStep, TestWorld, TestWorldConfig},
     };
 
     trait ReplicatedLeftValue<F: Field> {
@@ -413,7 +441,7 @@ mod tests {
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             .narrow("metrics");
 
         // for semi-honest protocols, amplification factor per helper is 1.
@@ -470,7 +498,7 @@ mod tests {
             .await;
 
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)
             .narrow("metrics");

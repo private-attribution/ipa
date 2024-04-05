@@ -15,10 +15,11 @@ pub(super) use stall_detection::InstrumentedGateway;
 
 use crate::{
     helpers::{
+        buffers::UnorderedReceiver,
         gateway::{
             receive::GatewayReceivers, send::GatewaySenders, transport::RoleResolvingTransport,
         },
-        ChannelId, Message, Role, RoleAssignment, TotalRecords, Transport,
+        HelperChannelId, Message, Role, RoleAssignment, RouteId, TotalRecords, Transport,
     },
     protocol::QueryId,
 };
@@ -28,7 +29,7 @@ use crate::{
 /// To avoid proliferation of type parameters, most code references this concrete type alias, rather
 /// than a type parameter `T: Transport`.
 #[cfg(feature = "in-memory-infra")]
-pub type TransportImpl = super::transport::InMemoryTransport;
+pub type TransportImpl = super::transport::InMemoryTransport<crate::helpers::HelperIdentity>;
 
 #[cfg(feature = "real-world-infra")]
 pub type TransportImpl = crate::sync::Arc<crate::net::HttpTransport>;
@@ -39,6 +40,7 @@ pub type TransportError = <TransportImpl as Transport>::Error;
 pub struct Gateway {
     config: GatewayConfig,
     transport: RoleResolvingTransport,
+    query_id: QueryId,
     #[cfg(feature = "stall-detection")]
     inner: crate::sync::Arc<State>,
     #[cfg(not(feature = "stall-detection"))]
@@ -74,12 +76,11 @@ impl Gateway {
     ) -> Self {
         #[allow(clippy::useless_conversion)] // not useless in stall-detection build
         Self {
+            query_id,
             config,
             transport: RoleResolvingTransport {
-                query_id,
                 roles,
                 inner: transport,
-                config,
             },
             inner: State::default().into(),
         }
@@ -87,7 +88,7 @@ impl Gateway {
 
     #[must_use]
     pub fn role(&self) -> Role {
-        self.transport.role()
+        self.transport.identity()
     }
 
     #[must_use]
@@ -101,7 +102,7 @@ impl Gateway {
     #[must_use]
     pub fn get_sender<M: Message>(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &HelperChannelId,
         total_records: TotalRecords,
     ) -> send::SendingEnd<M> {
         let (tx, maybe_stream) = self.inner.senders.get_or_create::<M>(
@@ -113,10 +114,15 @@ impl Gateway {
             tokio::spawn({
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
+                let query_id = self.query_id;
                 async move {
                     // TODO(651): In the HTTP case we probably need more robust error handling here.
                     transport
-                        .send(&channel_id, stream)
+                        .send(
+                            channel_id.peer,
+                            (RouteId::Records, query_id, channel_id.gate),
+                            stream,
+                        )
                         .await
                         .expect("{channel_id:?} receiving end should be accepted by transport");
                 }
@@ -127,12 +133,21 @@ impl Gateway {
     }
 
     #[must_use]
-    pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> receive::ReceivingEnd<M> {
+    pub fn get_receiver<M: Message>(
+        &self,
+        channel_id: &HelperChannelId,
+    ) -> receive::ReceivingEnd<M> {
         receive::ReceivingEnd::new(
             channel_id.clone(),
-            self.inner
-                .receivers
-                .get_or_create(channel_id, || self.transport.receive(channel_id)),
+            self.inner.receivers.get_or_create(channel_id, || {
+                UnorderedReceiver::new(
+                    Box::pin(
+                        self.transport
+                            .receive(channel_id.peer, (self.query_id, channel_id.gate.clone())),
+                    ),
+                    self.config.active_work(),
+                )
+            }),
         )
     }
 }

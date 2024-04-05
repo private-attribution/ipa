@@ -7,10 +7,9 @@
 // because of performance implications which shouldn't be a concern for unit testing.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
-pub mod chunkscan;
 #[cfg(any(feature = "cli", feature = "web-app"))]
 pub mod cli;
-#[cfg(all(feature = "enable-serde", feature = "web-app"))]
+#[cfg(feature = "web-app")]
 pub mod config;
 pub mod error;
 pub mod ff;
@@ -29,10 +28,9 @@ pub mod telemetry;
 pub mod test_fixture;
 
 mod app;
-mod exact;
 mod seq_join;
-#[cfg(feature = "enable-serde")]
 mod serde;
+mod sharding;
 
 pub use app::{HelperApp, Setup as AppSetup};
 
@@ -145,6 +143,26 @@ pub(crate) mod test_executor {
     {
         run_with::<_, _, _, 1>(f)
     }
+}
+
+#[macro_export]
+macro_rules! const_assert {
+    ($x:expr $(,)?) => {
+        const _: () = assert!($x, stringify!($x));
+    };
+    ($x:expr, $msg:expr $(,)?) => {
+        const _: () = assert!($x, $msg);
+    };
+}
+
+#[macro_export]
+macro_rules! const_assert_eq {
+    ($x:expr, $y:expr $(,)?) => {
+        $crate::const_assert!($x == $y);
+    };
+    ($x:expr, $y:expr, $msg:expr $(,)?) => {
+        $crate::const_assert!($x == $y, $msg);
+    };
 }
 
 macro_rules! mutually_incompatible {

@@ -55,8 +55,8 @@ impl<F: PrimeField> ExtendableField for F {
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
-pub trait DZKPCompatibleField<'a>: Field {
-    fn to_segment_entry(&self) -> SegmentEntry<'a>;
+pub trait DZKPCompatibleField: Field {
+    fn as_segment_entry(&self) -> SegmentEntry<'_>;
 }
 
 // A binary field (just 2 elements, 0 and 1) is way too small.

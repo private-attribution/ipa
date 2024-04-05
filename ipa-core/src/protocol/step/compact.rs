@@ -1,16 +1,13 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use ipa_macros::Gate;
+use serde::Deserialize;
 
 use super::StepNarrow;
 use crate::helpers::{prss_protocol::PrssExchangeStep, query::QueryType};
 
-#[derive(Gate, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(from = "&str")
-)]
+#[derive(Gate, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Deserialize)]
+#[serde(from = "&str")]
 pub struct Compact(pub u16);
 
 // serde::Deserialize requires From<&str> implementation

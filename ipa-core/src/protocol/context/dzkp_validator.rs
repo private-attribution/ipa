@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    marker::PhantomData,
     sync::{Arc, Mutex, Weak},
 };
 
 use async_trait::async_trait;
 use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
+use futures::{future, Future, Stream};
+use futures_util::{stream::iter, StreamExt};
 
 use crate::{
     error::Error,
@@ -15,11 +16,13 @@ use crate::{
         context::{
             dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
             dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
-            DZKPUpgradableContext, MaliciousContext, SemiHonestContext,
+            MaliciousContext, SemiHonestContext, UpgradableContext,
         },
         step::Gate,
         RecordId,
     },
+    seq_join::{seq_join, SeqJoin},
+    sharding::ShardBinding,
 };
 
 /// `UnverifiedValues` are intermediate values that occur during a multiplication.
@@ -31,15 +34,16 @@ use crate::{
 /// We do not need to store `zi` since it can be computed from the other stored values.
 #[derive(Clone, Debug)]
 struct UnverifiedValues {
-    x_left: BitArray<[u8; 256], Lsb0>,
-    x_right: BitArray<[u8; 256], Lsb0>,
-    y_left: BitArray<[u8; 256], Lsb0>,
-    y_right: BitArray<[u8; 256], Lsb0>,
-    prss_left: BitArray<[u8; 256], Lsb0>,
-    prss_right: BitArray<[u8; 256], Lsb0>,
-    z_right: BitArray<[u8; 256], Lsb0>,
+    x_left: BitArray<[u8; 32], Lsb0>,
+    x_right: BitArray<[u8; 32], Lsb0>,
+    y_left: BitArray<[u8; 32], Lsb0>,
+    y_right: BitArray<[u8; 32], Lsb0>,
+    prss_left: BitArray<[u8; 32], Lsb0>,
+    prss_right: BitArray<[u8; 32], Lsb0>,
+    z_right: BitArray<[u8; 32], Lsb0>,
 }
 
+#[allow(dead_code)]
 impl UnverifiedValues {
     fn new() -> Self {
         Self {
@@ -74,6 +78,20 @@ impl UnverifiedValues {
             prss_right: BitArray::try_from(prss_right).unwrap(),
             z_right: BitArray::try_from(z_right).unwrap(),
         }
+    }
+
+    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// Converted values will take more space in memory.
+    fn convert<DF: DZKPBaseField>(&self) -> DF::UnverifiedFieldValues {
+        DF::convert(
+            &self.x_left,
+            &self.x_right,
+            &self.y_left,
+            &self.y_right,
+            &self.prss_left,
+            &self.prss_right,
+            &self.z_right,
+        )
     }
 }
 
@@ -139,7 +157,7 @@ impl<'a> Segment<'a> {
     }
 }
 
-/// `SegmentEntry` is a simple wrapper to represent one entry of a Segment
+/// `SegmentEntry` is a simple wrapper to represent one entry of a `Segment`
 /// currently, we only support `BitSlices`
 #[derive(Clone, Debug)]
 pub struct SegmentEntry<'a>(&'a BitSlice<u8, Lsb0>);
@@ -161,21 +179,78 @@ impl<'a> SegmentEntry<'a> {
     }
 }
 
-/// `UnverifiedValuesStore` stores a vector of `UnverifiedValues` together with an `offset`
-/// `offset` is the minimum `RecordId` for the current batch within the gate
+/// `UnverifiedValuesStore` stores a vector of `UnverifiedValues` together with an `offset`.
+/// `offset` is the minimum `RecordId` for the current batch.
+/// `chunk_size` is the amount of records within a single batch. It is used to estimate the vector length
+/// during the allocation.
+/// `segment_size` is an option and set to `Some` once we receive the first segment and thus know the size.
+///
+/// `vec` is a `Vec<Option>` such that we can initialize the whole vector with `None` and access any
+/// location out of order. This is important since we do not now the order in which different records
+/// are added to the `UnverifiedValueStore`.
+/// It is not to keep track whether all relevant records have been added. The verification will fail
+/// when a helper party forgets to include one of the records. We could add a check separate from the proof
+/// such that this does not count as malicious behavior.
 #[derive(Clone, Debug)]
 struct UnverifiedValuesStore {
     offset: RecordId,
+    chunk_size: usize,
+    segment_size: Option<usize>,
     vec: Vec<Option<UnverifiedValues>>,
 }
 
+#[allow(dead_code)]
 impl UnverifiedValuesStore {
-    /// creates a new store for given length and offset
-    fn initialize(offset: RecordId, length: usize) -> Self {
+    /// Creates a new store for given `chunk_size`. `offset` is initialized to `0`.
+    /// Lazy allocation of the vector. It is allocated once the first segment is added.
+    /// `segment_size` is set to `None` since it may not be known yet
+    fn new(chunk_size: usize) -> Self {
         Self {
-            offset,
-            vec: vec![None; length],
+            offset: RecordId::from(0usize),
+            chunk_size,
+            segment_size: None,
+            vec: Vec::<Option<UnverifiedValues>>::new(),
         }
+    }
+
+    /// `update` updates the current store to the next offset which is the previous offset plus `vec.actual_len()`.
+    /// It deallocates `vec`. `chunk_size` remains the same.
+    ///
+    /// ## Panics
+    /// Panics when `segment_size` is `None`
+    fn update(&mut self) {
+        // compute how many records have been added
+        // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
+        // subtract `1` to make sure that offset is set sufficiently small
+        self.offset += ((self.actual_len() - 1) << 8) / self.segment_size.unwrap();
+        self.vec = Vec::<Option<UnverifiedValues>>::new();
+    }
+
+    /// `actual_len` computes the index of the last actual element plus `1`
+    fn actual_len(&self) -> usize {
+        let mut actual_length = self.vec.len();
+        while actual_length > 0 && self.vec[actual_length - 1].is_none() {
+            actual_length -= 1;
+        }
+        actual_length
+    }
+
+    /// `is_empty` returns `true` if at least one segment has been added
+    fn is_empty(&self) -> bool {
+        self.vec.is_empty()
+    }
+
+    fn initialize_segment_size(&mut self, segment_size: usize) {
+        self.segment_size = Some(segment_size);
+    }
+
+    /// `allocate_vec` allocates `vec`. The length is determined by the amount
+    /// of records, i.e. `chunk_size` and the size of a record, i.e. `segment_size`.
+    /// ## Panics
+    /// Panics when `segment_size` is `None`.
+    fn allocate_vec(&mut self) {
+        // add 255 to round up
+        self.vec = vec![None; (self.chunk_size * self.segment_size.unwrap() + 255) >> 8];
     }
 
     /// `reset_offset` reallocates vector such that a smaller `RecordId` than `offset` can be stored
@@ -210,7 +285,20 @@ impl UnverifiedValuesStore {
     }
 
     /// `insert_segment` allows to include a new segment in `UnverifiedValuesStore`
+    ///
+    /// ## Panics
+    /// Panics when segments have different lengths across records
     fn insert_segment(&mut self, record_id: RecordId, segment: Segment) {
+        // initialize `segment_size` when necessary
+        if self.segment_size.is_none() {
+            self.initialize_segment_size(segment.len());
+        }
+        // check segment size
+        debug_assert_eq!(segment.len(), self.segment_size.unwrap());
+        // allocate if vec is not allocated yet
+        if self.vec.is_empty() {
+            self.allocate_vec();
+        }
         // check offset
         if record_id < self.offset {
             // recover from wrong offset, expensive
@@ -269,6 +357,17 @@ impl UnverifiedValuesStore {
             }
         }
     }
+
+    /// `get_unverified_field_value` converts a `UnverifiedValuesStore` into an iterator over `UnverifiedFieldValues`
+    /// compatible with DZKPs
+    fn get_unverified_field_values<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+        self.vec
+            .iter()
+            .filter_map(|x| x.as_ref())
+            .map(UnverifiedValues::convert::<DF>)
+    }
 }
 
 /// `Batch` collects a batch of `UnverifiedValuesStore` in a hashmap.
@@ -277,18 +376,62 @@ impl UnverifiedValuesStore {
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
 #[derive(Clone, Debug)]
 struct Batch {
+    chunk_size: usize,
     inner: HashMap<Gate, UnverifiedValuesStore>,
 }
 
+#[allow(dead_code)]
 impl Batch {
-    fn new() -> Self {
+    fn new(chunk_size: usize) -> Self {
         Self {
+            chunk_size,
             inner: HashMap::<Gate, UnverifiedValuesStore>::new(),
         }
     }
 
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
+            || self
+                .inner
+                .iter()
+                .fold(true, |acc, (_, value)| acc && value.is_empty())
+    }
+
+    fn push(&mut self, gate: &Gate, record_id: RecordId, segment: Segment) {
+        // get value_store & create new when necessary
+        if self.inner.get(gate).is_none() {
+            let value_store = UnverifiedValuesStore::new(self.chunk_size);
+            self.inner.insert(gate.clone(), value_store);
+        }
+
+        // insert segment
+        self.inner
+            .get_mut(gate)
+            .unwrap()
+            .insert_segment(record_id, segment);
+    }
+
+    /// This function should only be called by `validate`!
+    ///
+    /// Updates all `UnverifiedValueStores` in hashmap by incrementing the offset to next chunk
+    /// and deallocating `vec`.
+    ///
+    /// ## Panics
+    /// Panics when `UnverifiedValuesStore` panics, i.e. when `segment_size` is `None`
+    fn update(&mut self) {
+        self.inner
+            .values_mut()
+            .for_each(UnverifiedValuesStore::update);
+    }
+
+    /// `get_unverified_field_value` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// compatible with DZKPs
+    fn get_unverified_field_values<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+        self.inner
+            .values()
+            .flat_map(UnverifiedValuesStore::get_unverified_field_values::<DF>)
     }
 }
 
@@ -299,57 +442,15 @@ pub struct DZKPBatch {
 }
 
 impl DZKPBatch {
-    /// allocates enough memory for a given `Gate` and `offset`
-    /// `size` is the length of the vector which is computed as `(segment.len()/256)*records within batch for the gate`
-    /// `offset` is the minimum `RecordId` of the current `Gate` within the `Batch`
-    ///
-    /// ## Errors
-    /// Returns error when initializing `gate` when already existing
-    ///
-    /// ## Panics
-    /// Panics when mutex is poisoned
-    pub fn initialize(&self, gate: Gate, offset: RecordId, size: usize) -> Result<(), Error> {
-        let arc_mutex = self.inner.upgrade().unwrap();
-
-        // LOCK BEGIN
-        let mut batch = arc_mutex.lock().unwrap();
-
-        // initialize
-        let previous = batch
-            .inner
-            .insert(gate, UnverifiedValuesStore::initialize(offset, size));
-
-        // output error if already initialized
-        if previous.is_some() {
-            Err(Error::DZKPBatchDoubleInitialization(format!(
-                "{previous:?}"
-            )))
-        } else {
-            Ok(())
-        }
-        // LOCK END
-    }
-
     /// pushes values of a record, i.e. segment, to a `Batch`
     ///
     /// ## Panics
-    /// Panics when mutex is poisoned
+    /// Panics when mutex is poisoned or `segments` have different lengths within `gate`
     pub fn push(&self, gate: &Gate, record_id: RecordId, segment: Segment) {
         let arc_mutex = self.inner.upgrade().unwrap();
         // LOCK BEGIN
         let mut batch = arc_mutex.lock().unwrap();
-
-        // get value_store & add it if no offset is there yet
-        // not ideal, ideally initialized by calling `initialize`
-        if batch.inner.get(gate).is_none() {
-            let value_store =
-                UnverifiedValuesStore::initialize(record_id, (segment.len() + 255) >> 8);
-            batch.inner.insert(gate.clone(), value_store);
-        }
-
-        let value_store = batch.inner.get_mut(gate).unwrap();
-
-        value_store.insert_segment(record_id, segment);
+        batch.push(gate, record_id, segment);
         // LOCK END
     }
 
@@ -376,81 +477,169 @@ pub(crate) enum Step {
 
 /// Marker Trait `DZKPBaseField` for fields that can be used as base for DZKP proofs and their verification
 /// This is different from trait `DZKPCompatibleField` which is the base for the MPC protocol
-pub trait DZKPBaseField: Field {}
+pub trait DZKPBaseField: Field {
+    type UnverifiedFieldValues;
+    fn convert(
+        x_left: &BitArray<[u8; 32], Lsb0>,
+        x_right: &BitArray<[u8; 32], Lsb0>,
+        y_left: &BitArray<[u8; 32], Lsb0>,
+        y_right: &BitArray<[u8; 32], Lsb0>,
+        prss_left: &BitArray<[u8; 32], Lsb0>,
+        prss_right: &BitArray<[u8; 32], Lsb0>,
+        z_right: &BitArray<[u8; 32], Lsb0>,
+    ) -> Self::UnverifiedFieldValues;
+}
 
 /// Validator Trait for DZKPs
-// Cannot use existing validator trait since context output a `UpgradedContext`
-// that is tied to an accumulator rather than a `DZKPBatch`
-// Function signature of validate is different, it does not downgrade shares anymore
+/// It is different from the validator trait since context outputs a `DZKPUpgradedContext`
+/// that is tied to a `DZKPBatch` rather than an `accumulator`.
+/// Function signature of `validate` is also different, it does not downgrade shares anymore
 #[async_trait]
-pub trait DZKPValidator<DF: DZKPBaseField, B: DZKPUpgradableContext<DF>> {
-    fn context(&self) -> B::UpgradedContext;
-    async fn validate(self) -> Result<(), Error>;
+pub trait DZKPValidator<B: UpgradableContext> {
+    fn context(&self) -> B::DZKPUpgradedContext;
+
+    /// Allows to validate the current `DZKPBatch` and empties it. The associated context is then
+    /// considered safe until another multiplication is performed and thus new values are added
+    /// to `DZKPBatch`.
+    /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
+    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
+
+    /// `is_safe` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    ///
+    /// ## Errors
+    /// Errors when there are `UnverifiedValues` left.
+    fn is_safe(&self) -> Result<(), Error>;
+
+    /// `get_chunk_size` returns the chunk size of the validator
+    fn get_chunk_size(&self) -> Option<usize>;
 }
 
-pub struct SemiHonestDZKPValidator<'a, DF> {
-    context: SemiHonestDZKPUpgraded<'a>,
-    _f: PhantomData<DF>,
+#[allow(dead_code)]
+/// `validated_seq_join` is a validated `seq_join`. It splits the input stream into `chunks` where
+/// the `chunk_size` is defined within `validator`. Each `chunk` is a vector that is independently
+/// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
+/// the output stream will return that the stream is done.
+///
+// Ideally it would be part of the DZKPValidator trait but trait functions don't like impl generics return types
+fn validated_seq_join<'st, S, F, O, DF, B, V>(
+    validator: &'st V,
+    source: S,
+) -> impl Stream<Item = Result<O, Error>> + 'st
+where
+    S: Stream<Item = F> + Send + 'st,
+    F: Future<Output = O> + Send + 'st,
+    O: Send + Sync + Clone + 'static,
+    DF: DZKPBaseField,
+    B: UpgradableContext,
+    V: DZKPValidator<B> + Send + Sync,
+{
+    // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
+    // but there is some overhead
+    let chunk_size = validator.get_chunk_size().unwrap_or(10usize);
+    seq_join::<'st, S, F, O>(validator.context().active_work(), source)
+        .chunks(chunk_size)
+        .then(move |x| async move {
+            let valid = validator.validate::<DF>().await.is_ok();
+            iter(x).map(move |x| {
+                if valid {
+                    Ok(x)
+                } else {
+                    Err(Error::DZKPValidationFailed)
+                }
+            })
+        })
+        .flatten()
+        .take_while(|x| future::ready(x.is_ok()))
 }
 
-impl<'a, DF> SemiHonestDZKPValidator<'a, DF> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
+    context: SemiHonestDZKPUpgraded<'a, B>,
+}
+
+impl<'a, B: ShardBinding> SemiHonestDZKPValidator<'a, B> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         // This is inconsistent with the malicious new() which calls dzkp_upgrade
         // following previous semi honest validator
         Self {
             context: SemiHonestDZKPUpgraded::new(inner),
-            _f: PhantomData,
         }
     }
 }
 
 #[async_trait]
-impl<'a, DF: DZKPBaseField> DZKPValidator<DF, SemiHonestContext<'a>>
-    for SemiHonestDZKPValidator<'a, DF>
+impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
+    for SemiHonestDZKPValidator<'a, B>
 {
-    fn context(&self) -> SemiHonestDZKPUpgraded<'a> {
+    fn context(&self) -> SemiHonestDZKPUpgraded<'a, B> {
         self.context.clone()
     }
 
-    async fn validate(self) -> Result<(), Error> {
+    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn is_safe(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn get_chunk_size(&self) -> Option<usize> {
+        None
     }
 }
 
 /// `MaliciousDZKPValidator` corresponds to pub struct `Malicious` and implements the trait `DZKPValidator`
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
 #[allow(dead_code)]
-pub struct MaliciousDZKPValidator<'a, DF: DZKPBaseField> {
+pub struct MaliciousDZKPValidator<'a> {
     batch_list: Arc<Mutex<Batch>>,
     protocol_ctx: MaliciousDZKPUpgraded<'a>,
     validate_ctx: Base<'a>,
-    _f: PhantomData<DF>,
 }
 
 #[async_trait]
-impl<'a, DF: DZKPBaseField> DZKPValidator<DF, MaliciousContext<'a>>
-    for MaliciousDZKPValidator<'a, DF>
-{
+impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     fn context(&self) -> MaliciousDZKPUpgraded<'a> {
         self.protocol_ctx.clone()
     }
 
-    async fn validate(self) -> Result<(), Error> {
-        // todo: generate proofs and validate them using `batch_list`
-
-        // empty batch_list
+    async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
         // LOCK BEGIN
         let mut batch = self.batch_list.lock().unwrap();
-        *batch = Batch::new();
-        Ok(())
+        if batch.is_empty() {
+            Ok(())
+        } else {
+            // todo: generate proofs and validate them using `batch_list`
+            // use get_values to get iterator over `UnverifiedFieldValues`
+            //batch.get_unverified_field_values::<DF>()
+            // update which empties batch_list and increments offsets to next chunk
+            batch.update();
+            Ok(())
+        }
         // LOCK END
+    }
+
+    /// `is_safe` checks that there are no `UnverifiedValues`.
+    /// This function is called by drop() to ensure that the validator is safe to be dropped.
+    ///
+    /// ## Errors
+    /// Errors when there are `UnverifiedValues` left.
+    fn is_safe(&self) -> Result<(), Error> {
+        if self.batch_list.lock().unwrap().is_empty() {
+            Ok(())
+        } else {
+            Err(Error::ContextUnsafe(format!("{:?}", self.protocol_ctx)))
+        }
+    }
+
+    fn get_chunk_size(&self) -> Option<usize> {
+        Some(self.batch_list.lock().unwrap().chunk_size)
     }
 }
 
-impl<'a, DF: DZKPBaseField> MaliciousDZKPValidator<'a, DF> {
+impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>) -> Self {
-        let list = Batch::new();
+    pub fn new(ctx: MaliciousContext<'a>, chunk_size: usize) -> Self {
+        let list = Batch::new(chunk_size);
         let batch_list = Arc::new(Mutex::new(list));
         let dzkp_batch = DZKPBatch {
             inner: Arc::downgrade(&batch_list),
@@ -461,7 +650,123 @@ impl<'a, DF: DZKPBaseField> MaliciousDZKPValidator<'a, DF> {
             batch_list,
             protocol_ctx,
             validate_ctx,
-            _f: PhantomData,
         }
+    }
+}
+
+impl<'a> Drop for MaliciousDZKPValidator<'a> {
+    fn drop(&mut self) {
+        self.is_safe().unwrap();
+    }
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use std::iter::{repeat, zip};
+
+    use bitvec::{array::BitArray, order::Lsb0};
+    use futures::TryStreamExt;
+    use futures_util::stream::iter;
+    use rand::{thread_rng, Rng};
+
+    use crate::{
+        error::Error,
+        ff::Fp31,
+        protocol::{
+            basics::SecureMul,
+            context::{
+                dzkp_validator::{validated_seq_join, DZKPBaseField, DZKPValidator},
+                Context, UpgradableContext,
+            },
+            RecordId,
+        },
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+        test_fixture::{join3v, Reconstruct, TestWorld},
+    };
+
+    // todo: remove impl and add support for BooleanTypes
+    impl DZKPBaseField for Fp31 {
+        type UnverifiedFieldValues = ();
+
+        fn convert(
+            _x_left: &BitArray<[u8; 32], Lsb0>,
+            _x_right: &BitArray<[u8; 32], Lsb0>,
+            _y_left: &BitArray<[u8; 32], Lsb0>,
+            _y_right: &BitArray<[u8; 32], Lsb0>,
+            _prss_left: &BitArray<[u8; 32], Lsb0>,
+            _prss_right: &BitArray<[u8; 32], Lsb0>,
+            _z_right: &BitArray<[u8; 32], Lsb0>,
+        ) {
+        }
+    }
+
+    /// test for testing `validated_seq_join`
+    /// similar to `complex_circuit` in `validator.rs`
+    #[tokio::test]
+    async fn complex_circuit_dzkp() -> Result<(), Error> {
+        const COUNT: usize = 100;
+        let world = TestWorld::default();
+        let context = world.malicious_contexts();
+        let mut rng = thread_rng();
+        let chunk_size: usize = 1 << rng.gen_range(1..10);
+
+        let mut original_inputs = Vec::with_capacity(COUNT);
+        for _ in 0..COUNT {
+            let x = rng.gen::<Fp31>();
+            original_inputs.push(x);
+        }
+        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+            .iter()
+            .map(|x| x.share_with(&mut rng))
+            .collect();
+        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
+
+        let futures = context
+            .into_iter()
+            .zip([h1_shares, h2_shares, h3_shares])
+            .map(|(ctx, input_shares)| async move {
+                let v = ctx.dzkp_validator(chunk_size);
+                let m_ctx = v.context();
+
+                let m_results = validated_seq_join::<_, _, _, Fp31, _, _>(
+                    &v,
+                    iter(
+                        zip(
+                            repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
+                            zip(input_shares.iter(), input_shares.iter().skip(1)),
+                        )
+                        .map(
+                            |((i, ctx), (a_malicious, b_malicious))| async move {
+                                a_malicious
+                                    .multiply(b_malicious, ctx, RecordId::from(i))
+                                    .await
+                                    .unwrap()
+                            },
+                        ),
+                    ),
+                )
+                .try_collect::<Vec<_>>()
+                .await?;
+                Ok::<_, Error>(m_results)
+            });
+
+        let processed_outputs = join3v(futures).await;
+
+        for i in 0..99 {
+            let x1 = original_inputs[i];
+            let x2 = original_inputs[i + 1];
+            let x1_times_x2 = [
+                processed_outputs[0][i].clone(),
+                processed_outputs[1][i].clone(),
+                processed_outputs[2][i].clone(),
+            ]
+            .reconstruct();
+
+            assert_eq!((x1, x2, x1 * x2), (x1, x2, x1_times_x2));
+        }
+
+        Ok(())
     }
 }

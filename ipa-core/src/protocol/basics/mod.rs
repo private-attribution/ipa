@@ -13,14 +13,16 @@ pub use check_zero::check_zero;
 pub use if_else::{if_else, select};
 pub use mul::{BooleanArrayMul, MultiplyZeroPositions, SecureMul, ZeroPositions};
 pub use reshare::Reshare;
-pub use reveal::Reveal;
+pub use reveal::{partial_reveal, reveal, Reveal};
 pub use share_known_value::ShareKnownValue;
 pub use sum_of_product::SumOfProducts;
 
 use crate::{
     ff::Field,
-    protocol::{context::Context, RecordId},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, SecretSharing, SharedValue},
+    protocol::context::Context,
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, SecretSharing, SharedValue, Vectorizable,
+    },
 };
 #[cfg(feature = "descriptive-gate")]
 use crate::{
@@ -30,10 +32,10 @@ use crate::{
     },
 };
 
-pub trait BasicProtocols<C: Context, V: SharedValue>:
+pub trait BasicProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N: usize = 1>:
     SecretSharing<V>
-    + Reshare<C, RecordId>
-    + Reveal<C, RecordId, Output = V>
+    + Reshare<C>
+    + Reveal<C, N, Output = <V as Vectorizable<N>>::Array>
     + SecureMul<C>
     + ShareKnownValue<C, V>
     + SumOfProducts<C>

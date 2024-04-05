@@ -8,7 +8,7 @@ use crate::{
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, FieldSimd, SharedValue, Vectorizable,
+        BitDecomposed, SharedValue, Vectorizable,
     },
 };
 
@@ -76,7 +76,7 @@ impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
     }
 }
 
-impl<F: Field + FieldSimd<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
+impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
     for [Replicated<F, N>; 3]
 {
     fn reconstruct_arr(&self) -> <F as Vectorizable<N>>::Array {
@@ -150,6 +150,10 @@ where
             .map(|(x0, (x1, x2))| [x0, x1, x2].reconstruct())
             .collect()
     }
+}
+
+impl Reconstruct<()> for [(); 3] {
+    fn reconstruct(&self) {}
 }
 
 #[cfg(feature = "descriptive-gate")]
