@@ -1,14 +1,13 @@
-use std::iter::zip;
+use std::{array, iter::zip};
 
 use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    app::Error,
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        InMemoryMpcNetwork,
+        ApiError, InMemoryMpcNetwork,
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -60,10 +59,9 @@ fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
 
 impl Default for TestApp {
     fn default() -> Self {
-        let (setup, callbacks) =
-            unzip_tuple_array([AppSetup::new(), AppSetup::new(), AppSetup::new()]);
+        let (setup, handlers) = unzip_tuple_array(array::from_fn(|_| AppSetup::new()));
 
-        let network = InMemoryMpcNetwork::new(callbacks);
+        let network = InMemoryMpcNetwork::new(handlers.map(Some));
         let drivers = network
             .transports()
             .iter()
@@ -84,11 +82,12 @@ impl TestApp {
     /// ## Errors
     /// Returns an error if it can't start a query or send query input.
     #[allow(clippy::missing_panics_doc)]
+
     pub async fn start_query<I, A>(
         &self,
         input: I,
         query_config: QueryConfig,
-    ) -> Result<QueryId, Error>
+    ) -> Result<QueryId, ApiError>
     where
         I: IntoShares<A>,
         A: IntoBuf,
@@ -117,7 +116,7 @@ impl TestApp {
     /// Propagates errors retrieving the query status.
     /// ## Panics
     /// Never.
-    pub fn query_status(&self, query_id: QueryId) -> Result<[QueryStatus; 3], Error> {
+    pub fn query_status(&self, query_id: QueryId) -> Result<[QueryStatus; 3], ApiError> {
         Ok((0..3)
             .map(|i| self.drivers[i].query_status(query_id))
             .collect::<Result<Vec<_>, _>>()?
@@ -129,7 +128,7 @@ impl TestApp {
     /// Returns an error if one or more helpers can't finish the processing.
     /// ## Panics
     /// Never.
-    pub async fn complete_query(&self, query_id: QueryId) -> Result<[Vec<u8>; 3], Error> {
+    pub async fn complete_query(&self, query_id: QueryId) -> Result<[Vec<u8>; 3], ApiError> {
         let results =
             try_join3_array([0, 1, 2].map(|i| self.drivers[i].complete_query(query_id))).await;
         self.network.reset();
@@ -145,7 +144,7 @@ impl TestApp {
         &self,
         input: I,
         query_config: QueryConfig,
-    ) -> Result<[Vec<u8>; 3], Error>
+    ) -> Result<[Vec<u8>; 3], ApiError>
     where
         I: IntoShares<A>,
         A: IntoBuf,
