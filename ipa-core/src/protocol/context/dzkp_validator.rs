@@ -589,7 +589,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 /// The implementation of `validate` of the `DZKPValidator` trait depends on generic `DF`
 #[allow(dead_code)]
 pub struct MaliciousDZKPValidator<'a> {
-    batch_list: Arc<Mutex<Batch>>,
+    batch_ref: Arc<Mutex<Batch>>,
     protocol_ctx: MaliciousDZKPUpgraded<'a>,
     validate_ctx: Base<'a>,
 }
@@ -602,7 +602,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
 
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error> {
         // LOCK BEGIN
-        let mut batch = self.batch_list.lock().unwrap();
+        let mut batch = self.batch_ref.lock().unwrap();
         if batch.is_empty() {
             Ok(())
         } else {
@@ -622,7 +622,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
     fn is_safe(&self) -> Result<(), Error> {
-        if self.batch_list.lock().unwrap().is_empty() {
+        if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
         } else {
             Err(Error::ContextUnsafe(format!("{:?}", self.protocol_ctx)))
@@ -630,7 +630,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
     }
 
     fn get_chunk_size(&self) -> Option<usize> {
-        Some(self.batch_list.lock().unwrap().chunk_size)
+        Some(self.batch_ref.lock().unwrap().chunk_size)
     }
 }
 
@@ -645,7 +645,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
         let validate_ctx = ctx.narrow(&Step::DZKPValidate).base_context();
         let protocol_ctx = ctx.dzkp_upgrade(&Step::DZKPMaliciousProtocol, dzkp_batch);
         Self {
-            batch_list,
+            batch_ref: batch_list,
             protocol_ctx,
             validate_ctx,
         }
