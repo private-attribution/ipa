@@ -215,28 +215,35 @@ impl UnverifiedValuesStore {
 
     /// `update` updates the current store to the next offset which is the previous offset plus `vec.actual_len()`.
     /// It deallocates `vec`. `chunk_size` remains the same.
+    /// `update` does nothing when `self` is empty, i.e. `vec` is empty.
     ///
     /// ## Panics
     /// Panics when `segment_size` is `None`
     fn update(&mut self) {
-        // compute how many records have been added
-        // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
-        // subtract `1` to make sure that offset is set sufficiently small
-        self.offset += ((self.actual_len() - 1) << 8) / self.segment_size.unwrap();
-        self.vec = Vec::<Option<UnverifiedValues>>::new();
+        if !self.is_unallocated() {
+            // compute how many records have been added
+            // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
+            // subtract `1` to make sure that offset is set sufficiently small
+            self.offset += ((self.actual_len() - 1) << 8) / self.segment_size.unwrap();
+            self.vec = Vec::<Option<UnverifiedValues>>::new();
+        }
     }
 
     /// `actual_len` computes the index of the last actual element plus `1`
     fn actual_len(&self) -> usize {
-        let mut actual_length = self.vec.len();
-        while actual_length > 0 && self.vec[actual_length - 1].is_none() {
-            actual_length -= 1;
-        }
-        actual_length
+        self.vec
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |pos| pos + 1)
     }
 
-    /// `is_empty` returns `true` if at least one segment has been added
+    /// `is_empty` returns `true` when no segment has been added
     fn is_empty(&self) -> bool {
+        self.vec.iter().all(Option::is_none)
+    }
+
+    /// `is_unallocated` returns `true` when the associated vector has not been allocated
+    fn is_unallocated(&self) -> bool {
         self.vec.is_empty()
     }
 
@@ -296,7 +303,7 @@ impl UnverifiedValuesStore {
         // check segment size
         debug_assert_eq!(segment.len(), self.segment_size.unwrap());
         // allocate if vec is not allocated yet
-        if self.vec.is_empty() {
+        if self.is_unallocated() {
             self.allocate_vec();
         }
         // check offset
@@ -365,7 +372,7 @@ impl UnverifiedValuesStore {
     ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
         self.vec
             .iter()
-            .filter_map(|x| x.as_ref())
+            .flatten()
             .map(UnverifiedValues::convert::<DF>)
     }
 }
@@ -397,17 +404,12 @@ impl Batch {
                 .fold(true, |acc, (_, value)| acc && value.is_empty())
     }
 
-    fn push(&mut self, gate: &Gate, record_id: RecordId, segment: Segment) {
+    fn push(&mut self, gate: Gate, record_id: RecordId, segment: Segment) {
         // get value_store & create new when necessary
-        if self.inner.get(gate).is_none() {
-            let value_store = UnverifiedValuesStore::new(self.chunk_size);
-            self.inner.insert(gate.clone(), value_store);
-        }
-
         // insert segment
         self.inner
-            .get_mut(gate)
-            .unwrap()
+            .entry(gate)
+            .or_insert_with(|| UnverifiedValuesStore::new(self.chunk_size))
             .insert_segment(record_id, segment);
     }
 
@@ -446,7 +448,7 @@ impl DZKPBatch {
     ///
     /// ## Panics
     /// Panics when mutex is poisoned or `segments` have different lengths within `gate`
-    pub fn push(&self, gate: &Gate, record_id: RecordId, segment: Segment) {
+    pub fn push(&self, gate: Gate, record_id: RecordId, segment: Segment) {
         let arc_mutex = self.inner.upgrade().unwrap();
         // LOCK BEGIN
         let mut batch = arc_mutex.lock().unwrap();

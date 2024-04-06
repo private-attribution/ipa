@@ -1,12 +1,11 @@
+mod dzkp_malicious;
+mod dzkp_semi_honest;
+pub mod dzkp_validator;
 #[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
-
-mod dzkp_malicious;
-mod dzkp_semi_honest;
-pub mod dzkp_validator;
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
 /// this flag can be removed
 #[allow(dead_code)]
