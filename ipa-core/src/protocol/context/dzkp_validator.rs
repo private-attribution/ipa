@@ -512,44 +512,40 @@ pub trait DZKPValidator<B: UpgradableContext> {
 
     /// `get_chunk_size` returns the chunk size of the validator
     fn get_chunk_size(&self) -> Option<usize>;
-}
 
-#[allow(dead_code)]
-/// `validated_seq_join` is a validated `seq_join`. It splits the input stream into `chunks` where
-/// the `chunk_size` is defined within `validator`. Each `chunk` is a vector that is independently
-/// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
-/// the output stream will return that the stream is done.
-///
-// Ideally it would be part of the DZKPValidator trait but trait functions don't like impl generics return types
-fn validated_seq_join<'st, S, F, O, DF, B, V>(
-    validator: &'st V,
-    source: S,
-) -> impl Stream<Item = Result<O, Error>> + 'st
-where
-    S: Stream<Item = F> + Send + 'st,
-    F: Future<Output = O> + Send + 'st,
-    O: Send + Sync + Clone + 'static,
-    DF: DZKPBaseField,
-    B: UpgradableContext,
-    V: DZKPValidator<B> + Send + Sync,
-{
-    // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
-    // but there is some overhead
-    let chunk_size = validator.get_chunk_size().unwrap_or(10usize);
-    seq_join::<'st, S, F, O>(validator.context().active_work(), source)
-        .chunks(chunk_size)
-        .then(move |x| async move {
-            let valid = validator.validate::<DF>().await.is_ok();
-            iter(x).map(move |x| {
-                if valid {
-                    Ok(x)
-                } else {
-                    Err(Error::DZKPValidationFailed)
-                }
+    /// `seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
+    /// the `chunk_size` is defined within `validator`. Each `chunk` is a vector that is independently
+    /// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
+    /// the output stream will return that the stream is done.
+    ///
+    fn seq_join<'st, S, F, O, DF>(
+        &'st self,
+        source: S,
+    ) -> impl Stream<Item = Result<O, Error>> + 'st
+    where
+        S: Stream<Item = F> + Send + 'st,
+        F: Future<Output = O> + Send + 'st,
+        O: Send + Sync + Clone + 'static,
+        DF: DZKPBaseField,
+    {
+        // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
+        // but there is some overhead
+        let chunk_size = self.get_chunk_size().unwrap_or(10usize);
+        seq_join::<'st, S, F, O>(self.context().active_work(), source)
+            .chunks(chunk_size)
+            .then(move |x| async move {
+                let valid = self.validate::<DF>().await.is_ok();
+                iter(x).map(move |x| {
+                    if valid {
+                        Ok(x)
+                    } else {
+                        Err(Error::DZKPValidationFailed)
+                    }
+                })
             })
-        })
-        .flatten()
-        .take_while(|x| future::ready(x.is_ok()))
+            .flatten()
+            .take_while(|x| future::ready(x.is_ok()))
+    }
 }
 
 pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
@@ -675,7 +671,7 @@ mod tests {
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_validator::{validated_seq_join, DZKPBaseField, DZKPValidator},
+                dzkp_validator::{DZKPBaseField, DZKPValidator},
                 Context, UpgradableContext,
             },
             RecordId,
@@ -730,9 +726,8 @@ mod tests {
                 let v = ctx.dzkp_validator(chunk_size);
                 let m_ctx = v.context();
 
-                let m_results = validated_seq_join::<_, _, _, Fp31, _, _>(
-                    &v,
-                    iter(
+                let m_results = v
+                    .seq_join::<_, _, _, Fp31>(iter(
                         zip(
                             repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
                             zip(input_shares.iter(), input_shares.iter().skip(1)),
@@ -745,10 +740,9 @@ mod tests {
                                     .unwrap()
                             },
                         ),
-                    ),
-                )
-                .try_collect::<Vec<_>>()
-                .await?;
+                    ))
+                    .try_collect::<Vec<_>>()
+                    .await?;
                 Ok::<_, Error>(m_results)
             });
 
