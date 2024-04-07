@@ -374,6 +374,8 @@ mod send {
             to { self.advance(); self.inner() } {
                 #[inline]
                 pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error<I>>;
+                #[inline]
+                pub async fn close(&self, at: RecordId);
             }
         }
     }

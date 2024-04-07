@@ -1,25 +1,27 @@
 use thiserror::Error;
 
 use crate::{
-    error::BoxError,
-    helpers::{ChannelId, TotalRecords, TransportIdentity},
+    helpers::{
+        buffers::{DeserializeError, EndOfStreamError},
+        ChannelId, TotalRecords, TransportIdentity,
+    },
     protocol::RecordId,
 };
 
 /// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]
 pub enum Error<I: TransportIdentity> {
-    #[error("An error occurred while receiving data from {source:?}/{step}: {inner}")]
-    ReceiveError {
-        source: I,
-        step: String,
-        #[source]
-        inner: BoxError,
-    },
-    #[error("Expected to receive {record_id:?} but hit end of stream")]
+    #[error("Received end of stream from {origin:?}/{step}: {inner}")]
     EndOfStream {
-        // TODO(mt): add more fields, like step and role.
-        record_id: RecordId,
+        origin: I,
+        step: String,
+        inner: EndOfStreamError,
+    },
+    #[error("Deserialization error when receiving from {origin:?}/{step}: {inner}")]
+    DeserializeFailed {
+        origin: I,
+        step: String,
+        inner: DeserializeError,
     },
     #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]
     TooManyRecords {

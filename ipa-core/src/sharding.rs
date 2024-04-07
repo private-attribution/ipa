@@ -85,6 +85,12 @@ impl From<ShardIndex> for u64 {
     }
 }
 
+impl From<ShardIndex> for u128 {
+    fn from(value: ShardIndex) -> Self {
+        Self::from(value.0)
+    }
+}
+
 #[cfg(target_pointer_width = "64")]
 impl From<ShardIndex> for usize {
     fn from(value: ShardIndex) -> Self {
