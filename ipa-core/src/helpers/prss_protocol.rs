@@ -37,10 +37,10 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
     let total_records = TotalRecords::from(1);
 
-    let left_sender = gateway.get_sender::<PublicKey>(&left_channel, total_records);
-    let right_sender = gateway.get_sender::<PublicKey>(&right_channel, total_records);
-    let left_receiver = gateway.get_receiver::<PublicKey>(&left_channel);
-    let right_receiver = gateway.get_receiver::<PublicKey>(&right_channel);
+    let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, total_records);
+    let right_sender = gateway.get_mpc_sender::<PublicKey>(&right_channel, total_records);
+    let left_receiver = gateway.get_mpc_receiver::<PublicKey>(&left_channel);
+    let right_receiver = gateway.get_mpc_receiver::<PublicKey>(&right_channel);
 
     // setup local prss endpoint
     let ep_setup = prss::Endpoint::prepare(rng);

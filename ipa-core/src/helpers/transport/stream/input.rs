@@ -115,12 +115,9 @@ impl BufDeque {
         self.read_bytes(T::Size::USIZE)
             .map(|bytes| T::deserialize_infallible(GenericArray::from_slice(&bytes)))
     }
-
     /// Attempts to deserialize a single instance of `T` from the buffer.
-    /// Returns `None` if there is insufficient data available
     ///
-    /// ## Errors
-    /// Returns a deserialization error if `T` rejects the bytes from this buffer.
+    /// Returns `None` if there is insufficient data available, and an error if deserialization fails.
     fn try_read<T: Serializable>(&mut self) -> Option<Result<T, T::DeserializationError>> {
         self.read_bytes(T::Size::USIZE)
             .map(|bytes| T::deserialize(GenericArray::from_slice(&bytes)))
@@ -219,6 +216,8 @@ where
     buffer: BufDeque,
     phantom_data: PhantomData<(T, M)>,
 }
+
+pub type SingleRecordStream<T, S> = RecordsStream<T, S, Single>;
 
 impl<T, S, M> RecordsStream<T, S, M>
 where

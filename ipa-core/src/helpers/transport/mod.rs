@@ -1,4 +1,8 @@
-use std::{borrow::Borrow, fmt::Debug, hash::Hash};
+use std::{
+    borrow::{Borrow, Cow},
+    fmt::Debug,
+    hash::Hash,
+};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -25,8 +29,8 @@ pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
 pub use stream::{
-    BodyStream, BytesStream, LengthDelimitedStream, RecordsStream, StreamCollection, StreamKey,
-    WrappedBoxBodyStream,
+    BodyStream, BytesStream, LengthDelimitedStream, RecordsStream, SingleRecordStream,
+    StreamCollection, StreamKey, WrappedBoxBodyStream,
 };
 
 use crate::{
@@ -36,14 +40,30 @@ use crate::{
 
 /// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
 /// types of peers - helpers and shards.
-pub trait Identity: Copy + Clone + Debug + PartialEq + Eq + Hash + Send + Sync + 'static {}
+pub trait Identity:
+    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
+{
+    fn as_str<'a>(&self) -> Cow<'a, str>;
+}
 
-impl Identity for ShardIndex {}
-impl Identity for HelperIdentity {}
+impl Identity for ShardIndex {
+    fn as_str<'a>(&self) -> Cow<'a, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+impl Identity for HelperIdentity {
+    fn as_str<'a>(&self) -> Cow<'a, str> {
+        Cow::Owned(self.id.to_string())
+    }
+}
 
 /// Role is an identifier of helper peer, only valid within a given query. For every query, there
 /// exists a static mapping from role to helper identity.
-impl Identity for Role {}
+impl Identity for Role {
+    fn as_str<'a>(&self) -> Cow<'a, str> {
+        Cow::Borrowed(Role::as_static_str(self))
+    }
+}
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized

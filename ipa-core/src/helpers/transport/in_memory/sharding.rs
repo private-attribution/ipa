@@ -64,6 +64,14 @@ impl InMemoryShardNetwork {
             Arc::downgrade(&self.shard_network[2][shard_id]),
         ]
     }
+
+    pub fn reset(&self) {
+        for helper in &self.shard_network {
+            for shard in helper.iter() {
+                shard.reset();
+            }
+        }
+    }
 }
 
 #[cfg(all(test, unit_test))]
@@ -147,6 +155,31 @@ mod tests {
             assert!(h1.upgrade().is_none());
             assert!(h2.upgrade().is_none());
             assert!(h3.upgrade().is_none());
+        });
+    }
+
+    #[test]
+    fn reset() {
+        async fn test_send(network: &InMemoryShardNetwork) {
+            let (_tx, rx) = mpsc::channel(1);
+            let src_shard = ShardIndex::FIRST;
+            let dst_shard = ShardIndex::from(1);
+            network
+                .transport(HelperIdentity::ONE, src_shard)
+                .send(
+                    dst_shard,
+                    (RouteId::Records, QueryId, Gate::default()),
+                    ReceiverStream::new(rx),
+                )
+                .await
+                .unwrap();
+        }
+
+        run(|| async {
+            let shard_network = InMemoryShardNetwork::with_shards(2);
+            test_send(&shard_network).await;
+            shard_network.reset();
+            test_send(&shard_network).await;
         });
     }
 }

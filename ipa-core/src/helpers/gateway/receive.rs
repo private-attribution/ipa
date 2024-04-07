@@ -1,36 +1,61 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use bytes::Bytes;
 use dashmap::{mapref::entry::Entry, DashMap};
+use futures::Stream;
+use pin_project::pin_project;
 
 use crate::{
     error::BoxError,
     helpers::{
-        buffers::UnorderedReceiver, gateway::transport::RoleResolvingTransport, Error,
-        HelperChannelId, LogErrors, Message, Role, Transport,
+        buffers::UnorderedReceiver, gateway::transport::RoleResolvingTransport,
+        transport::SingleRecordStream, ChannelId, Error, HelperChannelId, LogErrors, Message,
+        MpcMessage, Role, ShardChannelId, ShardTransportImpl, Transport, TransportIdentity,
     },
     protocol::RecordId,
+    sync::{Arc, Mutex},
 };
 
-/// Receiving end of the gateway channel.
-pub struct ReceivingEnd<M: Message> {
+/// Receiving end of the MPC gateway channel.
+/// I tried to make it generic and work for both MPC and Shard connectors, but ran into
+/// "implementation of `S` is not general enough" issue on the client side (reveal). It may be another
+/// occurrence of [`gat`] issue
+///
+/// [`gat`]: https://github.com/rust-lang/rust/issues/100013
+pub struct MpcReceivingEnd<M> {
     channel_id: HelperChannelId,
     unordered_rx: UR,
     _phantom: PhantomData<M>,
 }
 
-/// Receiving channels, indexed by (role, step).
-#[derive(Default)]
-pub(super) struct GatewayReceivers {
-    pub(super) inner: DashMap<HelperChannelId, UR>,
+#[pin_project]
+pub struct ShardReceivingEnd<M: Message> {
+    pub(super) channel_id: ShardChannelId,
+    #[pin]
+    pub(super) rx: SingleRecordStream<M, ShardReceiveStream>,
 }
 
-pub(super) type UR = UnorderedReceiver<
+/// Receiving channels, indexed by (role, step).
+pub(super) struct GatewayReceivers<I, S> {
+    pub(super) inner: DashMap<ChannelId<I>, S>,
+}
+
+pub type UR = UnorderedReceiver<
     LogErrors<<RoleResolvingTransport as Transport>::RecordsStream, Bytes, BoxError>,
     Vec<u8>,
 >;
 
-impl<M: Message> ReceivingEnd<M> {
+/// Stream of records received from a peer shard.
+#[derive(Clone)]
+pub struct ShardReceiveStream(
+    pub(super) Arc<Mutex<<ShardTransportImpl as Transport>::RecordsStream>>,
+);
+
+impl<M: MpcMessage> MpcReceivingEnd<M> {
     pub(super) fn new(channel_id: HelperChannelId, rx: UR) -> Self {
         Self {
             channel_id,
@@ -61,8 +86,24 @@ impl<M: Message> ReceivingEnd<M> {
     }
 }
 
-impl GatewayReceivers {
-    pub fn get_or_create<F: FnOnce() -> UR>(&self, channel_id: &HelperChannelId, ctr: F) -> UR {
+impl<M: Message> Stream for ShardReceivingEnd<M> {
+    type Item = Result<M, crate::error::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().rx.poll_next(cx)
+    }
+}
+
+impl<I: TransportIdentity, S> Default for GatewayReceivers<I, S> {
+    fn default() -> Self {
+        Self {
+            inner: DashMap::default(),
+        }
+    }
+}
+
+impl<I: TransportIdentity, S: Clone> GatewayReceivers<I, S> {
+    pub fn get_or_create<F: FnOnce() -> S>(&self, channel_id: &ChannelId<I>, ctr: F) -> S {
         // TODO: raw entry API if it becomes available to avoid cloning the key
         match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => entry.get().clone(),
@@ -73,5 +114,13 @@ impl GatewayReceivers {
                 stream
             }
         }
+    }
+}
+
+impl Stream for ShardReceiveStream {
+    type Item = <<ShardTransportImpl as Transport>::RecordsStream as Stream>::Item;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(self.0.lock().unwrap()).as_mut().poll_next(cx)
     }
 }

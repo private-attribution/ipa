@@ -7,7 +7,7 @@ use crate::{
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        ApiError, InMemoryMpcNetwork,
+        ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -49,7 +49,8 @@ where
 /// [`TestWorld`]: crate::test_fixture::TestWorld
 pub struct TestApp {
     drivers: [HelperApp; 3],
-    network: InMemoryMpcNetwork,
+    mpc_network: InMemoryMpcNetwork,
+    shard_network: InMemoryShardNetwork,
 }
 
 fn unzip_tuple_array<T, U>(input: [(T, U); 3]) -> ([T; 3], [U; 3]) {
@@ -61,18 +62,23 @@ impl Default for TestApp {
     fn default() -> Self {
         let (setup, handlers) = unzip_tuple_array(array::from_fn(|_| AppSetup::new()));
 
-        let network = InMemoryMpcNetwork::new(handlers.map(Some));
-        let drivers = network
+        let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
+        let shard_network = InMemoryShardNetwork::with_shards(1);
+        let drivers = mpc_network
             .transports()
             .iter()
             .zip(setup)
-            .map(|(t, s)| s.connect(Clone::clone(t)))
+            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)))
             .collect::<Vec<_>>()
             .try_into()
-            .map_err(|_| "infallible")
+            .ok()
             .unwrap();
 
-        Self { drivers, network }
+        Self {
+            drivers,
+            mpc_network,
+            shard_network,
+        }
     }
 }
 
@@ -131,7 +137,8 @@ impl TestApp {
     pub async fn complete_query(&self, query_id: QueryId) -> Result<[Vec<u8>; 3], ApiError> {
         let results =
             try_join3_array([0, 1, 2].map(|i| self.drivers[i].complete_query(query_id))).await;
-        self.network.reset();
+        self.mpc_network.reset();
+        self.shard_network.reset();
         results
     }
 

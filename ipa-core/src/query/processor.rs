@@ -9,7 +9,8 @@ use crate::{
     error::Error as ProtocolError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
+        Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
+        ShardTransportImpl, Transport,
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
@@ -57,7 +58,7 @@ pub enum NewQueryError {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] TransportError),
+    MpcTransport(#[from] MpcTransportError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -132,7 +133,7 @@ impl Processor {
     #[allow(clippy::missing_panics_doc)]
     pub async fn new_query(
         &self,
-        transport: TransportImpl,
+        transport: MpcTransportImpl,
         req: QueryConfig,
     ) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
@@ -158,7 +159,7 @@ impl Processor {
             transport.send(right, prepare_request.clone(), stream::empty()),
         )
         .await
-        .map_err(NewQueryError::Transport)?;
+        .map_err(NewQueryError::MpcTransport)?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
@@ -176,7 +177,7 @@ impl Processor {
     /// if query is already running or this helper cannot be a follower in it
     pub fn prepare(
         &self,
-        transport: &TransportImpl,
+        transport: &MpcTransportImpl,
         req: PrepareQuery,
     ) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(transport.identity());
@@ -207,7 +208,8 @@ impl Processor {
     /// If failed to obtain exclusive access to the query collection.
     pub fn receive_inputs(
         &self,
-        transport: TransportImpl,
+        mpc_transport: MpcTransportImpl,
+        shard_transport: ShardTransportImpl,
         input: QueryInput,
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
@@ -223,7 +225,8 @@ impl Processor {
                         query_id,
                         GatewayConfig::from(&config),
                         role_assignment,
-                        transport,
+                        mpc_transport,
+                        shard_transport,
                     );
                     queries.insert(
                         input.query_id,
@@ -443,7 +446,7 @@ mod tests {
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
-            NewQueryError::Transport(_)
+            NewQueryError::MpcTransport(_)
         ));
     }
 
@@ -465,7 +468,7 @@ mod tests {
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
-            NewQueryError::Transport(_)
+            NewQueryError::MpcTransport(_)
         ));
     }
 

@@ -11,7 +11,7 @@ use tracing::{Instrument, Level, Span};
 use crate::{
     helpers::{
         Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
-        InMemoryTransport, Role, RoleAssignment,
+        InMemoryTransport, Role, RoleAssignment, Transport,
     },
     protocol::{
         context::{
@@ -140,6 +140,7 @@ impl<const SHARDS: usize> WithShards<SHARDS> {
     /// for a single shard.
     ///
     /// It uses Round-robin strategy to distribute [`A`] across [`SHARDS`]
+    #[must_use]
     pub fn shard<A>(input: Vec<A>) -> [Vec<A>; SHARDS] {
         let mut r: [_; SHARDS] = from_fn(|_| Vec::new());
         for (i, share) in input.into_iter().enumerate() {
@@ -539,14 +540,23 @@ impl<B: ShardBinding> ShardWorld<B> {
         let participants = make_participants(&mut StdRng::seed_from_u64(config.seed + shard_seed));
         let network = InMemoryMpcNetwork::default();
 
-        let mut gateways = network.transports().map(|t| {
-            Gateway::new(
-                QueryId,
-                config.gateway_config,
-                config.role_assignment().clone(),
-                t,
-            )
-        });
+        let mut gateways: [_; 3] = network
+            .transports()
+            .iter()
+            .zip(transports.iter())
+            .map(|(mpc, shard)| {
+                Gateway::new(
+                    QueryId,
+                    config.gateway_config,
+                    config.role_assignment().clone(),
+                    Transport::clone_ref(mpc),
+                    Transport::clone_ref(shard),
+                )
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .ok()
+            .unwrap();
 
         // The name for `g` is too complicated and depends on features enabled
         #[allow(clippy::redundant_closure_for_method_calls)]
