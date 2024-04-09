@@ -1,8 +1,10 @@
+#[cfg(feature = "descriptive-gate")]
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     fmt::Debug,
     iter::repeat,
-    sync::{Arc, Mutex, Weak},
+    sync::{Mutex, Weak},
 };
 
 use async_trait::async_trait;
@@ -10,15 +12,18 @@ use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::context::{
+    dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
+};
 use crate::{
     error::Error,
     ff::Field,
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded,
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, Context,
-            MaliciousContext, SemiHonestContext, UpgradableContext,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, SemiHonestContext,
+            UpgradableContext,
         },
         step::Gate,
         RecordId,
