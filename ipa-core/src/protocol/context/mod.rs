@@ -1,5 +1,7 @@
+#[allow(dead_code)]
 mod dzkp_malicious;
 mod dzkp_semi_honest;
+#[allow(dead_code)]
 pub mod dzkp_validator;
 #[cfg(feature = "descriptive-gate")]
 pub mod malicious;
