@@ -43,13 +43,13 @@ use crate::{
     error::{LengthError, UnwrapInfallible},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA16, BA256, BA3, BA5, BA64, BA8},
+        boolean_array::{BA16, BA256, BA3, BA32, BA5, BA64, BA8},
         ec_prime_field::Fp25519,
     },
     protocol::ipa_prf::{MK_BITS, PRF_CHUNK},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
-        BitDecomposed, SharedValue, StdArray,
+        BitDecomposed, SharedValue, StdArray, Vectorizable,
     },
 };
 
@@ -437,6 +437,25 @@ macro_rules! impl_transpose_16 {
     };
 }
 
+/// Perform a larger transpose using an 16x16 kernel.
+///
+/// Matrix height and width must be multiples of 16.
+#[inline]
+fn do_transpose_16<SF: Fn(usize, usize) -> [u8; 32], DF: FnMut(usize, usize, [u8; 32])>(
+    rows_div16: usize,
+    cols_div16: usize,
+    read_src: SF,
+    mut write_dst: DF,
+) {
+    for i in 0..rows_div16 {
+        for j in 0..cols_div16 {
+            let m = read_src(i, j);
+            let m_t = transpose_16x16(&m);
+            write_dst(j, i, m_t);
+        }
+    }
+}
+
 // Helper for `impl_transpose_shim` that performs a `TryFrom` conversion for the source,
 // if applicable. For example, a `Vec` dereferences to a slice, which then must be
 // converted to an array using `TryFrom`.
@@ -616,9 +635,11 @@ macro_rules! impl_transpose_shares_bool_to_ba_small {
 }
 
 // Usage: Aggregation output. M = HV bits, N = number of breakdowns.
+// (for feature_label_dot_product, N = number of features)
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 256, test_transpose_shares_bool_to_ba_8x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 256, test_transpose_shares_bool_to_ba_16x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 32, test_transpose_shares_bool_to_ba_16x32);
+impl_transpose_shares_bool_to_ba_small!(BA8, 8, 32, test_transpose_shares_bool_to_ba_8x32);
 
 /// Implement a transpose of a MxN matrix of secret-shared bits represented as
 /// `[AdditiveShare<BA<N>>; M]` into a NxM bit matrix represented as `[AdditiveShare<Boolean, M>; N]`.
@@ -767,6 +788,83 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
+
+// Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for details.
+macro_rules! impl_aggregation_transpose {
+    ($dst_row:ty, $src_row:ty, $src_rows:expr, $src_cols:expr $(,)?) => {
+        impl TransposeFrom<&[BitDecomposed<AdditiveShare<Boolean, $src_cols>>]>
+            for Vec<BitDecomposed<AdditiveShare<Boolean, $src_rows>>>
+        where
+            Boolean: Vectorizable<$src_rows, Array = $dst_row>
+                + Vectorizable<$src_cols, Array = $src_row>,
+        {
+            type Error = Infallible;
+
+            fn transpose_from(
+                &mut self,
+                src: &[BitDecomposed<AdditiveShare<Boolean, $src_cols>>],
+            ) -> Result<(), Infallible> {
+                self.resize(
+                    $src_cols,
+                    vec![AdditiveShare::<Boolean, $src_rows>::ZERO; src[0].len()]
+                        .try_into()
+                        .unwrap(),
+                );
+                for b in 0..src[0].len() {
+                    // Transpose left share
+                    do_transpose_16(
+                        $src_rows / 16,
+                        $src_cols / 16,
+                        |i, j| {
+                            let mut d = [0u8; 32];
+                            for k in 0..16 {
+                                d[2 * k..2 * (k + 1)].copy_from_slice(
+                                    &src[16 * i + k][b].left_arr().as_raw_slice()
+                                        [2 * j..2 * (j + 1)],
+                                );
+                            }
+                            d
+                        },
+                        |i, j, d| {
+                            for k in 0..16 {
+                                self[16 * i + k][b].left_arr_mut().as_raw_mut_slice()
+                                    [2 * j..2 * (j + 1)]
+                                    .copy_from_slice(&d[2 * k..2 * (k + 1)]);
+                            }
+                        },
+                    );
+                    // Transpose right share
+                    do_transpose_16(
+                        $src_rows / 16,
+                        $src_cols / 16,
+                        |i, j| {
+                            let mut d = [0u8; 32];
+                            for k in 0..16 {
+                                d[2 * k..2 * (k + 1)].copy_from_slice(
+                                    &src[16 * i + k][b].right_arr().as_raw_slice()
+                                        [2 * j..2 * (j + 1)],
+                                );
+                            }
+                            d
+                        },
+                        |i, j, d| {
+                            for k in 0..16 {
+                                self[16 * i + k][b].right_arr_mut().as_raw_mut_slice()
+                                    [2 * j..2 * (j + 1)]
+                                    .copy_from_slice(&d[2 * k..2 * (k + 1)]);
+                            }
+                        },
+                    );
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
+// Usage: aggregation intermediate. M = number of breakdowns (2^|bk|), N = AGG_CHUNK
+impl_aggregation_transpose!(BA256, BA256, 256, 256);
+impl_aggregation_transpose!(BA32, BA256, 32, 256);
 
 #[cfg(all(test, unit_test))]
 mod tests {

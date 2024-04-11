@@ -6,9 +6,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
-use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
+use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{
@@ -235,16 +234,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
     }
 }
 
-// This is a dummy step that is used to narrow (but never executed) the semi-honest
-// context. Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
-// `UpgradeToMalicious::upgrade()` narrows but these will end up in
-// `UpgradedContext::upgrade_one()` or `UpgradedContext::upgrade_sparse()` which both
-// return Ok() and never trigger communications.
-#[derive(Step)]
-pub(crate) enum UpgradeStep {
-    UpgradeSemiHonest,
-}
-
 #[async_trait]
 impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, B, F> {
     type Share = Replicated<F>;
@@ -272,7 +261,7 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         T: Send,
         UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), NoRecord)
+        UpgradeContext::new(self.clone(), NoRecord)
             .upgrade(input)
             .await
     }
@@ -282,7 +271,7 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         T: Send,
         UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), record_id)
+        UpgradeContext::new(self.clone(), record_id)
             .upgrade(input)
             .await
     }

@@ -20,8 +20,12 @@ pub use share_known_value::ShareKnownValue;
 pub use sum_of_product::SumOfProducts;
 
 use crate::{
+    const_assert_eq,
     ff::{boolean::Boolean, Field},
-    protocol::{context::Context, ipa_prf::PRF_CHUNK},
+    protocol::{
+        context::Context,
+        ipa_prf::{AGG_CHUNK, PRF_CHUNK},
+    },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, SecretSharing, SharedValue, Vectorizable,
     },
@@ -58,8 +62,21 @@ impl<C: Context> BooleanProtocols<C, Boolean, 1> for AdditiveShare<Boolean> {}
 
 impl<C: Context> BooleanProtocols<C, Boolean, PRF_CHUNK> for AdditiveShare<Boolean, PRF_CHUNK> {}
 
-// Used by semi_honest_compare_gt_vec test.
-impl<C: Context> BooleanProtocols<C, Boolean, 256> for AdditiveShare<Boolean, 256> {}
+impl<C: Context> BooleanProtocols<C, Boolean, AGG_CHUNK> for AdditiveShare<Boolean, AGG_CHUNK> {}
+
+const_assert_eq!(
+    AGG_CHUNK,
+    256,
+    "Implementation for N = 256 required for semi_honest_compare_gt_vec test"
+);
+
+// Implementations for 2^|bk|
+impl<C: Context> BooleanProtocols<C, Boolean, 32> for AdditiveShare<Boolean, 32> {}
+const_assert_eq!(
+    AGG_CHUNK,
+    256,
+    "Implementation for N = 256 required for breakdown keys"
+);
 
 #[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> BasicProtocols<UpgradedMaliciousContext<'a, F>, F>

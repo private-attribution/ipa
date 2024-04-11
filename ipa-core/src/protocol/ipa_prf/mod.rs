@@ -1,4 +1,4 @@
-use std::{array, iter, num::NonZeroU32, ops::Add};
+use std::{array, convert::Infallible, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
@@ -7,14 +7,14 @@ use typenum::{Unsigned, U18};
 
 use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs};
 use crate::{
-    error::{Error, UnwrapInfallible},
+    error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, CustomArray, PrimeField, Serializable,
+        boolean::Boolean, boolean_array::BA64, ArrayBuild, ArrayBuilder, CustomArray, Serializable,
         U128Conversions,
     },
-    helpers::stream::{ChunkData, ProcessChunks, TryFlattenItersExt},
+    helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
     protocol::{
-        basics::BooleanArrayMul,
+        basics::{BooleanArrayMul, BooleanProtocols},
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -26,13 +26,14 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
         SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
     BoolVector,
 };
 
+mod aggregation;
 mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
@@ -47,6 +48,9 @@ pub const MK_BITS: usize = 64;
 
 /// Vectorization dimension for PRF
 pub const PRF_CHUNK: usize = 64;
+
+/// Vectorization dimension for aggregation.
+pub const AGG_CHUNK: usize = 256;
 
 #[derive(Step)]
 pub(crate) enum Step {
@@ -175,24 +179,34 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
+pub async fn oprf_ipa<C, BK, TV, HV, TS, SS, const B: usize>(
     ctx: C,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<Replicated<F>>, Error>
+) -> Result<Vec<Replicated<HV>>, Error>
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>: BooleanProtocols<C::UpgradedContext<Boolean>, Boolean, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
-    F: PrimeField + ExtendableField,
-    Replicated<F>: Serializable,
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    Vec<BitDecomposed<Replicated<Boolean, B>>>: for<'a> TransposeFrom<
+        &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
+        Error = Infallible,
+    >,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs =
@@ -210,7 +224,7 @@ where
     )
     .await?;
 
-    attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
+    attribute_cap_aggregate::<_, _, _, _, _, SS, B>(
         ctx,
         prfd_inputs,
         attribution_window_seconds,
@@ -220,19 +234,16 @@ where
 }
 
 #[tracing::instrument(name = "compute_prf_for_inputs", skip_all)]
-async fn compute_prf_for_inputs<C, BK, TV, TS, F>(
+async fn compute_prf_for_inputs<C, BK, TV, TS>(
     ctx: C,
     input_rows: &[OPRFIPAInputRow<BK, TV, TS>],
 ) -> Result<Vec<PrfShardedIpaInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
-    F: PrimeField + ExtendableField,
-    Replicated<F>: Serializable,
 {
     let ctx = ctx.set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
@@ -242,7 +253,8 @@ where
 
     seq_join(
         ctx.active_work(),
-        input_rows.process_chunks(
+        process_slice_by_chunks(
+            input_rows,
             move |idx, records: ChunkData<_, PRF_CHUNK>| {
                 let convert_ctx = convert_ctx.clone();
                 let eval_ctx = eval_ctx.clone();
@@ -252,7 +264,11 @@ where
                     let record_id = RecordId::from(idx);
                     let input_match_keys: &dyn Fn(usize) -> Replicated<BA64> =
                         &|i| records[i].match_key.clone();
-                    let mut match_keys = iter::empty().collect::<BoolVector!(64, PRF_CHUNK)>();
+                    let mut match_keys_builder = <BoolVector!(64, PRF_CHUNK)>::builder();
+                    for _ in 0..MK_BITS {
+                        match_keys_builder.push(Replicated::<Boolean, PRF_CHUNK>::ZERO);
+                    }
+                    let mut match_keys = match_keys_builder.build();
                     match_keys
                         .transpose_from(input_match_keys)
                         .unwrap_infallible();
@@ -304,12 +320,10 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
-    use rand::{seq::SliceRandom, thread_rng};
-
     use crate::{
         ff::{
-            boolean_array::{BA20, BA3, BA5, BA8},
-            Fp31,
+            boolean_array::{BA16, BA20, BA3, BA5, BA8},
+            U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
         test_executor::run,
@@ -349,7 +363,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                    oprf_ipa::<_, BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -357,11 +371,8 @@ pub mod tests {
                 .reconstruct();
             result.truncate(EXPECTED.len());
             assert_eq!(
-                result,
-                EXPECTED
-                    .iter()
-                    .map(|i| Fp31::try_from(*i).unwrap())
-                    .collect::<Vec<_>>()
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
             );
         });
     }
@@ -370,8 +381,14 @@ pub mod tests {
     // harness does not generate data like this because the attribution result is non-deterministic.
     // To make the output deterministic for this case, all of the duplicate timestamp records are
     // identical.
+    //
+    // Don't run this with shuttle because it is slow and is unlikely to provide different coverage
+    // than the previous test.
+    #[cfg(not(feature = "shuttle"))]
     #[test]
     fn duplicate_timestamps() {
+        use rand::{seq::SliceRandom, thread_rng};
+
         const EXPECTED: &[u128] = &[0, 2, 10, 0, 0, 0, 0, 0];
 
         run(|| async {
@@ -391,7 +408,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                    oprf_ipa::<_, BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -399,11 +416,8 @@ pub mod tests {
                 .reconstruct();
             result.truncate(EXPECTED.len());
             assert_eq!(
-                result,
-                EXPECTED
-                    .iter()
-                    .map(|i| Fp31::try_from(*i).unwrap())
-                    .collect::<Vec<_>>()
+                result.iter().map(|&v| v.as_u128()).collect::<Vec<_>>(),
+                EXPECTED,
             );
         });
     }

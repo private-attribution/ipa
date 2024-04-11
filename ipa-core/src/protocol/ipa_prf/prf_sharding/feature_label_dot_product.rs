@@ -1,22 +1,23 @@
-use std::{iter::zip, pin::pin};
+use std::iter::{self, zip};
 
-use futures::{stream::iter as stream_iter, TryStreamExt};
+use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use ipa_macros::Step;
 
 use crate::{
-    error::Error,
-    ff::{boolean::Boolean, CustomArray, Field, PrimeField, Serializable},
+    error::{Error, LengthError},
+    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
+    helpers::stream::TryFlattenItersExt,
     protocol::{
-        basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::convert_bits,
+        context::{UpgradableContext, UpgradedContext, Validator},
+        ipa_prf::aggregation::aggregate_values,
         RecordId,
     },
     secret_sharing::{
-        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        Linear as LinearSecretSharing, SharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
 };
@@ -124,13 +125,11 @@ impl From<usize> for UserNthRowStep {
 #[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
-    PrimeFieldValidator,
     EverEncounteredTriggerEvent,
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
     IsAttributedSourceAndPrevRowNotSaturated,
     ComputedCappedFeatureVector,
-    ModulusConvertFeatureVectorBits,
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -213,90 +212,72 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<C, FV, F, S>(
+pub async fn compute_feature_label_dot_product<C, FV, OV, const B: usize>(
     sh_ctx: C,
     input_rows: Vec<PrfShardedIpaInputRow<FV>>,
     histogram: &[usize],
-) -> Result<Vec<S>, Error>
+) -> Result<Vec<Replicated<OV>>, Error>
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
     FV: SharedValue + CustomArray<Element = Boolean>,
+    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
     Replicated<FV>: BooleanArrayMul,
-    F: PrimeField + ExtendableField,
+    Replicated<Boolean, B>: BooleanProtocols<C::UpgradedContext<Boolean>, Boolean, B>,
+    Vec<Replicated<OV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    assert!(<FV as SharedValue>::BITS > 0);
+    assert_eq!(<FV as SharedValue>::BITS, u32::try_from(B).unwrap());
 
     // Get the validator and context to use for Boolean multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
     let binary_m_ctx = binary_validator.context();
 
-    // Get the validator and context to use for `Z_p` operations (modulus conversion)
-    let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
-    let prime_field_ctx = prime_field_validator.context();
-
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
-    let mut input_stream = stream_iter(input_rows);
-    let first_row = input_stream.next().await;
-    if first_row.is_none() {
+    let mut input_stream = stream::iter(input_rows);
+    let Some(first_row) = input_stream.next().await else {
         return Ok(vec![]);
-    }
-    let first_row = first_row.unwrap();
+    };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
-    // Convert to a stream of async futures that represent the result of executing the per-user circuit
-    let stream_of_per_user_circuits = pin!(rows_chunked_by_user.then(|rows_for_user| {
-        let num_user_rows = rows_for_user.len();
-        let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
-        let record_ids = record_id_for_row_depth[..num_user_rows].to_owned();
-        record_id_for_row_depth[..num_user_rows]
-            .iter_mut()
-            .for_each(|count| *count += 1);
+    let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
+    collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-        #[allow(clippy::async_yields_async)]
-        // this is ok, because seq join wants a stream of futures
-        async move {
-            evaluate_per_user_attribution_circuit(contexts, record_ids, rows_for_user)
-        }
-    }));
+    let chunked_user_results =
+        collected
+            .into_iter()
+            .enumerate()
+            .map(|(record_id, rows_for_user)| {
+                let num_user_rows = rows_for_user.len();
+                let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+
+                evaluate_per_user_attribution_circuit(
+                    contexts,
+                    RecordId::from(record_id),
+                    rows_for_user,
+                )
+            });
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattened_stream = seq_join(sh_ctx.active_work(), stream_of_per_user_circuits)
-        .flat_map(|x| stream_iter(x.unwrap()));
-
-    // modulus convert feature vector bits from shares in `Z_2` to shares in `Z_p`
-    let converted_feature_vector_bits = convert_bits(
-        prime_field_ctx
-            .narrow(&Step::ModulusConvertFeatureVectorBits)
-            .set_total_records(num_outputs),
-        flattened_stream,
-        0..<FV as SharedValue>::BITS,
+    let flattened_stream = Box::pin(
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
+            .try_flatten_iters()
+            .map_ok(|value| {
+                BitDecomposed::new(iter::once(Replicated::new_arr(value.left(), value.right())))
+            }),
     );
 
-    // Sum up all the vectors
-    converted_feature_vector_bits
-        .try_fold(
-            vec![S::ZERO; usize::try_from(<FV as SharedValue>::BITS).unwrap()],
-            |mut running_sums, row_contribution| async move {
-                for (i, contribution) in row_contribution.iter().enumerate() {
-                    running_sums[i] += contribution;
-                }
-                Ok(running_sums)
-            },
-        )
-        .await
+    aggregate_values::<_, _, B>(binary_m_ctx, flattened_stream, num_outputs).await
 }
 
 async fn evaluate_per_user_attribution_circuit<C, FV>(
     ctx_for_row_number: Vec<C>,
-    record_id_for_each_depth: Vec<u32>,
+    record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
 ) -> Result<Vec<Replicated<FV>>, Error>
 where
@@ -314,13 +295,9 @@ where
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     // skip the first row as it requires no multiplications
     // no context was created for the first row
-    for (i, (row, ctx)) in
-        zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()).enumerate()
-    {
-        let record_id_for_this_row_depth = RecordId::from(record_id_for_each_depth[i + 1]); // skip row 0
-
+    for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
         let capped_attribution_outputs = prev_row_inputs
-            .compute_row_with_previous(ctx, record_id_for_this_row_depth, row)
+            .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
         output.push(capped_attribution_outputs);
@@ -349,8 +326,9 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime,
-            U128Conversions,
+            boolean::Boolean,
+            boolean_array::{BA32, BA8},
+            CustomArray, Field, U128Conversions,
         },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
@@ -461,18 +439,13 @@ pub mod tests {
 
             let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
-            let result: Vec<Fp32BitPrime> = world
+            let result: Vec<BA8> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = histogram.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<
-                            _,
-                            BA32,
-                            Fp32BitPrime,
-                            Replicated<Fp32BitPrime>,
-                        >(ctx, input_rows, h)
-                        .await
-                        .unwrap()
+                        compute_feature_label_dot_product::<_, BA32, BA8, 32>(ctx, input_rows, h)
+                            .await
+                            .unwrap()
                     }
                 })
                 .await
