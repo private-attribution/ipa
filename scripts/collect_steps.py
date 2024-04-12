@@ -70,6 +70,9 @@ def collect_steps(args):
         if not line or line == "":
             break
 
+        if line.startswith("TestWorld random seed "):
+            continue
+
         if not line.startswith(ROOT_STEP_PREFIX):
             print("Unexpected line: " + line, flush=True)
             exit(1)
