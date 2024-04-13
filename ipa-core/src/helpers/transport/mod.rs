@@ -43,16 +43,16 @@ use crate::{
 pub trait Identity:
     Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
 {
-    fn as_str<'a>(&self) -> Cow<'a, str>;
+    fn as_str(&self) -> Cow<'static, str>;
 }
 
 impl Identity for ShardIndex {
-    fn as_str<'a>(&self) -> Cow<'a, str> {
+    fn as_str(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
     }
 }
 impl Identity for HelperIdentity {
-    fn as_str<'a>(&self) -> Cow<'a, str> {
+    fn as_str(&self) -> Cow<'static, str> {
         Cow::Owned(self.id.to_string())
     }
 }
@@ -60,7 +60,7 @@ impl Identity for HelperIdentity {
 /// Role is an identifier of helper peer, only valid within a given query. For every query, there
 /// exists a static mapping from role to helper identity.
 impl Identity for Role {
-    fn as_str<'a>(&self) -> Cow<'a, str> {
+    fn as_str(&self) -> Cow<'static, str> {
         Cow::Borrowed(Role::as_static_str(self))
     }
 }
