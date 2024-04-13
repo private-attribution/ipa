@@ -403,7 +403,6 @@ impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SH
             .await
     }
 
-    #[allow(clippy::diverging_sub_expression)]
     async fn malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -415,7 +414,6 @@ impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SH
         unimplemented!()
     }
 
-    #[allow(clippy::diverging_sub_expression)]
     async fn upgraded_malicious<'a, F, I, A, M, O, H, R, P>(
         &'a self,
         _input: I,

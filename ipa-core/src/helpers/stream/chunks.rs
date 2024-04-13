@@ -246,6 +246,10 @@ pub trait TryFlattenItersExt: TryStream {
     /// Flatten a `TryStream` of `IntoIterator`s.
     ///
     /// Similar to `TryStream::try_flatten`, but that flattens a `TryStream` of `TryStream`s.
+    ///
+    /// Also unlike `TryStream::try_flatten`, the `TryFlattenIters` stream ends the stream
+    /// after the first error. This is particularly important when the error is security-
+    /// related and may indicate future data is corrupt.
     fn try_flatten_iters<T, I>(self) -> TryFlattenIters<T, I, Self>
     where
         I: IntoIterator<Item = T>,
@@ -300,7 +304,11 @@ where
             *this.iter = None;
             match this.stream.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(into_iter))) => *this.iter = Some(into_iter.into_iter()),
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                Poll::Ready(Some(Err(e))) => {
+                    // Terminate the stream after the first error.
+                    *this.finished = true;
+                    return Poll::Ready(Some(Err(e)));
+                }
                 Poll::Ready(None) => {
                     *this.finished = true;
                     return Poll::Ready(None);
@@ -417,8 +425,9 @@ mod tests {
         assert_eq!(res[0].as_ref().unwrap(), &1);
         assert_eq!(res[1].as_ref().unwrap(), &2);
         assert!(matches!(res[2].as_ref().unwrap_err(), &Error::Internal));
-        assert_eq!(res[3].as_ref().unwrap(), &3);
-        assert_eq!(res[4].as_ref().unwrap(), &4);
+
+        // The stream should terminate after the first error.
+        assert_eq!(res.len(), 3);
     }
 
     #[tokio::test]
@@ -544,11 +553,8 @@ mod tests {
             Some(Poll::Ready(Err(Error::Internal)))
         ));
 
-        // It should now be pending. It should not poll the source iterator again.
-        assert!(matches!(
-            poll_immediate(&mut st).next().await,
-            Some(Poll::Pending)
-        ));
+        // It should now be finished. It should not poll the source iterator again.
+        assert!(poll_immediate(&mut st).next().await.is_none());
 
         tx.close().await.unwrap();
 

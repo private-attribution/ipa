@@ -6,7 +6,7 @@ use std::{
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
 
-use crate::helpers::transport::stream::BoxBytesStream;
+use crate::helpers::{transport::stream::BoxBytesStream, BytesStream};
 
 pub struct WrappedBoxBodyStream(BoxBytesStream);
 
@@ -20,6 +20,10 @@ impl WrappedBoxBodyStream {
 
     pub fn from_infallible<S: Stream<Item = Box<[u8]>> + Send + 'static>(input: S) -> Self {
         Self(Box::pin(input.map(Bytes::from).map(Ok)))
+    }
+
+    pub fn from_bytes_stream<S: BytesStream + 'static>(input: S) -> Self {
+        Self(Box::pin(input))
     }
 
     #[must_use]

@@ -163,7 +163,7 @@ impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
     type Identity: TransportIdentity;
-    type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
+    type RecordsStream: BytesStream;
     type Error: std::fmt::Debug;
 
     fn identity(&self) -> Self::Identity;

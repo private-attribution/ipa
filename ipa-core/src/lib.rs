@@ -145,6 +145,8 @@ pub(crate) mod test_executor {
     }
 }
 
+pub const CRATE_NAME: &str = env!("CARGO_CRATE_NAME");
+
 #[macro_export]
 macro_rules! const_assert {
     ($x:expr $(,)?) => {
