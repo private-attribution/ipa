@@ -7,7 +7,7 @@ use sha2::{
 };
 
 use crate::{
-    ff::{Field, Serializable},
+    ff::{PrimeField, Serializable},
     protocol::prss::FromRandomU128,
 };
 
@@ -53,10 +53,16 @@ where
 /// This function takes two hash a vector of field elements into a single field element
 /// # Panics
 /// does not panic
-pub fn hash_to_field<F>(left: &Hash, right: &Hash) -> F
+pub fn hash_to_field<F>(left: &Hash, right: &Hash, exclude_to: u128) -> F
 where
-    F: Field + FromRandomU128,
+    F: PrimeField + FromRandomU128,
 {
+    assert!(F::BITS <= 64, "Field size is not sufficiently small");
+    assert!(
+        2 * exclude_to < F::PRIME.into(),
+        "Ben and Martin decided it to be like that"
+    );
+
     // set up hash
     let mut sha = Sha256::new();
 
@@ -69,12 +75,12 @@ where
 
     // compute hash as a field element
     // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
-    // however, deserialize might fail for some fields so we use `from_random_128` instead
+    // however, deserialize might fail for some fields so we use `truncate_from` instead
     // this results in at most 128 bits of security/collision probability rather than 256 bits as offered by `Sha256`
     // for field elements of size less than 129 bits, this does not make a difference
-    F::from_random_u128(u128::from_le_bytes(
-        sha.finalize()[0..16].try_into().unwrap(),
-    ))
+    let val = u128::from_le_bytes(sha.finalize()[0..16].try_into().unwrap());
+
+    F::truncate_from(val % (F::PRIME.into() - exclude_to) + exclude_to)
 }
 
 #[cfg(all(test, unit_test))]
@@ -154,6 +160,7 @@ mod test {
     #[test]
     fn field_element_changes() {
         const LIST_LENGTH: usize = 5;
+        const EXCLUDE: u128 = 7;
 
         let mut rng = thread_rng();
 
@@ -163,7 +170,7 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
+        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -175,7 +182,7 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
+        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         assert_ne!(
             r1, r2,
