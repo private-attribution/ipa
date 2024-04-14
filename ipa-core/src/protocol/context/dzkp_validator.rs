@@ -337,17 +337,19 @@ impl UnverifiedValuesStore {
             let entry = self.vec[position_vec].get_or_insert_with(UnverifiedValues::new);
 
             // copy segment value into entry
-            for (segment_value, mut array_value) in [
-                (segment.x_left, entry.x_left),
-                (segment.x_right, entry.x_right),
-                (segment.y_left, entry.y_left),
-                (segment.y_right, entry.y_right),
-                (segment.prss_left, entry.prss_left),
-                (segment.prss_right, entry.prss_right),
-                (segment.z_right, entry.z_right),
+            for (segment_value, array_value) in [
+                (segment.x_left, &mut entry.x_left),
+                (segment.x_right, &mut entry.x_right),
+                (segment.y_left, &mut entry.y_left),
+                (segment.y_right, &mut entry.y_right),
+                (segment.prss_left, &mut entry.prss_left),
+                (segment.prss_right, &mut entry.prss_right),
+                (segment.z_right, &mut entry.z_right),
             ] {
                 // unwrap safe since index are guaranteed to be within bounds
-                let values_in_array = array_value.get_mut(position_bit_array..length).unwrap();
+                let values_in_array = array_value
+                    .get_mut(position_bit_array..position_bit_array + length)
+                    .unwrap();
                 values_in_array.clone_from_bitslice(segment_value.0);
             }
         } else {
@@ -659,41 +661,29 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use bitvec::{array::BitArray, order::Lsb0};
+    use bitvec::{array::BitArray, field::BitField, order::Lsb0, vec::BitVec};
     use futures::TryStreamExt;
     use futures_util::stream::iter;
     use rand::{thread_rng, Rng};
 
     use crate::{
         error::Error,
-        ff::Fp31,
+        ff::{Fp31, U128Conversions},
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_validator::{DZKPBaseField, DZKPValidator},
+                dzkp_validator::{
+                    Batch, DZKPBaseField, DZKPValidator, Segment, SegmentEntry,
+                    UnverifiedValuesStore,
+                },
                 Context, UpgradableContext,
             },
+            step::Gate,
             RecordId,
         },
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{join3v, Reconstruct, TestWorld},
     };
-
-    // todo: remove impl and add support for BooleanTypes
-    impl DZKPBaseField for Fp31 {
-        type UnverifiedFieldValues = ();
-
-        fn convert(
-            _x_left: &BitArray<[u8; 32], Lsb0>,
-            _x_right: &BitArray<[u8; 32], Lsb0>,
-            _y_left: &BitArray<[u8; 32], Lsb0>,
-            _y_right: &BitArray<[u8; 32], Lsb0>,
-            _prss_left: &BitArray<[u8; 32], Lsb0>,
-            _prss_right: &BitArray<[u8; 32], Lsb0>,
-            _z_right: &BitArray<[u8; 32], Lsb0>,
-        ) {
-        }
-    }
 
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs`
@@ -761,5 +751,180 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    pub struct UnverifiedFp31Values {
+        x_left: Vec<Fp31>,
+        x_right: Vec<Fp31>,
+        y_left: Vec<Fp31>,
+        y_right: Vec<Fp31>,
+        prss_left: Vec<Fp31>,
+        prss_right: Vec<Fp31>,
+        z_right: Vec<Fp31>,
+    }
+
+    impl DZKPBaseField for Fp31 {
+        type UnverifiedFieldValues = UnverifiedFp31Values;
+
+        fn convert(
+            x_left: &BitArray<[u8; 32]>,
+            x_right: &BitArray<[u8; 32], Lsb0>,
+            y_left: &BitArray<[u8; 32], Lsb0>,
+            y_right: &BitArray<[u8; 32], Lsb0>,
+            prss_left: &BitArray<[u8; 32], Lsb0>,
+            prss_right: &BitArray<[u8; 32], Lsb0>,
+            z_right: &BitArray<[u8; 32], Lsb0>,
+        ) -> Self::UnverifiedFieldValues {
+            UnverifiedFp31Values {
+                x_left: x_left
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                x_right: x_right
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                y_left: y_left
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                y_right: y_right
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                prss_left: prss_left
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                prss_right: prss_right
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+                z_right: z_right
+                    .chunks(8)
+                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
+                    .collect(),
+            }
+        }
+    }
+
+    #[test]
+    fn batch_and_convert() {
+        let mut rng = thread_rng();
+        let mut batch = Batch::new(1000);
+
+        // vec to collect expected
+        let mut expected_x_left = Vec::<Fp31>::new();
+        let mut expected_x_right = Vec::<Fp31>::new();
+        let mut expected_y_left = Vec::<Fp31>::new();
+        let mut expected_y_right = Vec::<Fp31>::new();
+        let mut expected_prss_left = Vec::<Fp31>::new();
+        let mut expected_prss_right = Vec::<Fp31>::new();
+        let mut expected_z_right = Vec::<Fp31>::new();
+
+        // gen 1024 random values
+        for i in 0..1024 {
+            let x_left: u8 = rng.gen();
+            let x_right: u8 = rng.gen();
+            let y_left: u8 = rng.gen();
+            let y_right: u8 = rng.gen();
+            let prss_left: u8 = rng.gen();
+            let prss_right: u8 = rng.gen();
+            let z_right: u8 = rng.gen();
+
+            // fill expected
+            expected_x_left.push(Fp31::truncate_from(x_left));
+            expected_x_right.push(Fp31::truncate_from(x_right));
+            expected_y_left.push(Fp31::truncate_from(y_left));
+            expected_y_right.push(Fp31::truncate_from(y_right));
+            expected_prss_left.push(Fp31::truncate_from(prss_left));
+            expected_prss_right.push(Fp31::truncate_from(prss_right));
+            expected_z_right.push(Fp31::truncate_from(z_right));
+
+            // conv to BitVec
+            let x_left = BitVec::<u8>::from_element(x_left);
+            let x_right = BitVec::<u8>::from_element(x_right);
+            let y_left = BitVec::<u8>::from_element(y_left);
+            let y_right = BitVec::<u8>::from_element(y_right);
+            let prss_left = BitVec::<u8>::from_element(prss_left);
+            let prss_right = BitVec::<u8>::from_element(prss_right);
+            let z_right = BitVec::<u8>::from_element(z_right);
+
+            // define segment
+            let segment = Segment {
+                x_left: SegmentEntry(&x_left),
+                x_right: SegmentEntry(&x_right),
+                y_left: SegmentEntry(&y_left),
+                y_right: SegmentEntry(&y_right),
+                prss_left: SegmentEntry(&prss_left),
+                prss_right: SegmentEntry(&prss_right),
+                z_right: SegmentEntry(&z_right),
+            };
+
+            assert_eq!(
+                (i, expected_x_left[i]),
+                (i, Fp31::truncate_from(x_left.load_le::<u8>()))
+            );
+
+            // push segment into batch
+            batch.push(Gate::default(), RecordId::from(i), segment);
+        }
+
+        // check that length matches, i.e. offset and allocation are correct and minimal
+        assert_eq!(
+            1024usize,
+            batch
+                .inner
+                .values()
+                .map(UnverifiedValuesStore::actual_len)
+                .fold(0, |acc, x| acc + 32 * x)
+        );
+
+        // check that batch is filled with non-trivial values
+        for x in batch.inner.values() {
+            for i in 0..32 {
+                assert_ne!(
+                    x.vec[i].clone().unwrap().x_left,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().x_right,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().y_left,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().y_right,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().prss_left,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().prss_right,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+                assert_ne!(
+                    x.vec[i].clone().unwrap().z_right,
+                    BitVec::<u8>::from_vec(vec![0u8; 32])
+                );
+            }
+        }
+
+        // compare converted values from batch iter to expected
+        for (i, x) in batch.get_unverified_field_values::<Fp31>().enumerate() {
+            for j in 0..32 {
+                assert_eq!((i, x.x_left[j]), (i, expected_x_left[32 * i + j]));
+                assert_eq!((i, x.x_right[j]), (i, expected_x_right[32 * i + j]));
+                assert_eq!((i, x.y_left[j]), (i, expected_y_left[32 * i + j]));
+                assert_eq!((i, x.y_right[j]), (i, expected_y_right[32 * i + j]));
+                assert_eq!((i, x.prss_left[j]), (i, expected_prss_left[32 * i + j]));
+                assert_eq!((i, x.prss_right[j]), (i, expected_prss_right[32 * i + j]));
+                assert_eq!((i, x.z_right[j]), (i, expected_z_right[32 * i + j]));
+            }
+        }
     }
 }
