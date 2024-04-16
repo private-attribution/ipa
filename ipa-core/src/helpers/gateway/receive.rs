@@ -52,6 +52,10 @@ pub type UR = UnorderedReceiver<
 /// Stream of records received from a peer shard.
 #[derive(Clone)]
 pub struct ShardReceiveStream(
+    /// Using a mutex here may not be necessary - there is always a single caller that polls it,
+    /// and there may be an observer from stall detection that wants to know the state of it.
+    /// There could be a better way to share the state and make sure the owning reference is stored
+    /// inside the map of receivers.
     pub(super) Arc<Mutex<<ShardTransportImpl as Transport>::RecordsStream>>,
 );
 
