@@ -20,10 +20,12 @@ use crate::{
     },
     net::{client::MpcHelperClient, error::Error, MpcHelperServer},
     protocol::{step::Gate, QueryId},
+    sharding::ShardIndex,
     sync::Arc,
 };
 
 /// HTTP transport for IPA helper service.
+/// TODO: rename to MPC
 pub struct HttpTransport {
     identity: HelperIdentity,
     clients: [MpcHelperClient; 3],
@@ -32,6 +34,10 @@ pub struct HttpTransport {
     record_streams: StreamCollection<HelperIdentity, BodyStream>,
     handler: Option<HandlerRef>,
 }
+
+/// A stub for HTTP transport implementation, suitable for serviing inter-shard traffic
+#[derive(Clone, Default)]
+pub struct HttpShardTransport;
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for QueryConfig {
     type Params = String;
@@ -224,6 +230,42 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
+#[async_trait]
+impl Transport for HttpShardTransport {
+    type Identity = ShardIndex;
+    type RecordsStream = ReceiveRecords<ShardIndex, BodyStream>;
+    type Error = ();
+
+    fn identity(&self) -> Self::Identity {
+        unimplemented!()
+    }
+
+    async fn send<D, Q, S, R>(
+        &self,
+        _dest: Self::Identity,
+        _route: R,
+        _data: D,
+    ) -> Result<(), Self::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Gate>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+    {
+        unimplemented!()
+    }
+
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
+        &self,
+        _from: Self::Identity,
+        _route: R,
+    ) -> Self::RecordsStream {
+        unimplemented!()
+    }
+}
+
 #[cfg(all(test, web_test))]
 mod tests {
     use std::{iter::zip, net::TcpListener, task::Poll};
@@ -323,7 +365,7 @@ mod tests {
                     );
                     server.start_on(Some(socket), ()).await;
 
-                    setup.connect(transport)
+                    setup.connect(transport, HttpShardTransport)
                 },
             ),
         )

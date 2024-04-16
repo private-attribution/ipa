@@ -10,7 +10,10 @@ use ipa_macros::Step;
 use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
-    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
+    helpers::{
+        ChannelId, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
+        ShardReceivingEnd, TotalRecords,
+    },
     protocol::{
         basics::{
             mul::malicious::Step::RandomnessForValidation, SecureMul, ShareKnownValue,
@@ -34,7 +37,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
     seq_join::SeqJoin,
-    sharding::NotSharded,
+    sharding::{NotSharded, ShardIndex},
     sync::Arc,
 };
 
@@ -129,12 +132,20 @@ impl<'a> super::Context for Context<'a> {
         self.inner.prss_rng()
     }
 
-    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+    fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
         self.inner.send_channel(role)
     }
 
-    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.shard_send_channel(dest_shard)
+    }
+
+    fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner.recv_channel(role)
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner.shard_recv_channel(origin)
     }
 }
 
@@ -350,16 +361,29 @@ impl<'a, F: ExtendableField> super::Context for Upgraded<'a, F> {
         )
     }
 
-    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+    fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
         self.inner
             .gateway
-            .get_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
+            .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
-    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.gateway.get_shard_sender(
+            &ChannelId::new(dest_shard, self.gate.clone()),
+            self.total_records,
+        )
+    }
+
+    fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner
             .gateway
-            .get_receiver(&ChannelId::new(role, self.gate.clone()))
+            .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 

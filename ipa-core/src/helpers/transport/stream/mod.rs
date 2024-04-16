@@ -12,7 +12,7 @@ pub use box_body::WrappedBoxBodyStream;
 use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
 use futures::Stream;
-pub use input::{LengthDelimitedStream, RecordsStream};
+pub use input::{LengthDelimitedStream, RecordsStream, SingleRecordStream};
 
 use crate::error::BoxError;
 

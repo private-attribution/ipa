@@ -25,7 +25,7 @@ use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
 #[cfg(feature = "in-memory-infra")]
-pub use world::{Runner, TestExecutionStep, TestWorld, TestWorldConfig};
+pub use world::{Runner, TestExecutionStep, TestWorld, TestWorldConfig, WithShards};
 
 use crate::{
     ff::{Field, U128Conversions},

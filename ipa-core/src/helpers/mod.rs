@@ -13,6 +13,7 @@ mod gateway;
 pub(crate) mod prss_protocol;
 pub mod stream;
 mod transport;
+
 use std::ops::{Index, IndexMut};
 
 /// to validate that transport can actually send streams of this type
@@ -24,14 +25,17 @@ use serde::{Deserialize, Serialize, Serializer};
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
+
     use crate::helpers::{
         gateway,
         gateway::{stall_detection::Observed, InstrumentedGateway},
     };
 
     pub type Gateway = Observed<InstrumentedGateway>;
-    pub type SendingEnd<M> = Observed<gateway::SendingEnd<M>>;
-    pub type ReceivingEnd<M> = Observed<gateway::ReceivingEnd<M>>;
+    pub type SendingEnd<I, M> = Observed<gateway::SendingEnd<I, M>>;
+
+    pub type MpcReceivingEnd<M> = Observed<gateway::MpcReceivingEnd<M>>;
+    pub type ShardReceivingEnd<M> = Observed<gateway::ShardReceivingEnd<M>>;
 }
 
 #[cfg(not(feature = "stall-detection"))]
@@ -39,15 +43,18 @@ mod gateway_exports {
     use crate::helpers::gateway;
 
     pub type Gateway = gateway::Gateway;
-    pub type SendingEnd<M> = gateway::SendingEnd<M>;
-    pub type ReceivingEnd<M> = gateway::ReceivingEnd<M>;
+    pub type SendingEnd<I, M> = gateway::SendingEnd<I, M>;
+    pub type MpcReceivingEnd<M> = gateway::MpcReceivingEnd<M>;
+    pub type ShardReceivingEnd<M> = gateway::ShardReceivingEnd<M>;
 }
 
 pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{TransportError, TransportImpl};
-pub use gateway_exports::{Gateway, ReceivingEnd, SendingEnd};
+pub use gateway::{
+    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
+};
+pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
@@ -70,6 +77,7 @@ use crate::{
     },
     protocol::{step::Gate, RecordId},
     secret_sharing::Sendable,
+    sharding::ShardIndex,
 };
 
 // TODO work with ArrayLength only
@@ -81,7 +89,7 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Deserialize)]
 #[serde(try_from = "usize")]
 pub struct HelperIdentity {
     id: u8,
@@ -226,7 +234,6 @@ pub enum Role {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[serde(transparent)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -397,7 +404,7 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ChannelId<I: transport::Identity> {
+pub struct ChannelId<I> {
     /// Entity we are talking to through this channel. It can be a source or a destination.
     pub peer: I,
     // TODO: step could be either reference or owned value. references are convenient to use inside
@@ -406,6 +413,7 @@ pub struct ChannelId<I: transport::Identity> {
 }
 
 pub type HelperChannelId = ChannelId<Role>;
+pub type ShardChannelId = ChannelId<ShardIndex>;
 
 impl<I: transport::Identity> ChannelId<I> {
     #[must_use]
@@ -420,12 +428,21 @@ impl<I: transport::Identity> Debug for ChannelId<I> {
     }
 }
 
-/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
-///
-/// Infrastructure's `Message` trait corresponds to IPA's `Sendable` trait.
-pub trait Message: Debug + Send + Serializable + 'static + Sized {}
+/// Trait for messages that can be communicated over the network.
+pub trait Message: Debug + Send + Serializable + 'static {}
 
-impl<V: Sendable> Message for V {}
+/// Trait for messages that may be sent between MPC helpers. Sending raw field values may be OK,
+/// sending secret shares is most definitely not OK.
+///
+/// This trait is not implemented for [`SecretShares`] types and there is a doctest inside [`Gateway`]
+/// module that ensures compile errors are generated in this case.
+///
+/// [`SecretShares`]: crate::secret_sharing::replicated::ReplicatedSecretSharing
+/// [`Gateway`]: crate::helpers::gateway::Gateway::get_mpc_sender
+pub trait MpcMessage: Message {}
+
+impl<V: Sendable> MpcMessage for V {}
+impl<V: Debug + Send + Serializable + 'static + Sized> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
@@ -442,7 +459,7 @@ impl Serializable for PublicKey {
     }
 }
 
-impl Message for PublicKey {}
+impl MpcMessage for PublicKey {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {
