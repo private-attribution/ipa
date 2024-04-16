@@ -15,7 +15,7 @@ use ipa_core::{
     config::{hpke_registry, HpkeServerConfig, NetworkConfig, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{ClientIdentity, HttpTransport, MpcHelperClient},
+    net::{ClientIdentity, HttpShardTransport, HttpTransport, MpcHelperClient},
     AppSetup,
 };
 use tracing::{error, info};
@@ -158,7 +158,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
         Some(handler),
     );
 
-    let _app = setup.connect(transport.clone());
+    let _app = setup.connect(transport.clone(), HttpShardTransport);
 
     let listener = args.server_socket_fd
         .map(|fd| {

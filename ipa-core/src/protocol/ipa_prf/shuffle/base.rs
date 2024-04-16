@@ -6,7 +6,7 @@ use rand::{distributions::Standard, prelude::Distribution, seq::SliceRandom, Rng
 
 use crate::{
     error::Error,
-    helpers::{Direction, ReceivingEnd, Role},
+    helpers::{Direction, MpcReceivingEnd, Role},
     protocol::{context::Context, RecordId},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -335,7 +335,7 @@ where
     S: SharedValue,
 {
     let role = ctx.role().peer(direction);
-    let receive_channel: ReceivingEnd<S> = ctx
+    let receive_channel: MpcReceivingEnd<S> = ctx
         .narrow(step)
         .set_total_records(batch_size)
         .recv_channel(role);

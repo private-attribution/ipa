@@ -3,15 +3,16 @@ use futures::Stream;
 
 use crate::{
     helpers::{
-        transport::routing::RouteId, NoResourceIdentifier, QueryIdBinding, Role, RoleAssignment,
-        RouteParams, StepBinding, Transport, TransportImpl,
+        transport::routing::RouteId, MpcTransportImpl, NoResourceIdentifier, QueryIdBinding, Role,
+        RoleAssignment, RouteParams, StepBinding, Transport,
     },
     protocol::{step::Gate, QueryId},
+    sharding::ShardIndex,
 };
 
 #[derive(Debug, thiserror::Error)]
 #[error("Failed to send to {0:?}: {1:?}")]
-pub struct SendToRoleError(Role, <TransportImpl as Transport>::Error);
+pub struct SendToRoleError(Role, <MpcTransportImpl as Transport>::Error);
 
 /// Transport adapter that resolves [`Role`] -> [`HelperIdentity`] mapping. As gateways created
 /// per query, it is not ambiguous.
@@ -20,13 +21,19 @@ pub struct SendToRoleError(Role, <TransportImpl as Transport>::Error);
 #[derive(Clone)]
 pub struct RoleResolvingTransport {
     pub(super) roles: RoleAssignment,
-    pub(super) inner: TransportImpl,
+    pub(super) inner: MpcTransportImpl,
+}
+
+/// Set of transports used inside [`super::Gateway`].
+pub(super) struct Transports<M: Transport<Identity = Role>, S: Transport<Identity = ShardIndex>> {
+    pub mpc: M,
+    pub shard: S,
 }
 
 #[async_trait]
 impl Transport for RoleResolvingTransport {
     type Identity = Role;
-    type RecordsStream = <TransportImpl as Transport>::RecordsStream;
+    type RecordsStream = <MpcTransportImpl as Transport>::RecordsStream;
     type Error = SendToRoleError;
 
     fn identity(&self) -> Role {

@@ -524,7 +524,7 @@ mod test {
     use super::OrderingSender;
     use crate::{
         ff::{Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, Serializable, U128Conversions},
-        helpers::Message,
+        helpers::MpcMessage,
         rand::thread_rng,
         sync::Arc,
         test_executor::run,
@@ -622,7 +622,7 @@ mod test {
     >;
 
     // Given a message, returns a closure that sends the message and increments an associated record index.
-    fn send_fn<M: Message>(m: M) -> BoxedSendFn {
+    fn send_fn<M: MpcMessage>(m: M) -> BoxedSendFn {
         Box::new(|s: &OrderingSender, i: &mut usize| {
             let fut = s.send(*i, m).boxed();
             *i += 1;
