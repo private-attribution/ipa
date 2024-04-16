@@ -1,3 +1,4 @@
+pub mod dzkp_field;
 #[allow(dead_code)]
 mod dzkp_malicious;
 mod dzkp_semi_honest;
@@ -317,7 +318,7 @@ pub trait DZKPContext: Context {
     ///
     /// ## Errors
     /// Returns error when context contains unverified values
-    fn is_safe(&self) -> Result<(), Error>;
+    fn is_unverified(&self) -> Result<(), Error>;
 }
 
 #[cfg(all(test, unit_test))]

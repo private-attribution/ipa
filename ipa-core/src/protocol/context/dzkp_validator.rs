@@ -17,7 +17,7 @@ use crate::protocol::context::{
     dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
 };
 use crate::{
-    error::Error,
+    error::{BoxError, Error},
     ff::Field,
     helpers::stream::TryFlattenItersExt,
     protocol::{
@@ -32,9 +32,16 @@ use crate::{
     sharding::ShardBinding,
     telemetry::metrics::{DZKP_BATCH_REALLOCATION_BACK, DZKP_BATCH_REALLOCATION_FRONT},
 };
+
 // constants for metrics::increment_counter!
 const RECORD: &str = "record";
 const OFFSET: &str = "offset";
+
+type BitArray32 = BitArray<[u8; 32], Lsb0>;
+
+type BitSliceType = BitSlice<u8, Lsb0>;
+
+const BIT_ARRAY_SHIFT: usize = 8;
 
 /// `UnverifiedValues` are intermediate values that occur during a multiplication.
 /// These values need to be verified since there might have been malicious behavior.
@@ -45,18 +52,18 @@ const OFFSET: &str = "offset";
 /// We do not need to store `zi` since it can be computed from the other stored values.
 #[derive(Clone, Debug)]
 struct UnverifiedValues {
-    x_left: BitArray<[u8; 32], Lsb0>,
-    x_right: BitArray<[u8; 32], Lsb0>,
-    y_left: BitArray<[u8; 32], Lsb0>,
-    y_right: BitArray<[u8; 32], Lsb0>,
-    prss_left: BitArray<[u8; 32], Lsb0>,
-    prss_right: BitArray<[u8; 32], Lsb0>,
-    z_right: BitArray<[u8; 32], Lsb0>,
+    x_left: BitArray32,
+    x_right: BitArray32,
+    y_left: BitArray32,
+    y_right: BitArray32,
+    prss_left: BitArray32,
+    prss_right: BitArray32,
+    z_right: BitArray32,
 }
 
-impl UnverifiedValues {
-    fn new() -> Self {
-        Self {
+impl Default for UnverifiedValues {
+    fn default() -> Self {
+        UnverifiedValues {
             x_left: BitArray::ZERO,
             x_right: BitArray::ZERO,
             y_left: BitArray::ZERO,
@@ -66,28 +73,30 @@ impl UnverifiedValues {
             z_right: BitArray::ZERO,
         }
     }
+}
 
+impl UnverifiedValues {
     /// new from bitslices
-    /// ## Panics
-    /// Panics when length of slices is not 256
-    fn new_from_bitslices(
-        x_left: &BitSlice<u8, Lsb0>,
-        x_right: &BitSlice<u8, Lsb0>,
-        y_left: &BitSlice<u8, Lsb0>,
-        y_right: &BitSlice<u8, Lsb0>,
-        prss_left: &BitSlice<u8, Lsb0>,
-        prss_right: &BitSlice<u8, Lsb0>,
-        z_right: &BitSlice<u8, Lsb0>,
-    ) -> Self {
-        Self {
-            x_left: BitArray::try_from(x_left).unwrap(),
-            x_right: BitArray::try_from(x_right).unwrap(),
-            y_left: BitArray::try_from(y_left).unwrap(),
-            y_right: BitArray::try_from(y_right).unwrap(),
-            prss_left: BitArray::try_from(prss_left).unwrap(),
-            prss_right: BitArray::try_from(prss_right).unwrap(),
-            z_right: BitArray::try_from(z_right).unwrap(),
-        }
+    /// ## Errors
+    /// Errors when length of slices is not 256
+    fn new(
+        x_left: &BitSliceType,
+        x_right: &BitSliceType,
+        y_left: &BitSliceType,
+        y_right: &BitSliceType,
+        prss_left: &BitSliceType,
+        prss_right: &BitSliceType,
+        z_right: &BitSliceType,
+    ) -> Result<Self, BoxError> {
+        Ok(Self {
+            x_left: BitArray::try_from(x_left)?,
+            x_right: BitArray::try_from(x_right)?,
+            y_left: BitArray::try_from(y_left)?,
+            y_right: BitArray::try_from(y_right)?,
+            prss_left: BitArray::try_from(prss_left)?,
+            prss_right: BitArray::try_from(prss_right)?,
+            z_right: BitArray::try_from(z_right)?,
+        })
     }
 
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
@@ -171,11 +180,11 @@ impl<'a> Segment<'a> {
 /// `SegmentEntry` is a simple wrapper to represent one entry of a `Segment`
 /// currently, we only support `BitSlices`
 #[derive(Clone, Debug)]
-pub struct SegmentEntry<'a>(&'a BitSlice<u8, Lsb0>);
+pub struct SegmentEntry<'a>(&'a BitSliceType);
 
 impl<'a> SegmentEntry<'a> {
     #[must_use]
-    pub fn new(entry: &'a BitSlice<u8, Lsb0>) -> Self {
+    pub fn new(entry: &'a BitSliceType) -> Self {
         SegmentEntry(entry)
     }
 
@@ -234,7 +243,8 @@ impl UnverifiedValuesStore {
             // compute how many records have been added
             // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
             // subtract `1` to make sure that offset is set sufficiently small
-            self.offset += ((self.actual_len() - 1) << 8) / self.segment_size.unwrap();
+            self.offset +=
+                ((self.actual_len() - 1) << BIT_ARRAY_SHIFT) / self.segment_size.unwrap();
             self.vec = Vec::<Option<UnverifiedValues>>::new();
         }
     }
@@ -267,7 +277,8 @@ impl UnverifiedValuesStore {
     /// Panics when `segment_size` is `None`.
     fn allocate_vec(&mut self) {
         // add 255 to round up
-        self.vec = vec![None; (self.chunk_size * self.segment_size.unwrap() + 255) >> 8];
+        self.vec =
+            vec![None; (self.chunk_size * self.segment_size.unwrap() + 255) >> BIT_ARRAY_SHIFT];
     }
 
     /// `reset_offset` reallocates vector such that a smaller `RecordId` than `offset` can be stored
@@ -284,9 +295,11 @@ impl UnverifiedValuesStore {
             // if segment_length is less than 256, redefine new offset such that we don't need to rearrange the existing segments
             if 256 % segment_length == 0 {
                 // distance between new_offset and old offset is rounded up to a multiple of 256
-                new_offset = ((usize::from(self.offset) - new_offset + 255) >> 8) << 8;
+                new_offset = ((usize::from(self.offset) - new_offset + 255) >> BIT_ARRAY_SHIFT)
+                    << BIT_ARRAY_SHIFT;
             }
-            let extension_length = ((usize::from(self.offset) - new_offset) >> 8) * segment_length;
+            let extension_length =
+                ((usize::from(self.offset) - new_offset) >> BIT_ARRAY_SHIFT) * segment_length;
             // use existing vec and add enough space in front
             self.vec.splice(0..0, repeat(None).take(extension_length));
             self.offset = RecordId::from(new_offset);
@@ -311,18 +324,21 @@ impl UnverifiedValuesStore {
         // check offset
         if record_id < self.offset {
             // recover from wrong offset, expensive
+            // call to reset_offset is measured using metrics
             self.reset_offset(record_id, segment.len());
         }
         let position_raw = usize::from(record_id) - usize::from(self.offset);
         let length = segment.len();
-        let position_vec = (length * position_raw) >> 8;
+        let position_vec = (length * position_raw) >> BIT_ARRAY_SHIFT;
         // check size of store
-        if self.vec.len() < position_vec + (length >> 8) {
+        if self.vec.len() < position_vec + (length >> BIT_ARRAY_SHIFT) {
             // recover from wrong size
             // increase size of store to twice the size + position of end of the segment to be included
             // expensive, ideally use initialize with correct length
-            self.vec
-                .resize(self.vec.len() + position_vec + (length >> 8), None);
+            self.vec.resize(
+                self.vec.len() + position_vec + (length >> BIT_ARRAY_SHIFT),
+                None,
+            );
             // metrics to count reallocations, disable-metrics flag will disable it globally
             // right now, I don't pass the gate/step information which would be useful
             // it would require to change the function signature and potentially clone gate even when feature is not enabled
@@ -330,36 +346,59 @@ impl UnverifiedValuesStore {
         }
 
         if 256 % length == 0 {
-            // segments are small, pack one or more in each entry of `vec`
-            let position_bit_array = (length * position_raw) % 256;
-
-            // get entry
-            let entry = self.vec[position_vec].get_or_insert_with(UnverifiedValues::new);
-
-            // copy segment value into entry
-            for (segment_value, array_value) in [
-                (segment.x_left, &mut entry.x_left),
-                (segment.x_right, &mut entry.x_right),
-                (segment.y_left, &mut entry.y_left),
-                (segment.y_right, &mut entry.y_right),
-                (segment.prss_left, &mut entry.prss_left),
-                (segment.prss_right, &mut entry.prss_right),
-                (segment.z_right, &mut entry.z_right),
-            ] {
-                // unwrap safe since index are guaranteed to be within bounds
-                let values_in_array = array_value
-                    .get_mut(position_bit_array..position_bit_array + length)
-                    .unwrap();
-                values_in_array.clone_from_bitslice(segment_value.0);
-            }
+            self.insert_segment_small(length, position_raw, position_vec, segment);
         } else {
-            // segments are multiples of 256
-            let length_in_entries = length >> 8;
-            for i in 0..length_in_entries {
-                let entry_option = &mut self.vec[position_vec + i];
-                // make sure we don't overwrite values
-                debug_assert!(entry_option.is_none());
-                *entry_option = Some(UnverifiedValues::new_from_bitslices(
+            self.insert_segment_large(length, position_vec, &segment);
+        }
+    }
+
+    /// insert `segments` for `segments` that divide 256
+    ///
+    /// ## Panics
+    /// Panics when `length` and `positions` are out of bounds.
+    fn insert_segment_small(
+        &mut self,
+        length: usize,
+        position_raw: usize,
+        position_vec: usize,
+        segment: Segment,
+    ) {
+        // segments are small, pack one or more in each entry of `vec`
+        let position_bit_array = (length * position_raw) % 256;
+
+        // get entry
+        let entry = self.vec[position_vec].get_or_insert_with(UnverifiedValues::default);
+
+        // copy segment value into entry
+        for (segment_value, array_value) in [
+            (segment.x_left, &mut entry.x_left),
+            (segment.x_right, &mut entry.x_right),
+            (segment.y_left, &mut entry.y_left),
+            (segment.y_right, &mut entry.y_right),
+            (segment.prss_left, &mut entry.prss_left),
+            (segment.prss_right, &mut entry.prss_right),
+            (segment.z_right, &mut entry.z_right),
+        ] {
+            // unwrap safe since index are guaranteed to be within bounds
+            let values_in_array = array_value
+                .get_mut(position_bit_array..position_bit_array + length)
+                .unwrap();
+            values_in_array.clone_from_bitslice(segment_value.0);
+        }
+    }
+
+    /// insert `segments` for `segments` that are multiples of 256
+    ///
+    /// ## Panics
+    /// Panics when segment is not a multiple of 256
+    fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
+        let length_in_entries = length >> BIT_ARRAY_SHIFT;
+        for i in 0..length_in_entries {
+            let entry_option = &mut self.vec[position_vec + i];
+            // make sure we don't overwrite values
+            debug_assert!(entry_option.is_none());
+            *entry_option = Some(
+                UnverifiedValues::new(
                     &segment.x_left.0[256 * i..256 * (i + 1)],
                     &segment.x_right.0[256 * i..256 * (i + 1)],
                     &segment.y_left.0[256 * i..256 * (i + 1)],
@@ -367,8 +406,9 @@ impl UnverifiedValuesStore {
                     &segment.prss_left.0[256 * i..256 * (i + 1)],
                     &segment.prss_right.0[256 * i..256 * (i + 1)],
                     &segment.z_right.0[256 * i..256 * (i + 1)],
-                ));
-            }
+                )
+                .unwrap(),
+            );
         }
     }
 
@@ -408,7 +448,7 @@ impl Batch {
     }
 
     fn push(&mut self, gate: Gate, record_id: RecordId, segment: Segment) {
-        // get value_store & create new when necessary
+        // get value_store & create new one when necessary
         // insert segment
         self.inner
             .entry(gate)
@@ -486,13 +526,13 @@ pub(crate) enum Step {
 pub trait DZKPBaseField: Field {
     type UnverifiedFieldValues;
     fn convert(
-        x_left: &BitArray<[u8; 32], Lsb0>,
-        x_right: &BitArray<[u8; 32], Lsb0>,
-        y_left: &BitArray<[u8; 32], Lsb0>,
-        y_right: &BitArray<[u8; 32], Lsb0>,
-        prss_left: &BitArray<[u8; 32], Lsb0>,
-        prss_right: &BitArray<[u8; 32], Lsb0>,
-        z_right: &BitArray<[u8; 32], Lsb0>,
+        x_left: &BitArray32,
+        x_right: &BitArray32,
+        y_left: &BitArray32,
+        y_right: &BitArray32,
+        prss_left: &BitArray32,
+        prss_right: &BitArray32,
+        z_right: &BitArray32,
     ) -> Self::UnverifiedFieldValues;
 }
 
@@ -550,8 +590,6 @@ pub struct SemiHonestDZKPValidator<'a, B: ShardBinding> {
 
 impl<'a, B: ShardBinding> SemiHonestDZKPValidator<'a, B> {
     pub(super) fn new(inner: Base<'a, B>) -> Self {
-        // This is inconsistent with the malicious new() which calls dzkp_upgrade
-        // following previous semi honest validator
         Self {
             context: SemiHonestDZKPUpgraded::new(inner),
         }
@@ -661,9 +699,10 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use bitvec::{array::BitArray, field::BitField, order::Lsb0, vec::BitVec};
+    use bitvec::{field::BitField, vec::BitVec};
     use futures::TryStreamExt;
     use futures_util::stream::iter;
+    use proptest::{prop_compose, proptest};
     use rand::{thread_rng, Rng};
 
     use crate::{
@@ -673,7 +712,7 @@ mod tests {
             basics::SecureMul,
             context::{
                 dzkp_validator::{
-                    Batch, DZKPBaseField, DZKPValidator, Segment, SegmentEntry,
+                    Batch, BitArray32, DZKPBaseField, DZKPValidator, Segment, SegmentEntry,
                     UnverifiedValuesStore,
                 },
                 Context, UpgradableContext,
@@ -687,16 +726,13 @@ mod tests {
 
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs`
-    #[tokio::test]
-    async fn complex_circuit_dzkp() -> Result<(), Error> {
-        const COUNT: usize = 100;
+    async fn complex_circuit_dzkp(count: usize, chunk_size: usize) -> Result<(), Error> {
         let world = TestWorld::default();
         let context = world.malicious_contexts();
         let mut rng = thread_rng();
-        let chunk_size: usize = 1 << rng.gen_range(1..10);
 
-        let mut original_inputs = Vec::with_capacity(COUNT);
-        for _ in 0..COUNT {
+        let mut original_inputs = Vec::with_capacity(count);
+        for _ in 0..count {
             let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
@@ -718,7 +754,7 @@ mod tests {
                 let m_results = v
                     .seq_join::<_, _, _, Fp31>(iter(
                         zip(
-                            repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
+                            repeat(m_ctx.set_total_records(count - 1)).enumerate(),
                             zip(input_shares.iter(), input_shares.iter().skip(1)),
                         )
                         .map(
@@ -737,7 +773,7 @@ mod tests {
 
         let processed_outputs = join3v(futures).await;
 
-        for i in 0..99 {
+        for i in 0..count - 1 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
             let x1_times_x2 = [
@@ -751,6 +787,22 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    prop_compose! {
+        fn arb_count_and_chunk()(log_count in 7..15, log_chunk_size in 5..11) -> (usize, usize) {
+            (1usize<<log_count, 1usize<<log_chunk_size)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_complex_circuit_dzkp((count, chunk_size) in arb_count_and_chunk()){
+            let future = async {
+            let _ = complex_circuit_dzkp(count, chunk_size).await;
+        };
+        tokio::runtime::Runtime::new().unwrap().block_on(future);
+        }
     }
 
     pub struct UnverifiedFp31Values {
@@ -767,13 +819,13 @@ mod tests {
         type UnverifiedFieldValues = UnverifiedFp31Values;
 
         fn convert(
-            x_left: &BitArray<[u8; 32]>,
-            x_right: &BitArray<[u8; 32], Lsb0>,
-            y_left: &BitArray<[u8; 32], Lsb0>,
-            y_right: &BitArray<[u8; 32], Lsb0>,
-            prss_left: &BitArray<[u8; 32], Lsb0>,
-            prss_right: &BitArray<[u8; 32], Lsb0>,
-            z_right: &BitArray<[u8; 32], Lsb0>,
+            x_left: &BitArray32,
+            x_right: &BitArray32,
+            y_left: &BitArray32,
+            y_right: &BitArray32,
+            prss_left: &BitArray32,
+            prss_right: &BitArray32,
+            z_right: &BitArray32,
         ) -> Self::UnverifiedFieldValues {
             UnverifiedFp31Values {
                 x_left: x_left
@@ -851,15 +903,15 @@ mod tests {
             let z_right = BitVec::<u8>::from_element(z_right);
 
             // define segment
-            let segment = Segment {
-                x_left: SegmentEntry(&x_left),
-                x_right: SegmentEntry(&x_right),
-                y_left: SegmentEntry(&y_left),
-                y_right: SegmentEntry(&y_right),
-                prss_left: SegmentEntry(&prss_left),
-                prss_right: SegmentEntry(&prss_right),
-                z_right: SegmentEntry(&z_right),
-            };
+            let segment = Segment::new(
+                SegmentEntry::new(&x_left),
+                SegmentEntry::new(&x_right),
+                SegmentEntry::new(&y_left),
+                SegmentEntry::new(&y_right),
+                SegmentEntry::new(&prss_left),
+                SegmentEntry::new(&prss_right),
+                SegmentEntry::new(&z_right),
+            );
 
             assert_eq!(
                 (i, expected_x_left[i]),

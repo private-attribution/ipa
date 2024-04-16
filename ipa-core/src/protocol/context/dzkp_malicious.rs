@@ -20,8 +20,8 @@ use crate::{
     sync::Arc,
 };
 
-/// Represents protocol context in malicious setting, i.e. secure against one active adversary
-/// in 3 party MPC ring.
+/// Represents protocol context in malicious setting when using zero-knowledge proofs,
+/// i.e. secure against one active adversary in 3 party MPC ring.
 #[derive(Clone)]
 pub struct DZKPUpgraded<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
@@ -50,7 +50,7 @@ impl<'a> DZKPUpgraded<'a> {
 
 #[async_trait]
 impl<'a> DZKPContext for DZKPUpgraded<'a> {
-    fn is_safe(&self) -> Result<(), Error> {
+    fn is_unverified(&self) -> Result<(), Error> {
         if self.inner.batch.is_empty() {
             Ok(())
         } else {

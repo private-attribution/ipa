@@ -85,7 +85,7 @@ impl<'a, B: ShardBinding> SeqJoin for DZKPUpgraded<'a, B> {
 
 #[async_trait]
 impl<'a, B: ShardBinding> DZKPContext for DZKPUpgraded<'a, B> {
-    fn is_safe(&self) -> Result<(), Error> {
+    fn is_unverified(&self) -> Result<(), Error> {
         Ok(())
     }
 }
