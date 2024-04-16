@@ -304,6 +304,8 @@ where
 
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 pub mod tests {
+    use rand::{seq::SliceRandom, thread_rng};
+
     use crate::{
         ff::{
             boolean_array::{BA20, BA3, BA5, BA8},
@@ -314,6 +316,22 @@ pub mod tests {
         test_fixture::{ipa::TestRawDataRecord, Reconstruct, Runner, TestWorld},
     };
 
+    fn test_input(
+        timestamp: u64,
+        user_id: u64,
+        is_trigger_report: bool,
+        breakdown_key: u32,
+        trigger_value: u32,
+    ) -> TestRawDataRecord {
+        TestRawDataRecord {
+            timestamp,
+            user_id,
+            is_trigger_report,
+            breakdown_key,
+            trigger_value,
+        }
+    }
+
     #[test]
     fn semi_honest() {
         const EXPECTED: &[u128] = &[0, 2, 5, 0, 0, 0, 0, 0];
@@ -322,42 +340,54 @@ pub mod tests {
             let world = TestWorld::default();
 
             let records: Vec<TestRawDataRecord> = vec![
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 5,
-                    user_id: 12345,
-                    is_trigger_report: false,
-                    breakdown_key: 2,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 10,
-                    user_id: 12345,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 5,
-                },
-                TestRawDataRecord {
-                    timestamp: 0,
-                    user_id: 68362,
-                    is_trigger_report: false,
-                    breakdown_key: 1,
-                    trigger_value: 0,
-                },
-                TestRawDataRecord {
-                    timestamp: 20,
-                    user_id: 68362,
-                    is_trigger_report: true,
-                    breakdown_key: 0,
-                    trigger_value: 2,
-                },
+                test_input(0, 12345, false, 1, 0),
+                test_input(5, 12345, false, 2, 0),
+                test_input(10, 12345, true, 0, 5),
+                test_input(0, 68362, false, 1, 0),
+                test_input(20, 68362, true, 0, 2),
             ];
+
+            let mut result: Vec<_> = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| async move {
+                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                        .await
+                        .unwrap()
+                })
+                .await
+                .reconstruct();
+            result.truncate(EXPECTED.len());
+            assert_eq!(
+                result,
+                EXPECTED
+                    .iter()
+                    .map(|i| Fp31::try_from(*i).unwrap())
+                    .collect::<Vec<_>>()
+            );
+        });
+    }
+
+    // Test that IPA tolerates duplicate timestamps among a user's records. The end-to-end test
+    // harness does not generate data like this because the attribution result is non-deterministic.
+    // To make the output deterministic for this case, all of the duplicate timestamp records are
+    // identical.
+    #[test]
+    fn duplicate_timestamps() {
+        const EXPECTED: &[u128] = &[0, 2, 10, 0, 0, 0, 0, 0];
+
+        run(|| async {
+            let world = TestWorld::default();
+
+            let mut records: Vec<TestRawDataRecord> = vec![
+                test_input(0, 12345, false, 1, 0),
+                test_input(5, 12345, false, 2, 0),
+                test_input(5, 12345, false, 2, 0),
+                test_input(10, 12345, true, 0, 5),
+                test_input(10, 12345, true, 0, 5),
+                test_input(0, 68362, false, 1, 0),
+                test_input(20, 68362, true, 0, 2),
+            ];
+
+            records.shuffle(&mut thread_rng());
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {

@@ -1,4 +1,6 @@
-use std::{collections::HashMap, num::NonZeroU32, ops::Deref};
+use std::{collections::HashMap, num::NonZeroU32};
+
+use rand::{thread_rng, Rng};
 
 use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
 #[cfg(feature = "in-memory-infra")]
@@ -41,13 +43,31 @@ impl GroupingKey for TestRawDataRecord {
     }
 }
 
+/// Insert `record` into `user_records`, maintaining timestamp order.
+///
+/// If there are existing records with the same timestamp, inserts the new record
+/// randomly in any position that maintains timestamp order.
+fn insert_sorted(user_records: &mut Vec<TestRawDataRecord>, record: TestRawDataRecord) {
+    let upper = user_records.partition_point(|rec| rec.timestamp <= record.timestamp);
+    if upper > 0 && user_records[upper - 1].timestamp == record.timestamp {
+        let lower = user_records[0..upper - 1]
+            .iter()
+            .rposition(|rec| rec.timestamp < record.timestamp)
+            .map_or(0, |lower| lower + 1);
+        user_records.insert(thread_rng().gen_range(lower..=upper), record);
+    } else {
+        user_records.insert(upper, record);
+    }
+}
+
 /// Executes IPA protocol in the clear, that is without any MPC helpers involved in the computation.
 /// Useful to validate that MPC output makes sense by comparing the breakdowns produced by MPC IPA
 /// with this function's results. Note that MPC version of IPA may apply DP noise to the aggregates,
 /// so strict equality may not work.
 ///
-/// This function requires input to be sorted by the timestamp and returns a vector of contributions
-/// sorted by the breakdown key.
+/// Just like the MPC implementation, if the input contains records with duplicate timestamps, the
+/// order those records are considered by the attribution algorithm is undefined, and the output
+/// may be non-deterministic.
 ///
 /// ## Panics
 /// Will panic if you run in on Intel 80286 or any other 16 bit hardware.
@@ -58,33 +78,20 @@ pub fn ipa_in_the_clear(
     max_breakdown: u32,
     order: &CappingOrder,
 ) -> Vec<u32> {
-    // build a view that is convenient for attribution. match key -> events sorted by timestamp in reverse
+    // build a view that is convenient for attribution. match key -> events sorted by timestamp
     // that is more memory intensive, but should be faster to compute. We can always opt-out and
     // execute IPA in place
     let mut user_events = HashMap::new();
-    let mut last_ts = 0;
     for row in input {
-        if cfg!(debug_assertions) {
-            assert!(
-                last_ts <= row.timestamp,
-                "Input is not sorted: last row had timestamp {last_ts} that is greater than \
-                  {this_ts} timestamp of the current row",
-                this_ts = row.timestamp
-            );
-            last_ts = row.timestamp;
-        }
-
-        user_events
-            .entry(row.user_id)
-            .or_insert_with(Vec::new)
-            .push(row);
+        insert_sorted(
+            user_events.entry(row.user_id).or_insert_with(Vec::new),
+            row.clone(),
+        );
     }
 
     let mut breakdowns = vec![0u32; usize::try_from(max_breakdown).unwrap()];
     for records_per_user in user_events.values() {
-        // it works because input is sorted and vectors preserve the insertion order
-        // so records in `rev` are returned in reverse chronological order
-        let rev_records = records_per_user.iter().rev().map(Deref::deref);
+        let rev_records = records_per_user.iter().rev();
         update_expected_output_for_user(
             rev_records,
             &mut breakdowns,
@@ -232,4 +239,86 @@ pub async fn test_oprf_ipa<F>(
     //TODO(richaj): To be removed once the function supports non power of 2 breakdowns
     let _ = result.split_off(expected_results.len());
     assert_eq!(result, expected_results);
+}
+
+#[cfg(all(test, unit_test))]
+mod tests {
+    use super::*;
+
+    fn insert_sorted_test<I: IntoIterator<Item = u64>>(iter: I) -> Vec<TestRawDataRecord> {
+        fn test_record(timestamp: u64, breakdown_key: u32) -> TestRawDataRecord {
+            TestRawDataRecord {
+                timestamp,
+                user_id: 0,
+                is_trigger_report: false,
+                breakdown_key,
+                trigger_value: 0,
+            }
+        }
+
+        let mut expected = Vec::new();
+        let mut actual = Vec::new();
+        for (i, v) in iter.into_iter().enumerate() {
+            expected.push(v);
+            super::insert_sorted(&mut actual, test_record(v, u32::try_from(i).unwrap()));
+        }
+        expected.sort_unstable();
+        assert_eq!(
+            expected,
+            actual.iter().map(|rec| rec.timestamp).collect::<Vec<_>>()
+        );
+
+        actual
+    }
+
+    #[test]
+    fn insert_sorted() {
+        insert_sorted_test([1, 2, 3, 4]);
+        insert_sorted_test([4, 3, 2, 1]);
+        insert_sorted_test([2, 3, 1, 4]);
+
+        let mut counts1 = [0, 0, 0];
+        let mut counts5 = [0, 0, 0];
+        let mut counts6 = [0, 0, 0];
+        // The three twos (initially in positions 1, 5, and 6), should be placed in positions 2, 3,
+        // and 4 in the output in random order. After 128 trials, each of these possibilities should
+        // have occurred at least once.
+        for _ in 0..128 {
+            let result = insert_sorted_test([1, 2, 0, 3, 4, 2, 2]);
+
+            let i1 = result.iter().position(|r| r.breakdown_key == 1).unwrap();
+            counts1[i1 - 2] += 1;
+            let i5 = result.iter().position(|r| r.breakdown_key == 5).unwrap();
+            counts5[i5 - 2] += 1;
+            let i6 = result.iter().position(|r| r.breakdown_key == 6).unwrap();
+            counts6[i6 - 2] += 1;
+        }
+        for i in 0..3 {
+            assert_ne!(counts1[i], 0);
+            assert_ne!(counts5[i], 0);
+            assert_ne!(counts6[i], 0);
+        }
+
+        let mut counts2 = [0, 0, 0];
+        let mut counts5 = [0, 0, 0];
+        let mut counts6 = [0, 0, 0];
+        // The three zeros (initially in positions 2, 5, and 6), should be placed in positions 0, 1,
+        // and 2 in the output in random order. After 128 trials, each of these possibilities should
+        // have occurred at least once.
+        for _ in 0..128 {
+            let result = insert_sorted_test([1, 2, 0, 3, 4, 0, 0]);
+
+            let i2 = result.iter().position(|r| r.breakdown_key == 2).unwrap();
+            counts2[i2] += 1;
+            let i5 = result.iter().position(|r| r.breakdown_key == 5).unwrap();
+            counts5[i5] += 1;
+            let i6 = result.iter().position(|r| r.breakdown_key == 6).unwrap();
+            counts6[i6] += 1;
+        }
+        for i in 0..3 {
+            assert_ne!(counts2[i], 0);
+            assert_ne!(counts5[i], 0);
+            assert_ne!(counts6[i], 0);
+        }
+    }
 }
