@@ -536,16 +536,6 @@ macro_rules! impl_transpose_ba_to_ba {
         }
 
         impl_transpose_shim!(
-            &BitDecomposed<$src_row>,
-            $src_row,
-            Vec<$dst_row>,
-            $dst_row,
-            $src_rows,
-            $src_cols,
-            LengthError,
-        );
-
-        impl_transpose_shim!(
             &[$src_row; $src_rows],
             $src_row,
             Vec<$dst_row>,
@@ -672,13 +662,6 @@ macro_rules! impl_transpose_shares_ba_to_bool {
             BitDecomposed<AdditiveShare<Boolean, $src_rows>>, AdditiveShare<Boolean, $src_rows>,
             $src_rows, $src_cols,
             Infallible,
-        );
-
-        impl_transpose_shim!(
-            &Vec<AdditiveShare<$src_row>>, AdditiveShare<$src_row>,
-            BitDecomposed<AdditiveShare<Boolean, $src_rows>>, AdditiveShare<Boolean, $src_rows>,
-            $src_rows, $src_cols,
-            LengthError,
         );
     };
 }
