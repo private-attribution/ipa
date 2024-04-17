@@ -221,7 +221,7 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn gen_trigger(&mut self, user_id: UserId, timestamp: Timestamp) -> TestRawDataRecord {
-        let trigger_value = self.rng.gen_range(1..self.config.max_trigger_value.get());
+        let trigger_value = self.rng.gen_range(1..=self.config.max_trigger_value.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),
@@ -329,12 +329,40 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
+    #[test]
+    #[should_panic(expected = "must be at least twice max_events_per_user")]
+    fn invalid_max_timestamp() {
+        let _ = EventGenerator::with_config(
+            thread_rng(),
+            Config {
+                max_events_per_user: NonZeroU32::new(10).unwrap(),
+                max_timestamp: NonZeroTimestamp::new(10).unwrap(),
+                ..Config::default()
+            },
+        );
+    }
+
+    #[test]
+    fn min_max_trigger_value() {
+        let mut gen = EventGenerator::with_config(
+            thread_rng(),
+            Config {
+                max_trigger_value: NonZeroU32::new(1).unwrap(),
+                report_filter: ReportFilter::TriggerOnly,
+                conversion_probability: Some(1.0),
+                ..Config::default()
+            },
+        );
+
+        assert!(gen.next().is_some());
+    }
+
     mod proptests {
         use std::collections::HashMap;
 
         use proptest::{
             prelude::{Just, Strategy},
-            prop_oneof, proptest,
+            prop_compose, prop_oneof, proptest,
         };
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
@@ -396,40 +424,32 @@ mod tests {
             }
         }
 
-        fn arb_config() -> impl Strategy<Value = Config> {
-            (
-                1..u32::MAX,
-                1..u32::MAX,
-                1..u32::MAX,
-                1..u32::MAX,
-                report_filter_strategy(),
-            )
-                .prop_map(
-                    |(
-                        max_trigger_value,
-                        max_breakdown_key,
-                        mut min_events_per_user,
-                        mut max_events_per_user,
-                        report_filter,
-                    )| {
-                        if min_events_per_user > max_events_per_user {
-                            std::mem::swap(&mut min_events_per_user, &mut max_events_per_user);
-                        }
-                        Config {
-                            user_count: NonZeroU64::new(10_000).unwrap(),
-                            max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
-                            max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
-                            max_timestamp: NonZeroTimestamp::new(604_800).unwrap(),
-                            min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
-                            max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
-                            report_filter,
-                            conversion_probability: match report_filter {
-                                ReportFilter::TriggerOnly => Some(0.02),
-                                _ => None,
-                            },
-                        }
-                    },
+        prop_compose! {
+            fn arb_config()
+                (max_events_per_user in 1..u32::MAX / 2)
+                (
+                    max_trigger_value in 1..u32::MAX,
+                    max_breakdown_key in 1..u32::MAX,
+                    min_events_per_user in 1..=max_events_per_user,
+                    max_events_per_user in Just(max_events_per_user),
+                    max_timestamp in max_events_per_user*2..=u32::MAX,
+                    report_filter in report_filter_strategy(),
                 )
+             -> Config {
+                Config {
+                    user_count: NonZeroU64::new(10_000).unwrap(),
+                    max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
+                    max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                    max_timestamp: NonZeroTimestamp::new(max_timestamp).unwrap(),
+                    min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
+                    max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
+                    report_filter,
+                    conversion_probability: match report_filter {
+                        ReportFilter::TriggerOnly => Some(0.02),
+                        _ => None,
+                    },
+                }
+            }
         }
 
         fn does_not_exceed_config_maximums(rng_seed: u64, config: &Config, total_events: usize) {
