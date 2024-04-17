@@ -232,7 +232,9 @@ impl<S: ShardingScheme> TestWorld<S> {
     #[must_use]
     pub fn with_config(config: &TestWorldConfig) -> Self {
         logging::setup();
-        println!("Using seed {seed}", seed = config.seed);
+        // Print to stdout so that it appears in test runs only on failure.
+        // scripts/collect_steps.py must be updated if the message text changes.
+        println!("TestWorld random seed {seed}", seed = config.seed);
 
         let shard_count = ShardIndex::try_from(S::SHARDS).unwrap();
         let shard_network = InMemoryShardNetwork::with_shards(shard_count);

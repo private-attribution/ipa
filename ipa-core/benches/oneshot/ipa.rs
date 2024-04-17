@@ -108,7 +108,7 @@ async fn run(args: Args) -> Result<(), Error> {
 
     let seed = args.random_seed.unwrap_or_else(|| random());
     tracing::info!(
-        "Using random seed: {seed} for {q} records",
+        "Using random seed {seed} for {q} records",
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
