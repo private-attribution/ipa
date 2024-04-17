@@ -138,13 +138,6 @@ macro_rules! boolean_array_impl_small {
             }
         }
 
-        #[cfg(any(test, unit_test))]
-        impl std::cmp::PartialEq<$name> for u128 {
-            fn eq(&self, other: &$name) -> bool {
-                *self == other.as_u128()
-            }
-        }
-
         impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                 <$name>::from_random_u128(rng.gen::<u128>())

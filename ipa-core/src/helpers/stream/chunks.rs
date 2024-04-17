@@ -79,15 +79,6 @@ impl<K: IntoIterator, const N: usize> IntoIterator for Chunk<K, N> {
     }
 }
 
-impl<K: IntoIterator + AsRef<[K::Item]>, const N: usize> AsRef<[K::Item]> for Chunk<K, N> {
-    fn as_ref(&self) -> &[K::Item] {
-        match self.chunk_type {
-            ChunkType::Full => self.data.as_ref(),
-            ChunkType::Partial(len) => &self.data.as_ref()[..len],
-        }
-    }
-}
-
 /// Future for a chunk of processed data.
 #[pin_project]
 pub struct ChunkFuture<Fut, K, const N: usize>
