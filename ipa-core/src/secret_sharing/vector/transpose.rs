@@ -206,6 +206,26 @@ impl<'a> TransposeFrom<&'a [StdArray<Boolean, 1>; 256]> for Vec<BA256> {
 
 // Matrix transpose helpers
 
+// The read and write helpers are used with the `impl_transpose` macros to support a specific data
+// type:
+//  1. `impl_transpose` interprets the bit matrix in terms of 8x8 or 16x16 submatrices. It iterates
+//     over the entire matrix, with `i` and `j` serving as row and column submatrix indices,
+//     respectively.
+//  2. `impl_transpose` invokes the selected `read_*` macro to transfer one submatrix
+//     from the position (i, j) in the source source to temporary storage. The `read_*` macro is
+//     invoked once for each row of the submatrix, with `k` as row index within the submatrix.
+//  3. The submatrix is transposed.
+//  4. `impl_transpose` invokes the selected `write_*` macro to write the transposed
+//     submatrix at position (j, i) in the destination. As when reading, `k` indexes rows
+//     within the submatrix.
+//
+// The `left` and `right` variants access data in the indicated share of a replicated sharing.  The
+// `ba` variants access data in an array of `BA{n}` or an array of `AdditiveShare<BA{n}>`. The
+// `bool` variants access data in an array of `AdditiveShare<Boolean, N>`. The `ba_fn_{left,right}`
+// variants access data by calling a closure that returns `AdditiveShare<BA{n}>`. The `_8_pad`
+// variants support reading data from a source that may not have the full height of 8, by padding
+// with zeros.
+
 macro_rules! read_ba_left_8_pad {
     ($m:ident, $src:ident, $i:ident, $j:ident, $k:ident, $pad_value:expr) => {
         $m[$k] = $src
@@ -417,6 +437,9 @@ macro_rules! impl_transpose_16 {
     };
 }
 
+// Helper for `impl_transpose_shim` that performs a `TryFrom` conversion for the source,
+// if applicable. For example, a `Vec` dereferences to a slice, which then must be
+// converted to an array using `TryFrom`.
 macro_rules! transpose_shim_convert_src {
     ($converted:ty, $expected_len:expr, $src:ident, LengthError) => {
         <$converted>::try_from($src.deref()).map_err(|_| LengthError {
@@ -429,6 +452,8 @@ macro_rules! transpose_shim_convert_src {
     };
 }
 
+// Implement a transpose shim that adapts a transpose implementation for arrays into a transpose
+// implementation for some other type like `BitDecomposed` or `Vec`.
 macro_rules! impl_transpose_shim {
     ($src_ty:ty, $src_row:ty, $dst_ty:ty, $dst_row:ty, $src_rows:expr, $src_cols:expr, $error:tt $(,)?) => {
         impl TransposeFrom<$src_ty> for $dst_ty {
@@ -437,6 +462,7 @@ macro_rules! impl_transpose_shim {
                 self.resize($src_cols, <$dst_row>::ZERO);
                 let src =
                     transpose_shim_convert_src!(&[$src_row; $src_rows], $src_rows, src, $error);
+                // This unwrap cannot fail, because we resized `self` to the proper size.
                 let dst = <&mut [$dst_row; $src_cols]>::try_from(&mut **self).unwrap();
                 dst.transpose_from(src).unwrap_infallible();
                 Ok(())
@@ -445,7 +471,8 @@ macro_rules! impl_transpose_shim {
     };
 }
 
-macro_rules! impl_transpose_shim_pad {
+// Variant of impl_transpose_shim that adjusts non-multiple-of-8 sizes to the next multiple of 8.
+macro_rules! impl_transpose_shim_8_pad {
     ($src_ty:ty, $src_row:ty, $dst_ty:ty, $dst_row:ty, $src_rows:expr, $src_cols:expr, $error:tt $(,)?) => {
         impl TransposeFrom<$src_ty> for $dst_ty {
             type Error = $error;
@@ -453,6 +480,7 @@ macro_rules! impl_transpose_shim_pad {
                 self.resize(($src_cols + 7) / 8 * 8, <$dst_row>::ZERO);
                 let src =
                     transpose_shim_convert_src!(&[$src_row; $src_rows], $src_rows, src, $error);
+                // This unwrap cannot fail, because we resized `self` to the proper size.
                 let dst =
                     <&mut [$dst_row; ($src_cols + 7) / 8 * 8]>::try_from(&mut **self).unwrap();
                 dst.transpose_from(src).unwrap_infallible();
@@ -719,14 +747,14 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
             tests::test_transpose_shares_ba_to_bool_small::<$src_row, $src_rows, $src_cols>();
         }
 
-        impl_transpose_shim_pad!(
+        impl_transpose_shim_8_pad!(
             &[AdditiveShare<$src_row>; $src_rows], AdditiveShare<$src_row>,
             BitDecomposed<AdditiveShare<Boolean, $src_rows>>, AdditiveShare<Boolean, $src_rows>,
             $src_rows, $src_cols,
             Infallible,
         );
 
-        impl_transpose_shim_pad!(
+        impl_transpose_shim_8_pad!(
             &Vec<AdditiveShare<$src_row>>, AdditiveShare<$src_row>,
             BitDecomposed<AdditiveShare<Boolean, $src_rows>>, AdditiveShare<Boolean, $src_rows>,
             $src_rows, $src_cols,
