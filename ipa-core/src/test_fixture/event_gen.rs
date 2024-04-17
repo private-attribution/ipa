@@ -101,7 +101,6 @@ impl Config {
         max_events_per_user: u32,
         max_timestamp: Timestamp,
     ) -> Self {
-        assert!(min_events_per_user < max_events_per_user);
         Self {
             user_count: NonZeroU64::try_from(user_count).unwrap(),
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
@@ -165,7 +164,19 @@ impl<R: Rng> EventGenerator<R> {
         Self::with_config(rng, Config::default())
     }
 
+    /// # Panics
+    /// If the configuration is not valid.
     pub fn with_config(rng: R, config: Config) -> Self {
+        assert!(config.min_events_per_user <= config.max_events_per_user);
+        // Ensure that rejection-sampling of non-duplicate timestamps
+        // will complete in a reasonable amount of time.
+        assert!(
+            2 * config.max_events_per_user.get() <= config.max_timestamp.get(),
+            "max_timestamp ({mt}) must be at least twice max_events_per_user ({me}) \
+             to support generation of a unique timestamp for each event",
+            mt = config.max_timestamp,
+            me = config.max_events_per_user,
+        );
         Self {
             config,
             rng,
@@ -178,7 +189,8 @@ impl<R: Rng> EventGenerator<R> {
         let user_id = self.users[idx].user_id;
 
         // Generate a new random timestamp between [0..`max_timestamp`) and distinct from
-        // already-used timestamps.
+        // already-used timestamps. `EventGenerator::with_config` checks that `max_timestamp`
+        // exceeds `max_events_per_user` by a margin large enough that this is likely to complete.
         let current_ts = loop {
             let ts = self.rng.gen_range(0..self.config.max_timestamp.get());
             if self.users[idx].used_timestamps.insert(ts) {
