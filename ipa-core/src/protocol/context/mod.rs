@@ -346,7 +346,7 @@ impl<'a> Inner<'a> {
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
 pub trait DZKPContext: Context {
-    /// `is_safe()` allows to confirm that there are currently no unverified shares,
+    /// `is_unverified()` allows to confirm that there are currently no unverified shares,
     /// i.e. shares that might have been manipulated.
     /// when this is the case, it is safe to call functions like `reveal`
     ///

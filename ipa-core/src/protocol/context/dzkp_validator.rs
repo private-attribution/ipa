@@ -213,7 +213,7 @@ impl<'a> SegmentEntry<'a> {
 /// such that this does not count as malicious behavior.
 #[derive(Clone, Debug)]
 struct UnverifiedValuesStore {
-    offset: RecordId,
+    offset: i64,
     chunk_size: usize,
     segment_size: Option<usize>,
     vec: Vec<Option<UnverifiedValues>>,
@@ -225,7 +225,7 @@ impl UnverifiedValuesStore {
     /// `segment_size` is set to `None` since it may not be known yet
     fn new(chunk_size: usize) -> Self {
         Self {
-            offset: RecordId::from(0usize),
+            offset: 0,
             chunk_size,
             segment_size: None,
             vec: Vec::<Option<UnverifiedValues>>::new(),
@@ -243,8 +243,10 @@ impl UnverifiedValuesStore {
             // compute how many records have been added
             // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
             // subtract `1` to make sure that offset is set sufficiently small
-            self.offset +=
-                ((self.actual_len() - 1) << BIT_ARRAY_SHIFT) / self.segment_size.unwrap();
+            self.offset += i64::try_from(
+                ((self.actual_len() - 1) << BIT_ARRAY_SHIFT) / self.segment_size.unwrap(),
+            )
+            .unwrap();
             self.vec = Vec::<Option<UnverifiedValues>>::new();
         }
     }
@@ -284,25 +286,31 @@ impl UnverifiedValuesStore {
     /// `reset_offset` reallocates vector such that a smaller `RecordId` than `offset` can be stored
     /// `new_offset` will be the new `offset` and the store and store elements with `RecordId` `new_offset` and larger
     /// when `new_offset` is larger that the current `offset`, the function does nothing
-    fn reset_offset(&mut self, new_offset: RecordId, segment_length: usize) {
+    ///
+    /// ## Panics
+    /// When casting between usize and i64 fails.
+    fn reset_offset(&mut self, new_offset: i64, segment_length: usize) {
         if new_offset < self.offset {
             // metrics to count reallocations, disable-metrics flag will disable it globally
             // right now, I don't pass the gate/step information which would be useful
             // it would require to change the function signature and potentially clone gate even when feature is not enabled
             metrics::increment_counter!(DZKP_BATCH_REALLOCATION_FRONT, RECORD => new_offset.to_string(), OFFSET => self.offset.to_string());
 
-            let mut new_offset = usize::from(new_offset);
+            let mut new_offset = new_offset;
             // if segment_length is less than 256, redefine new offset such that we don't need to rearrange the existing segments
             if 256 % segment_length == 0 {
                 // distance between new_offset and old offset is rounded up to a multiple of 256
-                new_offset = ((usize::from(self.offset) - new_offset + 255) >> BIT_ARRAY_SHIFT)
-                    << BIT_ARRAY_SHIFT;
+                new_offset =
+                    ((self.offset - new_offset + 255) >> BIT_ARRAY_SHIFT) << BIT_ARRAY_SHIFT;
             }
-            let extension_length =
-                ((usize::from(self.offset) - new_offset) >> BIT_ARRAY_SHIFT) * segment_length;
+            let extension_length = ((self.offset - new_offset) >> BIT_ARRAY_SHIFT)
+                * (i64::try_from(segment_length).unwrap());
             // use existing vec and add enough space in front
-            self.vec.splice(0..0, repeat(None).take(extension_length));
-            self.offset = RecordId::from(new_offset);
+            self.vec.splice(
+                0..0,
+                repeat(None).take(usize::try_from(extension_length.abs()).unwrap()),
+            );
+            self.offset = new_offset;
         }
     }
 
@@ -322,12 +330,12 @@ impl UnverifiedValuesStore {
             self.allocate_vec();
         }
         // check offset
-        if record_id < self.offset {
+        if i64::from(record_id) < self.offset {
             // recover from wrong offset, expensive
             // call to reset_offset is measured using metrics
-            self.reset_offset(record_id, segment.len());
+            self.reset_offset(i64::from(record_id), segment.len());
         }
-        let position_raw = usize::from(record_id) - usize::from(self.offset);
+        let position_raw = usize::try_from((i64::from(record_id) - self.offset).abs()).unwrap();
         let length = segment.len();
         let position_vec = (length * position_raw) >> BIT_ARRAY_SHIFT;
         // check size of store
@@ -550,11 +558,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
 
-    /// `is_safe` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    /// `is_unverified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_safe(&self) -> Result<(), Error>;
+    fn is_unverified(&self) -> Result<(), Error>;
 
     /// `get_chunk_size` returns the chunk size of the validator
     fn get_chunk_size(&self) -> Option<usize>;
@@ -608,7 +616,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         Ok(())
     }
 
-    fn is_safe(&self) -> Result<(), Error> {
+    fn is_unverified(&self) -> Result<(), Error> {
         Ok(())
     }
 
@@ -651,12 +659,12 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         // LOCK END
     }
 
-    /// `is_safe` checks that there are no `UnverifiedValues`.
+    /// `is_unverified` checks that there are no `UnverifiedValues`.
     /// This function is called by drop() to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_safe(&self) -> Result<(), Error> {
+    fn is_unverified(&self) -> Result<(), Error> {
         if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
         } else {
@@ -691,7 +699,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
 #[cfg(feature = "descriptive-gate")]
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        self.is_safe().unwrap();
+        self.is_unverified().unwrap();
     }
 }
 
@@ -712,10 +720,10 @@ mod tests {
             basics::SecureMul,
             context::{
                 dzkp_validator::{
-                    Batch, BitArray32, DZKPBaseField, DZKPValidator, Segment, SegmentEntry,
+                    Batch, BitArray32, DZKPBaseField, DZKPValidator, Segment, SegmentEntry, Step,
                     UnverifiedValuesStore,
                 },
-                Context, UpgradableContext,
+                Context, DZKPContext, UpgradableContext,
             },
             step::Gate,
             RecordId,
@@ -728,7 +736,7 @@ mod tests {
     /// similar to `complex_circuit` in `validator.rs`
     async fn complex_circuit_dzkp(count: usize, chunk_size: usize) -> Result<(), Error> {
         let world = TestWorld::default();
-        let context = world.malicious_contexts();
+
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(count);
@@ -744,12 +752,14 @@ mod tests {
         let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
         let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
 
-        let futures = context
+        let futures = world
+            .malicious_contexts()
             .into_iter()
-            .zip([h1_shares, h2_shares, h3_shares])
+            .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
                 let v = ctx.dzkp_validator(chunk_size);
-                let m_ctx = v.context();
+                // test whether narrow works
+                let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
                     .seq_join::<_, _, _, Fp31>(iter(
@@ -768,22 +778,65 @@ mod tests {
                     ))
                     .try_collect::<Vec<_>>()
                     .await?;
+                // check whether verification was successful
+                v.is_unverified().unwrap();
+                m_ctx.is_unverified().unwrap();
                 Ok::<_, Error>(m_results)
             });
 
-        let processed_outputs = join3v(futures).await;
+        let processed_outputs_malicious = join3v(futures).await;
+
+        let futures = world
+            .contexts()
+            .into_iter()
+            .zip([h1_shares, h2_shares, h3_shares])
+            .map(|(ctx, input_shares)| async move {
+                let v = ctx.dzkp_validator(chunk_size);
+                // test whether narrow works
+                let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
+
+                let m_results = v
+                    .seq_join::<_, _, _, Fp31>(iter(
+                        zip(
+                            repeat(m_ctx.set_total_records(count - 1)).enumerate(),
+                            zip(input_shares.iter(), input_shares.iter().skip(1)),
+                        )
+                        .map(
+                            |((i, ctx), (a_malicious, b_malicious))| async move {
+                                a_malicious
+                                    .multiply(b_malicious, ctx, RecordId::from(i))
+                                    .await
+                                    .unwrap()
+                            },
+                        ),
+                    ))
+                    .try_collect::<Vec<_>>()
+                    .await?;
+                v.is_unverified().unwrap();
+                m_ctx.is_unverified().unwrap();
+                Ok::<_, Error>(m_results)
+            });
+
+        let processed_outputs_semi_honest = join3v(futures).await;
 
         for i in 0..count - 1 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
-            let x1_times_x2 = [
-                processed_outputs[0][i].clone(),
-                processed_outputs[1][i].clone(),
-                processed_outputs[2][i].clone(),
+            let x1_times_x2_malicious = [
+                processed_outputs_malicious[0][i].clone(),
+                processed_outputs_malicious[1][i].clone(),
+                processed_outputs_malicious[2][i].clone(),
+            ]
+            .reconstruct();
+            let x1_times_x2_semi_honest = [
+                processed_outputs_semi_honest[0][i].clone(),
+                processed_outputs_semi_honest[1][i].clone(),
+                processed_outputs_semi_honest[2][i].clone(),
             ]
             .reconstruct();
 
-            assert_eq!((x1, x2, x1 * x2), (x1, x2, x1_times_x2));
+            assert_eq!((x1, x2, x1 * x2), (x1, x2, x1_times_x2_malicious));
+            assert_eq!((x1, x2, x1 * x2), (x1, x2, x1_times_x2_semi_honest));
         }
 
         Ok(())
@@ -863,119 +916,202 @@ mod tests {
     #[test]
     fn batch_and_convert() {
         let mut rng = thread_rng();
-        let mut batch = Batch::new(1000);
 
-        // vec to collect expected
-        let mut expected_x_left = Vec::<Fp31>::new();
-        let mut expected_x_right = Vec::<Fp31>::new();
-        let mut expected_y_left = Vec::<Fp31>::new();
-        let mut expected_y_right = Vec::<Fp31>::new();
-        let mut expected_prss_left = Vec::<Fp31>::new();
-        let mut expected_prss_right = Vec::<Fp31>::new();
-        let mut expected_z_right = Vec::<Fp31>::new();
+        // test for small and large segments, i.e. 8bit and 512 bit
+        for (segment_size, check_resizing) in [
+            (8usize, false),
+            (8usize, true),
+            (512usize, false),
+            (512usize, true),
+        ] {
+            let mut batch = if check_resizing {
+                let mut batch = Batch::new(1);
+                batch
+                    .inner
+                    .insert(Gate::default(), UnverifiedValuesStore::new(1));
+                batch.inner.get_mut(&Gate::default()).unwrap().offset = 4;
+                batch
+            } else {
+                // chunk size is equal to amount of segments which is 1024/segment_size
+                Batch::new(1024 / segment_size)
+            };
 
-        // gen 1024 random values
-        for i in 0..1024 {
-            let x_left: u8 = rng.gen();
-            let x_right: u8 = rng.gen();
-            let y_left: u8 = rng.gen();
-            let y_right: u8 = rng.gen();
-            let prss_left: u8 = rng.gen();
-            let prss_right: u8 = rng.gen();
-            let z_right: u8 = rng.gen();
+            // vec to collect expected
+            let mut expected_x_left = Vec::<Fp31>::new();
+            let mut expected_x_right = Vec::<Fp31>::new();
+            let mut expected_y_left = Vec::<Fp31>::new();
+            let mut expected_y_right = Vec::<Fp31>::new();
+            let mut expected_prss_left = Vec::<Fp31>::new();
+            let mut expected_prss_right = Vec::<Fp31>::new();
+            let mut expected_z_right = Vec::<Fp31>::new();
 
-            // fill expected
-            expected_x_left.push(Fp31::truncate_from(x_left));
-            expected_x_right.push(Fp31::truncate_from(x_right));
-            expected_y_left.push(Fp31::truncate_from(y_left));
-            expected_y_right.push(Fp31::truncate_from(y_right));
-            expected_prss_left.push(Fp31::truncate_from(prss_left));
-            expected_prss_right.push(Fp31::truncate_from(prss_right));
-            expected_z_right.push(Fp31::truncate_from(z_right));
+            // vec for segments
+            let mut vec_x_left = Vec::<u8>::new();
+            let mut vec_x_right = Vec::<u8>::new();
+            let mut vec_y_left = Vec::<u8>::new();
+            let mut vec_y_right = Vec::<u8>::new();
+            let mut vec_prss_left = Vec::<u8>::new();
+            let mut vec_prss_right = Vec::<u8>::new();
+            let mut vec_z_right = Vec::<u8>::new();
 
-            // conv to BitVec
-            let x_left = BitVec::<u8>::from_element(x_left);
-            let x_right = BitVec::<u8>::from_element(x_right);
-            let y_left = BitVec::<u8>::from_element(y_left);
-            let y_right = BitVec::<u8>::from_element(y_right);
-            let prss_left = BitVec::<u8>::from_element(prss_left);
-            let prss_right = BitVec::<u8>::from_element(prss_right);
-            let z_right = BitVec::<u8>::from_element(z_right);
+            // gen 1024 random values
+            for _i in 0..1024 {
+                let x_left: u8 = rng.gen();
+                let x_right: u8 = rng.gen();
+                let y_left: u8 = rng.gen();
+                let y_right: u8 = rng.gen();
+                let prss_left: u8 = rng.gen();
+                let prss_right: u8 = rng.gen();
+                let z_right: u8 = rng.gen();
 
-            // define segment
-            let segment = Segment::new(
-                SegmentEntry::new(&x_left),
-                SegmentEntry::new(&x_right),
-                SegmentEntry::new(&y_left),
-                SegmentEntry::new(&y_right),
-                SegmentEntry::new(&prss_left),
-                SegmentEntry::new(&prss_right),
-                SegmentEntry::new(&z_right),
+                // fill expected
+                expected_x_left.push(Fp31::truncate_from(x_left));
+                expected_x_right.push(Fp31::truncate_from(x_right));
+                expected_y_left.push(Fp31::truncate_from(y_left));
+                expected_y_right.push(Fp31::truncate_from(y_right));
+                expected_prss_left.push(Fp31::truncate_from(prss_left));
+                expected_prss_right.push(Fp31::truncate_from(prss_right));
+                expected_z_right.push(Fp31::truncate_from(z_right));
+
+                // fill segment vec
+                vec_x_left.push(x_left);
+                vec_x_right.push(x_right);
+                vec_y_left.push(y_left);
+                vec_y_right.push(y_right);
+                vec_prss_left.push(prss_left);
+                vec_prss_right.push(prss_right);
+                vec_z_right.push(z_right);
+            }
+
+            // generate and push segments
+            for i in 0..1024 / segment_size {
+                // conv to BitVec
+                let x_left =
+                    BitVec::<u8>::from_slice(&vec_x_left[i * segment_size..(i + 1) * segment_size]);
+                let x_right = BitVec::<u8>::from_slice(
+                    &vec_x_right[i * segment_size..(i + 1) * segment_size],
+                );
+                let y_left =
+                    BitVec::<u8>::from_slice(&vec_y_left[i * segment_size..(i + 1) * segment_size]);
+                let y_right = BitVec::<u8>::from_slice(
+                    &vec_y_right[i * segment_size..(i + 1) * segment_size],
+                );
+                let prss_left = BitVec::<u8>::from_slice(
+                    &vec_prss_left[i * segment_size..(i + 1) * segment_size],
+                );
+                let prss_right = BitVec::<u8>::from_slice(
+                    &vec_prss_right[i * segment_size..(i + 1) * segment_size],
+                );
+                let z_right = BitVec::<u8>::from_slice(
+                    &vec_z_right[i * segment_size..(i + 1) * segment_size],
+                );
+
+                // define segment
+                let segment = Segment::new(
+                    SegmentEntry::new(&x_left),
+                    SegmentEntry::new(&x_right),
+                    SegmentEntry::new(&y_left),
+                    SegmentEntry::new(&y_right),
+                    SegmentEntry::new(&prss_left),
+                    SegmentEntry::new(&prss_right),
+                    SegmentEntry::new(&z_right),
+                );
+
+                // push segment into batch
+                batch.push(Gate::default(), RecordId::from(i), segment);
+            }
+
+            // check correctness of batch
+            assert_batch(
+                &batch,
+                check_resizing,
+                &expected_x_left,
+                &expected_x_right,
+                &expected_y_left,
+                &expected_y_right,
+                &expected_prss_left,
+                &expected_prss_right,
+                &expected_z_right,
             );
-
-            assert_eq!(
-                (i, expected_x_left[i]),
-                (i, Fp31::truncate_from(x_left.load_le::<u8>()))
-            );
-
-            // push segment into batch
-            batch.push(Gate::default(), RecordId::from(i), segment);
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assert_batch(
+        batch: &Batch,
+        check_resizing: bool,
+        expected_x_left: &[Fp31],
+        expected_x_right: &[Fp31],
+        expected_y_left: &[Fp31],
+        expected_y_right: &[Fp31],
+        expected_prss_left: &[Fp31],
+        expected_prss_right: &[Fp31],
+        expected_z_right: &[Fp31],
+    ) {
+        // assert that it is not empty
+        assert!(!batch.is_empty());
 
         // check that length matches, i.e. offset and allocation are correct and minimal
-        assert_eq!(
-            1024usize,
-            batch
-                .inner
-                .values()
-                .map(UnverifiedValuesStore::actual_len)
-                .fold(0, |acc, x| acc + 32 * x)
-        );
+        if !check_resizing {
+            assert_eq!(
+                1024usize,
+                batch
+                    .inner
+                    .values()
+                    .map(UnverifiedValuesStore::actual_len)
+                    .fold(0, |acc, x| acc + 32 * x)
+            );
+        }
 
         // check that batch is filled with non-trivial values
         for x in batch.inner.values() {
-            for i in 0..32 {
-                assert_ne!(
-                    x.vec[i].clone().unwrap().x_left,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().x_right,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().y_left,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().y_right,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().prss_left,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().prss_right,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
-                assert_ne!(
-                    x.vec[i].clone().unwrap().z_right,
-                    BitVec::<u8>::from_vec(vec![0u8; 32])
-                );
+            for uv in x.vec.iter().flatten() {
+                assert_ne!(uv.x_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.x_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.y_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.y_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.prss_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.prss_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
+                assert_ne!(uv.z_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
             }
         }
 
+        // offset is negative when segments are small in test function batch_and_convert
+        let offset_in_bits =
+            8 * usize::try_from(batch.inner.values().next().unwrap().offset.abs()).unwrap();
         // compare converted values from batch iter to expected
         for (i, x) in batch.get_unverified_field_values::<Fp31>().enumerate() {
             for j in 0..32 {
-                assert_eq!((i, x.x_left[j]), (i, expected_x_left[32 * i + j]));
-                assert_eq!((i, x.x_right[j]), (i, expected_x_right[32 * i + j]));
-                assert_eq!((i, x.y_left[j]), (i, expected_y_left[32 * i + j]));
-                assert_eq!((i, x.y_right[j]), (i, expected_y_right[32 * i + j]));
-                assert_eq!((i, x.prss_left[j]), (i, expected_prss_left[32 * i + j]));
-                assert_eq!((i, x.prss_right[j]), (i, expected_prss_right[32 * i + j]));
-                assert_eq!((i, x.z_right[j]), (i, expected_z_right[32 * i + j]));
+                if 32 * i + j >= offset_in_bits {
+                    assert_eq!(
+                        (i, x.x_left[j]),
+                        (i, expected_x_left[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.x_right[j]),
+                        (i, expected_x_right[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.y_left[j]),
+                        (i, expected_y_left[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.y_right[j]),
+                        (i, expected_y_right[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.prss_left[j]),
+                        (i, expected_prss_left[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.prss_right[j]),
+                        (i, expected_prss_right[32 * i + j - offset_in_bits])
+                    );
+                    assert_eq!(
+                        (i, x.z_right[j]),
+                        (i, expected_z_right[32 * i + j - offset_in_bits])
+                    );
+                }
             }
         }
     }
