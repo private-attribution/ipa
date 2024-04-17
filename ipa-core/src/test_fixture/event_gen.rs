@@ -1,3 +1,10 @@
+use std::{
+    collections::HashSet,
+    num::{NonZeroU32, NonZeroU64},
+};
+
+use crate::{rand::Rng, test_fixture::ipa::TestRawDataRecord};
+
 #[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 struct UserId(u64);
 
@@ -26,6 +33,10 @@ impl UserId {
     pub const FIRST: Self = Self(1);
 }
 
+// 7 days = 604800 seconds fits in 20 bits
+pub type Timestamp = u32;
+pub type NonZeroTimestamp = NonZeroU32;
+
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ReportFilter {
@@ -46,8 +57,7 @@ pub struct Config {
     #[cfg_attr(feature = "clap", arg(long, default_value = "20"))]
     pub max_breakdown_key: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, hide = true, default_value = "604800"))]
-    // 7 days < 20 bits
-    pub max_timestamp: NonZeroU32,
+    pub max_timestamp: NonZeroTimestamp,
     #[cfg_attr(feature = "clap", arg(long, default_value = "10"))]
     pub max_events_per_user: NonZeroU32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "1"))]
@@ -89,14 +99,13 @@ impl Config {
         max_breakdown_key: u32,
         min_events_per_user: u32,
         max_events_per_user: u32,
-        max_timestamp: u32,
+        max_timestamp: Timestamp,
     ) -> Self {
-        assert!(min_events_per_user < max_events_per_user);
         Self {
             user_count: NonZeroU64::try_from(user_count).unwrap(),
             max_trigger_value: NonZeroU32::try_from(max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(max_breakdown_key).unwrap(),
-            max_timestamp: NonZeroU32::try_from(max_timestamp).unwrap(),
+            max_timestamp: NonZeroTimestamp::try_from(max_timestamp).unwrap(),
             min_events_per_user: NonZeroU32::try_from(min_events_per_user).unwrap(),
             max_events_per_user: NonZeroU32::try_from(max_events_per_user).unwrap(),
             report_filter: ReportFilter::All,
@@ -111,17 +120,11 @@ impl Config {
     }
 }
 
-use std::{
-    collections::HashSet,
-    num::{NonZeroU32, NonZeroU64},
-};
-
-use crate::{rand::Rng, test_fixture::ipa::TestRawDataRecord};
-
 struct UserStats {
     user_id: UserId,
     generated: u32,
     max: u32,
+    used_timestamps: HashSet<Timestamp>,
 }
 
 impl UserStats {
@@ -130,6 +133,7 @@ impl UserStats {
             user_id,
             generated: 0,
             max: max_events,
+            used_timestamps: HashSet::new(),
         }
     }
 
@@ -152,8 +156,7 @@ pub struct EventGenerator<R: Rng> {
     config: Config,
     rng: R,
     users: Vec<UserStats>,
-    // even bit vector takes too long to initialize. Need a sparse structure here
-    used: HashSet<UserId>,
+    used_ids: HashSet<UserId>,
 }
 
 impl<R: Rng> EventGenerator<R> {
@@ -161,20 +164,39 @@ impl<R: Rng> EventGenerator<R> {
         Self::with_config(rng, Config::default())
     }
 
+    /// # Panics
+    /// If the configuration is not valid.
     pub fn with_config(rng: R, config: Config) -> Self {
+        assert!(config.min_events_per_user <= config.max_events_per_user);
+        // Ensure that rejection-sampling of non-duplicate timestamps
+        // will complete in a reasonable amount of time.
+        assert!(
+            2 * config.max_events_per_user.get() <= config.max_timestamp.get(),
+            "max_timestamp ({mt}) must be at least twice max_events_per_user ({me}) \
+             to support generation of a unique timestamp for each event",
+            mt = config.max_timestamp,
+            me = config.max_events_per_user,
+        );
         Self {
             config,
             rng,
             users: vec![],
-            used: HashSet::new(),
+            used_ids: HashSet::new(),
         }
     }
 
-    fn gen_event(&mut self, user_id: UserId) -> TestRawDataRecord {
-        // Generate a new random timestamp between [0..`max_timestamp`).
-        // This means the generated events must be sorted by timestamp before being
-        // fed into the IPA protocols.
-        let current_ts = self.rng.gen_range(0..self.config.max_timestamp.get());
+    fn gen_event(&mut self, idx: usize) -> TestRawDataRecord {
+        let user_id = self.users[idx].user_id;
+
+        // Generate a new random timestamp between [0..`max_timestamp`) and distinct from
+        // already-used timestamps. `EventGenerator::with_config` checks that `max_timestamp`
+        // exceeds `max_events_per_user` by a margin large enough that this is likely to complete.
+        let current_ts = loop {
+            let ts = self.rng.gen_range(0..self.config.max_timestamp.get());
+            if self.users[idx].used_timestamps.insert(ts) {
+                break ts;
+            }
+        };
 
         match self.config.report_filter {
             ReportFilter::All => {
@@ -198,8 +220,8 @@ impl<R: Rng> EventGenerator<R> {
         }
     }
 
-    fn gen_trigger(&mut self, user_id: UserId, timestamp: u32) -> TestRawDataRecord {
-        let trigger_value = self.rng.gen_range(1..self.config.max_trigger_value.get());
+    fn gen_trigger(&mut self, user_id: UserId, timestamp: Timestamp) -> TestRawDataRecord {
+        let trigger_value = self.rng.gen_range(1..=self.config.max_trigger_value.get());
 
         TestRawDataRecord {
             user_id: user_id.into(),
@@ -210,7 +232,7 @@ impl<R: Rng> EventGenerator<R> {
         }
     }
 
-    fn gen_source(&mut self, user_id: UserId, timestamp: u32) -> TestRawDataRecord {
+    fn gen_source(&mut self, user_id: UserId, timestamp: Timestamp) -> TestRawDataRecord {
         let breakdown_key = self.rng.gen_range(0..self.config.max_breakdown_key.get());
 
         TestRawDataRecord {
@@ -223,28 +245,27 @@ impl<R: Rng> EventGenerator<R> {
     }
 
     fn sample_user(&mut self) -> Option<UserStats> {
-        if self.used.len() == self.config.user_count() {
+        if self.used_ids.len() == self.config.user_count() {
             return None;
         }
 
-        let valid = |user_id| -> bool { !self.used.contains(&user_id) };
-
-        Some(loop {
-            let next = UserId::from(
+        loop {
+            let user_id = UserId::from(
                 self.rng
                     .gen_range(UserId::FIRST.into()..=self.config.user_count.get()),
             );
-            if valid(next) {
-                self.used.insert(next);
-                break UserStats::new(
-                    next,
-                    self.rng.gen_range(
-                        self.config.min_events_per_user.get()
-                            ..=self.config.max_events_per_user.get(),
-                    ),
-                );
+            if self.used_ids.contains(&user_id) {
+                continue;
             }
-        })
+            self.used_ids.insert(user_id);
+
+            break Some(UserStats::new(
+                user_id,
+                self.rng.gen_range(
+                    self.config.min_events_per_user.get()..=self.config.max_events_per_user.get(),
+                ),
+            ));
+        }
     }
 }
 
@@ -266,12 +287,13 @@ impl<R: Rng> Iterator for EventGenerator<R> {
         }
 
         let idx = self.rng.gen_range(0..self.users.len());
-        let user_id = self.users[idx].user_id;
+        let event = self.gen_event(idx);
+
         if self.users[idx].add_one() {
             self.users.swap_remove(idx);
         }
 
-        Some(self.gen_event(user_id))
+        Some(event)
     }
 }
 
@@ -307,12 +329,40 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
+    #[test]
+    #[should_panic(expected = "must be at least twice max_events_per_user")]
+    fn invalid_max_timestamp() {
+        let _ = EventGenerator::with_config(
+            thread_rng(),
+            Config {
+                max_events_per_user: NonZeroU32::new(10).unwrap(),
+                max_timestamp: NonZeroTimestamp::new(10).unwrap(),
+                ..Config::default()
+            },
+        );
+    }
+
+    #[test]
+    fn min_max_trigger_value() {
+        let mut gen = EventGenerator::with_config(
+            thread_rng(),
+            Config {
+                max_trigger_value: NonZeroU32::new(1).unwrap(),
+                report_filter: ReportFilter::TriggerOnly,
+                conversion_probability: Some(1.0),
+                ..Config::default()
+            },
+        );
+
+        assert!(gen.next().is_some());
+    }
+
     mod proptests {
         use std::collections::HashMap;
 
         use proptest::{
             prelude::{Just, Strategy},
-            prop_oneof, proptest,
+            prop_compose, prop_oneof, proptest,
         };
         use rand::rngs::StdRng;
         use rand_core::SeedableRng;
@@ -366,43 +416,40 @@ mod tests {
                         "Found source report with trigger value set"
                     );
                 }
+
+                assert!(
+                    event.timestamp < u64::from(self.max_timestamp.get()),
+                    "Timestamp should not exceed configured maximum",
+                );
             }
         }
 
-        fn arb_config() -> impl Strategy<Value = Config> {
-            (
-                1..u32::MAX,
-                1..u32::MAX,
-                1..u32::MAX,
-                1..u32::MAX,
-                report_filter_strategy(),
-            )
-                .prop_map(
-                    |(
-                        max_trigger_value,
-                        max_breakdown_key,
-                        mut min_events_per_user,
-                        mut max_events_per_user,
-                        report_filter,
-                    )| {
-                        if min_events_per_user > max_events_per_user {
-                            std::mem::swap(&mut min_events_per_user, &mut max_events_per_user);
-                        }
-                        Config {
-                            user_count: NonZeroU64::new(10_000).unwrap(),
-                            max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
-                            max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
-                            max_timestamp: NonZeroU32::new(604_800).unwrap(),
-                            min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
-                            max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
-                            report_filter,
-                            conversion_probability: match report_filter {
-                                ReportFilter::TriggerOnly => Some(0.02),
-                                _ => None,
-                            },
-                        }
-                    },
+        prop_compose! {
+            fn arb_config()
+                (max_events_per_user in 1..u32::MAX / 2)
+                (
+                    max_trigger_value in 1..u32::MAX,
+                    max_breakdown_key in 1..u32::MAX,
+                    min_events_per_user in 1..=max_events_per_user,
+                    max_events_per_user in Just(max_events_per_user),
+                    max_timestamp in max_events_per_user*2..=u32::MAX,
+                    report_filter in report_filter_strategy(),
                 )
+             -> Config {
+                Config {
+                    user_count: NonZeroU64::new(10_000).unwrap(),
+                    max_trigger_value: NonZeroU32::new(max_trigger_value).unwrap(),
+                    max_breakdown_key: NonZeroU32::new(max_breakdown_key).unwrap(),
+                    max_timestamp: NonZeroTimestamp::new(max_timestamp).unwrap(),
+                    min_events_per_user: NonZeroU32::new(min_events_per_user).unwrap(),
+                    max_events_per_user: NonZeroU32::new(max_events_per_user).unwrap(),
+                    report_filter,
+                    conversion_probability: match report_filter {
+                        ReportFilter::TriggerOnly => Some(0.02),
+                        _ => None,
+                    },
+                }
+            }
         }
 
         fn does_not_exceed_config_maximums(rng_seed: u64, config: &Config, total_events: usize) {
@@ -423,9 +470,7 @@ mod tests {
                     "Generated breakdown key greater than {max_breakdown}"
                 );
 
-                // Basic correctness checks. timestamps are not checked as the order of events
-                // is not guaranteed. The caller must sort the events by timestamp before
-                // feeding them into IPA.
+                // Basic correctness checks.
                 config.is_valid(&event);
             }
         }

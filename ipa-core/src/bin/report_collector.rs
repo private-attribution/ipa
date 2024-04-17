@@ -155,10 +155,9 @@ fn gen_inputs(
     let rng = seed
         .map(StdRng::seed_from_u64)
         .unwrap_or_else(StdRng::from_entropy);
-    let mut event_gen = EventGenerator::with_config(rng, args)
+    let event_gen = EventGenerator::with_config(rng, args)
         .take(count as usize)
         .collect::<Vec<_>>();
-    event_gen.sort_by_key(|e| e.timestamp);
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
     } else {
