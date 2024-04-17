@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::try_join;
+#[cfg(feature = "descriptive-gate")]
+use futures::future::try_join3;
+#[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
 #[cfg(feature = "descriptive-gate")]
