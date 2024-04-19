@@ -6,12 +6,12 @@ members = ["ipa-core", "ipa-macros"]
 incremental = true
 lto = "thin"
 
-[profile.bench]
-debug-assertions = true
+[profile.release-max]
+inherits = "release"
+codegen-units = 1
 
 [profile.bench-dhat]
 inherits = "bench"
-debug-assertions = false
 incremental = true
 lto = "thin"
 debug = 1

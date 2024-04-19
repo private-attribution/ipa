@@ -1,97 +1,82 @@
+use std::sync::Weak;
+
+use async_trait::async_trait;
+
 use crate::{
     helpers::{
-        query::{QueryConfig, QueryInput},
-        Transport, TransportCallbacks, TransportImpl,
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        routing::{Addr, RouteId},
+        ApiError, BodyStream, HandlerBox, HandlerRef, HelperIdentity, HelperResponse,
+        MpcTransportImpl, RequestHandler, ShardTransportImpl, Transport,
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
-    query::{
-        NewQueryError, QueryCompletionError, QueryInputError, QueryProcessor, QueryStatus,
-        QueryStatusError,
-    },
+    query::{NewQueryError, QueryProcessor, QueryStatus},
     sync::Arc,
 };
 
 pub struct Setup {
-    query_processor: Arc<QueryProcessor>,
+    query_processor: QueryProcessor,
+    handler: HandlerRef,
 }
 
 /// The API layer to interact with a helper.
 #[must_use]
 pub struct HelperApp {
-    query_processor: Arc<QueryProcessor>,
-    transport: TransportImpl,
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    query_processor: QueryProcessor,
+    /// For HTTP implementation this transport is also behind an [`Arc`] which causes double indirection
+    /// on top of atomics and all fun stuff associated with it. I don't see an easy way to avoid that
+    /// if we want to keep the implementation leak-free, but one may be aware if this shows up on
+    /// the flamegraph
+    mpc_transport: MpcTransportImpl,
+    shard_transport: ShardTransportImpl,
 }
 
 impl Setup {
     #[must_use]
-    pub fn new() -> (Self, TransportCallbacks<TransportImpl>) {
+    pub fn new() -> (Self, HandlerRef) {
         Self::with_key_registry(KeyRegistry::empty())
     }
 
     #[must_use]
-    pub fn with_key_registry(
-        key_registry: KeyRegistry<KeyPair>,
-    ) -> (Self, TransportCallbacks<TransportImpl>) {
-        let query_processor = Arc::new(QueryProcessor::new(key_registry));
+    pub fn with_key_registry(key_registry: KeyRegistry<KeyPair>) -> (Self, HandlerRef) {
+        let query_processor = QueryProcessor::new(key_registry);
+        let handler = HandlerBox::empty();
         let this = Self {
-            query_processor: Arc::clone(&query_processor),
+            query_processor,
+            handler: handler.clone(),
         };
 
         // TODO: weak reference to query processor to prevent mem leak
-        (this, Self::callbacks(&query_processor))
+        (this, handler)
     }
 
     /// Instantiate [`HelperApp`] by connecting it to the provided transport implementation
-    pub fn connect(self, transport: TransportImpl) -> HelperApp {
-        HelperApp::new(transport, self.query_processor)
-    }
+    pub fn connect(
+        self,
+        mpc_transport: MpcTransportImpl,
+        shard_transport: ShardTransportImpl,
+    ) -> HelperApp {
+        let app = Arc::new(Inner {
+            query_processor: self.query_processor,
+            mpc_transport,
+            shard_transport,
+        });
+        self.handler.set_handler(
+            Arc::downgrade(&app) as Weak<dyn RequestHandler<Identity = HelperIdentity>>
+        );
 
-    /// Create callbacks that tie up query processor and transport.
-    fn callbacks(query_processor: &Arc<QueryProcessor>) -> TransportCallbacks<TransportImpl> {
-        let rqp = Arc::clone(query_processor);
-        let pqp = Arc::clone(query_processor);
-        let iqp = Arc::clone(query_processor);
-        let sqp = Arc::clone(query_processor);
-        let cqp = Arc::clone(query_processor);
-
-        TransportCallbacks {
-            receive_query: Box::new(move |transport: TransportImpl, receive_query| {
-                let processor = Arc::clone(&rqp);
-                Box::pin(async move {
-                    let r = processor.new_query(transport, receive_query).await?;
-
-                    Ok(r.query_id)
-                })
-            }),
-            prepare_query: Box::new(move |transport: TransportImpl, prepare_query| {
-                let processor = Arc::clone(&pqp);
-                Box::pin(async move { processor.prepare(&transport, prepare_query) })
-            }),
-            query_input: Box::new(move |transport: TransportImpl, query_input| {
-                let processor = Arc::clone(&iqp);
-                Box::pin(async move { processor.receive_inputs(transport, query_input) })
-            }),
-            query_status: Box::new(move |_transport: TransportImpl, query_id| {
-                let processor = Arc::clone(&sqp);
-                Box::pin(async move { processor.query_status(query_id) })
-            }),
-            complete_query: Box::new(move |_transport: TransportImpl, query_id| {
-                let processor = Arc::clone(&cqp);
-                Box::pin(async move { processor.complete(query_id).await })
-            }),
-        }
+        // Handler must be kept inside the app instance. When app is dropped, handler, transport and
+        // query processor are destroyed.
+        HelperApp { inner: app }
     }
 }
 
 impl HelperApp {
-    pub fn new(transport: TransportImpl, query_processor: Arc<QueryProcessor>) -> Self {
-        Self {
-            query_processor,
-            transport,
-        }
-    }
-
     /// Initiates a new query on this helper. In case if query is accepted, the unique [`QueryId`]
     /// identifier is returned, otherwise an error indicating what went wrong is reported back.
     ///
@@ -99,8 +84,12 @@ impl HelperApp {
     /// If query is rejected for any reason.
     pub async fn start_query(&self, query_config: QueryConfig) -> Result<QueryId, NewQueryError> {
         Ok(self
+            .inner
             .query_processor
-            .new_query(Transport::clone_ref(&self.transport), query_config)
+            .new_query(
+                Transport::clone_ref(&self.inner.mpc_transport),
+                query_config,
+            )
             .await?
             .query_id)
     }
@@ -109,9 +98,12 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
-    pub fn execute_query(&self, input: QueryInput) -> Result<(), Error> {
-        let transport = <TransportImpl as Clone>::clone(&self.transport);
-        self.query_processor.receive_inputs(transport, input)?;
+    pub fn execute_query(&self, input: QueryInput) -> Result<(), ApiError> {
+        let mpc_transport = Transport::clone_ref(&self.inner.mpc_transport);
+        let shard_transport = Transport::clone_ref(&self.inner.shard_transport);
+        self.inner
+            .query_processor
+            .receive_inputs(mpc_transport, shard_transport, input)?;
         Ok(())
     }
 
@@ -119,28 +111,77 @@ impl HelperApp {
     ///
     /// ## Errors
     /// Propagates errors from the helper.
-    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, Error> {
-        Ok(self.query_processor.query_status(query_id)?)
+    pub fn query_status(&self, query_id: QueryId) -> Result<QueryStatus, ApiError> {
+        Ok(self.inner.query_processor.query_status(query_id)?)
     }
 
     /// Waits for a query to complete and returns the result.
     ///
     /// ## Errors
     /// Propagates errors from the helper.
-    pub async fn complete_query(&self, query_id: QueryId) -> Result<Vec<u8>, Error> {
-        Ok(self.query_processor.complete(query_id).await?.into_bytes())
+    pub async fn complete_query(&self, query_id: QueryId) -> Result<Vec<u8>, ApiError> {
+        Ok(self
+            .inner
+            .query_processor
+            .complete(query_id)
+            .await?
+            .to_bytes())
     }
 }
 
-/// Union of error types returned by API operations.
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error(transparent)]
-    NewQuery(#[from] NewQueryError),
-    #[error(transparent)]
-    QueryInput(#[from] QueryInputError),
-    #[error(transparent)]
-    QueryCompletion(#[from] QueryCompletionError),
-    #[error(transparent)]
-    QueryStatus(#[from] QueryStatusError),
+#[async_trait]
+impl RequestHandler for Inner {
+    type Identity = HelperIdentity;
+
+    async fn handle(
+        &self,
+        req: Addr<Self::Identity>,
+        data: BodyStream,
+    ) -> Result<HelperResponse, ApiError> {
+        fn ext_query_id(req: &Addr<HelperIdentity>) -> Result<QueryId, ApiError> {
+            req.query_id.ok_or_else(|| {
+                ApiError::BadRequest("Query input is missing query_id argument".into())
+            })
+        }
+
+        let qp = &self.query_processor;
+
+        Ok(match req.route {
+            r @ RouteId::Records => {
+                return Err(ApiError::BadRequest(
+                    format!("{r:?} request must not be handled by query processing flow").into(),
+                ))
+            }
+            RouteId::ReceiveQuery => {
+                let req = req.into::<QueryConfig>()?;
+                HelperResponse::from(
+                    qp.new_query(Transport::clone_ref(&self.mpc_transport), req)
+                        .await?,
+                )
+            }
+            RouteId::PrepareQuery => {
+                let req = req.into::<PrepareQuery>()?;
+                HelperResponse::from(qp.prepare(&self.mpc_transport, req)?)
+            }
+            RouteId::QueryInput => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.receive_inputs(
+                    Transport::clone_ref(&self.mpc_transport),
+                    Transport::clone_ref(&self.shard_transport),
+                    QueryInput {
+                        query_id,
+                        input_stream: data,
+                    },
+                )?)
+            }
+            RouteId::QueryStatus => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.query_status(query_id)?)
+            }
+            RouteId::CompleteQuery => {
+                let query_id = ext_query_id(&req)?;
+                HelperResponse::from(qp.complete(query_id).await?)
+            }
+        })
+    }
 }

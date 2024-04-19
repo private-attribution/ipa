@@ -11,7 +11,7 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{Error, Message},
+    helpers::{Error, Message, Role},
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
@@ -75,7 +75,7 @@ impl Spare {
         self.buf.extend_from_slice(v);
     }
 
-    /// Extend the buffer with new data.  
+    /// Extend the buffer with new data.
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
@@ -160,7 +160,7 @@ pub enum ReceiveError<M: Message> {
     #[error("Error deserializing {0:?} record: {1}")]
     DeserializationError(RecordId, #[source] M::DeserializationError),
     #[error(transparent)]
-    InfraError(#[from] Error),
+    InfraError(#[from] Error<Role>),
 }
 
 impl<S, C> OperatingState<S, C>
@@ -384,7 +384,7 @@ mod test {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        ff::{Fp31, Fp32BitPrime, Serializable, U128Conversions},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
     };
 

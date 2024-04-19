@@ -1,14 +1,17 @@
+use std::fmt::{Debug, Formatter};
+
 use bitvec::{
-    prelude::{bitarr, BitArr, Lsb0},
+    prelude::{BitArr, Lsb0},
     slice::Iter,
 };
 use generic_array::GenericArray;
 use typenum::{U14, U2, U32, U8};
 
 use crate::{
-    ff::{boolean::Boolean, ArrayAccess, Field, Serializable},
+    error::LengthError,
+    ff::{boolean::Boolean, ArrayAccess, ArrayBuilder, Field, Serializable, U128Conversions},
     protocol::prss::{FromRandom, FromRandomU128},
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 /// The implementation below cannot be constrained without breaking Rust's
@@ -28,9 +31,14 @@ macro_rules! store_impl {
     };
 }
 
-/// iterator for Boolean arrays
+/// Iterator returned by `.iter()` on Boolean arrays
 pub struct BAIterator<'a> {
     iterator: std::iter::Take<Iter<'a, u8, Lsb0>>,
+}
+
+/// Iterator returned by `.into_iter()` on Boolean arrays
+pub struct BAOwnedIterator<S: IntoIterator> {
+    iterator: std::iter::Take<S::IntoIter>,
 }
 
 ///impl Iterator for all Boolean arrays
@@ -42,50 +50,34 @@ impl<'a> Iterator for BAIterator<'a> {
     }
 }
 
-/// A value of ONE has a one in the first element of the bit array, followed by `$bits-1` zeros.
-/// This macro uses a bit of recursive repetition to produce those zeros.
-///
-/// The longest call is 8 bits, which involves `2(n+1)` macro expansions in addition to `bitarr!`.
-macro_rules! bitarr_one {
+impl<'a> ExactSizeIterator for BAIterator<'a> {
+    fn len(&self) -> usize {
+        self.iterator.len()
+    }
+}
 
-    // The binary value of `$bits-1` is expanded in MSB order for each of the values we care about.
-    // e.g., 20 =(-1)=> 19 =(binary)=> 0b10011 =(expand)=> 1 0 0 1 1
+impl<S> Iterator for BAOwnedIterator<S>
+where
+    S: IntoIterator,
+    S::IntoIter: ExactSizeIterator,
+    <S::IntoIter as Iterator>::Item: Into<Boolean>,
+{
+    type Item = Boolean;
 
-    (2) => { bitarr_one!(1) };
-    (3) => { bitarr_one!(1 0) };
-    (4) => { bitarr_one!(1 1) };
-    (5) => { bitarr_one!(1 0 0) };
-    (6) => { bitarr_one!(1 0 1) };
-    (7) => { bitarr_one!(1 1 0) };
-    (8) => { bitarr_one!(1 1 1) };
-    (20) => { bitarr_one!(1 0 0 1 1) };
-    (32) => { bitarr_one!(1 1 1 1 1) };
-    (64) => { bitarr_one!(1 1 1 1 1 1) };
-    (112) => { bitarr_one!(1 1 0 1 1 1 1) };
-    (256) => { bitarr_one!(1 1 1 1 1 1 1 1) };
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iterator.next().map(Into::into)
+    }
+}
 
-    // Incrementally convert 1 or 0 into `[0,]` or `[]` as needed for the recursion step.
-    // This also reverses the bit order so that the MSB comes last, as needed for recursion.
-
-    // This passes a value back once the conversion is done.
-    ($([$($x:tt)*])*) => { bitarr_one!(@r $([$($x)*])*) };
-    // This converts one 1 into `[0,]`.
-    ($([$($x:tt)*])* 1 $($y:tt)*) => { bitarr_one!([0,] $([$($x)*])* $($y)*) };
-    // This converts one 0 into `[]`.
-    ($([$($x:tt)*])* 0 $($y:tt)*) => { bitarr_one!([] $([$($x)*])* $($y)*) };
-
-    // Recursion step.
-
-    // This is where recursion ends with a `BitArray`.
-    (@r [$($x:tt)*]) => { bitarr![const u8, Lsb0; 1, $($x)*] };
-    // This is the recursion workhorse.  It takes a list of lists.  The outer lists are bracketed.
-    // The inner lists contain any form that can be repeated and concatenated, which probably
-    // means comma-separated values with a trailing comma.
-    // The first value is repeated once.
-    // The second value is repeated twice and merged into the first value.
-    // The third and subsequent values are repeated twice and shifted along one place.
-    // One-valued bits are represented as `[0,]`, zero-valued bits as `[]`.
-    (@r [$($x:tt)*] [$($y:tt)*] $([$($z:tt)*])*) => { bitarr_one!(@r [$($x)* $($y)* $($y)*] $([$($z)* $($z)*])*) };
+impl<S> ExactSizeIterator for BAOwnedIterator<S>
+where
+    S: IntoIterator,
+    S::IntoIter: ExactSizeIterator,
+    <S::IntoIter as Iterator>::Item: Into<Boolean>,
+{
+    fn len(&self) -> usize {
+        self.iterator.len()
+    }
 }
 
 // Macro for boolean arrays <= 128 bits.
@@ -93,14 +85,7 @@ macro_rules! boolean_array_impl_small {
     ($modname:ident, $name:ident, $bits:tt, $deser_type:tt) => {
         boolean_array_impl!($modname, $name, $bits, $deser_type);
 
-        // TODO(812): remove this impl; BAs are not field elements.
-        impl Field for $name {
-            const ONE: Self = Self(bitarr_one!($bits));
-
-            fn as_u128(&self) -> u128 {
-                (*self).into()
-            }
-
+        impl U128Conversions for $name {
             fn truncate_from<T: Into<u128>>(v: T) -> Self {
                 let v = v.into();
                 let mut val = <Self as SharedValue>::ZERO;
@@ -109,6 +94,10 @@ macro_rules! boolean_array_impl_small {
                 }
 
                 val
+            }
+
+            fn as_u128(&self) -> u128 {
+                (*self).into()
             }
         }
 
@@ -150,7 +139,7 @@ macro_rules! boolean_array_impl_small {
 
         impl FromRandomU128 for $name {
             fn from_random_u128(src: u128) -> Self {
-                Field::truncate_from(src)
+                Self::truncate_from(src)
             }
         }
     };
@@ -218,9 +207,6 @@ macro_rules! impl_serializable_trait {
                 let min_value = $name::ZERO.0;
                 deserialize(min_value).unwrap();
 
-                let one = $name::ONE.0;
-                deserialize(one).unwrap();
-
                 let mut max_value = $name::ZERO.0;
                 max_value[..$bits].fill(true);
                 deserialize(max_value).unwrap();
@@ -229,8 +215,9 @@ macro_rules! impl_serializable_trait {
     };
 
     ($name: ident, $bits: tt, $store: ty, infallible) => {
-        const _SAFEGUARD: () = assert!(
-            $bits % 8 == 0,
+        $crate::const_assert_eq!(
+            $bits % 8,
+            0,
             "Infallible deserialization is defined for lengths that are multiples of 8 only"
         );
 
@@ -259,18 +246,43 @@ macro_rules! boolean_array_impl {
         mod $modname {
             use super::*;
             use crate::{
-                ff::{boolean::Boolean, ArrayAccess, Expand, Serializable},
+                ff::{boolean::Boolean, ArrayAccess, ArrayBuild, Expand, Serializable},
+                impl_shared_value_common,
                 secret_sharing::{
                     replicated::semi_honest::{ASIterator, AdditiveShare},
-                    SharedValue,
+                    FieldArray, SharedValue, SharedValueArray,
                 },
             };
 
     type Store = BitArr!(for $bits, in u8, Lsb0);
 
             /// A Boolean array with $bits bits.
-            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+            #[derive(Clone, Copy, PartialEq, Eq)]
             pub struct $name(pub(super) Store);
+
+            impl Debug for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                    f.write_str(stringify!($name))?;
+                    self.0.data.fmt(f)
+                }
+            }
+
+            impl $name {
+                #[cfg(all(test, unit_test))]
+                const STORE_LEN: usize = bitvec::mem::elts::<u8>($bits);
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_slice(&self) -> &[u8] {
+                    self.0.as_raw_slice()
+                }
+
+                #[inline]
+                #[must_use]
+                pub fn as_raw_mut_slice(&mut self) -> &mut [u8] {
+                    self.0.as_raw_mut_slice()
+                }
+            }
 
             impl ArrayAccess for $name {
                 type Output = Boolean;
@@ -300,21 +312,23 @@ macro_rules! boolean_array_impl {
                 type Storage = Store;
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<Store>::ZERO);
+
+                impl_shared_value_common!();
             }
 
             impl_serializable_trait!($name, $bits, Store, $deser_type);
 
-            impl std::ops::Add for $name {
+            impl std::ops::Add<&Self> for $name {
                 type Output = Self;
-                fn add(self, rhs: Self) -> Self::Output {
+                fn add(self, rhs: &Self) -> Self::Output {
                     Self(self.0 ^ rhs.0)
                 }
             }
 
-            impl std::ops::Add<&$name> for $name {
-                type Output = $name;
-                fn add(self, rhs: &$name) -> Self::Output {
-                    $name(self.0 ^ rhs.0)
+            impl std::ops::Add for $name {
+                type Output = Self;
+                fn add(self, rhs: Self) -> Self::Output {
+                    std::ops::Add::add(self, &rhs)
                 }
             }
 
@@ -332,22 +346,41 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl std::ops::AddAssign<&Self> for $name {
+                fn add_assign(&mut self, rhs: &Self) {
+                    *self.0.as_mut_bitslice() ^= rhs.0;
+                }
+            }
+
             impl std::ops::AddAssign for $name {
                 fn add_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() ^= rhs.0;
+                    std::ops::AddAssign::add_assign(self, &rhs);
+                }
+            }
+
+            impl std::ops::Sub<&Self> for $name {
+                type Output = Self;
+                fn sub(self, rhs: &Self) -> Self::Output {
+                    std::ops::Add::add(self, rhs)
                 }
             }
 
             impl std::ops::Sub for $name {
                 type Output = Self;
                 fn sub(self, rhs: Self) -> Self::Output {
-                    self + rhs
+                    std::ops::Add::add(self, rhs)
+                }
+            }
+
+            impl std::ops::SubAssign<&Self> for $name {
+                fn sub_assign(&mut self, rhs: &Self) {
+                    std::ops::AddAssign::add_assign(self, rhs);
                 }
             }
 
             impl std::ops::SubAssign for $name {
                 fn sub_assign(&mut self, rhs: Self) {
-                    *self += rhs;
+                    std::ops::SubAssign::sub_assign(self, &rhs);
                 }
             }
 
@@ -358,16 +391,45 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl Vectorizable<1> for $name {
+                type Array = StdArray<$name, 1>;
+            }
+
+            impl std::ops::Mul<&Self> for $name {
+                type Output = Self;
+                fn mul(self, rhs: &Self) -> Self::Output {
+                    Self(self.0 & rhs.0)
+                }
+            }
+
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    Self(self.0 & rhs.0)
+                    std::ops::Mul::mul(self, &rhs)
                 }
             }
 
             impl std::ops::MulAssign for $name {
                 fn mul_assign(&mut self, rhs: Self) {
-                    *self = *self * rhs;
+                    self.0 &= rhs.0;
+                }
+            }
+
+            impl std::ops::Mul<&Boolean> for $name {
+                type Output = Self;
+                fn mul(self, rhs: &Boolean) -> Self::Output {
+                    if *rhs == Boolean::ONE {
+                        self
+                    } else {
+                        <Self as SharedValue>::ZERO
+                    }
+                }
+            }
+
+            impl std::ops::Mul<Boolean> for $name {
+                type Output = Self;
+                fn mul(self, rhs: Boolean) -> Self::Output {
+                    std::ops::Mul::mul(self, &rhs)
                 }
             }
 
@@ -381,11 +443,83 @@ macro_rules! boolean_array_impl {
                 type Input = Boolean;
 
                 fn expand(v: &Boolean) -> Self {
-                    let mut result = <$name>::ZERO;
+                    let mut result = <$name as SharedValue>::ZERO;
                     for i in 0..usize::try_from(<$name>::BITS).unwrap() {
-                        result.set(i, *v);
+                        result.0.set(i, bool::from(*v));
                     }
                     result
+                }
+            }
+
+            impl TryFrom<Vec<Boolean>> for $name {
+                type Error = LengthError;
+                fn try_from(value: Vec<Boolean>) -> Result<Self, Self::Error> {
+                    if value.len() == $bits {
+                        Ok(value.into_iter().collect::<Self>())
+                    } else {
+                        Err(LengthError {
+                            expected: $bits,
+                            actual: value.len(),
+                        })
+                    }
+                }
+            }
+
+            impl ArrayBuild for $name {
+                type Input = Boolean;
+                type Builder = BooleanArrayBuilder<$name>;
+
+                fn builder() -> Self::Builder {
+                    BooleanArrayBuilder::new()
+                }
+            }
+
+            impl SharedValueArray<Boolean> for $name {
+                const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
+
+                fn from_fn<F: FnMut(usize) -> Boolean>(mut f: F) -> Self {
+                    let mut res = <Self as SharedValueArray<Boolean>>::ZERO_ARRAY;
+
+                    for i in 0..$bits {
+                        res.0.set(i, bool::from(f(i)));
+                    }
+
+                    res
+                }
+            }
+
+            impl FieldArray<Boolean> for $name {}
+
+            // Panics if the iterator terminates before producing N items.
+            impl FromIterator<Boolean> for $name {
+                fn from_iter<T: IntoIterator<Item = Boolean>>(iter: T) -> Self {
+                    let mut res = <Self as SharedValueArray<Boolean>>::ZERO_ARRAY;
+                    let mut iter = iter.into_iter();
+
+                    for i in 0..$bits {
+                        res.0.set(
+                            i,
+                            bool::from(iter.next().unwrap_or_else(|| {
+                                panic!("Expected iterator to produce {} items, got only {i}", $bits)
+                            })),
+                        );
+                    }
+
+                    res
+                }
+            }
+
+            impl IntoIterator for $name {
+                type Item = Boolean;
+                type IntoIter = BAOwnedIterator<Store>;
+
+                fn into_iter(self) -> Self::IntoIter {
+                    BAOwnedIterator {
+                        iterator: self
+                            .0
+                            .into_iter()
+                            .take(usize::try_from(<$name>::BITS).unwrap()),
+                    }
                 }
             }
 
@@ -394,7 +528,7 @@ macro_rules! boolean_array_impl {
             #[allow(clippy::into_iter_without_iter)]
             impl<'a> IntoIterator for &'a AdditiveShare<$name> {
                 type Item = AdditiveShare<Boolean>;
-                type IntoIter = ASIterator<BAIterator<'a>>;
+                type IntoIter = ASIterator<'a, $name, Boolean>;
 
                 fn into_iter(self) -> Self::IntoIter {
                     self.iter()
@@ -411,12 +545,110 @@ macro_rules! boolean_array_impl {
 
             #[cfg(all(test, unit_test))]
             mod tests {
+                use proptest::{
+                    prelude::{prop, Arbitrary, Strategy},
+                    proptest,
+                };
                 use rand::{thread_rng, Rng};
 
                 use super::*;
 
-                // Only small BAs expose this via `Field`.
-                const ONE: $name = $name(bitarr_one!($bits));
+                impl Arbitrary for $name {
+                    type Parameters = <[u8; $name::STORE_LEN] as Arbitrary>::Parameters;
+                    type Strategy = prop::strategy::Map<
+                        <[u8; $name::STORE_LEN] as Arbitrary>::Strategy,
+                        fn([u8; $name::STORE_LEN]) -> Self,
+                    >;
+
+                    fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
+                        <[u8; $name::STORE_LEN]>::arbitrary_with(args)
+                            .prop_map(|arr| $name(Store::from(arr)))
+                    }
+                }
+
+                proptest! {
+                    #[test]
+                    fn add_sub(a: $name, b: $name) {
+                        let xor = $name(a.0 ^ b.0);
+
+                        assert_eq!(&a + &b, xor);
+                        assert_eq!(&a + b.clone(), xor);
+                        assert_eq!(a.clone() + &b, xor);
+                        assert_eq!(a.clone() + b.clone(), xor);
+
+                        let mut tmp = a.clone();
+                        tmp += &b;
+                        assert_eq!(tmp, xor);
+
+                        let mut tmp = a.clone();
+                        tmp += b;
+                        assert_eq!(tmp, xor);
+
+                        // Sub not implemented yet for &BA
+                        //assert_eq!(&a - &b, xor);
+                        //assert_eq!(&a - b.clone(), xor);
+                        assert_eq!(a.clone() - &b, xor);
+                        assert_eq!(a.clone() - b.clone(), xor);
+
+                        let mut tmp = a.clone();
+                        tmp -= &b;
+                        assert_eq!(tmp, xor);
+
+                        let mut tmp = a.clone();
+                        tmp -= b;
+                        assert_eq!(tmp, xor);
+
+                        assert_eq!(-a, a);
+                        assert_eq!(a + (-a), $name::ZERO);
+                    }
+
+                    #[test]
+                    fn mul(mut a: $name, b: $name, c: Boolean) {
+                        let prod = $name(a.0 & b.0);
+
+                        a *= b;
+                        assert_eq!(a, prod);
+
+                        assert_eq!(a * Boolean::from(false), $name::ZERO);
+                        assert_eq!(a * Boolean::from(true), a);
+                        assert_eq!(a * c, if bool::from(c) { a } else { $name::ZERO });
+                        assert_eq!(a * &c, if bool::from(c) { a } else { $name::ZERO });
+                    }
+                }
+
+                #[test]
+                fn boolean_array_from_vec() {
+                    let v = [false, false, true].map(Boolean::from).to_vec();
+                    assert_eq!(BA3::try_from(v.clone()), Ok(BA3::truncate_from(4_u128)));
+                    assert_eq!(
+                        BA8::try_from(v),
+                        Err(LengthError {
+                            expected: 8,
+                            actual: 3
+                        })
+                    );
+                }
+
+                #[test]
+                fn boolean_array_from_fn() {
+                    assert_eq!(
+                        BA3::from_fn(|i| Boolean::from(i == 2)),
+                        BA3::truncate_from(4_u128)
+                    );
+                }
+
+                #[test]
+                fn boolean_array_from_iter() {
+                    let iter = [false, false, true].into_iter().map(Boolean::from);
+                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
+                }
+
+                #[test]
+                #[should_panic(expected = "Expected iterator to produce 3 items, got only 2")]
+                fn boolean_array_from_short_iter() {
+                    let iter = [false, false].into_iter().map(Boolean::from);
+                    assert_eq!(BA3::from_iter(iter), BA3::truncate_from(4_u128));
+                }
 
                 #[test]
                 fn set_boolean_array() {
@@ -428,29 +660,50 @@ macro_rules! boolean_array_impl {
                     assert_eq!(ba.get(i), Some(a));
                 }
 
-                #[test]
-                fn iterate_boolean_array() {
-                    let bits = ONE;
-                    let iter = bits.iter();
-                    for (i, j) in iter.enumerate() {
-                        if i == 0 {
-                            assert_eq!(j, Boolean::ONE);
-                        } else {
-                            assert_eq!(j, Boolean::ZERO);
+                proptest! {
+                    #[test]
+                    fn iterate_boolean_array(a: $name) {
+                        let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(bool::from(b), a.0[i]);
+                            assert_eq!(iter.len(), $bits - 1 - i);
                         }
                     }
-                }
 
-                #[test]
-                fn iterate_secret_shared_boolean_array() {
-                    use crate::secret_sharing::replicated::ReplicatedSecretSharing;
-                    let bits = AdditiveShare::new(ONE, ONE);
-                    let iter = bits.into_iter();
-                    for (i, j) in iter.enumerate() {
-                        if i == 0 {
-                            assert_eq!(j, AdditiveShare::new(Boolean::ONE, Boolean::ONE));
-                        } else {
-                            assert_eq!(j, AdditiveShare::<Boolean>::ZERO);
+                    #[test]
+                    fn iterate_secret_shared_boolean_array(a: AdditiveShare<$name>) {
+                        use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                        let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, sb)) = iter.next() {
+                            let left = Boolean::from(a.left().0[i]);
+                            let right = Boolean::from(a.right().0[i]);
+                            assert_eq!(sb, AdditiveShare::new(left, right));
+                            assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
+
+                    #[test]
+                    fn iterate_secret_shared_boolean_array_ref(a: AdditiveShare<$name>) {
+                        use crate::secret_sharing::replicated::ReplicatedSecretSharing;
+                        let mut iter = (&a).into_iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, sb)) = iter.next() {
+                            let left = Boolean::from(a.left().0[i]);
+                            let right = Boolean::from(a.right().0[i]);
+                            assert_eq!(sb, AdditiveShare::new(left, right));
+                            assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
+
+                    #[test]
+                    fn owned_iterator(a: $name) {
+                        let mut iter = a.into_iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(bool::from(b), a.0[i]);
+                            assert_eq!(iter.len(), $bits - 1 - i);
                         }
                     }
                 }
@@ -465,6 +718,13 @@ macro_rules! boolean_array_impl {
                         $name::deserialize(&buf).unwrap(),
                         "Failed to deserialize a valid value: {ba:?}"
                     );
+                }
+
+                #[test]
+                fn debug() {
+                    let expected = format!("{}{:?}", stringify!($name), $name::ZERO.0.data);
+                    let actual = format!("{:?}", $name::ZERO);
+                    assert_eq!(expected, actual);
                 }
             }
         }
@@ -489,11 +749,20 @@ boolean_array_impl_small!(boolean_array_5, BA5, 5, fallible);
 boolean_array_impl_small!(boolean_array_6, BA6, 6, fallible);
 boolean_array_impl_small!(boolean_array_7, BA7, 7, fallible);
 boolean_array_impl_small!(boolean_array_8, BA8, 8, infallible);
+boolean_array_impl_small!(boolean_array_16, BA16, 16, infallible);
 boolean_array_impl_small!(boolean_array_20, BA20, 20, fallible);
 boolean_array_impl_small!(boolean_array_32, BA32, 32, infallible);
 boolean_array_impl_small!(boolean_array_64, BA64, 64, infallible);
 boolean_array_impl_small!(boolean_array_112, BA112, 112, infallible);
 boolean_array_impl!(boolean_array_256, BA256, 256, infallible);
+
+impl Vectorizable<256> for BA64 {
+    type Array = StdArray<BA64, 256>;
+}
+
+impl Vectorizable<256> for BA256 {
+    type Array = StdArray<BA256, 256>;
+}
 
 // used to convert into Fp25519
 impl From<(u128, u128)> for BA256 {
@@ -518,5 +787,42 @@ impl FromRandom for BA256 {
 impl rand::distributions::Distribution<BA256> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> BA256 {
         (rng.gen(), rng.gen()).into()
+    }
+}
+
+pub struct BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean>,
+{
+    array: T,
+    index: usize,
+}
+
+impl<T> BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean> + SharedValue,
+{
+    fn new() -> Self {
+        Self {
+            array: T::ZERO,
+            index: 0,
+        }
+    }
+}
+
+impl<T> ArrayBuilder for BooleanArrayBuilder<T>
+where
+    T: ArrayAccess<Output = Boolean> + Send,
+{
+    type Element = Boolean;
+    type Array = T;
+
+    fn push(&mut self, value: Self::Element) {
+        self.array.set(self.index, value);
+        self.index += 1;
+    }
+
+    fn build(self) -> Self::Array {
+        self.array
     }
 }

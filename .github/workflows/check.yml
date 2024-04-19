@@ -31,14 +31,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -59,6 +59,10 @@ jobs:
         if: ${{ success() || failure() }}
         run: cargo clippy --tests --features shuttle
 
+      - name: Clippy web
+        if: ${{ success() || failure() }}
+        run: cargo clippy --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate"
+
       - name: Build
         if: ${{ success() || failure() }}
         run: cargo build --tests
@@ -78,14 +82,14 @@ jobs:
     env:
       RUSTFLAGS: -C target-cpu=native
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -112,14 +116,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/rm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -155,7 +159,8 @@ jobs:
     env:
       TARGET: x86_64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rm
       - uses: dtolnay/rust-toolchain@nightly
       - name: Add Rust sources
         run: rustup component add rust-src
@@ -167,7 +172,8 @@ jobs:
     env:
       TARGET: x86_64-unknown-linux-gnu
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/rm
     - uses: dtolnay/rust-toolchain@nightly
     - name: Add Miri
       run: rustup component add miri
@@ -184,6 +190,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: ./.github/actions/rm
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -197,7 +204,7 @@ jobs:
         run: ./scripts/coverage-ci --lcov --output-path ipa.cov
 
       - name: Report to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ipa.cov

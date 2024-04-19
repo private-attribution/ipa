@@ -2,7 +2,6 @@ use std::{
     fmt::Debug,
     future::{ready, Future},
     pin::Pin,
-    sync::Arc,
 };
 
 use ::tokio::sync::oneshot;
@@ -25,18 +24,19 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        context::{MaliciousContext, SemiHonestContext},
+        context::SemiHonestContext,
         prss::Endpoint as PrssEndpoint,
         step::{Gate, StepNarrow},
     },
     query::{
-        runner::{IpaQuery, OprfIpaQuery, QueryResult, SparseAggregateQuery},
+        runner::{OprfIpaQuery, QueryResult},
         state::RunningQuery,
     },
+    sync::Arc,
 };
 
 pub trait Result: Send + Debug {
-    fn into_bytes(self: Box<Self>) -> Vec<u8>;
+    fn to_bytes(&self) -> Vec<u8>;
 }
 
 impl<T> Result for Vec<T>
@@ -44,9 +44,9 @@ where
     T: Serializable,
     Vec<T>: Debug + Send,
 {
-    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut r = vec![0u8; self.len() * T::Size::USIZE];
-        for (i, row) in self.into_iter().enumerate() {
+        for (i, row) in self.iter().enumerate() {
             row.serialize(GenericArray::from_mut_slice(
                 &mut r[(i * T::Size::USIZE)..((i + 1) * T::Size::USIZE)],
             ));
@@ -56,7 +56,8 @@ where
     }
 }
 
-#[allow(clippy::too_many_lines)]
+/// Needless pass by value because IPA v3 does not make use of key registry yet.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn execute(
     config: QueryConfig,
     key_registry: Arc<KeyRegistry<KeyPair>>,
@@ -78,130 +79,6 @@ pub fn execute(
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::SemiHonestIpa(ipa_config), FieldType::Fp31) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        (QueryType::SemiHonestIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::MaliciousIpa(ipa_config), FieldType::Fp31) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = MaliciousContext::new(prss, gateway);
-                Box::pin(
-                    IpaQuery::<crate::ff::Fp31, _, _>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        (QueryType::MaliciousIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = MaliciousContext::new(prss, gateway);
-                Box::pin(
-                    IpaQuery::<Fp32BitPrime, _, _>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
-                        aggregate_config,
-                        key_registry,
-                    )
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        (QueryType::SemiHonestSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
-            do_query(
-                config,
-                gateway,
-                input,
-                move |prss, gateway, config, input| {
-                    let ctx = SemiHonestContext::new(prss, gateway);
-                    Box::pin(
-                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
-                            aggregate_config,
-                            key_registry,
-                        )
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                    )
-                },
-            )
-        }
-        #[cfg(any(test, feature = "weak-field"))]
-        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp31) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = MaliciousContext::new(prss, gateway);
-                Box::pin(
-                    SparseAggregateQuery::<crate::ff::Fp31, _, _>::new(
-                        aggregate_config,
-                        key_registry,
-                    )
-                    .execute(ctx, config.size, input)
-                    .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
-        (QueryType::MaliciousSparseAggregate(aggregate_config), FieldType::Fp32BitPrime) => {
-            do_query(
-                config,
-                gateway,
-                input,
-                move |prss, gateway, config, input| {
-                    let ctx = MaliciousContext::new(prss, gateway);
-                    Box::pin(
-                        SparseAggregateQuery::<Fp32BitPrime, _, _>::new(
-                            aggregate_config,
-                            key_registry,
-                        )
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                    )
-                },
-            )
-        }
         (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
             config,
             gateway,
@@ -209,7 +86,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config)
+                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -223,7 +100,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, crate::ff::Fp31>::new(ipa_config)
+                    OprfIpaQuery::<_, crate::ff::Fp31>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -270,7 +147,7 @@ where
 #[cfg(all(test, unit_test))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Fp31, U128Conversions},
         query::ProtocolResult,
         secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
     };
@@ -279,10 +156,10 @@ mod tests {
     fn serialize_result() {
         let [input, ..] = (0u128..=3).map(Fp31::truncate_from).share();
         let expected = input.clone();
-        let bytes = Box::new(input).into_bytes();
+        let bytes = &input.to_bytes();
         assert_eq!(
             expected,
-            AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+            AdditiveShare::<Fp31>::from_byte_slice(bytes)
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
         );

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     marker::PhantomData,
     num::NonZeroUsize,
     pin::Pin,
@@ -7,11 +8,16 @@ use std::{
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::Stream;
+#[cfg(all(test, feature = "shuttle"))]
+use shuttle::future as tokio;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{buffers::OrderingSender, ChannelId, Error, Message, Role, TotalRecords},
-    protocol::RecordId,
+    helpers::{
+        buffers::OrderingSender, routing::RouteId, ChannelId, Error, Message, TotalRecords,
+        Transport, TransportIdentity,
+    },
+    protocol::{QueryId, RecordId},
     sync::Arc,
     telemetry::{
         labels::{ROLE, STEP},
@@ -20,31 +26,37 @@ use crate::{
 };
 
 /// Sending end of the gateway channel.
-pub struct SendingEnd<M: Message> {
-    sender_role: Role,
-    channel_id: ChannelId,
-    inner: Arc<GatewaySender>,
+pub struct SendingEnd<I: TransportIdentity, M> {
+    sender_id: I,
+    inner: Arc<GatewaySender<I>>,
     _phantom: PhantomData<M>,
 }
 
-/// Sending channels, indexed by (role, step).
-#[derive(Default)]
-pub(super) struct GatewaySenders {
-    pub(super) inner: DashMap<ChannelId, Arc<GatewaySender>>,
+/// Sending channels, indexed by identity and gate.
+pub(super) struct GatewaySenders<I> {
+    pub(super) inner: DashMap<ChannelId<I>, Arc<GatewaySender<I>>>,
 }
 
-pub(super) struct GatewaySender {
-    channel_id: ChannelId,
+pub(super) struct GatewaySender<I> {
+    channel_id: ChannelId<I>,
     ordering_tx: OrderingSender,
     total_records: TotalRecords,
 }
 
-pub(super) struct GatewaySendStream {
-    inner: Arc<GatewaySender>,
+struct GatewaySendStream<I> {
+    inner: Arc<GatewaySender<I>>,
 }
 
-impl GatewaySender {
-    fn new(channel_id: ChannelId, tx: OrderingSender, total_records: TotalRecords) -> Self {
+impl<I: TransportIdentity> Default for GatewaySenders<I> {
+    fn default() -> Self {
+        Self {
+            inner: DashMap::default(),
+        }
+    }
+}
+
+impl<I: TransportIdentity> GatewaySender<I> {
+    fn new(channel_id: ChannelId<I>, tx: OrderingSender, total_records: TotalRecords) -> Self {
         Self {
             channel_id,
             ordering_tx: tx,
@@ -52,7 +64,11 @@ impl GatewaySender {
         }
     }
 
-    pub async fn send<M: Message>(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
+    pub async fn send<M: Message, B: Borrow<M>>(
+        &self,
+        record_id: RecordId,
+        msg: B,
+    ) -> Result<(), Error<I>> {
         debug_assert!(
             self.total_records.is_specified(),
             "total_records cannot be unspecified when sending"
@@ -89,11 +105,10 @@ impl GatewaySender {
     }
 }
 
-impl<M: Message> SendingEnd<M> {
-    pub(super) fn new(sender: Arc<GatewaySender>, role: Role, channel_id: &ChannelId) -> Self {
+impl<I: TransportIdentity, M: Message> SendingEnd<I, M> {
+    pub(super) fn new(sender: Arc<GatewaySender<I>>, id: I) -> Self {
         Self {
-            sender_role: role,
-            channel_id: channel_id.clone(),
+            sender_id: id,
             inner: sender,
             _phantom: PhantomData,
         }
@@ -108,32 +123,38 @@ impl<M: Message> SendingEnd<M> {
     /// call.
     ///
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
-    #[tracing::instrument(level = "trace", "send", skip_all, fields(i = %record_id, total = %self.inner.total_records, to = ?self.channel_id.role, gate = ?self.channel_id.gate.as_ref()))]
-    pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
+    #[tracing::instrument(level = "trace", "send", skip_all, fields(
+        i = %record_id,
+        total = %self.inner.total_records,
+        to = ?self.inner.channel_id.peer,
+        gate = ?self.inner.channel_id.gate.as_ref()
+    ))]
+    pub async fn send<B: Borrow<M>>(&self, record_id: RecordId, msg: B) -> Result<(), Error<I>> {
         let r = self.inner.send(record_id, msg).await;
         metrics::increment_counter!(RECORDS_SENT,
-            STEP => self.channel_id.gate.as_ref().to_string(),
-            ROLE => self.sender_role.as_static_str()
+            STEP => self.inner.channel_id.gate.as_ref().to_string(),
+            ROLE => self.sender_id.as_str(),
         );
         metrics::counter!(BYTES_SENT, M::Size::U64,
-            STEP => self.channel_id.gate.as_ref().to_string(),
-            ROLE => self.sender_role.as_static_str()
+            STEP => self.inner.channel_id.gate.as_ref().to_string(),
+            ROLE => self.sender_id.as_str(),
         );
 
         r
     }
 }
 
-impl GatewaySenders {
-    /// Returns or creates a new communication channel. In case if channel is newly created,
-    /// returns the receiving end of it as well. It must be send over to the receiver in order for
-    /// messages to get through.
-    pub(crate) fn get_or_create<M: Message>(
+impl<I: TransportIdentity> GatewaySenders<I> {
+    /// Returns a communication channel for the given [`ChannelId`]. If it does not exist, it will
+    /// be created using the provided [`Transport`] implementation.
+    pub fn get<M: Message, T: Transport<Identity = I>>(
         &self,
-        channel_id: &ChannelId,
+        channel_id: &ChannelId<I>,
+        transport: &T,
         capacity: NonZeroUsize,
+        query_id: QueryId,
         total_records: TotalRecords, // TODO track children for indeterminate senders
-    ) -> (Arc<GatewaySender>, Option<GatewaySendStream>) {
+    ) -> Arc<GatewaySender<I>> {
         assert!(
             total_records.is_specified(),
             "unspecified total records for {channel_id:?}"
@@ -141,44 +162,64 @@ impl GatewaySenders {
 
         // TODO: raw entry API would be nice to have here but it's not exposed yet
         match self.inner.entry(channel_id.clone()) {
-            Entry::Occupied(entry) => (Arc::clone(entry.get()), None),
+            Entry::Occupied(entry) => Arc::clone(entry.get()),
             Entry::Vacant(entry) => {
-                // Spare buffer is not required when messages have uniform size and buffer is a
-                // multiple of that size.
-                const SPARE: usize = 0;
-                // a little trick - if number of records is indeterminate, set the capacity to one
-                // message.  Any send will wake the stream reader then, effectively disabling
-                // buffering.  This mode is clearly inefficient, so avoid using this mode.
-                let write_size = if total_records.is_indeterminate() {
-                    NonZeroUsize::new(M::Size::USIZE).unwrap()
-                } else {
-                    // capacity is defined in terms of number of elements, while sender wants bytes
-                    // so perform the conversion here
-                    capacity
-                        .checked_mul(
-                            NonZeroUsize::new(M::Size::USIZE)
-                                .expect("Message size should be greater than 0"),
-                        )
-                        .expect("capacity should not overflow")
-                };
-
-                let sender = Arc::new(GatewaySender::new(
-                    channel_id.clone(),
-                    OrderingSender::new(write_size, SPARE),
-                    total_records,
-                ));
+                let sender = Self::new_sender::<M>(capacity, channel_id.clone(), total_records);
                 entry.insert(Arc::clone(&sender));
 
-                (
-                    Arc::clone(&sender),
-                    Some(GatewaySendStream { inner: sender }),
-                )
+                tokio::spawn({
+                    let ChannelId { peer, gate } = channel_id.clone();
+                    let transport = transport.clone();
+                    let stream = GatewaySendStream {
+                        inner: Arc::clone(&sender),
+                    };
+                    async move {
+                        // TODO(651): In the HTTP case we probably need more robust error handling here.
+                        transport
+                            .send(peer, (RouteId::Records, query_id, gate), stream)
+                            .await
+                            .expect("{channel_id:?} receiving end should be accepted by transport");
+                    }
+                });
+
+                sender
             }
         }
     }
+
+    fn new_sender<M: Message>(
+        capacity: NonZeroUsize,
+        channel_id: ChannelId<I>,
+        total_records: TotalRecords,
+    ) -> Arc<GatewaySender<I>> {
+        // Spare buffer is not required when messages have uniform size and buffer is a
+        // multiple of that size.
+        const SPARE: usize = 0;
+        // a little trick - if number of records is indeterminate, set the capacity to one
+        // message.  Any send will wake the stream reader then, effectively disabling
+        // buffering.  This mode is clearly inefficient, so avoid using this mode.
+        let write_size = if total_records.is_indeterminate() {
+            NonZeroUsize::new(M::Size::USIZE).unwrap()
+        } else {
+            // capacity is defined in terms of number of elements, while sender wants bytes
+            // so perform the conversion here
+            capacity
+                .checked_mul(
+                    NonZeroUsize::new(M::Size::USIZE)
+                        .expect("Message size should be greater than 0"),
+                )
+                .expect("capacity should not overflow")
+        };
+
+        Arc::new(GatewaySender::new(
+            channel_id,
+            OrderingSender::new(write_size, SPARE),
+            total_records,
+        ))
+    }
 }
 
-impl Stream for GatewaySendStream {
+impl<I> Stream for GatewaySendStream<I> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

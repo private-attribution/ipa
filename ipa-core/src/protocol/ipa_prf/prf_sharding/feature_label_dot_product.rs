@@ -6,9 +6,9 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, CustomArray, Expand, Field, PrimeField, Serializable},
+    ff::{boolean::Boolean, CustomArray, Field, PrimeField, Serializable},
     protocol::{
-        basics::{if_else, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
@@ -57,7 +57,8 @@ impl InputsRequiredFromPrevRow {
     ) -> Result<Replicated<FV>, Error>
     where
         C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-        FV: CustomArray<Element = Boolean> + Field,
+        FV: SharedValue + CustomArray<Element = Boolean>,
+        Replicated<FV>: BooleanArrayMul,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -92,11 +93,10 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let capped_label_vector = Replicated::<FV>::expand(&capped_label);
-        let capped_attributed_feature_vector = if_else(
+        let capped_attributed_feature_vector = select(
             ctx.narrow(&Step::ComputedCappedFeatureVector),
             record_id,
-            &capped_label_vector,
+            &capped_label,
             &input_row.feature_vector,
             &Replicated::<FV>::ZERO,
         )
@@ -223,7 +223,8 @@ where
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
     S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
-    FV: CustomArray<Element = Boolean> + Field,
+    FV: SharedValue + CustomArray<Element = Boolean>,
+    Replicated<FV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
 {
     assert!(<FV as SharedValue>::BITS > 0);
@@ -300,7 +301,8 @@ async fn evaluate_per_user_attribution_circuit<C, FV>(
 ) -> Result<Vec<Replicated<FV>>, Error>
 where
     C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    FV: CustomArray<Element = Boolean> + Field,
+    FV: SharedValue + CustomArray<Element = Boolean>,
+    Replicated<FV>: BooleanArrayMul,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -346,7 +348,10 @@ where
 #[cfg(all(test, unit_test))]
 pub mod tests {
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime},
+        ff::{
+            boolean::Boolean, boolean_array::BA32, CustomArray, Field, Fp32BitPrime,
+            U128Conversions,
+        },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },

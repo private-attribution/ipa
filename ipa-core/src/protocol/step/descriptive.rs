@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
+use serde::Deserialize;
+
 use super::{Step, StepNarrow};
 #[cfg(feature = "step-trace")]
 use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};
@@ -22,12 +24,8 @@ use crate::telemetry::{labels::STEP, metrics::STEP_NARROWED};
 /// Step "a" would be executed with a context identifier of "protocol/a", which it
 ///  would `narrow()` into "protocol/a/x" and "protocol/a/y" to produce a final set
 /// of identifiers: ".../a/x", ".../a/y", ".../b", and ".../c".
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(from = "&str")
-)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(from = "&str")]
 pub struct Descriptive {
     id: String,
 }

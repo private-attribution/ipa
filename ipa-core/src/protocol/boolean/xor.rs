@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, U128Conversions},
     protocol::{
         basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
         context::Context,
@@ -15,7 +15,7 @@ use crate::{
 /// When communication fails.
 pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
 where
-    F: Field,
+    F: Field + U128Conversions,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
@@ -33,7 +33,7 @@ pub async fn xor_sparse<F, C, S>(
     zeros_at: MultiplyZeroPositions,
 ) -> Result<S, Error>
 where
-    F: Field,
+    F: Field + U128Conversions,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
@@ -47,7 +47,7 @@ mod tests {
 
     use super::xor;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, U128Conversions},
         protocol::{
             basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
@@ -60,7 +60,7 @@ mod tests {
 
     async fn run<F>(world: &TestWorld, a: F, b: F) -> F
     where
-        F: ExtendableField,
+        F: ExtendableField + U128Conversions,
         Standard: Distribution<F>,
     {
         let result = world

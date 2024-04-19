@@ -1,18 +1,55 @@
-use std::fmt::Display;
+use std::{fmt::Display, mem};
 
 use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::Serializable,
+    ff::{FieldType, Serializable, U128Conversions},
+    impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
-pub trait PrimeField: Field {
+pub trait PrimeField: Field + U128Conversions {
     type PrimeInteger: Into<u128>;
 
     const PRIME: Self::PrimeInteger;
+
+    /// Invert function that returns the multiplicative inverse
+    /// the default implementation uses the extended Euclidean algorithm,
+    /// follows inversion algorithm in
+    /// (with the modification that it works for unsigned integers by keeping track of `sign`):
+    /// `https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm`
+    ///
+    /// The function operates on `u128` rather than field elements since we need divisions
+    ///
+    /// ## Panics
+    /// When `self` is `Zero`
+    #[must_use]
+    fn invert(&self) -> Self {
+        assert_ne!(*self, Self::ZERO);
+
+        let mut t = 0u128;
+        let mut newt = 1u128;
+        let mut r = Self::PRIME.into();
+        let mut newr = self.as_u128();
+        let mut sign = 1u128;
+
+        while newr != 0 {
+            let quotient = r / newr;
+            mem::swap(&mut t, &mut newt);
+            mem::swap(&mut r, &mut newr);
+            newt += quotient * t;
+            newr -= quotient * r;
+
+            // flip sign
+            sign = 1 - sign;
+        }
+
+        // when sign is negative, output `PRIME-t` otherwise `t`
+        // unwrap is safe
+        Self::try_from((1 - sign) * t + sign * (Self::PRIME.into() - t)).unwrap()
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -22,7 +59,6 @@ pub struct GreaterThanPrimeError<V: Display>(V, u128);
 macro_rules! field_impl {
     ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
         use super::*;
-        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub struct $field(<Self as SharedValue>::Storage);
@@ -31,14 +67,27 @@ macro_rules! field_impl {
             type Storage = $store;
             const BITS: u32 = $bits;
             const ZERO: Self = $field(0);
+
+            impl_shared_value_common!();
+        }
+
+        impl Vectorizable<1> for $field {
+            type Array = StdArray<$field, 1>;
+        }
+
+        impl FieldVectorizable<1> for $field {
+            type ArrayAlias = StdArray<$field, 1>;
         }
 
         impl Field for $field {
-            const ONE: Self = $field(1);
+            const NAME: &'static str = stringify!($field);
 
+            const ONE: Self = $field(1);
+        }
+
+        impl U128Conversions for $field {
             fn as_u128(&self) -> u128 {
-                let int: Self::Storage = (*self).into();
-                int.into()
+                u128::from(self.0)
             }
 
             /// An infallible conversion from `u128` to this type.  This can be used to draw
@@ -55,7 +104,7 @@ macro_rules! field_impl {
 
         impl FromRandomU128 for $field {
             fn from_random_u128(src: u128) -> Self {
-                Field::truncate_from(src)
+                U128Conversions::truncate_from(src)
             }
         }
 
@@ -282,6 +331,14 @@ macro_rules! field_impl {
                     let err = $field::deserialize(&buf).unwrap_err();
                     assert!(matches!(err, GreaterThanPrimeError(..)))
                 }
+
+                #[test]
+                fn invert(element: $field) {
+                    if element != $field::ZERO
+                    {
+                        assert_eq!($field::ONE,element * element.invert() );
+                    }
+                }
             }
         }
 
@@ -316,6 +373,14 @@ mod fp31 {
 
 mod fp32bit {
     field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
+
+    impl Vectorizable<32> for Fp32BitPrime {
+        type Array = StdArray<Fp32BitPrime, 32>;
+    }
+
+    impl FieldVectorizable<32> for Fp32BitPrime {
+        type ArrayAlias = StdArray<Fp32BitPrime, 32>;
+    }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {

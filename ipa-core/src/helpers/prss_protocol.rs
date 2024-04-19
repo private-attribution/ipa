@@ -3,7 +3,7 @@ use rand_core::{CryptoRng, RngCore};
 use x25519_dalek::PublicKey;
 
 use crate::{
-    helpers::{ChannelId, Direction, Error, Gateway, TotalRecords},
+    helpers::{ChannelId, Direction, Error, Gateway, Role, TotalRecords},
     protocol::{
         prss,
         step::{Gate, Step, StepNarrow},
@@ -28,7 +28,7 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     gateway: &Gateway,
     gate: &Gate,
     rng: &mut R,
-) -> Result<prss::Endpoint, Error> {
+) -> Result<prss::Endpoint, Error<Role>> {
     // setup protocol to exchange prss public keys. This protocol sends one message per peer.
     // Each message contains this helper's public key. At the end of this protocol, all helpers
     // have completed key exchange and each of them have established a shared secret with each peer.
@@ -37,10 +37,10 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
     let total_records = TotalRecords::from(1);
 
-    let left_sender = gateway.get_sender::<PublicKey>(&left_channel, total_records);
-    let right_sender = gateway.get_sender::<PublicKey>(&right_channel, total_records);
-    let left_receiver = gateway.get_receiver::<PublicKey>(&left_channel);
-    let right_receiver = gateway.get_receiver::<PublicKey>(&right_channel);
+    let left_sender = gateway.get_mpc_sender::<PublicKey>(&left_channel, total_records);
+    let right_sender = gateway.get_mpc_sender::<PublicKey>(&right_channel, total_records);
+    let left_receiver = gateway.get_mpc_receiver::<PublicKey>(&left_channel);
+    let right_receiver = gateway.get_mpc_receiver::<PublicKey>(&right_channel);
 
     // setup local prss endpoint
     let ep_setup = prss::Endpoint::prepare(rng);

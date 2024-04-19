@@ -1,5 +1,3 @@
-pub mod oprf_shuffle;
-
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
@@ -10,21 +8,19 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteId, RouteParams,
+        transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
+        GatewayConfig, RoleAssignment, RouteParams,
     },
     protocol::{step::Step, QueryId},
 };
 
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize))]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize)]
 pub struct QuerySize(u32);
 
 impl QuerySize {
     pub const MAX: u32 = 1_000_000_000;
 }
 
-#[cfg(feature = "enable-serde")]
 impl<'de> Deserialize<'de> for QuerySize {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -84,9 +80,8 @@ impl From<QuerySize> for usize {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
     pub size: QuerySize,
     pub field_type: FieldType,
@@ -99,13 +94,32 @@ pub enum QueryConfigError {
     BadQuerySize(#[from] BadQuerySizeError),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for PrepareQuery {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::PrepareQuery
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
@@ -123,14 +137,8 @@ impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -177,14 +185,8 @@ impl RouteParams<RouteId, QueryId, NoStep> for &PrepareQuery {
         NoStep
     }
 
-    #[cfg(feature = "enable-serde")]
     fn extra(&self) -> Self::Params {
         serde_json::to_string(self).unwrap()
-    }
-
-    #[cfg(not(feature = "enable-serde"))]
-    fn extra(&self) -> Self::Params {
-        unimplemented!()
     }
 }
 
@@ -199,24 +201,15 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    SemiHonestIpa(IpaQueryConfig),
-    MaliciousIpa(IpaQueryConfig),
-    SemiHonestSparseAggregate(SparseAggregateQueryConfig),
-    MaliciousSparseAggregate(SparseAggregateQueryConfig),
     OprfIpa(IpaQueryConfig),
 }
 
 impl QueryType {
     pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
-    pub const SEMIHONEST_IPA_STR: &'static str = "semihonest-ipa";
-    pub const MALICIOUS_IPA_STR: &'static str = "malicious-ipa";
-    pub const SEMIHONEST_AGGREGATE_STR: &'static str = "semihonest-sparse-aggregate";
-    pub const MALICIOUS_AGGREGATE_STR: &'static str = "malicious-sparse-aggregate";
     pub const OPRF_IPA_STR: &'static str = "oprf_ipa";
 }
 
@@ -226,10 +219,6 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::SemiHonestIpa(_) => Self::SEMIHONEST_IPA_STR,
-            QueryType::MaliciousIpa(_) => Self::MALICIOUS_IPA_STR,
-            QueryType::SemiHonestSparseAggregate(_) => Self::SEMIHONEST_AGGREGATE_STR,
-            QueryType::MaliciousSparseAggregate(_) => Self::MALICIOUS_AGGREGATE_STR,
             QueryType::OprfIpa(_) => Self::OPRF_IPA_STR,
         }
     }
@@ -237,11 +226,10 @@ impl AsRef<str> for QueryType {
 
 impl Step for QueryType {}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct IpaQueryConfig {
-    #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
+    #[cfg_attr(feature = "clap", arg(long, default_value = "8"))]
     pub per_user_credit_cap: u32,
     #[cfg_attr(feature = "clap", arg(long, default_value = "5"))]
     pub max_breakdown_key: u32,
@@ -262,7 +250,7 @@ pub struct IpaQueryConfig {
 impl Default for IpaQueryConfig {
     fn default() -> Self {
         Self {
-            per_user_credit_cap: 3,
+            per_user_credit_cap: 8,
             max_breakdown_key: 20,
             attribution_window_seconds: None,
             num_multi_bits: 3,
@@ -340,21 +328,5 @@ impl Default for ContributionBits {
 impl std::fmt::Display for ContributionBits {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct SparseAggregateQueryConfig {
-    pub contribution_bits: ContributionBits,
-    pub num_contributions: u32,
-}
-
-impl Default for SparseAggregateQueryConfig {
-    fn default() -> Self {
-        Self {
-            contribution_bits: ContributionBits::default(),
-            num_contributions: 8,
-        }
     }
 }

@@ -36,10 +36,12 @@ pub trait StepNarrow<S: Step + ?Sized> {
 pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
-#[cfg(any(feature = "test-fixture", debug_assertions))]
+// Note: Since the creation of the `derive(Step)` macro, hardly any code is
+// required to define a step. Doing so is highly encouraged, even in tests.
+#[cfg(test)]
 impl Step for String {}
 
-#[cfg(any(feature = "test-fixture", debug_assertions))]
+#[cfg(test)]
 impl Step for str {}
 
 /// A step generator for bitwise secure operations.
@@ -73,12 +75,4 @@ impl From<usize> for BitOpStep {
     fn from(v: usize) -> Self {
         Self::Bit(v)
     }
-}
-
-/// Set of steps that define the IPA protocol.
-#[derive(Step)]
-pub(crate) enum IpaProtocolStep {
-    /// Sort shares by the match key
-    #[dynamic(64)]
-    Sort(usize),
 }

@@ -1,18 +1,22 @@
+use std::{
+    future::Future,
+    ops::{Add, Sub},
+};
+
 use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::Field,
-    protocol::{
-        context::{Context, UpgradedMaliciousContext},
-        RecordId,
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA20, BA3, BA32, BA5, BA8},
+        Expand,
     },
-    secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-        semi_honest::AdditiveShare as Replicated,
-    },
+    protocol::{context::Context, RecordId},
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
+#[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
@@ -47,39 +51,69 @@ pub trait SecureMul<C: Context>: Send + Sync + Sized {
         C: 'fut;
 }
 
-/// looks like clippy disagrees with itself on whether this attribute is useless or not.
-use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_mul};
+use semi_honest::multiply as semi_honest_mul;
 
-/// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
-#[async_trait]
-impl<C: Context, F: Field> SecureMul<C> for Replicated<F> {
-    async fn multiply_sparse<'fut>(
-        &self,
-        rhs: &Self,
+// The BooleanArrayMul trait is implemented for types like `Replicated<BA32>`. It hides the `N`
+// const parameter so that implementations parameterized with a Boolean array type parameter (e.g.
+// breakdown key type BK is BA8) can invoke vectorized multiply. Without this trait, those
+// implementations would need to specify the `N` const parameter, which is tricky, because you
+// can't supply an expression involving a type parameter (BK::BITS) as a const parameter.
+pub trait BooleanArrayMul: Expand<Input = Replicated<Boolean>> + From<Self::Vectorized> {
+    type Vectorized: From<Self>
+        + for<'a> Add<&'a Self::Vectorized, Output = Self::Vectorized>
+        + for<'a> Sub<&'a Self::Vectorized, Output = Self::Vectorized>
+        + Send
+        + Sync
+        + 'static;
+
+    fn multiply<'fut, C>(
         ctx: C,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self, Error>
+        a: &'fut Self::Vectorized,
+        b: &'fut Self::Vectorized,
+    ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
     where
-        C: 'fut,
-    {
-        semi_honest_mul(ctx, record_id, self, rhs, zeros_at).await
-    }
+        C: Context + 'fut;
 }
 
-/// Implement secure multiplication for malicious contexts with replicated secret sharing.
-#[async_trait]
-impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
-    async fn multiply_sparse<'fut>(
-        &self,
-        rhs: &Self,
-        ctx: UpgradedMaliciousContext<'a, F>,
-        record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self, Error>
-    where
-        UpgradedMaliciousContext<'a, F>: 'fut,
-    {
-        malicious_mul(ctx, record_id, self, rhs, zeros_at).await
-    }
+// Workaround for https://github.com/rust-lang/rust/issues/100013. Calling this wrapper function
+// instead of `<_ as BooleanArrayMul>::multiply` seems to hide the BooleanArrayMul `impl Future`
+// GAT.
+pub fn boolean_array_multiply<'fut, C, B>(
+    ctx: C,
+    record_id: RecordId,
+    a: &'fut B::Vectorized,
+    b: &'fut B::Vectorized,
+) -> impl Future<Output = Result<B::Vectorized, Error>> + Send + 'fut
+where
+    C: Context + 'fut,
+    B: BooleanArrayMul,
+{
+    B::multiply(ctx, record_id, a, b)
 }
+
+macro_rules! boolean_array_mul {
+    ($dim:expr, $vec:ty) => {
+        impl BooleanArrayMul for Replicated<$vec> {
+            type Vectorized = Replicated<Boolean, $dim>;
+
+            fn multiply<'fut, C>(
+                ctx: C,
+                record_id: RecordId,
+                a: &'fut Self::Vectorized,
+                b: &'fut Self::Vectorized,
+            ) -> impl Future<Output = Result<Self::Vectorized, Error>> + Send + 'fut
+            where
+                C: Context + 'fut,
+            {
+                semi_honest_mul(ctx, record_id, a, b, ZeroPositions::NONE)
+            }
+        }
+    };
+}
+
+boolean_array_mul!(3, BA3);
+boolean_array_mul!(5, BA5);
+boolean_array_mul!(8, BA8);
+boolean_array_mul!(20, BA20);
+boolean_array_mul!(32, BA32);

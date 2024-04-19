@@ -11,6 +11,7 @@ mod galois_field;
 mod prime_field;
 
 use std::{
+    borrow::Borrow,
     convert::Infallible,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
@@ -22,7 +23,7 @@ use generic_array::{ArrayLength, GenericArray};
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, PrimeField};
 
-use crate::error::UnwrapInfallible;
+use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -43,6 +44,16 @@ impl<T, Rhs, Output> AddSub<Rhs, Output> for T where
 
 pub trait AddSubAssign<Rhs = Self>: AddAssign<Rhs> + SubAssign<Rhs> {}
 impl<T, Rhs> AddSubAssign<Rhs> for T where T: AddAssign<Rhs> + SubAssign<Rhs> {}
+
+pub trait U128Conversions: FromRandomU128 + TryFrom<u128, Error = crate::error::Error> {
+    /// Truncates higher-order bits and converts into this data type. This conversion is lossy if
+    /// the higher order bits are non-zero. Callers are encouraged to use `try_from` if the input may
+    /// not be convertible.
+    fn truncate_from<T: Into<u128>>(v: T) -> Self;
+
+    /// Blanket implementation to represent the instance of this trait as 16 byte integer.
+    fn as_u128(&self) -> u128;
+}
 
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
@@ -82,7 +93,7 @@ pub trait Serializable: Sized {
 
 pub trait ArrayAccess {
     type Output;
-    type Iter<'a>: Iterator<Item = Self::Output> + Send
+    type Iter<'a>: ExactSizeIterator<Item = Self::Output> + Send
     where
         Self: 'a;
 
@@ -91,6 +102,24 @@ pub trait ArrayAccess {
     fn set(&mut self, index: usize, e: Self::Output);
 
     fn iter(&self) -> Self::Iter<'_>;
+}
+
+pub trait ArrayAccessRef {
+    type Element;
+    type Ref<'a>: Borrow<Self::Element> + Clone
+    where
+        Self: 'a;
+    type Iter<'a>: Iterator<Item = Self::Ref<'a>> + ExactSizeIterator + Send
+    where
+        Self: 'a;
+
+    fn get(&self, index: usize) -> Option<Self::Ref<'_>>;
+
+    fn set(&mut self, index: usize, e: Self::Ref<'_>);
+
+    fn iter(&self) -> Self::Iter<'_>;
+
+    fn make_ref(src: &Self::Element) -> Self::Ref<'_>;
 }
 
 pub trait Expand {
@@ -105,7 +134,9 @@ pub trait Expand {
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
 where
-    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
+    Self: ArrayAccess<Output = Self::Element>
+        + Expand<Input = Self::Element>
+        + ArrayBuild<Input = Self::Element>,
 {
     type Element;
 }
@@ -113,7 +144,30 @@ where
 /// impl Custom Array for all compatible structs
 impl<S> CustomArray for S
 where
-    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
+    S: ArrayAccess
+        + Expand<Input = <S as ArrayAccess>::Output>
+        + ArrayBuild<Input = <S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
+}
+
+pub trait ArrayBuild {
+    type Input;
+    type Builder: ArrayBuilder<Element = Self::Input, Array = Self>;
+
+    fn builder() -> Self::Builder;
+}
+
+pub trait ArrayBuilder: Send + Sized {
+    type Element;
+    type Array;
+
+    #[must_use]
+    fn with_capacity(self, _capacity: usize) -> Self {
+        self
+    }
+
+    fn push(&mut self, value: Self::Element);
+
+    fn build(self) -> Self::Array;
 }

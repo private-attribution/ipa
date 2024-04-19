@@ -1,4 +1,8 @@
-use std::borrow::Borrow;
+use std::{
+    borrow::{Borrow, Cow},
+    fmt::Debug,
+    hash::Hash,
+};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -8,22 +12,58 @@ use crate::{
     protocol::{step::Gate, QueryId},
 };
 
-pub mod callbacks;
+mod handler;
 #[cfg(feature = "in-memory-infra")]
 mod in_memory;
 pub mod query;
 mod receive;
+pub mod routing;
 mod stream;
 
+pub use handler::{
+    make_owned_handler, Error as ApiError, HandlerBox, HandlerRef, HelperResponse, RequestHandler,
+};
 #[cfg(feature = "in-memory-infra")]
-pub use in_memory::{InMemoryNetwork, InMemoryTransport};
+pub use in_memory::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 pub use receive::{LogErrors, ReceiveRecords};
 #[cfg(feature = "web-app")]
 pub use stream::WrappedAxumBodyStream;
 pub use stream::{
-    BodyStream, BytesStream, LengthDelimitedStream, RecordsStream, StreamCollection, StreamKey,
-    WrappedBoxBodyStream,
+    BodyStream, BytesStream, LengthDelimitedStream, RecordsStream, SingleRecordStream,
+    StreamCollection, StreamKey, WrappedBoxBodyStream,
 };
+
+use crate::{
+    helpers::{transport::routing::RouteId, Role, TransportIdentity},
+    sharding::ShardIndex,
+};
+
+/// An identity of a peer that can be communicated with using [`Transport`]. There are currently two
+/// types of peers - helpers and shards.
+pub trait Identity:
+    Copy + Clone + Debug + PartialEq + Eq + PartialOrd + Ord + Hash + Send + Sync + 'static
+{
+    fn as_str(&self) -> Cow<'static, str>;
+}
+
+impl Identity for ShardIndex {
+    fn as_str(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+impl Identity for HelperIdentity {
+    fn as_str(&self) -> Cow<'static, str> {
+        Cow::Owned(self.id.to_string())
+    }
+}
+
+/// Role is an identifier of helper peer, only valid within a given query. For every query, there
+/// exists a static mapping from role to helper identity.
+impl Identity for Role {
+    fn as_str(&self) -> Cow<'static, str> {
+        Cow::Borrowed(Role::as_static_str(self))
+    }
+}
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
@@ -40,13 +80,6 @@ where
 pub struct NoResourceIdentifier;
 pub struct NoQueryId;
 pub struct NoStep;
-
-#[derive(Debug, Copy, Clone)]
-pub enum RouteId {
-    Records,
-    ReceiveQuery,
-    PrepareQuery,
-}
 
 impl ResourceIdentifier for NoResourceIdentifier {}
 impl ResourceIdentifier for RouteId {}
@@ -74,6 +107,9 @@ where
     Option<QueryId>: From<Q>,
     Option<Gate>: From<S>,
 {
+    // This is not great and definitely not a zero-cost abstraction. We serialize parameters
+    // here, only to deserialize them again inside the request handler. I am not too worried
+    // about it as long as the data we serialize is tiny, which is the case right now.
     type Params: Borrow<str>;
 
     fn resource_identifier(&self) -> R;
@@ -123,20 +159,41 @@ impl RouteParams<RouteId, QueryId, Gate> for (RouteId, QueryId, Gate) {
     }
 }
 
+impl RouteParams<RouteId, QueryId, NoStep> for (RouteId, QueryId) {
+    type Params = &'static str;
+
+    fn resource_identifier(&self) -> RouteId {
+        self.0
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.1
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        ""
+    }
+}
+
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait Transport: Clone + Send + Sync + 'static {
-    type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
+    type Identity: TransportIdentity;
+    type RecordsStream: BytesStream;
     type Error: std::fmt::Debug;
 
-    fn identity(&self) -> HelperIdentity;
+    fn identity(&self) -> Self::Identity;
 
     /// Sends a new request to the given destination helper party.
     /// Depending on the specific request, it may or may not require acknowledgment by the remote
     /// party
     async fn send<D, Q, S, R>(
         &self,
-        dest: HelperIdentity,
+        dest: Self::Identity,
         route: R,
         data: D,
     ) -> Result<(), Self::Error>
@@ -152,7 +209,7 @@ pub trait Transport: Clone + Send + Sync + 'static {
     /// and step
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        from: HelperIdentity,
+        from: Self::Identity,
         route: R,
     ) -> Self::RecordsStream;
 

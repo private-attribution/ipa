@@ -7,7 +7,9 @@ use typenum::U32;
 
 use crate::{
     ff::{ec_prime_field::Fp25519, Serializable},
-    secret_sharing::{Block, SharedValue},
+    impl_shared_value_common,
+    protocol::ipa_prf::PRF_CHUNK,
+    secret_sharing::{Block, SharedValue, StdArray, Vectorizable},
 };
 
 impl Block for CompressedRistretto {
@@ -33,6 +35,16 @@ impl SharedValue for RP25519 {
     type Storage = CompressedRistretto;
     const BITS: u32 = 256;
     const ZERO: Self = Self(CompressedRistretto([0_u8; 32]));
+
+    impl_shared_value_common!();
+}
+
+impl Vectorizable<1> for RP25519 {
+    type Array = StdArray<Self, 1>;
+}
+
+impl Vectorizable<PRF_CHUNK> for RP25519 {
+    type Array = StdArray<Self, PRF_CHUNK>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -189,7 +201,6 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U32;
 
-    use super::*;
     use crate::{
         ff::{curve_points::RP25519, ec_prime_field::Fp25519, Serializable},
         secret_sharing::SharedValue,
@@ -248,7 +259,10 @@ mod test {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn non_canonical() {
+        use crate::ff::curve_points::NonCanonicalEncoding;
+
         const ZERO: u128 = 0;
         // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF is not a valid Ristretto point
         let buf: [u8; 32] = unsafe { std::mem::transmute([!ZERO, !ZERO]) };

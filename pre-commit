@@ -87,6 +87,11 @@ check "Clippy checks" \
 check "Clippy concurrency checks" \
     cargo clippy --tests --features shuttle -- -D warnings
 
+check "Clippy web checks" \
+    cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture descriptive-gate" -- -D warnings
+
+# The tests here need to be kept in sync with scripts/coverage-ci.
+
 check "Tests" \
     cargo test
 
@@ -97,13 +102,7 @@ check "Concurrency tests" \
     cargo test -p ipa-core --release --features shuttle
 
 check "IPA benchmark" \
-    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62
-
-check "IPA OPRF benchmark" \
-    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62 --oprf -c 16
+    cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches descriptive-gate" -- -n 62 -c 16
 
 check "Arithmetic circuit benchmark" \
     cargo bench --bench oneshot_arithmetic --no-default-features --features "enable-benches descriptive-gate"
-
-check "Sort benchmark" \
-    cargo bench --bench oneshot_sort --no-default-features --features="enable-benches descriptive-gate"

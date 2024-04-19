@@ -7,6 +7,7 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
+        basics::{reveal, Reveal},
         boolean::{
             bitwise_less_than_prime::BitwiseLessThanPrime, generate_random_bits::one_random_bit,
         },
@@ -18,7 +19,7 @@ use crate::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
             UnauthorizedDowngradeWrapper,
         },
-        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SecretSharing,
+        BitDecomposed, Linear as LinearSecretSharing, LinearRefOps, SecretSharing, Vectorizable,
     },
 };
 
@@ -128,12 +129,15 @@ async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Resu
 where
     F: PrimeField,
     C: Context,
-    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F>
+        + BasicProtocols<C, F>
+        + Reveal<C, 1, Output = <F as Vectorizable<1>>::Array>,
 {
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
             .await?;
-    if c_b.reveal(ctx.narrow(&Step::RevealC), record_id).await? == F::ZERO {
+
+    if F::from_array(&reveal(ctx.narrow(&Step::RevealC), record_id, &c_b).await?) == F::ZERO {
         return Ok(false);
     }
     Ok(true)
@@ -153,7 +157,7 @@ mod tests {
     use rand::{distributions::Standard, prelude::Distribution};
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField, U128Conversions},
         protocol::{
             boolean::solved_bits::solved_bits,
             context::{Context, UpgradableContext, Validator},

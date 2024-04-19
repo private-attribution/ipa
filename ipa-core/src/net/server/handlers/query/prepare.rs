@@ -1,21 +1,27 @@
-use std::sync::Arc;
-
 use axum::{response::IntoResponse, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    net::{http_serde, server::ClientIdentity, HttpTransport},
+    helpers::{BodyStream, Transport},
+    net::{http_serde, server::ClientIdentity, Error, HttpTransport},
     query::PrepareQueryError,
+    sync::Arc,
 };
 
 /// Called by whichever peer helper is the leader for an individual query, to initiatialize
 /// processing of that query.
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    _from: Extension<ClientIdentity>, // require that client is an authenticated helper
+    _: Extension<ClientIdentity>, // require that client is an authenticated helper
     req: http_serde::query::prepare::Request,
-) -> Result<(), PrepareQueryError> {
-    Arc::clone(&transport).prepare_query(req.data).await
+) -> Result<(), Error> {
+    let transport = Transport::clone_ref(&*transport);
+    let _ = transport
+        .dispatch(req.data, BodyStream::empty())
+        .await
+        .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(())
 }
 
 impl IntoResponse for PrepareQueryError {
@@ -32,21 +38,23 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::future::ready;
 
-    use axum::http::Request;
+    use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
+            make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            HelperIdentity, RoleAssignment, TransportCallbacks,
+            routing::{Addr, RouteId},
+            BodyStream, HelperIdentity, HelperResponse, RoleAssignment,
         },
         net::{
+            http_serde,
             server::{
                 handlers::query::{
+                    prepare::handler,
                     test_helpers::{assert_req_fails_with, IntoFailingReq},
                     MaybeExtensionExt,
                 },
@@ -65,17 +73,26 @@ mod tests {
             roles: RoleAssignment::new(HelperIdentity::make_three()),
         });
         let expected_prepare_query = req.data.clone();
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _: BodyStream| {
+                    let expected_prepare_query = expected_prepare_query.clone();
+                    async move {
+                        let RouteId::PrepareQuery = addr.route else {
+                            panic!("unexpected call");
+                        };
 
-        let cb = TransportCallbacks {
-            prepare_query: Box::new(move |_transport, prepare_query| {
-                assert_eq!(prepare_query, expected_prepare_query);
-                Box::pin(ready(Ok(())))
-            }),
-            ..Default::default()
-        };
-        let TestServer { transport, .. } = TestServer::builder().with_callbacks(cb).build().await;
+                        let actual_prepare_query = addr.into::<PrepareQuery>().unwrap();
+                        assert_eq!(actual_prepare_query, expected_prepare_query);
+                        Ok(HelperResponse::ok())
+                    }
+                },
+            ))
+            .build()
+            .await;
+
         handler(
-            Extension(transport),
+            Extension(test_server.transport),
             Extension(ClientIdentity(HelperIdentity::TWO)),
             req.clone(),
         )

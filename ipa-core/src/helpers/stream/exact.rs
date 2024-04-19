@@ -87,7 +87,7 @@ mod test {
     use futures::stream::iter;
     use futures_util::StreamExt;
 
-    use crate::exact::{ExactSizeStream, FixedLength};
+    use super::{ExactSizeStream, FixedLength};
 
     #[test]
     fn fixed_stream() {

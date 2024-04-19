@@ -2,14 +2,19 @@ use std::convert::Infallible;
 
 use curve25519_dalek::scalar::Scalar;
 use generic_array::GenericArray;
-use hkdf::Hkdf;
-use sha2::Sha256;
-use typenum::U32;
+use typenum::{U2, U32};
 
 use crate::{
-    ff::{boolean_array::BA256, Field, Serializable},
-    protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    ff::{boolean_array::BA256, Expand, Field, Serializable},
+    impl_shared_value_common,
+    protocol::{
+        ipa_prf::PRF_CHUNK,
+        prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
+    },
+    secret_sharing::{
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        Block, FieldVectorizable, SharedValue, StdArray, Vectorizable,
+    },
 };
 
 impl Block for Scalar {
@@ -39,6 +44,8 @@ impl SharedValue for Fp25519 {
     type Storage = Scalar;
     const BITS: u32 = 256;
     const ZERO: Self = Self(Scalar::ZERO);
+
+    impl_shared_value_common!();
 }
 
 ///conversion to Scalar struct of `curve25519_dalek`
@@ -124,6 +131,20 @@ impl std::ops::MulAssign for Fp25519 {
     }
 }
 
+impl<const N: usize> Expand for AdditiveShare<Fp25519, N>
+where
+    Fp25519: Vectorizable<N>,
+{
+    type Input = AdditiveShare<Fp25519>;
+
+    fn expand(v: &Self::Input) -> Self {
+        AdditiveShare::new_arr(
+            <Fp25519 as Vectorizable<N>>::Array::expand(&v.left()),
+            <Fp25519 as Vectorizable<N>>::Array::expand(&v.right()),
+        )
+    }
+}
+
 impl From<Scalar> for Fp25519 {
     fn from(s: Scalar) -> Self {
         Fp25519(s)
@@ -176,45 +197,62 @@ macro_rules! sc_hash_impl {
 #[cfg(test)]
 sc_hash_impl!(u64);
 
-///implement Field because required by PRSS
+impl Vectorizable<1> for Fp25519 {
+    type Array = StdArray<Self, 1>;
+}
+
+impl FieldVectorizable<1> for Fp25519 {
+    type ArrayAlias = StdArray<Self, 1>;
+}
+
+impl Vectorizable<PRF_CHUNK> for Fp25519 {
+    type Array = StdArray<Self, PRF_CHUNK>;
+}
+
+impl FieldVectorizable<PRF_CHUNK> for Fp25519 {
+    type ArrayAlias = StdArray<Self, PRF_CHUNK>;
+}
+
 impl Field for Fp25519 {
+    const NAME: &'static str = "Fp25519";
+
     const ONE: Fp25519 = Fp25519::ONE;
+}
 
-    ///both following methods are based on hashing and do not allow to actually convert elements in Fp25519
-    /// from or into u128. However it is sufficient to generate random elements in Fp25519
-    fn as_u128(&self) -> u128 {
-        unimplemented!()
-    }
+impl FromRandom for Fp25519 {
+    type SourceLength = U2;
 
-    ///PRSS uses `truncate_from function`, we need to expand the u128 using a PRG (Sha256) to a [u8;32]
-    fn truncate_from<T: Into<u128>>(_v: T) -> Self {
-        unimplemented!()
+    fn from_random(src: GenericArray<u128, Self::SourceLength>) -> Self {
+        let mut src_bytes = [0u8; 32];
+        src_bytes[0..16].copy_from_slice(&src[0].to_le_bytes());
+        src_bytes[16..32].copy_from_slice(&src[1].to_le_bytes());
+        // Reduces mod order
+        Fp25519::deserialize_infallible(<&GenericArray<u8, U32>>::from(&src_bytes))
     }
 }
 
-// TODO(812): remove this impl
-impl FromRandomU128 for Fp25519 {
-    fn from_random_u128(v: u128) -> Self {
-        let hk = Hkdf::<Sha256>::new(None, &v.to_le_bytes());
-        let mut okm = [0u8; 32];
-        //error invalid length from expand only happens when okm is very large
-        hk.expand(&[], &mut okm).unwrap();
-        Fp25519::deserialize_infallible(&okm.into())
-    }
+macro_rules! impl_share_from_random {
+    ($width:expr) => {
+        impl FromPrss for AdditiveShare<Fp25519, $width> {
+            fn from_prss_with<P: SharedRandomness + ?Sized, I: Into<PrssIndex>>(
+                prss: &P,
+                index: I,
+                _params: (),
+            ) -> AdditiveShare<Fp25519, $width> {
+                let (l_arr, r_arr) = StdArray::from_tuple_iter(
+                    prss.generate_chunks_iter::<_, U2>(index)
+                        .map(|(l_rand, r_rand)| {
+                            (Fp25519::from_random(l_rand), Fp25519::from_random(r_rand))
+                        })
+                        .take($width),
+                );
+                AdditiveShare::new_arr(l_arr, r_arr)
+            }
+        }
+    };
 }
 
-///implement `TryFrom` since required by Field
-impl TryFrom<u128> for Fp25519 {
-    type Error = crate::error::Error;
-
-    fn try_from(v: u128) -> Result<Self, Self::Error> {
-        let mut bits = [0u8; 32];
-        bits[..].copy_from_slice(&v.to_le_bytes());
-        let f: Fp25519 = Fp25519::ONE;
-        f.serialize((&mut bits).into());
-        Ok(f)
-    }
-}
+impl_share_from_random!(PRF_CHUNK);
 
 #[cfg(all(test, unit_test))]
 mod test {

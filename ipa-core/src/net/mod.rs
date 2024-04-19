@@ -9,4 +9,4 @@ mod transport;
 pub use client::{ClientIdentity, MpcHelperClient};
 pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
-pub use transport::HttpTransport;
+pub use transport::{HttpShardTransport, HttpTransport};
