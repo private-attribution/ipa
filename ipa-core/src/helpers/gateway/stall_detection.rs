@@ -423,7 +423,7 @@ mod send {
 
 /// Converts a vector of numbers into a vector of ranges.
 /// For example, [1, 2, 3, 4, 5, 7, 9, 10, 11] produces [(1..=5), (7..=7), (9..=11)].
-fn to_ranges(nums: Vec<usize>) -> Vec<std::ops::RangeInclusive<usize>> {
+fn to_ranges<I: IntoIterator<Item = usize>>(nums: I) -> Vec<std::ops::RangeInclusive<usize>> {
     nums.into_iter()
         .fold(Vec::<RangeInclusive<usize>>::new(), |mut ranges, num| {
             if let Some(last_range) = ranges.last_mut().filter(|r| *r.end() == num - 1) {

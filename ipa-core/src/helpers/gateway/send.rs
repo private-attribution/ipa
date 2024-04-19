@@ -95,7 +95,7 @@ impl<I: TransportIdentity> GatewaySender<I> {
     }
 
     #[cfg(feature = "stall-detection")]
-    pub fn waiting(&self) -> Vec<usize> {
+    pub fn waiting(&self) -> std::collections::BTreeSet<usize> {
         self.ordering_tx.waiting()
     }
 
