@@ -156,7 +156,8 @@ impl<I: TransportIdentity, M: Message> SendingEnd<I, M> {
     /// possible to send data through it, even from another thread that uses a different instance
     /// of [`Self`].
     ///
-    /// It has no effect to call this method more than once.
+    /// ## Panics
+    /// This may panic if method is called twice and futures created by it are awaited concurrently.
     pub async fn close(&self, at: RecordId) {
         if !self.inner.is_closed() {
             self.inner.close(at).await;

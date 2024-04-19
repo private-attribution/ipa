@@ -84,22 +84,15 @@ impl<M: MpcMessage> MpcReceivingEnd<M> {
         self.unordered_rx
             .recv::<M, _>(record_id)
             .await
-            .map_err(|e| {
-                let origin = self.channel_id.peer;
-                let step = self.channel_id.gate.to_string();
-
-                match e {
-                    UnorderedReceiverError::DeserializeFailed(inner) => Error::DeserializeFailed {
-                        origin,
-                        step,
-                        inner,
-                    },
-                    UnorderedReceiverError::EndOfStream(inner) => Error::EndOfStream {
-                        origin,
-                        step,
-                        inner,
-                    },
-                }
+            .map_err(|e| match e {
+                UnorderedReceiverError::DeserializeFailed(inner) => Error::DeserializeFailed {
+                    channel_id: self.channel_id.clone(),
+                    inner,
+                },
+                UnorderedReceiverError::EndOfStream(inner) => Error::EndOfStream {
+                    channel_id: self.channel_id.clone(),
+                    inner,
+                },
             })
     }
 }

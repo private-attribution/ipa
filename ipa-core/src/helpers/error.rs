@@ -11,16 +11,14 @@ use crate::{
 /// An error raised by the IPA supporting infrastructure.
 #[derive(Error, Debug)]
 pub enum Error<I: TransportIdentity> {
-    #[error("Received end of stream from {origin:?}/{step}: {inner}")]
+    #[error("Received end of stream from {channel_id:?}: {inner}")]
     EndOfStream {
-        origin: I,
-        step: String,
+        channel_id: ChannelId<I>,
         inner: EndOfStreamError,
     },
-    #[error("Deserialization error when receiving from {origin:?}/{step}: {inner}")]
+    #[error("Deserialization error when receiving from {channel_id:?}: {inner}")]
     DeserializeFailed {
-        origin: I,
-        step: String,
+        channel_id: ChannelId<I>,
         inner: DeserializeError,
     },
     #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]

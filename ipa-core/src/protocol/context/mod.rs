@@ -372,8 +372,17 @@ impl<'a> Inner<'a> {
 /// N per shard). Each channel stays open until the very last row is processed, then they are explicitly
 /// closed, even if nothing has been communicated between that pair.
 ///
+/// ## Shard picking considerations
+/// It is expected for `shard_picker` to select shards uniformly, by either using [`prss`] or sampling
+/// random values with enough entropy. Failure to do so may lead to extra memory overhead - this
+/// function uses the conservative `1.2` coefficent to estimate the number of records per shard after
+/// resharding is completed, according to our [`calculations`] that is sufficient with 2^-60 failure
+/// probability.
+///
+/// [`calculations`]: https://docs.google.com/document/d/1vej6tYgNV3GWcldD4tl7a4Z9EeZwda3F5u7roPGArlU/
+///
 /// ## Panics
-/// It does not panic
+/// When `shard_picker` returns an out-of-bounds index.
 ///
 /// ## Errors
 /// If cross-shard communication fails
@@ -390,13 +399,14 @@ where
     C: ShardedContext,
 {
     let input = input.into_iter();
+    let input_len = input.len();
 
     // We set channels capacity to be at least 1 to be able to open send channels to all peers.
     // It is prohibited to create them if total records is not set. We also over-provision here
     // because it is not known in advance how many records each peer receives. We could've set
     // the channel capacity to be indeterminate, but it could be less efficient in using our most
     // precious resource - network.
-    let ctx = ctx.set_total_records(std::cmp::max(1, input.len()));
+    let ctx = ctx.set_total_records(std::cmp::max(1, input_len));
     let my_shard = ctx.shard_id();
 
     // Open communication channels to all shards on this helper and keep track of records sent
@@ -464,6 +474,10 @@ where
         },
     )
     .fuse();
+    let shard_records_est = {
+        let v = input_len / usize::from(ctx.shard_count());
+        v + v / 4 // this gives us ~ 1.25 capacity, very close to 1.26 overhead estimated
+    };
 
     // This contains the deterministic order of events after resharding is complete.
     // Each shard will hold the records in this order:
@@ -471,7 +485,11 @@ where
     // There is no reason why this strategy was chosen. As long as it is consistent across helpers,
     // other ways to build the total order work too. For example, we could put records with
     // record_id = 0 first, then records with record_id = 1, etc.
-    let mut r: Vec<Vec<_>> = ctx.shard_count().iter().map(|_| Vec::new()).collect();
+    let mut r: Vec<Vec<_>> = ctx
+        .shard_count()
+        .iter()
+        .map(|_| Vec::with_capacity(shard_records_est))
+        .collect();
 
     // Interleave send and receive streams to ensure the backpressure does not block the flow.
     // For example, if this shard just sends all the data and then receives, the flow control from
