@@ -14,7 +14,7 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use rustls::Certificate;
+use rustls_pki_types::CertificateDer;
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -166,7 +166,7 @@ impl TestConfigBuilder {
                 url: format!("{scheme}://localhost:{}", ports[i])
                     .parse()
                     .unwrap(),
-                certificate: cert.map(Certificate),
+                certificate: cert,
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
@@ -371,14 +371,8 @@ jn+NXYPeKEWnkCcVKjFED6MevGnOgrJylgY=
 ",
 ];
 
-pub static TEST_CERTS_DER: Lazy<[Vec<u8>; 3]> = Lazy::new(|| {
-    TEST_CERTS.map(|mut pem| {
-        rustls_pemfile::certs(&mut pem)
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap()
-    })
+pub static TEST_CERTS_DER: Lazy<[CertificateDer; 3]> = Lazy::new(|| {
+    TEST_CERTS.map(|mut pem| rustls_pemfile::certs(&mut pem).flatten().next().unwrap())
 });
 
 pub const TEST_KEYS: [&[u8]; 3] = [

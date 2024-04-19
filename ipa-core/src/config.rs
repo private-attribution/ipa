@@ -9,8 +9,8 @@ use std::{
 };
 
 use hyper::{client::Builder, http::uri::Scheme, Uri};
-use rustls::Certificate;
 use rustls_pemfile::Item;
+use rustls_pki_types::CertificateDer;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::fs;
 
@@ -118,7 +118,7 @@ pub struct PeerConfig {
     /// Verifying a peer's TLS certificate against the system truststore or a custom root of
     /// trust is not currently supported.
     #[serde(default, deserialize_with = "certificate_from_pem")]
-    pub certificate: Option<Certificate>,
+    pub certificate: Option<CertificateDer<'static>>,
 
     /// Match key encryption configuration.
     #[serde(default, rename = "hpke")]
@@ -126,7 +126,7 @@ pub struct PeerConfig {
 }
 
 impl PeerConfig {
-    pub fn new(url: Uri, certificate: Option<Certificate>) -> Self {
+    pub fn new(url: Uri, certificate: Option<CertificateDer<'static>>) -> Self {
         Self {
             url,
             certificate,
@@ -158,7 +158,10 @@ impl HpkeClientConfig {
     }
 }
 
-fn certificate_from_pem<'de, D>(deserializer: D) -> Result<Option<Certificate>, D::Error>
+/// Reads a Certificate in PEM format using Serde Serialization
+fn certificate_from_pem<'de, D>(
+    deserializer: D,
+) -> Result<Option<CertificateDer<'static>>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -166,7 +169,7 @@ where
         return Ok(None);
     };
     match rustls_pemfile::read_one(&mut s.as_bytes()).map_err(serde::de::Error::custom)? {
-        Some(Item::X509Certificate(bytes)) => Ok(Some(Certificate(bytes))),
+        Some(Item::X509Certificate(cert)) => Ok(Some(cert)),
         _ => Err(serde::de::Error::invalid_value(
             serde::de::Unexpected::Str(s.as_ref()),
             &"a certificate",
