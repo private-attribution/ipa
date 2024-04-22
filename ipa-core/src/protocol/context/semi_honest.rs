@@ -18,6 +18,7 @@ use crate::{
     protocol::{
         basics::{ShareKnownValue, ZeroPositions},
         context::{
+            dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
@@ -143,6 +144,14 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Self::Validator::new(self.inner)
+    }
+
+    type DZKPUpgradedContext = DZKPUpgraded<'a, B>;
+    type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
+
+    #[allow(unused_variables)]
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+        Self::DZKPValidator::new(self.inner)
     }
 }
 

@@ -20,6 +20,8 @@ use crate::{
             ZeroPositions,
         },
         context::{
+            dzkp_malicious::DZKPUpgraded,
+            dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
             validator::{Malicious as Validator, MaliciousAccumulator},
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
@@ -51,7 +53,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// Upgrade this context to malicious.
+    /// Upgrade this context to malicious using MACs.
     /// `malicious_step` is the step that will be used for malicious protocol execution.
     /// `upgrade_step` is the step that will be used for upgrading inputs
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
@@ -67,6 +69,21 @@ impl<'a> Context<'a> {
         Gate: StepNarrow<S>,
     {
         Upgraded::new(&self.inner, malicious_step, accumulator, r_share)
+    }
+
+    /// Upgrade this context to malicious using DZKPs
+    /// `malicious_step` is the step that will be used for malicious protocol execution.
+    /// `DZKPBatch` comes from a `MaliciousDZKPValidator`.
+    #[must_use]
+    pub fn dzkp_upgrade<S: Step + ?Sized>(
+        self,
+        malicious_step: &S,
+        batch: DZKPBatch,
+    ) -> DZKPUpgraded<'a>
+    where
+        Gate: StepNarrow<S>,
+    {
+        DZKPUpgraded::new(&self.inner, malicious_step, batch)
     }
 
     pub(crate) fn base_context(self) -> Base<'a> {
@@ -138,6 +155,13 @@ impl<'a> UpgradableContext for Context<'a> {
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Validator::new(self)
+    }
+
+    type DZKPUpgradedContext = DZKPUpgraded<'a>;
+    type DZKPValidator = MaliciousDZKPValidator<'a>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, chunk_size)
     }
 }
 

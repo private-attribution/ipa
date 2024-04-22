@@ -67,6 +67,10 @@ pub enum Error {
     DecompressingInvalidCurvePoint(String),
     #[error(transparent)]
     LengthError(#[from] LengthError),
+    #[error("Current Context is unsafe, call validate to make it safe: {0}")]
+    ContextUnsafe(String),
+    #[error("DZKP Validation failed")]
+    DZKPValidationFailed,
 }
 
 impl Default for Error {
