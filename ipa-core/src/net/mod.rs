@@ -45,9 +45,9 @@ pub fn parse_certificate_and_private_key(
         .flatten()
         .map(CertificateDer::into_owned)
         .collect();
-    let Some(pk) = rustls_pemfile::private_key(private_key_reader)? else {
-        return Err(io::Error::other("No private key"));
-    };
+    let pk = rustls_pemfile::private_key(private_key_reader)?.ok_or_else(||
+      io::Error::other("No private key")
+    )?;
     if cert_chain.is_empty() {
         return Err(io::Error::other("No certificates found"));
     }
