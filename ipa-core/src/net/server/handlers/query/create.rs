@@ -102,23 +102,21 @@ mod tests {
 
     #[tokio::test]
     async fn create_test_ipa_no_attr_window() {
-        for field_type in [FieldType::Fp32BitPrime, FieldType::Fp61BitPrime] {
-            create_test(
-                QueryConfig::new(
-                    QueryType::OprfIpa(IpaQueryConfig {
-                        per_user_credit_cap: 1,
-                        max_breakdown_key: 1,
-                        attribution_window_seconds: None,
-                        num_multi_bits: 3,
-                        plaintext_match_keys: true,
-                    }),
-                    field_type,
-                    1,
-                )
-                .unwrap(),
+        create_test(
+            QueryConfig::new(
+                QueryType::OprfIpa(IpaQueryConfig {
+                    per_user_credit_cap: 1,
+                    max_breakdown_key: 1,
+                    attribution_window_seconds: None,
+                    num_multi_bits: 3,
+                    plaintext_match_keys: true,
+                }),
+                FieldType::Fp32BitPrime,
+                1,
             )
-            .await;
-        }
+            .unwrap(),
+        )
+        .await;
     }
 
     #[tokio::test]

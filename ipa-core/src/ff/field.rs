@@ -48,5 +48,4 @@ pub enum FieldType {
     #[cfg(any(test, feature = "weak-field"))]
     Fp31,
     Fp32BitPrime,
-    Fp61BitPrime,
 }

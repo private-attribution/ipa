@@ -4,7 +4,7 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::{FieldType, Serializable, U128Conversions},
+    ff::{Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -347,9 +347,6 @@ macro_rules! field_impl {
                 }
             }
         }
-
-        // Make sure FieldType has a member for this field implementation.
-        const _FIELD_TYPE_VALUE: FieldType = crate::ff::FieldType::$field;
     };
 }
 
@@ -435,8 +432,7 @@ mod fp32bit {
 }
 
 mod fp61bit {
-    field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951
-    }
+    field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {

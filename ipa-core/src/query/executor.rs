@@ -106,27 +106,6 @@ pub fn execute(
                 )
             },
         ),
-        #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-        (QueryType::TestMultiply, FieldType::Fp61BitPrime) => {
-            do_query(config, gateway, input, |prss, gateway, _config, input| {
-                Box::pin(execute_test_multiply::<crate::ff::Fp61BitPrime>(
-                    prss, gateway, input,
-                ))
-            })
-        }
-        (QueryType::OprfIpa(ipa_config), FieldType::Fp61BitPrime) => do_query(
-            config,
-            gateway,
-            input,
-            move |prss, gateway, config, input| {
-                let ctx = SemiHonestContext::new(prss, gateway);
-                Box::pin(
-                    OprfIpaQuery::<_, crate::ff::Fp61BitPrime>::new(ipa_config, key_registry)
-                        .execute(ctx, config.size, input)
-                        .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
-                )
-            },
-        ),
     }
 }
 

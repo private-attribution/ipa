@@ -8,7 +8,7 @@ use ipa_core::{
         playbook::{make_clients, secure_mul, validate, InputSource},
         Verbosity,
     },
-    ff::{Field, FieldType, Fp31, Fp32BitPrime, Fp61BitPrime, Serializable, U128Conversions},
+    ff::{Field, FieldType, Fp31, Fp32BitPrime, Serializable, U128Conversions},
     helpers::query::{QueryConfig, QueryType::TestMultiply},
     net::MpcHelperClient,
     secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
@@ -122,6 +122,5 @@ async fn multiply(args: &Args, helper_clients: &[MpcHelperClient; 3]) {
     match args.input.field {
         FieldType::Fp31 => multiply_in_field::<Fp31>(args, helper_clients).await,
         FieldType::Fp32BitPrime => multiply_in_field::<Fp32BitPrime>(args, helper_clients).await,
-        FieldType::Fp61BitPrime => multiply_in_field::<Fp61BitPrime>(args, helper_clients).await,
     };
 }
