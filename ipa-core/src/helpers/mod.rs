@@ -805,7 +805,7 @@ mod concurrency_tests {
     #[test]
     fn execute_query() {
         shuttle::check_random(
-            move || {
+            || {
                 shuttle::future::block_on(async {
                     let app = TestApp::default();
                     let inputs = std::iter::repeat_with(|| u128::from(thread_rng().next_u64()))
@@ -824,7 +824,7 @@ mod concurrency_tests {
                     let results = app
                         .execute_query(
                             inputs.into_iter(),
-                            QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, sz).unwrap(),
+                            QueryConfig::new(TestMultiply, FieldType::Fp31, sz).unwrap(),
                         )
                         .await
                         .unwrap();
