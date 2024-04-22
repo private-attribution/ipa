@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use typenum::{U1, U4};
+use typenum::{U1, U4, U8};
 
 use crate::{
     protocol::prss::FromRandom,
@@ -17,6 +17,10 @@ impl Block for u8 {
 
 impl Block for u32 {
     type Size = U4;
+}
+
+impl Block for u64 {
+    type Size = U8;
 }
 
 /// Trait for field elements.
@@ -44,4 +48,5 @@ pub enum FieldType {
     #[cfg(any(test, feature = "weak-field"))]
     Fp31,
     Fp32BitPrime,
+    Fp61BitPrime,
 }

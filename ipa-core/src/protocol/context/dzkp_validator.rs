@@ -18,12 +18,11 @@ use crate::protocol::context::{
 };
 use crate::{
     error::{BoxError, Error},
-    ff::Field,
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded, Base, SemiHonestContext,
-            UpgradableContext,
+            dzkp_field::DZKPBaseField, dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            Base, SemiHonestContext, UpgradableContext,
         },
         step::Gate,
         RecordId,
@@ -37,7 +36,7 @@ use crate::{
 const RECORD: &str = "record";
 const OFFSET: &str = "offset";
 
-type BitArray32 = BitArray<[u8; 32], Lsb0>;
+pub type BitArray32 = BitArray<[u8; 32], Lsb0>;
 
 type BitSliceType = BitSlice<u8, Lsb0>;
 
@@ -529,21 +528,6 @@ pub(crate) enum Step {
     DZKPValidate,
 }
 
-/// Marker Trait `DZKPBaseField` for fields that can be used as base for DZKP proofs and their verification
-/// This is different from trait `DZKPCompatibleField` which is the base for the MPC protocol
-pub trait DZKPBaseField: Field {
-    type UnverifiedFieldValues;
-    fn convert(
-        x_left: &BitArray32,
-        x_right: &BitArray32,
-        y_left: &BitArray32,
-        y_right: &BitArray32,
-        prss_left: &BitArray32,
-        prss_right: &BitArray32,
-        z_right: &BitArray32,
-    ) -> Self::UnverifiedFieldValues;
-}
-
 /// Validator Trait for DZKPs
 /// It is different from the validator trait since context outputs a `DZKPUpgradedContext`
 /// that is tied to a `DZKPBatch` rather than an `accumulator`.
@@ -719,8 +703,9 @@ mod tests {
         protocol::{
             basics::SecureMul,
             context::{
+                dzkp_field::DZKPBaseField,
                 dzkp_validator::{
-                    Batch, BitArray32, DZKPBaseField, DZKPValidator, Segment, SegmentEntry, Step,
+                    Batch, BitArray32, DZKPValidator, Segment, SegmentEntry, Step,
                     UnverifiedValuesStore,
                 },
                 Context, DZKPContext, UpgradableContext,
