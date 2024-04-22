@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io,
-    iter::repeat,
+    io::BufRead,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -16,11 +16,13 @@ use hyper::{
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use pin_project::pin_project;
 use rustls::RootCertStore;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tracing::error;
 
 use crate::{
-    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
+    config::{
+        ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
+        PeerConfig,
+    },
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -39,25 +41,11 @@ pub enum ClientIdentity {
     /// Authenticate with an X.509 certificate or a certificate chain.
     ///
     /// This is only supported for HTTPS clients.
-    Certificate((Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)),
+    Certificate((Vec<OwnedCertificate>, OwnedPrivateKey)),
 
     /// Do not authenticate nor claim a helper identity.
     #[default]
     None,
-}
-
-/// Rust-tls-types crate intentionally does not implement Clone on private key types in order to
-/// minimize the exposure of private key data in memory. Since `ClientBuilder` API requires to own
-/// a private key, and we need to create 3 with the same config, we provide Clone capabilities to
-/// `ClientIdentity`.
-impl Clone for ClientIdentity {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Certificate((c, pk)) => Self::Certificate((c.clone(), pk.clone_key())),
-            Self::Helper(h) => Self::Helper(*h),
-            Self::None => Self::None,
-        }
-    }
 }
 
 impl ClientIdentity {
@@ -71,10 +59,26 @@ impl ClientIdentity {
     ///
     /// ## Panics
     /// If either cert or private key byte slice is empty.
-    pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
+    pub fn from_pkcs8(
+        cert_read: &mut dyn BufRead,
+        private_key_read: &mut dyn BufRead,
+    ) -> Result<Self, io::Error> {
         Ok(Self::Certificate(
-            crate::net::parse_certificate_and_private_key_bytes(cert_bytes, private_key_bytes)?,
+            crate::net::parse_certificate_and_private_key_bytes(cert_read, private_key_read)?,
         ))
+    }
+
+    /// Rust-tls-types crate intentionally does not implement Clone on private key types in order
+    /// to minimize the exposure of private key data in memory. Since `ClientBuilder` API requires
+    /// to own a private key, and we need to create 3 with the same config, we provide Clone
+    /// capabilities via this method to `ClientIdentity`.
+    #[must_use]
+    pub fn clone_with_key(&self) -> ClientIdentity {
+        match self {
+            Self::Certificate((c, pk)) => Self::Certificate((c.clone(), pk.clone_key())),
+            Self::Helper(h) => Self::Helper(*h),
+            Self::None => Self::None,
+        }
     }
 }
 
@@ -154,11 +158,10 @@ impl MpcHelperClient {
     /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig, identity: ClientIdentity) -> [MpcHelperClient; 3] {
+    pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .zip(repeat(identity))
-            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
+            .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -202,7 +205,9 @@ impl MpcHelperClient {
             let client_config = if let Some(certificate) = peer_config.certificate {
                 let cert_store = {
                     let mut store = RootCertStore::empty();
-                    store.add(certificate).expect("Error adding certificate");
+                    store
+                        .add(certificate)
+                        .expect("Error adding Certificate, should be a valid Trust Anchor.");
                     store
                 };
 

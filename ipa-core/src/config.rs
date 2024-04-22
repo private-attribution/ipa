@@ -10,7 +10,7 @@ use std::{
 
 use hyper::{client::Builder, http::uri::Scheme, Uri};
 use rustls_pemfile::Item;
-use rustls_pki_types::CertificateDer;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::fs;
 
@@ -21,6 +21,9 @@ use crate::{
         Deserializable as _, IpaPrivateKey, IpaPublicKey, KeyPair, KeyRegistry, Serializable as _,
     },
 };
+
+pub type OwnedCertificate = CertificateDer<'static>;
+pub type OwnedPrivateKey = PrivateKeyDer<'static>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -118,7 +121,7 @@ pub struct PeerConfig {
     /// Verifying a peer's TLS certificate against the system truststore or a custom root of
     /// trust is not currently supported.
     #[serde(default, deserialize_with = "certificate_from_pem")]
-    pub certificate: Option<CertificateDer<'static>>,
+    pub certificate: Option<OwnedCertificate>,
 
     /// Match key encryption configuration.
     #[serde(default, rename = "hpke")]
@@ -126,7 +129,7 @@ pub struct PeerConfig {
 }
 
 impl PeerConfig {
-    pub fn new(url: Uri, certificate: Option<CertificateDer<'static>>) -> Self {
+    pub fn new(url: Uri, certificate: Option<OwnedCertificate>) -> Self {
         Self {
             url,
             certificate,
@@ -159,9 +162,7 @@ impl HpkeClientConfig {
 }
 
 /// Reads a Certificate in PEM format using Serde Serialization
-fn certificate_from_pem<'de, D>(
-    deserializer: D,
-) -> Result<Option<CertificateDer<'static>>, D::Error>
+fn certificate_from_pem<'de, D>(deserializer: D) -> Result<Option<OwnedCertificate>, D::Error>
 where
     D: Deserializer<'de>,
 {

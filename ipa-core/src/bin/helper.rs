@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::BufReader,
     net::TcpListener,
     os::fd::{FromRawFd, RawFd},
     path::{Path, PathBuf},
@@ -97,23 +98,25 @@ enum HelperCommand {
     TestSetup(TestSetupArgs),
 }
 
-fn read_utf8_bytes(path: &Path) -> Result<Vec<u8>, BoxError> {
-    Ok(fs::read_to_string(path)
-        .map_err(|e| format!("failed to open file {}: {e:?}", path.display()))?
-        .into_bytes())
+fn read_file(path: &Path) -> Result<BufReader<fs::File>, BoxError> {
+    Ok(fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map(BufReader::new)
+        .map_err(|e| format!("failed to open file {}: {e:?}", path.display()))?)
 }
 
 async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let my_identity = HelperIdentity::try_from(args.identity.expect("enforced by clap")).unwrap();
 
     let (identity, server_tls) = match (args.tls_cert, args.tls_key) {
-        (Some(cert), Some(key_file)) => {
-            let key = read_utf8_bytes(&key_file)?;
-            let certs = read_utf8_bytes(&cert)?;
+        (Some(cert_file), Some(key_file)) => {
+            let mut key = read_file(&key_file)?;
+            let mut certs = read_file(&cert_file)?;
             (
-                ClientIdentity::from_pks8(&certs, &key)?,
+                ClientIdentity::from_pkcs8(&mut certs, &mut key)?,
                 Some(TlsConfig::File {
-                    certificate_file: cert,
+                    certificate_file: cert_file,
                     private_key_file: key_file,
                 }),
             )
@@ -148,7 +151,7 @@ async fn server(args: ServerArgs) -> Result<(), BoxError> {
     let network_config_path = args.network.as_deref().unwrap();
     let network_config = NetworkConfig::from_toml_str(&fs::read_to_string(network_config_path)?)?
         .override_scheme(&scheme);
-    let clients = MpcHelperClient::from_conf(&network_config, identity);
+    let clients = MpcHelperClient::from_conf(&network_config, &identity);
 
     let (transport, server) = HttpTransport::new(
         my_identity,

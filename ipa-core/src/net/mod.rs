@@ -1,9 +1,6 @@
-use std::{
-    io,
-    io::{BufRead, BufReader, Cursor},
-};
+use std::{io, io::BufRead};
 
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use crate::config::{OwnedCertificate, OwnedPrivateKey};
 
 mod client;
 mod error;
@@ -18,40 +15,27 @@ pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
 
-/// Reads certificates and a private key from the corresponding bytes
+/// Reads certificates and a private key from the corresponding readers
 ///
 /// # Errors
 /// If no private key or certificates are found and if there are any issues with
 /// their format.
 pub fn parse_certificate_and_private_key_bytes(
-    cert_bytes: &[u8],
-    private_key_bytes: &[u8],
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), io::Error> {
-    let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
-    let mut private_key_reader = BufReader::new(Cursor::new(private_key_bytes));
-    parse_certificate_and_private_key(&mut certs_reader, &mut private_key_reader)
-}
-
-/// Reads certificates and a private key from the corresponding buffered inputs
-///
-/// # Errors
-/// If no private key or certificates are found and if there are any issues with
-/// their format.
-pub fn parse_certificate_and_private_key(
-    cert_reader: &mut dyn BufRead,
-    private_key_reader: &mut dyn BufRead,
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), io::Error> {
-    let cert_chain: Vec<_> = rustls_pemfile::certs(cert_reader)
-        .flatten()
-        .map(CertificateDer::into_owned)
-        .collect();
-    let pk = rustls_pemfile::private_key(private_key_reader)?.ok_or_else(||
-      io::Error::other("No private key")
-    )?;
-    if cert_chain.is_empty() {
+    cert_read: &mut dyn BufRead,
+    private_key_read: &mut dyn BufRead,
+) -> Result<(Vec<OwnedCertificate>, OwnedPrivateKey), io::Error> {
+    let certs = rustls_pemfile::certs(cert_read)
+        .map(|r| match r {
+            Ok(c) => Ok(c.into_owned()),
+            e => e,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let pk = rustls_pemfile::private_key(private_key_read)?
+        .ok_or_else(|| io::Error::other("No private key"))?;
+    if certs.is_empty() {
         return Err(io::Error::other("No certificates found"));
     }
-    Ok((cert_chain, pk))
+    Ok((certs, pk))
 }
 
 #[cfg(all(test, unit_test))]
@@ -60,28 +44,43 @@ mod tests {
 
     use crate::net::test;
 
+    const NOTHING: &[u8] = b" ";
+    const GARBAGE: &[u8] = b"ksjdhfskjdfhsdf";
+
     #[test]
     fn parse_cert_pk_happy_path() {
-        super::parse_certificate_and_private_key_bytes(test::TEST_CERTS[0], test::TEST_KEYS[0])
-            .unwrap();
+        let mut c = test::TEST_CERTS[0];
+        let mut pk = test::TEST_KEYS[0];
+        super::parse_certificate_and_private_key_bytes(&mut c, &mut pk).unwrap();
     }
 
     #[test]
+    #[should_panic(expected = "No certificates found")]
     fn parse_cert_pk_no_cert() {
-        let r = super::parse_certificate_and_private_key_bytes(b" ", test::TEST_KEYS[0]);
-        assert_eq!(r.unwrap_err().kind(), ErrorKind::Other);
+        let mut c = NOTHING;
+        let mut pk = test::TEST_KEYS[0];
+        let r = super::parse_certificate_and_private_key_bytes(&mut c, &mut pk);
+        assert_eq!(r.as_ref().unwrap_err().kind(), ErrorKind::Other);
+        r.unwrap();
     }
 
     #[test]
+    #[should_panic(expected = "No private key")]
     fn parse_cert_pk_no_pk() {
-        let r = super::parse_certificate_and_private_key_bytes(test::TEST_CERTS[0], b" ");
-        assert_eq!(r.unwrap_err().kind(), ErrorKind::Other);
+        let mut c = test::TEST_CERTS[0];
+        let mut pk = NOTHING;
+        let r = super::parse_certificate_and_private_key_bytes(&mut c, &mut pk);
+        assert_eq!(r.as_ref().unwrap_err().kind(), ErrorKind::Other);
+        r.unwrap();
     }
 
     #[test]
+    #[should_panic(expected = "No private key")]
     fn parse_cert_pk_invalid() {
-        let r =
-            super::parse_certificate_and_private_key_bytes(b"ksjdhfskjdfhsdf", test::TEST_KEYS[0]);
-        assert_eq!(r.unwrap_err().kind(), ErrorKind::Other);
+        let mut c = GARBAGE;
+        let mut pk = GARBAGE;
+        let r = super::parse_certificate_and_private_key_bytes(&mut c, &mut pk);
+        assert_eq!(r.as_ref().unwrap_err().kind(), ErrorKind::Other);
+        r.unwrap();
     }
 }

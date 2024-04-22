@@ -295,7 +295,7 @@ impl TestServerBuilder {
         else {
             panic!("TestConfig should have allocated ports");
         };
-        let clients = MpcHelperClient::from_conf(&network_config, identity.clone());
+        let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let (transport, server) = HttpTransport::new(
             HelperIdentity::ONE,
@@ -328,8 +328,8 @@ fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static 
 
 #[must_use]
 pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
-    let (certificate, private_key) = get_test_certificate_and_key(id);
-    ClientIdentity::from_pks8(certificate, private_key).unwrap()
+    let (mut certificate, mut private_key) = get_test_certificate_and_key(id);
+    ClientIdentity::from_pkcs8(&mut certificate, &mut private_key).unwrap()
 }
 
 pub const TEST_CERTS: [&[u8]; 3] = [

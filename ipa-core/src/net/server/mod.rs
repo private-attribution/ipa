@@ -1,6 +1,7 @@
 mod handlers;
 
 use std::{
+    borrow::Cow,
     io,
     net::{Ipv4Addr, SocketAddr, TcpListener},
     ops::Deref,
@@ -30,7 +31,7 @@ use futures::{
 use hyper::{header::HeaderName, server::conn::AddrStream, Request};
 use metrics::increment_counter;
 use rustls::{server::WebPkiClientVerifier, RootCertStore};
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use rustls_pki_types::CertificateDer;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_rustls::server::TlsStream;
@@ -39,7 +40,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
 use crate::{
-    config::{NetworkConfig, ServerConfig, TlsConfig},
+    config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
     net::{parse_certificate_and_private_key_bytes, Error, HttpTransport},
@@ -241,25 +242,27 @@ where
 
 async fn certificate_and_key(
     config: &ServerConfig,
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), BoxError> {
-    match &config.tls {
-        None => Err("missing TLS configuration".into()),
+) -> Result<(Vec<OwnedCertificate>, OwnedPrivateKey), BoxError> {
+    let (cert, key) = match &config.tls {
+        None => return Err("missing TLS configuration".into()),
         Some(TlsConfig::Inline {
             certificate,
             private_key,
-        }) => {
-            parse_certificate_and_private_key_bytes(certificate.as_bytes(), private_key.as_bytes())
-                .map_err(BoxError::from)
-        }
+        }) => (
+            Cow::Borrowed(certificate.as_bytes()),
+            Cow::Borrowed(private_key.as_bytes()),
+        ),
         Some(TlsConfig::File {
             certificate_file,
             private_key_file,
         }) => {
             let cert = fs::read(certificate_file).await?;
             let key = fs::read(private_key_file).await?;
-            parse_certificate_and_private_key_bytes(&cert[..], &key[..]).map_err(BoxError::from)
+            (Cow::Owned(cert), Cow::Owned(key))
         }
-    }
+    };
+    parse_certificate_and_private_key_bytes(&mut cert.as_ref(), &mut key.as_ref())
+        .map_err(BoxError::from)
 }
 
 /// Create a `RustlsConfig` for the `ServerConfig`.
@@ -290,7 +293,7 @@ async fn rustls_config(
     let client_verifier = WebPkiClientVerifier::builder(trusted_certs.into())
         .allow_unauthenticated()
         .build()
-        .unwrap();
+        .expect("Error building client verifier, should specify valid Trust Anchors");
 
     let mut config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(client_verifier)
