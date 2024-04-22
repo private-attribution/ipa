@@ -163,7 +163,12 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self::Output {
-                debug_assert!(<$store_multiply>::try_from(Self::PRIME).is_ok());
+                debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
+                // check container for multiply is large enough
+                debug_assert!(
+                    <$store_multiply>::MAX >> $bits
+                        >= <$store_multiply>::try_from(<$store>::MAX).unwrap()
+                );
                 let c = <$store_multiply>::from;
                 // TODO(mt) - constant time?
                 // TODO(dm) - optimize arithmetics?
