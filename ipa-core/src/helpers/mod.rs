@@ -804,40 +804,46 @@ mod concurrency_tests {
 
     #[test]
     fn execute_query() {
-        shuttle::check_random(
-            || {
-                shuttle::future::block_on(async {
-                    let app = TestApp::default();
-                    let inputs = std::iter::repeat_with(|| u128::from(thread_rng().next_u64()))
-                        .take(20)
-                        .map(Fp31::truncate_from)
-                        .collect::<Vec<_>>();
-                    let sz = inputs.len();
-                    assert_eq!(0, sz % 2);
+        for field_type in [
+            FieldType::Fp31,
+            FieldType::Fp32BitPrime,
+            FieldType::Fp61BitPrime,
+        ] {
+            shuttle::check_random(
+                move || {
+                    shuttle::future::block_on(async {
+                        let app = TestApp::default();
+                        let inputs = std::iter::repeat_with(|| u128::from(thread_rng().next_u64()))
+                            .take(20)
+                            .map(Fp31::truncate_from)
+                            .collect::<Vec<_>>();
+                        let sz = inputs.len();
+                        assert_eq!(0, sz % 2);
 
-                    let expected = inputs
-                        .as_slice()
-                        .chunks(2)
-                        .map(|chunk| chunk[0] * chunk[1])
-                        .collect::<Vec<_>>();
+                        let expected = inputs
+                            .as_slice()
+                            .chunks(2)
+                            .map(|chunk| chunk[0] * chunk[1])
+                            .collect::<Vec<_>>();
 
-                    let results = app
-                        .execute_query(
-                            inputs.into_iter(),
-                            QueryConfig::new(TestMultiply, FieldType::Fp31, sz).unwrap(),
-                        )
-                        .await
-                        .unwrap();
+                        let results = app
+                            .execute_query(
+                                inputs.into_iter(),
+                                QueryConfig::new(TestMultiply, field_type, sz).unwrap(),
+                            )
+                            .await
+                            .unwrap();
 
-                    let results = results.map(|bytes| {
-                        semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
-                            .collect::<Vec<_>>()
+                        let results = results.map(|bytes| {
+                            semi_honest::AdditiveShare::<Fp31>::from_byte_slice_unchecked(&bytes)
+                                .collect::<Vec<_>>()
+                        });
+
+                        assert_eq!(expected, results.reconstruct());
                     });
-
-                    assert_eq!(expected, results.reconstruct());
-                });
-            },
-            1000,
-        );
+                },
+                1000,
+            );
+        }
     }
 }
