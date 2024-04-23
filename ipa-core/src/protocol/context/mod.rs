@@ -38,7 +38,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
-        SecretSharing, Sendable,
+        SecretSharing,
     },
     seq_join::SeqJoin,
     sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
@@ -377,7 +377,7 @@ impl<'a> Inner<'a> {
 /// random values with enough entropy. Failure to do so may lead to extra memory overhead - this
 /// function uses the conservative `1.2` coefficent to estimate the number of records per shard after
 /// resharding is completed, according to our [`calculations`] that is sufficient with 2^-60 failure
-/// probability.
+/// probability. This is a very conservative estimate, assuming 1M events per shard and 100k shards.
 ///
 /// [`calculations`]: https://docs.google.com/document/d/1vej6tYgNV3GWcldD4tl7a4Z9EeZwda3F5u7roPGArlU/
 ///
@@ -395,7 +395,7 @@ where
     L: IntoIterator<Item = K>,
     L::IntoIter: ExactSizeIterator,
     S: Fn(C, RecordId, &K) -> ShardIndex,
-    K: Sendable + Clone,
+    K: Message + Clone,
     C: ShardedContext,
 {
     let input = input.into_iter();
@@ -476,7 +476,10 @@ where
     .fuse();
     let shard_records_est = {
         let v = input_len / usize::from(ctx.shard_count());
-        v + v / 4 // this gives us ~ 1.25 capacity, very close to 1.26 overhead estimated
+        // this gives us ~ 1.25 capacity, very close to 1.26 overhead estimated
+        // If 25% extra capacity becomes a problem and number of events/shards is not close
+        // to the worst case, this can be tuned down to 1.01
+        v + v / 4
     };
 
     // This contains the deterministic order of events after resharding is complete.
@@ -519,13 +522,16 @@ mod tests {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{boolean_array::BA3, Field, Fp31, Serializable, U128Conversions},
+        ff::{
+            boolean_array::{BA3, BA8},
+            Field, Fp31, Serializable, U128Conversions,
+        },
         helpers::{Direction, Role},
         protocol::{
             basics::ShareKnownValue,
             context::{
-                validator::Step::MaliciousProtocol, Context, ShardedContext, UpgradableContext,
-                UpgradedContext, Validator,
+                reshard, validator::Step::MaliciousProtocol, Context, ShardedContext,
+                UpgradableContext, UpgradedContext, Validator,
             },
             prss::SharedRandomness,
             step::{Gate, StepNarrow},
@@ -542,7 +548,8 @@ mod tests {
         },
         test_executor::run,
         test_fixture::{
-            Reconstruct, Runner, TestExecutionStep, TestWorld, TestWorldConfig, WithShards,
+            Reconstruct, RoundRobinInputDistribution, Runner, TestExecutionStep, TestWorld,
+            TestWorldConfig, WithShards,
         },
     };
 
@@ -807,6 +814,31 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert_eq!(vec![Field::try_from(1).unwrap()], r);
+        });
+    }
+
+    /// Ensure global record order across shards is consistent.
+    #[test]
+    fn shard_picker() {
+        run(|| async move {
+            const SHARDS: u32 = 5;
+            let world: TestWorld<WithShards<5, RoundRobinInputDistribution>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input: Vec<_> = (0..SHARDS).map(BA8::truncate_from).collect();
+            let r = world
+                .semi_honest(input.clone().into_iter(), |ctx, shard_input| async move {
+                    reshard(ctx, shard_input, |_, record_id, _| {
+                        ShardIndex::from(u32::from(record_id) % SHARDS)
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(input, r);
         });
     }
 }

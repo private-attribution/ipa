@@ -359,8 +359,8 @@ where
         .await?)
 }
 
-/// Sharded shuffle as performed by shards on H3. Note that H3 does not use its input, it is
-/// dropped immediately.
+/// Sharded shuffle as performed by shards on H3. Note that in semi-honest setting, H3 does not
+/// use its input. Adding support for active security will change that.
 async fn h3_shuffle<I, S, C>(ctx: C, _: I) -> Result<Vec<S>, crate::error::Error>
 where
     I: IntoIterator<Item = S>,
