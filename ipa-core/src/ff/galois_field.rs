@@ -12,10 +12,10 @@ use typenum::{Unsigned, U1, U2, U3, U4, U5};
 
 use super::ArrayAccess;
 use crate::{
-    ff::{boolean_array::NonZeroPadding, Field, Serializable},
-    impl_serializable_trait,
+    ff::{boolean_array::NonZeroPadding, Field, Serializable, U128Conversions},
+    impl_serializable_trait, impl_shared_value_common,
     protocol::prss::FromRandomU128,
-    secret_sharing::{Block, SharedValue},
+    secret_sharing::{Block, FieldVectorizable, SharedValue, Vectorizable},
 };
 
 /// Trait for data types storing arbitrary number of bits.
@@ -140,11 +140,17 @@ fn clmul<GF: GaloisField>(a: GF, b: GF) -> u128 {
 /// is that this type is not `Send`.
 ///
 /// [`BitValIter`]: bitvec::slice::BitValIter
-pub struct BoolIterator<'a>(Iter<'a, u8, Lsb0>);
+pub struct BoolIterator<'a>(std::iter::Take<Iter<'a, u8, Lsb0>>);
 impl<'a> Iterator for BoolIterator<'a> {
     type Item = bool;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|v| *v)
+    }
+}
+
+impl<'a> ExactSizeIterator for BoolIterator<'a> {
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -167,11 +173,25 @@ macro_rules! bit_array_impl {
                 type Storage = $store;
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
+
+                impl_shared_value_common!();
+            }
+
+            impl Vectorizable<1> for $name {
+                type Array = crate::secret_sharing::StdArray<$name, 1>;
+            }
+
+            impl FieldVectorizable<1> for $name {
+                type ArrayAlias = crate::secret_sharing::StdArray<$name, 1>;
             }
 
             impl Field for $name {
-                const ONE: Self = Self($one);
+                const NAME: &'static str = stringify!($field);
 
+                const ONE: Self = Self($one);
+            }
+
+            impl U128Conversions for $name {
                 fn as_u128(&self) -> u128 {
                     (*self).into()
                 }
@@ -202,13 +222,13 @@ macro_rules! bit_array_impl {
                 }
 
                 fn iter(&self) -> Self::Iter<'_> {
-                    BoolIterator(self.0.iter())
+                    BoolIterator(self.0.iter().take(<$name>::BITS as usize))
                 }
             }
 
             impl FromRandomU128 for $name {
                 fn from_random_u128(src: u128) -> Self {
-                    Field::truncate_from(src)
+                    U128Conversions::truncate_from(src)
                 }
             }
 
@@ -473,9 +493,21 @@ macro_rules! bit_array_impl {
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
+                use proptest::proptest;
+                use proptest::prelude::{prop, Strategy, Arbitrary};
                 use rand::{thread_rng, Rng};
+                use std::ops::RangeInclusive;
 
                 const MASK: u128 = u128::MAX >> (u128::BITS - <$name>::BITS);
+
+                impl Arbitrary for $name {
+                    type Parameters = ();
+                    type Strategy = prop::strategy::Map<RangeInclusive<u128>, fn(u128) -> Self>;
+
+                    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+                        (0..=MASK).prop_map(<$name as U128Conversions>::truncate_from as _)
+                    }
+                }
 
                 #[test]
                 pub fn basic() {
@@ -498,8 +530,14 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
+                #[cfg(debug_assertions)]
                 #[should_panic(expected = "index < usize::try_from")]
                 pub fn out_of_count_index() {
+                    // With debug assertions enabled, this test will panic on any out-of-bounds
+                    // access. Without debug assertions, it will not panic on access to the unused
+                    // bits for non-multiple-of-8 bitwidths. Enable the test only with debug
+                    // assertions, rather than try to do something conditioned on the bit width.
+
                     let s = $name::try_from(1_u128).unwrap();
                     // Below assert doesn't matter. The indexing should panic
                     assert_eq!(s[<$name>::BITS as usize], false);
@@ -582,6 +620,28 @@ macro_rules! bit_array_impl {
                     println!("b: {b}");
 
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
+                }
+
+                proptest! {
+                    #[test]
+                    fn arrayaccess_get_set(mut a: $name, b: bool, c: bool) {
+                        assert_eq!(a.get(0), Some(a.0[0]));
+                        a.set(0, b);
+                        assert_eq!(a.get(0), Some(b));
+                        a.set($bits - 1, c);
+                        assert_eq!(a.get($bits - 1), Some(c));
+                        assert_eq!(a.get($bits), None);
+                    }
+
+                    #[test]
+                    fn arrayaccess_iter(a: $name) {
+                        let mut iter = a.iter().enumerate();
+                        assert_eq!(iter.len(), $bits);
+                        while let Some((i, b)) = iter.next() {
+                            assert_eq!(u128::from(b), (a.as_u128() >> i) & 1);
+                            assert_eq!(iter.len(), $bits - 1 - i);
+                        }
+                    }
                 }
 
                 #[test]
@@ -685,12 +745,6 @@ bit_array_impl!(
                 let mut v = Gf2::ZERO;
                 v.0.set(0, value);
                 v
-            }
-        }
-
-        impl From<Gf2> for bool {
-            fn from(value: Gf2) -> Self {
-                value != Gf2::ZERO
             }
         }
     }

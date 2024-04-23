@@ -3,13 +3,17 @@ pub mod replicated;
 mod decomposed;
 mod into_shares;
 mod scheme;
+#[cfg(not(feature = "enable-benches"))]
+mod vector;
+#[cfg(feature = "enable-benches")]
+pub mod vector;
 
 use std::{
     fmt::Debug,
     ops::{Mul, MulAssign, Neg},
 };
 
-pub use decomposed::BitDecomposed;
+pub(crate) use decomposed::BitDecomposed;
 use generic_array::ArrayLength;
 pub use into_shares::IntoShares;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
@@ -17,11 +21,18 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng,
 };
-#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
-use replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing};
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
+pub use vector::{
+    BoolVectorLookup, BoolVectorTrait, FieldArray, FieldSimd, FieldVectorizable, SharedValueArray,
+    StdArray, TransposeFrom, Vectorizable,
+};
 
-use crate::ff::{AddSub, AddSubAssign, Serializable};
+#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
+use crate::{
+    ff::{AddSub, AddSubAssign, Serializable},
+    secret_sharing::replicated::ReplicatedSecretSharing,
+};
 
 /// Operations supported for weak shared values.
 pub trait Additive<Rhs = Self, Output = Self>:
@@ -51,19 +62,65 @@ pub trait Block: Sized + Copy + Debug {
     type Size: ArrayLength;
 }
 
+pub trait Sendable: Send + Debug + Serializable + 'static {}
+
+impl<V: SharedValue> Sendable for V {}
+
 /// Trait for types that are input to our additive secret sharing scheme.
 ///
 /// Additive secret sharing requires an addition operation. In cases where arithmetic secret sharing
 /// (capable of supporting addition and multiplication) is desired, the `Field` trait extends
 /// `SharedValue` to require multiplication.
 pub trait SharedValue:
-    Clone + Copy + Eq + Debug + Send + Sync + Sized + Additive + Serializable + 'static
+    Clone + Copy + Eq + Debug + Send + Sync + Sized + Additive + Sendable + Vectorizable<1> + 'static
 {
     type Storage: Block;
 
     const BITS: u32;
 
     const ZERO: Self;
+
+    // Note the trait bound of `Vectorizable<1>` here, i.e., these
+    // helpers only apply to arrays of a single element.
+    fn into_array(self) -> <Self as Vectorizable<1>>::Array
+    where
+        Self: Vectorizable<1>;
+
+    fn from_array(array: &<Self as Vectorizable<1>>::Array) -> Self
+    where
+        Self: Vectorizable<1>;
+
+    fn from_array_mut(array: &mut <Self as Vectorizable<1>>::Array) -> &mut Self
+    where
+        Self: Vectorizable<1>;
+}
+
+#[macro_export]
+macro_rules! impl_shared_value_common {
+    () => {
+        // Note the trait bound of `Vectorizable<1>` here, i.e., these
+        // helpers only apply to arrays of a single element.
+        fn into_array(self) -> <Self as Vectorizable<1>>::Array
+        where
+            Self: Vectorizable<1>,
+        {
+            std::iter::once(self).collect()
+        }
+
+        fn from_array(array: &<Self as Vectorizable<1>>::Array) -> Self
+        where
+            Self: Vectorizable<1>,
+        {
+            *array.first()
+        }
+
+        fn from_array_mut(array: &mut <Self as Vectorizable<1>>::Array) -> &mut Self
+        where
+            Self: Vectorizable<1>,
+        {
+            array.first_mut()
+        }
+    };
 }
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
@@ -81,6 +138,29 @@ where
             AdditiveShare::new(x1, x2),
             AdditiveShare::new(x2, x3),
             AdditiveShare::new(x3, x1),
+        ]
+    }
+}
+
+#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+impl<V, const N: usize> IntoShares<AdditiveShare<V, N>> for [V; N]
+where
+    V: SharedValue + Vectorizable<N>,
+    Standard: Distribution<V>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V, N>; 3] {
+        // For arrays large enough that the compiler doesn't just unroll everything, it might be
+        // more efficient to avoid the intermediate vector by implementing this as a specialized
+        // hybrid of the impls for `F as IntoShares<Replicated<F>>` and `<V: IntoIterator> as
+        // IntoShares<Vec<T>>`. Not bothering since this is test-support functionality.
+        let [v1, v2, v3] = self.into_iter().share_with(rng);
+        let (v1l, v1r): (Vec<V>, Vec<V>) = v1.iter().map(AdditiveShare::as_tuple).unzip();
+        let (v2l, v2r): (Vec<V>, Vec<V>) = v2.iter().map(AdditiveShare::as_tuple).unzip();
+        let (v3l, v3r): (Vec<V>, Vec<V>) = v3.iter().map(AdditiveShare::as_tuple).unzip();
+        [
+            AdditiveShare::new_arr(v1l.try_into().unwrap(), v1r.try_into().unwrap()),
+            AdditiveShare::new_arr(v2l.try_into().unwrap(), v2r.try_into().unwrap()),
+            AdditiveShare::new_arr(v3l.try_into().unwrap(), v3r.try_into().unwrap()),
         ]
     }
 }

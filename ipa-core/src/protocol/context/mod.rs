@@ -1,23 +1,40 @@
+pub mod dzkp_field;
+#[allow(dead_code)]
+mod dzkp_malicious;
+mod dzkp_semi_honest;
+#[allow(dead_code)]
+pub mod dzkp_validator;
+#[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
+/// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
+/// this flag can be removed
+#[allow(dead_code)]
 pub mod validator;
 
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+#[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext};
+pub use semi_honest::Upgraded as UpgradedSemiHonestContext;
 pub use upgrade::{UpgradeContext, UpgradeToMalicious};
 pub use validator::Validator;
+pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
+pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
 use crate::{
     error::Error,
-    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
+    helpers::{
+        ChannelId, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
+        ShardReceivingEnd, TotalRecords,
+    },
     protocol::{
         basics::ZeroPositions,
+        context::dzkp_validator::DZKPValidator,
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
         RecordId,
@@ -27,6 +44,7 @@ use crate::{
         SecretSharing,
     },
     seq_join::SeqJoin,
+    sharding::{NotSharded, ShardBinding, ShardConfiguration, ShardIndex, Sharded},
 };
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -78,8 +96,26 @@ pub trait Context: Clone + Send + Sync + SeqJoin {
         InstrumentedSequentialSharedRandomness,
     );
 
-    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M>;
-    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
+    /// Open a communication channel to an MPC peer. This channel can be requested multiple times
+    /// and this method is safe to use in multi-threaded environments.
+    fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M>;
+
+    /// Open a communication channel to another shard within the same MPC helper. Similarly to
+    /// [`Self::send_channel`], it can be requested more than once for the same channel and from
+    /// multiple threads, but it should not be required. See [`Self::shard_recv_channel`].
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M>;
+
+    /// Requests data to be received from another MPC helper. Receive requests [`MpcReceivingEnd::receive`]
+    /// can be issued from multiple threads.
+    fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M>;
+
+    /// Request a stream to be received from a peer shard within the same MPC helper. This method
+    /// can be called only once per communication channel.
+    ///
+    /// ## Panics
+    /// If called more than once for the same origin and on context instance, narrowed to the same
+    /// [`Self::gate`].
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M>;
 }
 
 pub trait UpgradableContext: Context {
@@ -87,6 +123,11 @@ pub trait UpgradableContext: Context {
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+
+    type DZKPUpgradedContext: DZKPContext;
+    type DZKPValidator: DZKPValidator<Self>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
 }
 
 #[async_trait]
@@ -151,37 +192,46 @@ pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F>
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone)]
-pub struct Base<'a> {
+pub struct Base<'a, B: ShardBinding = NotSharded> {
     inner: Inner<'a>,
     gate: Gate,
     total_records: TotalRecords,
+    /// This indicates whether the system uses sharding or no. It's not ideal that we keep it here
+    /// because it gets cloned often, a potential solution to that, if this shows up on flame graph,
+    /// would be to move it to [`Inner`] struct.
+    sharding: B,
 }
 
-impl<'a> Base<'a> {
-    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+impl<'a, B: ShardBinding> Base<'a, B> {
+    fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway, sharding: B) -> Self {
         Self::new_complete(
             participant,
             gateway,
             Gate::default(),
             TotalRecords::Unspecified,
+            sharding,
         )
     }
+}
 
+impl<'a, B: ShardBinding> Base<'a, B> {
     fn new_complete(
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
         gate: Gate,
         total_records: TotalRecords,
+        sharding: B,
     ) -> Self {
         Self {
             inner: Inner::new(participant, gateway),
             gate,
             total_records,
+            sharding,
         }
     }
 }
 
-impl<'a> Context for Base<'a> {
+impl<'a, B: ShardBinding> Context for Base<'a, B> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -198,6 +248,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.narrow(step),
             total_records: self.total_records,
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -206,6 +257,7 @@ impl<'a> Context for Base<'a> {
             inner: self.inner.clone(),
             gate: self.gate.clone(),
             total_records: self.total_records.overwrite(total_records),
+            sharding: self.sharding.clone(),
         }
     }
 
@@ -232,20 +284,49 @@ impl<'a> Context for Base<'a> {
         )
     }
 
-    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+    fn send_channel<M: MpcMessage>(&self, role: Role) -> SendingEnd<Role, M> {
         self.inner
             .gateway
-            .get_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
+            .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
-    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.gateway.get_shard_sender(
+            &ChannelId::new(dest_shard, self.gate.clone()),
+            self.total_records,
+        )
+    }
+
+    fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner
             .gateway
-            .get_receiver(&ChannelId::new(role, self.gate.clone()))
+            .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner
+            .gateway
+            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 
-impl<'a> SeqJoin for Base<'a> {
+/// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
+/// via [`ShardConfiguration`] trait.
+pub trait ShardedContext: Context + ShardConfiguration {}
+
+impl ShardConfiguration for Base<'_, Sharded> {
+    fn shard_id(&self) -> ShardIndex {
+        self.sharding.shard_id
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.sharding.shard_count
+    }
+}
+
+impl<'a> ShardedContext for Base<'a, Sharded> {}
+
+impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
         self.inner.gateway.config().active_work()
     }
@@ -263,6 +344,17 @@ impl<'a> Inner<'a> {
     }
 }
 
+/// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
+pub trait DZKPContext: Context {
+    /// `is_unverified()` allows to confirm that there are currently no unverified shares,
+    /// i.e. shares that might have been manipulated.
+    /// when this is the case, it is safe to call functions like `reveal`
+    ///
+    /// ## Errors
+    /// Returns error when context contains unverified values
+    fn is_unverified(&self) -> Result<(), Error>;
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::iter::repeat;
@@ -274,11 +366,18 @@ mod tests {
     };
     use typenum::Unsigned;
 
-    use super::*;
     use crate::{
-        ff::{Field, Fp31, Serializable},
-        helpers::Direction,
-        protocol::{context::validator::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
+        ff::{Field, Fp31, Serializable, U128Conversions},
+        helpers::{Direction, Role},
+        protocol::{
+            context::{
+                validator::Step::MaliciousProtocol, Context, UpgradableContext, UpgradedContext,
+                Validator,
+            },
+            prss::SharedRandomness,
+            step::{Gate, StepNarrow},
+            RecordId,
+        },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
@@ -287,7 +386,7 @@ mod tests {
         telemetry::metrics::{
             BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
         },
-        test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+        test_fixture::{Reconstruct, Runner, TestExecutionStep, TestWorld, TestWorldConfig},
     };
 
     trait ReplicatedLeftValue<F: Field> {
@@ -313,7 +412,7 @@ mod tests {
     /// Toy protocol to execute PRSS generation and send/receive logic
     async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> Replicated<F>
     where
-        F: Field,
+        F: Field + U128Conversions,
         Standard: Distribution<F>,
         C: Context,
         S: ReplicatedLeftValue<F>,
@@ -378,7 +477,7 @@ mod tests {
         let input_size = input.len();
         let snapshot = world.metrics_snapshot();
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             .narrow("metrics");
 
         // for semi-honest protocols, amplification factor per helper is 1.
@@ -435,7 +534,7 @@ mod tests {
             .await;
 
         let metrics_step = Gate::default()
-            .narrow(&TestWorld::execution_step(0))
+            .narrow(&TestExecutionStep::Iter(0))
             // TODO: leaky abstraction, test world should tell us the exact step
             .narrow(&MaliciousProtocol)
             .narrow("metrics");

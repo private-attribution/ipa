@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::{Debug, Display, Formatter},
 };
@@ -6,6 +7,7 @@ use std::{
 use clap::Args;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::protocol::dp::InsecureDiscreteDp;
 
@@ -29,8 +31,7 @@ pub struct ApplyDpArgs {
     cap: u32,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NoisyOutput {
     /// Aggregated breakdowns with noise applied. It is important to use unsigned values here
     /// to avoid bias/mean skew
@@ -41,14 +42,13 @@ pub struct NoisyOutput {
 
 /// This exists to be able to use f64 as key inside a map. We don't have to deal with infinities or
 /// NaN values for epsilons, so we can treat them as raw bytes for this purpose.
-#[derive(Debug, Copy, Clone, PartialOrd)]
+#[derive(Debug, Copy, Clone)]
 pub struct EpsilonBits(f64);
 
-#[cfg(feature = "enable-serde")]
-impl serde::Serialize for EpsilonBits {
+impl Serialize for EpsilonBits {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         serializer.serialize_str(&self.0.to_string())
     }
@@ -71,9 +71,15 @@ impl PartialEq for EpsilonBits {
 
 impl Eq for EpsilonBits {}
 
+impl PartialOrd for EpsilonBits {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for EpsilonBits {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        self.0.partial_cmp(&other.0).unwrap()
     }
 }
 
@@ -83,14 +89,18 @@ impl Display for EpsilonBits {
     }
 }
 
+/// Apply DP noise to the given input.
+///
+/// ## Panics
+/// If DP parameters are not valid.
 pub fn apply<I: AsRef<[u32]>>(input: I, args: &ApplyDpArgs) -> BTreeMap<EpsilonBits, NoisyOutput> {
     let mut rng = args
         .seed
-        .map(StdRng::seed_from_u64)
-        .unwrap_or_else(StdRng::from_entropy);
+        .map_or_else(StdRng::from_entropy, StdRng::seed_from_u64);
     let mut result = BTreeMap::new();
     for &epsilon in &args.epsilon {
-        let discrete_dp = InsecureDiscreteDp::new(epsilon, args.delta, args.cap as f64).unwrap();
+        let discrete_dp =
+            InsecureDiscreteDp::new(epsilon, args.delta, f64::from(args.cap)).unwrap();
         let mut v = input
             .as_ref()
             .iter()

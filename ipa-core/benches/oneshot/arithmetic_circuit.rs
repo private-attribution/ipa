@@ -14,7 +14,7 @@ pub struct CircuitArgs {
     pub width: u32,
 
     #[arg(short, long, help = "depth of the circuit", default_value_t = 10)]
-    pub depth: u8,
+    pub depth: u16,
 
     /// Cargo passes the bench argument
     /// https://doc.rust-lang.org/cargo/commands/cargo-bench.html
@@ -33,8 +33,9 @@ pub async fn main() {
         println!("benchmark parameters: Field size: {field_size} bits, circuit width: {width}, depth: {depth}");
     }
 
+    let input = circuit::arithmetic_setup(args.width, args.depth);
     let start = Instant::now();
-    circuit::arithmetic::<Fp31>(args.width, args.depth).await;
+    circuit::arithmetic::<Fp31, 1>(args.width, args.depth, 1024, input).await;
     let duration = start.elapsed().as_secs_f32();
 
     println!("benchmark complete after {duration}s");

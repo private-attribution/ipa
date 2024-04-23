@@ -23,41 +23,21 @@ fn test_compact_gate<I: TryInto<NonZeroU32>>(
 }
 
 #[test]
-fn compact_gate_cap_1_no_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 1, 0);
+fn compact_gate_cap_8_no_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 0);
 }
 
 #[test]
-fn compact_gate_cap_1_no_window_malicious() {
-    test_compact_gate(IpaSecurityModel::Malicious, 1, 0);
+fn compact_gate_cap_8_with_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 8, 86400);
 }
 
 #[test]
-fn compact_gate_cap_1_with_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 1, 86400);
+fn compact_gate_cap_16_no_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 0);
 }
 
 #[test]
-fn compact_gate_cap_1_with_window_malicious() {
-    test_compact_gate(IpaSecurityModel::Malicious, 1, 86400);
-}
-
-#[test]
-fn compact_gate_cap_10_no_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 10, 0);
-}
-
-#[test]
-fn compact_gate_cap_10_no_window_malicious() {
-    test_compact_gate(IpaSecurityModel::Malicious, 10, 0);
-}
-
-#[test]
-fn compact_gate_cap_10_with_window_semi_honest() {
-    test_compact_gate(IpaSecurityModel::SemiHonest, 10, 86400);
-}
-
-#[test]
-fn compact_gate_cap_10_with_window_malicious() {
-    test_compact_gate(IpaSecurityModel::Malicious, 10, 86400);
+fn compact_gate_cap_16_with_window_semi_honest() {
+    test_compact_gate(IpaSecurityModel::SemiHonest, 16, 86400);
 }

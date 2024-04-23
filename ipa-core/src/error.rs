@@ -1,8 +1,12 @@
-use std::{backtrace::Backtrace, convert::Infallible, fmt::Debug};
+use std::{
+    backtrace::Backtrace,
+    convert::Infallible,
+    fmt::{Debug, Display},
+};
 
 use thiserror::Error;
 
-use crate::{report::InvalidReportError, task::JoinError};
+use crate::{helpers::Role, report::InvalidReportError, sharding::ShardIndex, task::JoinError};
 
 /// An error raised by the IPA protocol.
 ///
@@ -46,10 +50,11 @@ pub enum Error {
     #[error("runtime error")]
     RuntimeError(JoinError),
     #[error("failed to parse json: {0}")]
-    #[cfg(feature = "enable-serde")]
     Serde(#[from] serde_json::Error),
-    #[error("Infrastructure error: {0}")]
-    InfraError(#[from] crate::helpers::Error),
+    #[error("MPC Infrastructure error: {0}")]
+    MpcInfraError(#[from] crate::helpers::Error<Role>),
+    #[error("Shard Infrastructure error: {0}")]
+    ShardInfraError(#[from] crate::helpers::Error<ShardIndex>),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
@@ -60,6 +65,12 @@ pub enum Error {
     Unsupported(String),
     #[error("Decompressing invalid elliptic curve point: {0}")]
     DecompressingInvalidCurvePoint(String),
+    #[error(transparent)]
+    LengthError(#[from] LengthError),
+    #[error("Current Context is unsafe, call validate to make it safe: {0}")]
+    ContextUnsafe(String),
+    #[error("DZKP Validation failed")]
+    DZKPValidationFailed,
 }
 
 impl Default for Error {
@@ -84,6 +95,20 @@ impl From<std::num::ParseIntError> for Error {
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub type Res<T> = Result<T, Error>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct LengthError {
+    pub expected: usize,
+    pub actual: usize,
+}
+
+impl Display for LengthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "expected {} items, got {}", self.expected, self.actual)
+    }
+}
+
+impl std::error::Error for LengthError {}
 
 /// Set up a global panic hook that dumps the panic information to our tracing subsystem if it is
 /// available and duplicates that to standard error output.

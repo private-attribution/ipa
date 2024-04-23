@@ -66,7 +66,7 @@ impl From<MoveToBucketError> for Error {
 /// produce [`row_contribution`]_r,0 =[`value`]-[`bd_key`]_r.[`value`] and [`row_contribution`]_r,1=[`bd_key`]_r.[`value`].
 /// This takes the most significant bit of `bd_key` and places value in one of the two child nodes of the binary tree.
 /// At each successive round, the next most significant bit is propagated from the leaf nodes of the tree into further leaf nodes:
-/// [`row_contribution`]_r+1,q,0 =[`row_contribution`]_r,q - [`bd_key`]_r+1.[`row_contribution`]_r,q and [`row_contribution`]_r+1,q,1 =[`bd_key`]_r+1.[`row_contribution`]_r,q.  
+/// [`row_contribution`]_r+1,q,0 =[`row_contribution`]_r,q - [`bd_key`]_r+1.[`row_contribution`]_r,q and [`row_contribution`]_r+1,q,1 =[`bd_key`]_r+1.[`row_contribution`]_r,q.
 /// The work of each iteration therefore doubles relative to the one preceding.
 ///
 /// In case a malicious entity sends a out of range breakdown key (i.e. greater than the max count) to this function, we need to do some
@@ -146,7 +146,7 @@ pub mod tests {
     use rand::thread_rng;
 
     use crate::{
-        ff::{Field, Fp32BitPrime, Gf8Bit, Gf9Bit},
+        ff::{Fp32BitPrime, Gf8Bit, Gf9Bit, U128Conversions},
         protocol::{
             context::{Context, UpgradableContext, Validator},
             ipa_prf::prf_sharding::bucket::move_single_value_to_bucket,

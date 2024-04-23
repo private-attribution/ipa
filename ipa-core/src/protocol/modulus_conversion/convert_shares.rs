@@ -33,9 +33,8 @@ use pin_project::pin_project;
 
 use crate::{
     error::Error,
-    exact::ExactSizeStream,
-    ff::{ArrayAccess, Field, Gf2, PrimeField},
-    helpers::Role,
+    ff::{ArrayAccess, Field, Gf2, PrimeField, U128Conversions},
+    helpers::{stream::ExactSizeStream, Role},
     protocol::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,
@@ -70,7 +69,7 @@ impl<F: PrimeField> BitConversionTriple<Replicated<F>> {
     ///
     /// # Panics
     /// If any bits in the bitwise shared input cannot be converted into the given field `F`
-    /// without truncation or if the bit index is out of range for `B`.
+    /// without truncation.
     #[must_use]
     pub fn new(helper_role: Role, left: bool, right: bool) -> Self {
         let left = F::try_from(u128::from(left)).unwrap();
@@ -266,7 +265,7 @@ async fn convert_bit<F, C, S>(
     locally_converted_bits: &BitConversionTriple<S>,
 ) -> Result<S, Error>
 where
-    F: Field,
+    F: Field + U128Conversions,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
@@ -366,9 +365,7 @@ where
     let stream = unfold(
         (ctx, locally_converted, first_record),
         |(ctx, mut locally_converted, record_id)| async move {
-            let Some((triple, residual)) = locally_converted.next().await else {
-                return None;
-            };
+            let (triple, residual) = locally_converted.next().await?;
             let bit_contexts = (0..).map(|i| ctx.narrow(&ConvertSharesStep::ConvertBit(i)));
             let converted =
                 ctx.parallel_join(zip(bit_contexts, triple).map(|(ctx, triple)| async move {
@@ -398,7 +395,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime, Gf2, PrimeField},
+        ff::{Field, Fp31, Fp32BitPrime, Gf2, PrimeField, U128Conversions},
         helpers::{Direction, Role},
         protocol::{
             context::{Context, UpgradableContext, UpgradedContext, Validator},

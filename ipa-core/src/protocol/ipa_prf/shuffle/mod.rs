@@ -5,10 +5,12 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA112, BA64},
-        ArrayAccess, CustomArray, Expand, Field,
+        ArrayAccess, CustomArray, Expand,
     },
-    protocol::context::{UpgradableContext, UpgradedContext},
-    report::OprfReport,
+    protocol::{
+        context::{UpgradableContext, UpgradedContext},
+        ipa_prf::OPRFIPAInputRow,
+    },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -20,14 +22,14 @@ pub mod base;
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
     ctx: C,
-    input: Vec<OprfReport<BK, TV, TS>>,
-) -> Result<Vec<OprfReport<BK, TV, TS>>, Error>
+    input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
+) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
 where
     C: UpgradableContext,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = AdditiveShare<Boolean>>,
-    BK: SharedValue + CustomArray<Element = Boolean> + Field,
-    TV: SharedValue + CustomArray<Element = Boolean> + Field,
-    TS: SharedValue + CustomArray<Element = Boolean> + Field,
+    BK: SharedValue + CustomArray<Element = Boolean>,
+    TV: SharedValue + CustomArray<Element = Boolean>,
+    TS: SharedValue + CustomArray<Element = Boolean>,
 {
     let shuffle_input: Vec<AdditiveShare<BA112>> = input
         .into_iter()
@@ -44,7 +46,7 @@ where
 
 // This function converts OprfReport to an AdditiveShare needed for shuffle protocol
 pub fn oprfreport_to_shuffle_input<YS, BK, TV, TS>(
-    input: &OprfReport<BK, TV, TS>,
+    input: &OPRFIPAInputRow<BK, TV, TS>,
 ) -> AdditiveShare<YS>
 where
     YS: CustomArray<Element = <BA112 as CustomArray>::Element> + SharedValue,
@@ -73,12 +75,14 @@ where
 }
 
 // This function converts AdditiveShare obtained from shuffle protocol to OprfReport
-pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(input: &AdditiveShare<YS>) -> OprfReport<BK, TV, TS>
+pub fn shuffled_to_oprfreport<YS, BK, TV, TS>(
+    input: &AdditiveShare<YS>,
+) -> OPRFIPAInputRow<BK, TV, TS>
 where
-    YS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-    BK: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-    TV: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
-    TS: SharedValue + ArrayAccess<Output = Boolean> + Expand<Input = Boolean>,
+    YS: SharedValue + CustomArray<Element = Boolean>,
+    BK: SharedValue + CustomArray<Element = Boolean>,
+    TV: SharedValue + CustomArray<Element = Boolean>,
+    TS: SharedValue + CustomArray<Element = Boolean>,
 {
     let match_key = extract_from_shared_array::<YS, BA64>(input, 0);
 
@@ -99,7 +103,7 @@ where
     offset += TV::BITS as usize;
     let timestamp = extract_from_shared_array::<YS, TS>(input, offset);
 
-    OprfReport {
+    OPRFIPAInputRow {
         match_key,
         is_trigger,
         breakdown_key,

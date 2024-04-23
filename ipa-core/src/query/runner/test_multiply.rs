@@ -73,7 +73,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Fp31, U128Conversions},
         secret_sharing::IntoShares,
         test_fixture::{join3v, Reconstruct, TestWorld},
     };

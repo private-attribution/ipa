@@ -2,7 +2,7 @@ use axum::{routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::Transport,
+    helpers::{ApiError, BodyStream, Transport},
     net::{http_serde, Error, HttpTransport},
     query::NewQueryError,
     sync::Arc,
@@ -15,9 +15,12 @@ async fn handler(
     req: http_serde::query::create::Request,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
     let transport = Transport::clone_ref(&*transport);
-    match transport.receive_query(req.query_config).await {
-        Ok(query_id) => Ok(Json(http_serde::query::create::ResponseBody { query_id })),
-        Err(err @ NewQueryError::State { .. }) => {
+    match transport
+        .dispatch(req.query_config, BodyStream::empty())
+        .await
+    {
+        Ok(resp) => Ok(Json(resp.try_into()?)),
+        Err(err @ ApiError::NewQuery(NewQueryError::State { .. })) => {
             Err(Error::application(StatusCode::CONFLICT, err))
         }
         Err(err) => Err(Error::application(StatusCode::INTERNAL_SERVER_ERROR, err)),
@@ -32,7 +35,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{future::ready, num::NonZeroU32};
+    use std::num::NonZeroU32;
 
     use axum::http::Request;
     use hyper::{
@@ -40,14 +43,16 @@ mod tests {
         Body, StatusCode,
     };
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType, SparseAggregateQueryConfig},
-            TransportCallbacks,
+            make_owned_handler,
+            query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
+            routing::{Addr, RouteId},
+            HelperIdentity, HelperResponse, Role, RoleAssignment,
         },
         net::{
+            http_serde,
             server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
             test::TestServer,
         },
@@ -55,19 +60,29 @@ mod tests {
     };
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let cb = TransportCallbacks {
-            receive_query: Box::new(move |_transport, query_config| {
-                assert_eq!(query_config, expected_query_config);
-                Box::pin(ready(Ok(QueryId)))
-            }),
-            ..Default::default()
-        };
-        let TestServer { server, .. } = TestServer::builder().with_callbacks(cb).build().await;
+        let test_server = TestServer::builder()
+            .with_request_handler(make_owned_handler(
+                move |addr: Addr<HelperIdentity>, _| async move {
+                    let RouteId::ReceiveQuery = addr.route else {
+                        panic!("unexpected call");
+                    };
+
+                    let query_config = addr.into().unwrap();
+                    assert_eq!(query_config, expected_query_config);
+                    Ok(HelperResponse::from(PrepareQuery {
+                        query_id: QueryId,
+                        config: query_config,
+                        roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                    }))
+                },
+            ))
+            .build()
+            .await;
         let req = http_serde::query::create::Request::new(expected_query_config);
         let req = req
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        let resp = server.handle_req(req).await;
+        let resp = test_server.server.handle_req(req).await;
 
         let status = resp.status();
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
@@ -89,7 +104,7 @@ mod tests {
     async fn create_test_ipa_no_attr_window() {
         create_test(
             QueryConfig::new(
-                QueryType::SemiHonestIpa(IpaQueryConfig {
+                QueryType::OprfIpa(IpaQueryConfig {
                     per_user_credit_cap: 1,
                     max_breakdown_key: 1,
                     attribution_window_seconds: None,
@@ -109,34 +124,12 @@ mod tests {
         create_test(QueryConfig {
             size: 1.try_into().unwrap(),
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
+            query_type: QueryType::OprfIpa(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 attribution_window_seconds: NonZeroU32::new(86_400),
                 num_multi_bits: 3,
                 plaintext_match_keys: true,
-            }),
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn create_test_aggregate() {
-        create_test(QueryConfig {
-            size: 1.try_into().unwrap(),
-            field_type: FieldType::Fp31,
-            query_type: QueryType::SemiHonestSparseAggregate(SparseAggregateQueryConfig {
-                contribution_bits: 8.try_into().unwrap(),
-                num_contributions: 20,
-            }),
-        })
-        .await;
-        create_test(QueryConfig {
-            size: 1.try_into().unwrap(),
-            field_type: FieldType::Fp31,
-            query_type: QueryType::MaliciousSparseAggregate(SparseAggregateQueryConfig {
-                contribution_bits: 8.try_into().unwrap(),
-                num_contributions: 20,
             }),
         })
         .await;
@@ -237,7 +230,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::SEMIHONEST_IPA_STR.to_string(),
+                query_type: QueryType::OPRF_IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
                 attribution_window_seconds: None,
@@ -295,73 +288,6 @@ mod tests {
     async fn malformed_num_multi_bits_ipa() {
         let req = OverrideIPAReq {
             num_multi_bits: "-1".into(),
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    struct OverrideAggregateReq {
-        field_type: String,
-        query_type: String,
-        contribution_bits: String,
-        num_contributions: String,
-    }
-
-    impl IntoFailingReq for OverrideAggregateReq {
-        fn into_req(self, port: u16) -> Request<Body> {
-            let query = format!(
-                "query_type={}&contribution_bits={}&num_contributions={}",
-                self.query_type, self.contribution_bits, self.num_contributions,
-            );
-            OverrideReq {
-                field_type: self.field_type,
-                query_type_params: query,
-            }
-            .into_req(port)
-        }
-    }
-
-    impl Default for OverrideAggregateReq {
-        fn default() -> Self {
-            Self {
-                field_type: format!("{:?}", FieldType::Fp32BitPrime),
-                query_type: QueryType::SEMIHONEST_AGGREGATE_STR.to_string(),
-                contribution_bits: "8".into(),
-                num_contributions: "20".into(),
-            }
-        }
-    }
-    #[tokio::test]
-    async fn malformed_field_type_aggregate() {
-        let req = OverrideAggregateReq {
-            field_type: "invalid_field".into(),
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_query_type_aggregate() {
-        let req = OverrideAggregateReq {
-            query_type: "not_aggregate".into(),
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_contribution_bits_aggregate() {
-        let req = OverrideAggregateReq {
-            contribution_bits: "3".into(),
-            ..Default::default()
-        };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_num_contributions_aggregate() {
-        let req = OverrideAggregateReq {
-            num_contributions: "-1".into(),
             ..Default::default()
         };
         assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;

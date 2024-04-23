@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os
 import re
 import subprocess
@@ -7,29 +8,15 @@ import sys
 # This script collects all the steps that are executed in the oneshot_ipa with
 # all possible configurations.
 
-IPA_ENV = [["RUST_LOG", "ipa=DEBUG"]]
-ARGS = [
-    "cargo",
-    "bench",
-    "--bench",
-    "oneshot_ipa",
-    "--no-default-features",
-    "--features=enable-benches debug-trace step-trace",
-    "--",
-    "--num-multi-bits",
-    "3",
-]
+IPA_ENV = [["RUST_LOG", "ipa_core=DEBUG"]]
 QUERY_SIZE = 100
-# per_user_cap = 1 runs an optimized protocol, so 1 and anything larger than 1
-PER_USER_CAP = [1, 3]
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
 ATTRIBUTION_WINDOW = [0, 86400]
-# breakdown_keys = [1..32] runs an optimized protocol, and the steps generated
-# depend on the number of bits in the breakdown key. >= 33 runs a general protocol.
-# As of July 2023, we are limiting the number of breakdown keys to 32.
-BREAKDOWN_KEYS = [32]
-SECURITY_MODEL = ["malicious", "semi-honest"]
-ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
+ROOT_STEP_PREFIX = "protocol/ipa_core::test_fixture::world::TestExecutionStep::iter0"
+BREAKDOWN_KEYS = 256
+USER_CAP = [8, 16, 32, 64, 128]
+SECURITY_MODEL = "semi-honest"
+TRIGGER_VALUES = [6, 7]
 
 # TODO(taikiy): #771 allows us to remove this synthetic step generation code
 
@@ -82,6 +69,9 @@ def collect_steps(args):
 
         if not line or line == "":
             break
+
+        if line.startswith("TestWorld random seed "):
+            continue
 
         if not line.startswith(ROOT_STEP_PREFIX):
             print("Unexpected line: " + line, flush=True)
@@ -149,39 +139,13 @@ def extract_intermediate_steps(steps):
 
     return steps
 
-def ipa_steps():
-    output = set()
-    for c in PER_USER_CAP:
-        for w in ATTRIBUTION_WINDOW:
-            for b in BREAKDOWN_KEYS:
-                for m in SECURITY_MODEL:
-                    args = ARGS + [
-                        "-n",
-                        str(QUERY_SIZE),
-                        "-c",
-                        str(c),
-                        "-w",
-                        str(w),
-                        "-b",
-                        str(b),
-                        "-m",
-                        m,
-                    ]
-                    print(" ".join(args), file=sys.stderr)
-                    output.update(collect_steps(args))
-    return output
 
-OPRF_BREAKDOWN_KEY = 256
-OPRF_USER_CAP = [8, 16, 32, 64, 128]
-OPRF_SECURITY_MODEL = "semi-honest"
-OPRF_TRIGGER_VALUE = [6, 7]
-
-def oprf_steps():
+def ipa_steps(base_args):
     output = set()
-    for c in OPRF_USER_CAP:
+    for c in USER_CAP:
         for w in ATTRIBUTION_WINDOW:
-            for tv in OPRF_TRIGGER_VALUE:
-                args = ARGS + [
+            for tv in TRIGGER_VALUES:
+                args = base_args + [
                     "-n",
                     str(QUERY_SIZE),
                     "-c",
@@ -189,21 +153,44 @@ def oprf_steps():
                     "-w",
                     str(w),
                     "-b",
-                    str(OPRF_BREAKDOWN_KEY),
+                    str(BREAKDOWN_KEYS),
                     "-m",
-                    OPRF_SECURITY_MODEL,
+                    SECURITY_MODEL,
                     "-t",
                     str(tv),
-                    "-o"
-            ]
+                ]
             print(" ".join(args), file=sys.stderr)
             output.update(collect_steps(args))
     return output
 
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate steps file")
+    parser.add_argument(
+        "-m",
+        "--multi-threading",
+        action="store_true",
+    )
+    args = parser.parse_args()
+
+    features = ["enable-benches", "debug-trace", "step-trace"]
+    if args.multi_threading:
+        features.append("multi-threading")
+
+    ARGS = [
+        "cargo",
+        "bench",
+        "--bench",
+        "oneshot_ipa",
+        "--no-default-features",
+        f'--features={" ".join(features)}',
+        "--",
+        "--num-multi-bits",
+        "3",
+    ]
+
     steps = set()
-    steps.update(ipa_steps())
-    steps.update(oprf_steps())
+    steps.update(ipa_steps(ARGS))
 
     full_steps = extract_intermediate_steps(steps)
     sorted_steps = sorted(full_steps)

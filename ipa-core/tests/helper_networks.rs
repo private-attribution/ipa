@@ -70,18 +70,18 @@ fn keygen_confgen() {
 
     // generate keys for all 3 helpers
     for id in HelperIdentity::make_three() {
-        exec_keygen_cmd(id, &path)
+        exec_keygen_cmd(id, path)
     }
 
     exec_conf_gen(false);
     let helpers = spawn_helpers(path, &sockets, true);
-    test_multiply(&path, true);
+    test_multiply(path, true);
     drop(helpers);
 
     // now overwrite the configuration file and try again
     exec_conf_gen(true);
     let helpers = spawn_helpers(path, &sockets, true);
-    test_multiply(&path, true);
+    test_multiply(path, true);
     drop(helpers);
 }
 
@@ -99,7 +99,7 @@ fn exec_keygen_cmd(helper_identity: HelperIdentity, dest_dir: &Path) {
             "--tls-key".as_ref(),
             dest_dir.helper_tls_key(helper_identity).as_os_str(),
         ])
-        .args(["--tls-valid-days".as_ref(), "2"])
+        .args(["--tls-valid-days", "2"])
         .args([
             "--mk-private-key".as_ref(),
             dest_dir.helper_mk_private_key(helper_identity).as_os_str(),

@@ -13,17 +13,22 @@ use crate::{
 };
 
 pub mod bitwise_equal;
+
+#[cfg(feature = "descriptive-gate")]
 pub mod bitwise_less_than_prime;
+#[cfg(feature = "descriptive-gate")]
 pub mod comparison;
 pub mod generate_random_bits;
 pub mod or;
+#[cfg(feature = "descriptive-gate")]
 pub mod random_bits_generator;
+#[cfg(feature = "descriptive-gate")]
 pub mod solved_bits;
 mod xor;
 
-pub use comparison::greater_than_constant;
-pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
+#[cfg(feature = "descriptive-gate")]
+pub use {comparison::greater_than_constant, solved_bits::RandomBitsShare};
 
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
@@ -93,6 +98,7 @@ where
 
 /// # Errors
 /// This does multiplications which can have errors
+#[cfg(feature = "descriptive-gate")]
 pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,

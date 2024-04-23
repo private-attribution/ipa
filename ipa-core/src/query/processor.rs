@@ -9,7 +9,8 @@ use crate::{
     error::Error as ProtocolError,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        Gateway, GatewayConfig, Role, RoleAssignment, Transport, TransportError, TransportImpl,
+        Gateway, GatewayConfig, MpcTransportError, MpcTransportImpl, Role, RoleAssignment,
+        ShardTransportImpl, Transport,
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::QueryId,
@@ -57,7 +58,7 @@ pub enum NewQueryError {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] TransportError),
+    MpcTransport(#[from] MpcTransportError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -132,7 +133,7 @@ impl Processor {
     #[allow(clippy::missing_panics_doc)]
     pub async fn new_query(
         &self,
-        transport: TransportImpl,
+        transport: MpcTransportImpl,
         req: QueryConfig,
     ) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
@@ -154,11 +155,11 @@ impl Processor {
 
         // Inform other parties about new query. If any of them rejects it, this join will fail
         try_join(
-            transport.send(left, &prepare_request, stream::empty()),
-            transport.send(right, &prepare_request, stream::empty()),
+            transport.send(left, prepare_request.clone(), stream::empty()),
+            transport.send(right, prepare_request.clone(), stream::empty()),
         )
         .await
-        .map_err(NewQueryError::Transport)?;
+        .map_err(NewQueryError::MpcTransport)?;
 
         handle.set_state(QueryState::AwaitingInputs(query_id, req, roles))?;
 
@@ -176,7 +177,7 @@ impl Processor {
     /// if query is already running or this helper cannot be a follower in it
     pub fn prepare(
         &self,
-        transport: &TransportImpl,
+        transport: &MpcTransportImpl,
         req: PrepareQuery,
     ) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(transport.identity());
@@ -204,10 +205,11 @@ impl Processor {
     /// if query is not registered on this helper.
     ///
     /// ## Panics
-    /// If failed to obtain an exclusive access to the query collection.
+    /// If failed to obtain exclusive access to the query collection.
     pub fn receive_inputs(
         &self,
-        transport: TransportImpl,
+        mpc_transport: MpcTransportImpl,
+        shard_transport: ShardTransportImpl,
         input: QueryInput,
     ) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
@@ -223,7 +225,8 @@ impl Processor {
                         query_id,
                         GatewayConfig::from(&config),
                         role_assignment,
-                        transport,
+                        mpc_transport,
+                        shard_transport,
                     );
                     queries.insert(
                         input.query_id,
@@ -278,7 +281,7 @@ impl Processor {
     /// if query is not registered on this helper.
     ///
     /// ## Panics
-    /// If failed to obtain an exclusive access to the query collection.
+    /// If failed to obtain exclusive access to the query collection.
     pub async fn complete(
         &self,
         query_id: QueryId,
@@ -318,21 +321,33 @@ mod tests {
     use futures_util::future::poll_immediate;
     use tokio::sync::Barrier;
 
-    use super::*;
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{QueryType, QueryType::TestMultiply},
-            HelperIdentity, InMemoryNetwork, PrepareQueryCallback, TransportCallbacks,
+            make_owned_handler,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            ApiError, HandlerBox, HelperIdentity, HelperResponse, InMemoryMpcNetwork,
+            RequestHandler, RoleAssignment, Transport,
+        },
+        protocol::QueryId,
+        query::{
+            processor::Processor, state::StateError, NewQueryError, PrepareQueryError, QueryStatus,
         },
     };
 
-    fn prepare_query_callback<T, F, Fut>(cb: F) -> Box<dyn PrepareQueryCallback<T>>
+    fn prepare_query_handler<F, Fut>(cb: F) -> Arc<dyn RequestHandler<Identity = HelperIdentity>>
     where
-        F: Fn(T, PrepareQuery) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(), PrepareQueryError>> + Send + 'static,
+        F: Fn(PrepareQuery) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<HelperResponse, ApiError>> + Send + Sync + 'static,
     {
-        Box::new(move |transport, prepare_query| Box::pin(cb(transport, prepare_query)))
+        make_owned_handler(move |req, _| {
+            let prepare_query = req.into().unwrap();
+            cb(prepare_query)
+        })
+    }
+
+    fn respond_ok() -> Arc<dyn RequestHandler<Identity = HelperIdentity>> {
+        prepare_query_handler(move |_| async move { Ok(HelperResponse::ok()) })
     }
 
     fn test_multiply_config() -> QueryConfig {
@@ -342,29 +357,27 @@ mod tests {
     #[tokio::test]
     async fn new_query() {
         let barrier = Arc::new(Barrier::new(3));
-        let cb2_barrier = Arc::clone(&barrier);
-        let cb3_barrier = Arc::clone(&barrier);
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(move |_, _| {
-                let barrier = Arc::clone(&cb2_barrier);
-                async move {
-                    barrier.wait().await;
-                    Ok(())
-                }
-            }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(move |_, _| {
-                let barrier = Arc::clone(&cb3_barrier);
-                async move {
-                    barrier.wait().await;
-                    Ok(())
-                }
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2_barrier = Arc::clone(&barrier);
+        let h3_barrier = Arc::clone(&barrier);
+        let h2 = prepare_query_handler(move |_| {
+            let barrier = Arc::clone(&h2_barrier);
+            async move {
+                barrier.wait().await;
+                Ok(HelperResponse::ok())
+            }
+        });
+        let h3 = prepare_query_handler(move |_| {
+            let barrier = Arc::clone(&h3_barrier);
+            async move {
+                barrier.wait().await;
+                Ok(HelperResponse::ok())
+            }
+        });
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -398,11 +411,10 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
-        let cb = array::from_fn(|_| TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
-        });
-        let network = InMemoryNetwork::new(cb);
+        let handlers =
+            array::from_fn(|_| prepare_query_handler(|_| async { Ok(HelperResponse::ok()) }));
+        let network =
+            InMemoryMpcNetwork::new(handlers.each_ref().map(HandlerBox::owning_ref).map(Some));
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -419,40 +431,36 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_error() {
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                Err(PrepareQueryError::WrongTarget)
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2 = respond_ok();
+        let h3 = prepare_query_handler(|_| async move {
+            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+        });
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
-            NewQueryError::Transport(_)
+            NewQueryError::MpcTransport(_)
         ));
     }
 
     #[tokio::test]
     async fn can_recover_from_prepare_error() {
-        let cb2 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async { Ok(()) }),
-            ..Default::default()
-        };
-        let cb3 = TransportCallbacks {
-            prepare_query: prepare_query_callback(|_, _| async {
-                Err(PrepareQueryError::WrongTarget)
-            }),
-            ..Default::default()
-        };
-        let network = InMemoryNetwork::new([TransportCallbacks::default(), cb2, cb3]);
+        let h2 = respond_ok();
+        let h3 = prepare_query_handler(|_| async move {
+            Err(ApiError::QueryPrepare(PrepareQueryError::WrongTarget))
+        });
+        let network = InMemoryMpcNetwork::new([
+            None,
+            Some(HandlerBox::owning_ref(&h2)),
+            Some(HandlerBox::owning_ref(&h3)),
+        ]);
         let [t0, _, _] = network.transports();
         let p0 = Processor::default();
         let request = test_multiply_config();
@@ -460,12 +468,13 @@ mod tests {
 
         assert!(matches!(
             p0.new_query(t0, request).await.unwrap_err(),
-            NewQueryError::Transport(_)
+            NewQueryError::MpcTransport(_)
         ));
     }
 
     mod prepare {
         use super::*;
+        use crate::query::QueryStatusError;
 
         fn prepare_query(identities: [HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
@@ -477,7 +486,7 @@ mod tests {
 
         #[tokio::test]
         async fn happy_case() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]);
@@ -496,7 +505,7 @@ mod tests {
 
         #[tokio::test]
         async fn rejects_if_coordinator() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[0]);
@@ -510,7 +519,7 @@ mod tests {
 
         #[tokio::test]
         async fn rejects_if_query_exists() {
-            let network = InMemoryNetwork::default();
+            let network = InMemoryMpcNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]);
@@ -531,12 +540,14 @@ mod tests {
         use super::*;
         use crate::{
             error::BoxError,
-            ff::{Field, Fp31},
-            helpers::query::IpaQueryConfig,
-            ipa_test_input,
-            protocol::{ipa::IPAInputRow, BreakdownKey, MatchKey},
+            ff::{
+                boolean_array::{BA20, BA3, BA8},
+                Fp31, U128Conversions,
+            },
+            helpers::query::{IpaQueryConfig, QueryType},
+            protocol::ipa_prf::OPRFIPAInputRow,
             secret_sharing::replicated::semi_honest,
-            test_fixture::{input::GenericReportTestInput, Reconstruct, TestApp},
+            test_fixture::{ipa::TestRawDataRecord, Reconstruct, TestApp},
         };
 
         #[tokio::test]
@@ -602,26 +613,55 @@ mod tests {
         }
 
         async fn ipa_query(app: &TestApp) -> Result<(), BoxError> {
-            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
-                [
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                    { timestamp: 0, match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { timestamp: 0, match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                    { timestamp: 0, match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                ];
-                (Fp31, MatchKey, BreakdownKey)
-            );
+            let records = vec![
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: false,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: false,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 12345,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                TestRawDataRecord {
+                    timestamp: 0,
+                    user_id: 68362,
+                    is_trigger_report: true,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
             let record_count = records.len();
 
             let _results = app
-                .execute_query::<_, Vec<IPAInputRow<_, _, _>>>(
+                // Achtung: OPRF IPA executor assumes BA8, BA3, BA20 to be the encodings of
+                // inputs - using anything else will lead to a padding error.
+                .execute_query::<_, Vec<OPRFIPAInputRow<BA8, BA3, BA20>>>(
                     records.into_iter(),
                     QueryConfig {
                         size: record_count.try_into().unwrap(),
                         field_type: FieldType::Fp31,
-                        query_type: QueryType::SemiHonestIpa(IpaQueryConfig {
-                            per_user_credit_cap: 3,
+                        query_type: QueryType::OprfIpa(IpaQueryConfig {
+                            per_user_credit_cap: 8,
                             max_breakdown_key: 3,
                             attribution_window_seconds: None,
                             num_multi_bits: 3,

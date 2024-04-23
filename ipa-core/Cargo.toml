@@ -18,7 +18,6 @@ default = [
     "ipa-prf",
 ]
 cli = ["comfy-table", "clap"]
-enable-serde = ["serde", "serde_json"]
 disable-metrics = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
@@ -28,7 +27,6 @@ web-app = [
     "base64",
     "clap",
     "comfy-table",
-    "enable-serde",
     "hyper",
     "hyper-rustls",
     "rcgen",
@@ -40,7 +38,7 @@ web-app = [
     "tower",
     "tower-http",
 ]
-test-fixture = ["enable-serde", "weak-field"]
+test-fixture = ["weak-field"]
 # Include observability instruments that detect lack of progress inside MPC. If there is a bug that leads to helper
 # miscommunication, this feature helps to detect it. Turning it on has some cost.
 # If "shuttle" feature is enabled, turning this on has no effect.
@@ -63,6 +61,10 @@ descriptive-gate = []
 compact-gate = ["ipa-macros/compact-gate"]
 # Enable using more than one thread for protocol execution. Most of the parallelism occurs at parallel/seq_join operations
 multi-threading = ["async-scoped"]
+# Enable tokio task profiling. Requires tokio_unstable flag to be passed to the compiler.
+# RUSTFLAGS="--cfg tokio_unstable" cargo run ... --features="tokio-console ...".
+# Note that if there are other flags enabled on your platform in .cargo/config.toml, you need to include them as well.
+tokio-console = ["console-subscriber", "tokio/tracing"]
 
 # Standalone aggregation protocol. We use IPA infra for communication
 # but it has nothing to do with IPA.
@@ -74,7 +76,7 @@ ipa-prf = []
 ipa-macros = { version = "*", path = "../ipa-macros" }
 
 aes = "0.8.3"
-async-trait = "0.1.68"
+async-trait = "0.1.79"
 async-scoped = { version = "0.9.0", features = ["use-tokio"], optional = true }
 axum = { version = "0.5.17", optional = true, features = ["http2"] }
 axum-server = { version = "0.5.1", optional = true, features = [
@@ -88,6 +90,7 @@ bytes = "1.4"
 clap = { version = "4.3.2", optional = true, features = ["derive"] }
 comfy-table = { version = "7.0", optional = true }
 config = "0.14"
+console-subscriber = {  version = "0.2", optional = true }
 criterion = { version = "0.5.1", optional = true, default-features = false, features = [
     "async_tokio",
     "plotters",
@@ -129,8 +132,8 @@ rustls-pemfile = { version = "1", optional = true }
 # we can remove pinning
 rustls-webpki = "^0.101.4"
 # TODO consider using zerocopy or serde_bytes or in-house serialization
-serde = { version = "1.0", optional = true, features = ["derive"] }
-serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
 sha2 = "0.10"
 shuttle-crate = { package = "shuttle", version = "0.6.1", optional = true }
 thiserror = "1.0"
@@ -144,7 +147,7 @@ tower = { version = "0.4.13", optional = true }
 tower-http = { version = "0.4.0", optional = true, features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-typenum = "1.16"
+typenum = { version = "1.17", features = ["i128"] }
 # hpke is pinned to it
 x25519-dalek = "2.0.0-rc.3"
 
@@ -174,7 +177,7 @@ bench = false
 [[bin]]
 name = "ipa_bench"
 path = "src/bin/ipa_bench/ipa_bench.rs"
-required-features = ["cli", "enable-serde"]
+required-features = ["cli"]
 bench = false
 
 [[bin]]
@@ -206,16 +209,15 @@ harness = false
 required-features = ["enable-benches", "descriptive-gate"]
 
 [[bench]]
-name = "oneshot_sort"
-path = "benches/oneshot/sort.rs"
-harness = false
-required-features = ["enable-benches", "descriptive-gate"]
-
-[[bench]]
 name = "oneshot_ipa"
 path = "benches/oneshot/ipa.rs"
 harness = false
 required-features = ["enable-benches", "descriptive-gate"]
+
+[[bench]]
+name = "transpose"
+harness = false
+required-features = ["enable-benches"]
 
 [[test]]
 name = "helper_networks"

@@ -5,19 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join;
-use ipa_macros::Step;
 
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
     protocol::{
-        basics::{check_zero, Reveal},
-        context::{
-            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
-        },
+        context::{Base, UpgradableContext, UpgradedSemiHonestContext},
         prss::SharedRandomness,
         RecordId,
     },
@@ -26,7 +19,17 @@ use crate::{
         semi_honest::AdditiveShare as Replicated,
         ReplicatedSecretSharing,
     },
-    sync::{Arc, Mutex, Weak},
+    sharding::ShardBinding,
+    sync::{Mutex, Weak},
+};
+#[cfg(feature = "descriptive-gate")]
+use crate::{
+    helpers::Direction,
+    protocol::basics::Reveal,
+    protocol::context::Context,
+    protocol::context::{MaliciousContext, UpgradedMaliciousContext},
+    secret_sharing::SharedValue,
+    sync::Arc,
 };
 
 #[async_trait]
@@ -35,13 +38,13 @@ pub trait Validator<B: UpgradableContext, F: ExtendableField> {
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
-pub struct SemiHonest<'a, F: ExtendableField> {
-    context: UpgradedSemiHonestContext<'a, F>,
+pub struct SemiHonest<'a, B: ShardBinding, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, B, F>,
     _f: PhantomData<F>,
 }
 
-impl<'a, F: ExtendableField> SemiHonest<'a, F> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         Self {
             context: UpgradedSemiHonestContext::new(inner),
             _f: PhantomData,
@@ -50,8 +53,10 @@ impl<'a, F: ExtendableField> SemiHonest<'a, F> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
-    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> Validator<super::semi_honest::Context<'a, B>, F>
+    for SemiHonest<'a, B, F>
+{
+    fn context(&self) -> UpgradedSemiHonestContext<'a, B, F> {
         self.context.clone()
     }
 
@@ -61,15 +66,20 @@ impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<
     }
 }
 
-impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+impl<B: ShardBinding, F: ExtendableField> Debug for SemiHonest<'_, B, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+        write!(
+            f,
+            "SemiHonestValidator<{:?}, {:?}>",
+            type_name::<B>(),
+            type_name::<F>()
+        )
     }
 }
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum Step {
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
@@ -77,7 +87,7 @@ pub(crate) enum Step {
     Validate,
 }
 
-#[derive(Step)]
+#[cfg_attr(feature = "descriptive-gate", derive(ipa_macros::Step))]
 pub(crate) enum ValidateStep {
     /// Propagate the accumulated values of `u` and `w`.
     PropagateUAndW,
@@ -194,6 +204,7 @@ impl<F: ExtendableField> MaliciousAccumulator<F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 pub struct Malicious<'a, F: ExtendableField> {
     r_share: Replicated<F::ExtendedField>,
     u_and_w: Arc<Mutex<AccumulatorState<F::ExtendedField>>>,
@@ -201,6 +212,7 @@ pub struct Malicious<'a, F: ExtendableField> {
     validate_ctx: Base<'a>,
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a, F> {
     /// Get a copy of the context that can be used for malicious protocol execution.
@@ -226,14 +238,17 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?;
+        let r = <F as ExtendableField>::ExtendedField::from_array(
+            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+        );
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::CheckZero)
             .set_total_records(1);
-        let is_valid = check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
+        let is_valid =
+            crate::protocol::basics::check_zero(check_zero_ctx, RecordId::FIRST, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
@@ -245,6 +260,7 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> Malicious<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
@@ -278,6 +294,8 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     async fn propagate_u_and_w(
         &self,
     ) -> Result<(Replicated<F::ExtendedField>, Replicated<F::ExtendedField>), Error> {
+        use futures::future::try_join;
+
         let propagate_ctx = self
             .validate_ctx
             .narrow(&ValidateStep::PropagateUAndW)
@@ -304,6 +322,7 @@ impl<'a, F: ExtendableField> Malicious<'a, F> {
     }
 }
 
+#[cfg(feature = "descriptive-gate")]
 impl<F: ExtendableField> Debug for Malicious<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())

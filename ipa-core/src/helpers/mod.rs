@@ -8,8 +8,10 @@ use generic_array::GenericArray;
 
 mod buffers;
 mod error;
+mod futures;
 mod gateway;
 pub(crate) mod prss_protocol;
+pub mod stream;
 mod transport;
 
 use std::ops::{Index, IndexMut};
@@ -17,18 +19,23 @@ use std::ops::{Index, IndexMut};
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::OrderingSender;
-pub use error::{Error, Result};
+pub use error::Error;
+pub use futures::MaybeFuture;
+use serde::{Deserialize, Serialize, Serializer};
 
 #[cfg(feature = "stall-detection")]
 mod gateway_exports {
+
     use crate::helpers::{
         gateway,
         gateway::{stall_detection::Observed, InstrumentedGateway},
     };
 
     pub type Gateway = Observed<InstrumentedGateway>;
-    pub type SendingEnd<M> = Observed<gateway::SendingEnd<M>>;
-    pub type ReceivingEnd<M> = Observed<gateway::ReceivingEnd<M>>;
+    pub type SendingEnd<I, M> = Observed<gateway::SendingEnd<I, M>>;
+
+    pub type MpcReceivingEnd<M> = Observed<gateway::MpcReceivingEnd<M>>;
+    pub type ShardReceivingEnd<M> = Observed<gateway::ShardReceivingEnd<M>>;
 }
 
 #[cfg(not(feature = "stall-detection"))]
@@ -36,25 +43,29 @@ mod gateway_exports {
     use crate::helpers::gateway;
 
     pub type Gateway = gateway::Gateway;
-    pub type SendingEnd<M> = gateway::SendingEnd<M>;
-    pub type ReceivingEnd<M> = gateway::ReceivingEnd<M>;
+    pub type SendingEnd<I, M> = gateway::SendingEnd<I, M>;
+    pub type MpcReceivingEnd<M> = gateway::MpcReceivingEnd<M>;
+    pub type ShardReceivingEnd<M> = gateway::ShardReceivingEnd<M>;
 }
 
 pub use gateway::GatewayConfig;
 // TODO: this type should only be available within infra. Right now several infra modules
 // are exposed at the root level. That makes it impossible to have a proper hierarchy here.
-pub use gateway::{TransportError, TransportImpl};
-pub use gateway_exports::{Gateway, ReceivingEnd, SendingEnd};
+pub use gateway::{
+    MpcTransportError, MpcTransportImpl, RoleResolvingTransport, ShardTransportImpl,
+};
+pub use gateway_exports::{Gateway, MpcReceivingEnd, SendingEnd, ShardReceivingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
 #[cfg(feature = "web-app")]
 pub use transport::WrappedAxumBodyStream;
 pub use transport::{
-    callbacks::*, query, BodyStream, BytesStream, LengthDelimitedStream, LogErrors,
-    NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RecordsStream, RouteId, RouteParams,
-    StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
+    make_owned_handler, query, routing, ApiError, BodyStream, BytesStream, HandlerBox, HandlerRef,
+    HelperResponse, Identity as TransportIdentity, LengthDelimitedStream, LogErrors, NoQueryId,
+    NoResourceIdentifier, NoStep, QueryIdBinding, ReceiveRecords, RecordsStream, RequestHandler,
+    RouteParams, StepBinding, StreamCollection, StreamKey, Transport, WrappedBoxBodyStream,
 };
 #[cfg(feature = "in-memory-infra")]
-pub use transport::{InMemoryNetwork, InMemoryTransport};
+pub use transport::{InMemoryMpcNetwork, InMemoryShardNetwork, InMemoryTransport};
 use typenum::{Unsigned, U8};
 use x25519_dalek::PublicKey;
 
@@ -65,7 +76,8 @@ use crate::{
         Role::{H1, H2, H3},
     },
     protocol::{step::Gate, RecordId},
-    secret_sharing::SharedValue,
+    secret_sharing::Sendable,
+    sharding::ShardIndex,
 };
 
 // TODO work with ArrayLength only
@@ -77,22 +89,18 @@ pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "usize")
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "usize")]
 pub struct HelperIdentity {
     id: u8,
 }
 
 // Serialize as `serde(transparent)` would. Don't see how to enable that
 // for only one of (de)serialization.
-impl serde::Serialize for HelperIdentity {
+impl Serialize for HelperIdentity {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         self.id.serialize(serializer)
     }
@@ -215,26 +223,17 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
-)]
+#[serde(into = "&'static str", try_from = "&str")]
 pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
-)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -348,7 +347,7 @@ impl<T> IndexMut<Role> for Vec<T> {
 
 impl RoleAssignment {
     #[must_use]
-    pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
+    pub const fn new(helper_roles: [HelperIdentity; 3]) -> Self {
         Self { helper_roles }
     }
 
@@ -405,31 +404,45 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct ChannelId {
-    pub role: Role,
+pub struct ChannelId<I> {
+    /// Entity we are talking to through this channel. It can be a source or a destination.
+    pub peer: I,
     // TODO: step could be either reference or owned value. references are convenient to use inside
     // gateway , owned values can be used inside lookup tables.
     pub gate: Gate,
 }
 
-impl ChannelId {
+pub type HelperChannelId = ChannelId<Role>;
+pub type ShardChannelId = ChannelId<ShardIndex>;
+
+impl<I: transport::Identity> ChannelId<I> {
     #[must_use]
-    pub fn new(role: Role, gate: Gate) -> Self {
-        Self { role, gate }
+    pub fn new(peer: I, gate: Gate) -> Self {
+        Self { peer, gate }
     }
 }
 
-impl Debug for ChannelId {
+impl<I: transport::Identity> Debug for ChannelId<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.gate.as_ref())
+        write!(f, "channel[{:?},{:?}]", self.peer, self.gate.as_ref())
     }
 }
 
-/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
-pub trait Message: Debug + Send + Serializable + 'static + Sized {}
+/// Trait for messages that can be communicated over the network.
+pub trait Message: Debug + Send + Serializable + 'static {}
 
-/// Any shared value can be send as a message
-impl<V: SharedValue> Message for V {}
+/// Trait for messages that may be sent between MPC helpers. Sending raw field values may be OK,
+/// sending secret shares is most definitely not OK.
+///
+/// This trait is not implemented for [`SecretShares`] types and there is a doctest inside [`Gateway`]
+/// module that ensures compile errors are generated in this case.
+///
+/// [`SecretShares`]: crate::secret_sharing::replicated::ReplicatedSecretSharing
+/// [`Gateway`]: crate::helpers::gateway::Gateway::get_mpc_sender
+pub trait MpcMessage: Message {}
+
+impl<V: Sendable> MpcMessage for V {}
+impl<V: Debug + Send + Serializable + 'static + Sized> Message for V {}
 
 impl Serializable for PublicKey {
     type Size = typenum::U32;
@@ -446,7 +459,7 @@ impl Serializable for PublicKey {
     }
 }
 
-impl Message for PublicKey {}
+impl MpcMessage for PublicKey {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {
@@ -555,9 +568,9 @@ mod tests {
     }
 
     mod role_assignment_tests {
-        use super::*;
         use crate::{
             ff::Fp31,
+            helpers::{HelperIdentity, Role, RoleAssignment},
             protocol::{basics::SecureMul, context::Context, RecordId},
             rand::{thread_rng, Rng},
             test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -659,7 +672,7 @@ mod concurrency_tests {
     use shuttle_crate::rand::thread_rng;
 
     use crate::{
-        ff::{Field, FieldType, Fp31, Fp32BitPrime},
+        ff::{FieldType, Fp31, Fp32BitPrime, U128Conversions},
         helpers::{
             query::{QueryConfig, QueryType::TestMultiply},
             Direction, GatewayConfig,

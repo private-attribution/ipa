@@ -1,7 +1,5 @@
 use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-    convert,
+    collections::HashMap,
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
@@ -13,8 +11,8 @@ use ::tokio::sync::{
     oneshot,
 };
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use serde::de::DeserializeOwned;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_stream::wrappers::ReceiverStream;
@@ -23,21 +21,26 @@ use tracing::Instrument;
 use crate::{
     error::BoxError,
     helpers::{
-        query::{PrepareQuery, QueryConfig},
-        HelperIdentity, NoResourceIdentifier, QueryIdBinding, ReceiveRecords, RouteId, RouteParams,
-        StepBinding, StreamCollection, Transport, TransportCallbacks,
+        transport::routing::{Addr, RouteId},
+        ApiError, BodyStream, HandlerRef, HelperResponse, NoResourceIdentifier, QueryIdBinding,
+        ReceiveRecords, RequestHandler, RouteParams, StepBinding, StreamCollection, Transport,
+        TransportIdentity,
     },
     protocol::{step::Gate, QueryId},
     sync::{Arc, Weak},
 };
 
-type Packet = (Addr, InMemoryStream, oneshot::Sender<Result<(), Error>>);
-type ConnectionTx = Sender<Packet>;
-type ConnectionRx = Receiver<Packet>;
-type StreamItem = Vec<u8>;
+type Packet<I> = (
+    Addr<I>,
+    InMemoryStream,
+    oneshot::Sender<Result<HelperResponse, ApiError>>,
+);
+type ConnectionTx<I> = Sender<Packet<I>>;
+type ConnectionRx<I> = Receiver<Packet<I>>;
+type StreamItem = Result<Bytes, BoxError>;
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum Error<I> {
     #[error(transparent)]
     Io {
         #[from]
@@ -45,24 +48,29 @@ pub enum Error {
     },
     #[error("Request rejected by remote {dest:?}: {inner:?}")]
     Rejected {
-        dest: HelperIdentity,
+        dest: I,
         #[source]
         inner: BoxError,
+    },
+    #[error(transparent)]
+    DeserializationFailed {
+        #[from]
+        inner: serde_json::Error,
     },
 }
 
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
 /// incoming messages.
-pub struct InMemoryTransport {
-    identity: HelperIdentity,
-    connections: HashMap<HelperIdentity, ConnectionTx>,
-    record_streams: StreamCollection<InMemoryStream>,
+pub struct InMemoryTransport<I> {
+    identity: I,
+    connections: HashMap<I, ConnectionTx<I>>,
+    record_streams: StreamCollection<I, InMemoryStream>,
 }
 
-impl InMemoryTransport {
+impl<I: TransportIdentity> InMemoryTransport<I> {
     #[must_use]
-    fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
+    fn new(identity: I, connections: HashMap<I, ConnectionTx<I>>) -> Self {
         Self {
             identity,
             connections,
@@ -71,7 +79,7 @@ impl InMemoryTransport {
     }
 
     #[must_use]
-    pub fn identity(&self) -> HelperIdentity {
+    pub fn identity(&self) -> I {
         self.identity
     }
 
@@ -79,52 +87,36 @@ impl InMemoryTransport {
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
     /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
-    fn listen(self: &Arc<Self>, callbacks: TransportCallbacks<Weak<Self>>, mut rx: ConnectionRx) {
+    fn listen(self: &Arc<Self>, handler: Option<HandlerRef<I>>, mut rx: ConnectionRx<I>) {
         tokio::spawn(
             {
                 let streams = self.record_streams.clone();
-                let this = Arc::downgrade(self);
-                let dest = this.identity();
                 async move {
-                    let mut active_queries = HashSet::new();
                     while let Some((addr, stream, ack)) = rx.recv().await {
                         tracing::trace!("received new message: {addr:?}");
 
                         let result = match addr.route {
-                            RouteId::ReceiveQuery => {
-                                let qc = addr.into::<QueryConfig>();
-                                (callbacks.receive_query)(Transport::clone_ref(&this), qc)
-                                    .await
-                                    .map(|query_id| {
-                                        assert!(
-                                            active_queries.insert(query_id),
-                                            "the same query id {query_id:?} is generated twice"
-                                        );
-                                    })
-                                    .map_err(|e| Error::Rejected {
-                                        dest,
-                                        inner: Box::new(e),
-                                    })
-                            }
                             RouteId::Records => {
                                 let query_id = addr.query_id.unwrap();
                                 let gate = addr.gate.unwrap();
                                 let from = addr.origin.unwrap();
                                 streams.add_stream((query_id, from, gate), stream);
-                                Ok(())
+                                Ok(HelperResponse::ok())
                             }
-                            RouteId::PrepareQuery => {
-                                let input = addr.into::<PrepareQuery>();
-                                (callbacks.prepare_query)(Transport::clone_ref(&this), input)
+                            RouteId::ReceiveQuery
+                            | RouteId::PrepareQuery
+                            | RouteId::QueryInput
+                            | RouteId::QueryStatus
+                            | RouteId::CompleteQuery => {
+                                handler
+                                    .as_ref()
+                                    .expect("Handler is set")
+                                    .handle(addr, BodyStream::from_bytes_stream(stream))
                                     .await
-                                    .map_err(|e| Error::Rejected {
-                                        dest,
-                                        inner: Box::new(e),
-                                    })
                             }
                         };
 
-                        ack.send(result).unwrap();
+                        ack.send(result).map_err(|_| "Channel closed").unwrap();
                     }
                 }
             }
@@ -132,7 +124,7 @@ impl InMemoryTransport {
         );
     }
 
-    fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx {
+    fn get_channel(&self, dest: I) -> ConnectionTx<I> {
         self.connections
             .get(&dest)
             .unwrap_or_else(|| {
@@ -151,11 +143,12 @@ impl InMemoryTransport {
 }
 
 #[async_trait]
-impl Transport for Weak<InMemoryTransport> {
-    type RecordsStream = ReceiveRecords<InMemoryStream>;
-    type Error = Error;
+impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
+    type Identity = I;
+    type RecordsStream = ReceiveRecords<I, InMemoryStream>;
+    type Error = Error<I>;
 
-    fn identity(&self) -> HelperIdentity {
+    fn identity(&self) -> I {
         self.upgrade().unwrap().identity
     }
 
@@ -166,21 +159,25 @@ impl Transport for Weak<InMemoryTransport> {
         R: RouteParams<RouteId, Q, S>,
     >(
         &self,
-        dest: HelperIdentity,
+        dest: I,
         route: R,
         data: D,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<I>>
     where
         Option<QueryId>: From<Q>,
         Option<Gate>: From<S>,
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
-        let addr = Addr::from_route(this.identity, route);
+        let addr = Addr::from_route(Some(this.identity), route);
         let (ack_tx, ack_rx) = oneshot::channel();
 
         channel
-            .send((addr, InMemoryStream::wrap(data), ack_tx))
+            .send((
+                addr,
+                InMemoryStream::wrap(data.map(Bytes::from).map(Ok)),
+                ack_tx,
+            ))
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
@@ -191,13 +188,18 @@ impl Transport for Weak<InMemoryTransport> {
             .map_err(|_recv_error| Error::Rejected {
                 dest,
                 inner: "channel closed".into(),
-            })
-            .and_then(convert::identity)
+            })?
+            .map_err(|e| Error::Rejected {
+                dest,
+                inner: e.into(),
+            })?;
+
+        Ok(())
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Gate>>(
         &self,
-        from: HelperIdentity,
+        from: I,
         route: R,
     ) -> Self::RecordsStream {
         ReceiveRecords::new(
@@ -214,26 +216,9 @@ pub struct InMemoryStream {
 }
 
 impl InMemoryStream {
-    #[cfg(all(test, unit_test))]
-    fn empty() -> Self {
-        Self::from_iter(std::iter::empty())
-    }
-
     fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {
         Self {
             inner: Box::pin(value),
-        }
-    }
-
-    #[cfg(all(test, unit_test))]
-    fn from_iter<I>(input: I) -> Self
-    where
-        I: IntoIterator<Item = StreamItem>,
-        I::IntoIter: Send + 'static,
-    {
-        use futures_util::stream;
-        Self {
-            inner: Box::pin(stream::iter(input)),
         }
     }
 }
@@ -261,69 +246,16 @@ impl Debug for InMemoryStream {
     }
 }
 
-struct Addr {
-    route: RouteId,
-    origin: Option<HelperIdentity>,
-    query_id: Option<QueryId>,
-    gate: Option<Gate>,
-    params: String,
+pub struct Setup<I> {
+    identity: I,
+    tx: ConnectionTx<I>,
+    rx: ConnectionRx<I>,
+    connections: HashMap<I, ConnectionTx<I>>,
 }
 
-impl Addr {
-    #[allow(clippy::needless_pass_by_value)] // to avoid using double-reference at callsites
-    fn from_route<Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
-        origin: HelperIdentity,
-        route: R,
-    ) -> Self
-    where
-        Option<QueryId>: From<Q>,
-        Option<Gate>: From<S>,
-    {
-        Self {
-            route: route.resource_identifier(),
-            origin: Some(origin),
-            query_id: route.query_id().into(),
-            gate: route.gate().into(),
-            params: route.extra().borrow().to_string(),
-        }
-    }
-
-    fn into<T: DeserializeOwned>(self) -> T {
-        serde_json::from_str(&self.params).unwrap()
-    }
-
-    #[cfg(all(test, unit_test))]
-    fn records(from: HelperIdentity, query_id: QueryId, gate: Gate) -> Self {
-        Self {
-            route: RouteId::Records,
-            origin: Some(from),
-            query_id: Some(query_id),
-            gate: Some(gate),
-            params: String::new(),
-        }
-    }
-}
-
-impl Debug for Addr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Addr[route={:?}, query_id={:?}, step={:?}, params={}]",
-            self.route, self.query_id, self.gate, self.params
-        )
-    }
-}
-
-pub struct Setup {
-    identity: HelperIdentity,
-    tx: ConnectionTx,
-    rx: ConnectionRx,
-    connections: HashMap<HelperIdentity, ConnectionTx>,
-}
-
-impl Setup {
+impl<I: TransportIdentity> Setup<I> {
     #[must_use]
-    pub fn new(identity: HelperIdentity) -> Self {
+    pub fn new(identity: I) -> Self {
         let (tx, rx) = channel(16);
         Self {
             identity,
@@ -348,82 +280,112 @@ impl Setup {
             .is_none());
     }
 
-    fn into_active_conn(
-        self,
-        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
-    ) -> (ConnectionTx, Arc<InMemoryTransport>) {
-        let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
-        transport.listen(callbacks, self.rx);
-
-        (self.tx, transport)
+    pub(crate) fn start(self, handler: Option<HandlerRef<I>>) -> Arc<InMemoryTransport<I>> {
+        self.into_active_conn(handler).1
     }
 
-    #[must_use]
-    pub fn start(
+    fn into_active_conn(
         self,
-        callbacks: TransportCallbacks<Weak<InMemoryTransport>>,
-    ) -> Arc<InMemoryTransport> {
-        self.into_active_conn(callbacks).1
+        handler: Option<HandlerRef<I>>,
+    ) -> (ConnectionTx<I>, Arc<InMemoryTransport<I>>) {
+        let transport = Arc::new(InMemoryTransport::new(self.identity, self.connections));
+        transport.listen(handler, self.rx);
+
+        (self.tx, transport)
     }
 }
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{io::ErrorKind, num::NonZeroUsize, panic::AssertUnwindSafe, sync::Mutex};
+    use std::{
+        collections::HashMap,
+        io,
+        io::ErrorKind,
+        num::NonZeroUsize,
+        panic::AssertUnwindSafe,
+        sync::{Mutex, Weak},
+        task::Poll,
+    };
 
+    use bytes::Bytes;
+    use futures::{stream, Stream};
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use tokio::sync::{mpsc::channel, oneshot};
+    use tokio_stream::wrappers::ReceiverStream;
 
-    use super::*;
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType::TestMultiply, transport::in_memory::InMemoryNetwork, HelperIdentity,
-            OrderingSender,
+            make_owned_handler,
+            query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
+            transport::{
+                in_memory::{
+                    transport::{Addr, ConnectionTx, Error, InMemoryStream, InMemoryTransport},
+                    InMemoryMpcNetwork, Setup,
+                },
+                routing::RouteId,
+            },
+            HandlerBox, HelperIdentity, HelperResponse, OrderingSender, Role, RoleAssignment,
+            Transport, TransportIdentity,
         },
+        protocol::{step::Gate, QueryId},
+        sync::Arc,
     };
 
     const STEP: &str = "in-memory-transport";
 
-    async fn send_and_ack(sender: &ConnectionTx, addr: Addr, data: InMemoryStream) {
+    async fn send_and_ack<I: TransportIdentity, S: Stream<Item = Vec<u8>> + Send + 'static>(
+        sender: &ConnectionTx<I>,
+        addr: Addr<I>,
+        data: S,
+    ) {
+        let data = InMemoryStream::wrap(data.map(Bytes::from).map(Ok));
         let (tx, rx) = oneshot::channel();
         sender.send((addr, data, tx)).await.unwrap();
-        rx.await
-            .map_err(|_e| Error::Io {
+        let _ = rx
+            .await
+            .map_err(|_e| Error::<I>::Io {
                 inner: io::Error::new(ErrorKind::ConnectionRefused, "channel closed"),
             })
-            .and_then(convert::identity)
+            .unwrap()
             .unwrap();
     }
 
     #[tokio::test]
-    async fn callback_is_called() {
+    async fn handler_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks {
-                receive_query: Box::new(move |_transport, query_config| {
-                    let signal_tx = Arc::clone(&signal_tx);
-                    Box::pin(async move {
-                        // this works because callback is only called once
-                        signal_tx
-                            .lock()
-                            .unwrap()
-                            .take()
-                            .expect("query callback invoked more than once")
-                            .send(query_config)
-                            .unwrap();
-                        Ok(QueryId)
-                    })
-                }),
-                ..Default::default()
-            });
+        let handler = make_owned_handler(move |addr: Addr<HelperIdentity>, _| {
+            let signal_tx = Arc::clone(&signal_tx);
+            async move {
+                let RouteId::ReceiveQuery = addr.route else {
+                    panic!("unexpected call: {addr:?}")
+                };
+                let query_config = addr.into::<QueryConfig>().unwrap();
+
+                // this works because callback is only called once
+                signal_tx
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("query callback invoked more than once")
+                    .send(query_config)
+                    .unwrap();
+                Ok(HelperResponse::from(PrepareQuery {
+                    query_id: QueryId,
+                    config: query_config,
+                    roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                }))
+            }
+        });
+        let (tx, _) = Setup::new(HelperIdentity::ONE)
+            .into_active_conn(Some(HandlerBox::owning_ref(&handler)));
         let expected = QueryConfig::new(TestMultiply, FieldType::Fp32BitPrime, 1u32).unwrap();
 
         send_and_ack(
             &tx,
-            Addr::from_route(HelperIdentity::TWO, &expected),
-            InMemoryStream::empty(),
+            Addr::from_route(Some(HelperIdentity::TWO), expected),
+            stream::empty(),
         )
         .await;
 
@@ -432,12 +394,13 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
+        let mut stream = transport
+            .receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)))
+            .into_bytes_stream();
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -447,7 +410,7 @@ mod tests {
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
-            InMemoryStream::from_iter(expected.clone()),
+            stream::iter(expected.clone()),
         )
         .await;
 
@@ -456,19 +419,19 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let expected = vec![vec![1], vec![2]];
 
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, Gate::from(STEP)),
-            InMemoryStream::from_iter(expected.clone()),
+            stream::iter(expected.clone()),
         )
         .await;
 
-        let stream =
-            Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)));
+        let stream = Arc::downgrade(&transport)
+            .receive(HelperIdentity::TWO, (QueryId, Gate::from(STEP)))
+            .into_bytes_stream();
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -478,16 +441,18 @@ mod tests {
         async fn send_and_verify(
             from: HelperIdentity,
             to: HelperIdentity,
-            transports: &HashMap<HelperIdentity, Weak<InMemoryTransport>>,
+            transports: &HashMap<HelperIdentity, Weak<InMemoryTransport<HelperIdentity>>>,
         ) {
             let (stream_tx, stream_rx) = channel(1);
-            let stream = InMemoryStream::from(stream_rx);
+            let stream = ReceiverStream::new(stream_rx);
 
             let from_transport = transports.get(&from).unwrap();
             let to_transport = transports.get(&to).unwrap();
             let gate = Gate::from(STEP);
 
-            let mut recv = to_transport.receive(from, (QueryId, gate.clone()));
+            let mut recv = to_transport
+                .receive(from, (QueryId, gate.clone()))
+                .into_bytes_stream();
             assert!(matches!(
                 poll_immediate(&mut recv).next().await,
                 Some(Poll::Pending)
@@ -520,8 +485,8 @@ mod tests {
 
         setup1.connect(&mut setup2);
 
-        let transport1 = setup1.start(TransportCallbacks::default());
-        let transport2 = setup2.start(TransportCallbacks::default());
+        let transport1 = setup1.start(None);
+        let transport2 = setup2.start(None);
         let transports = HashMap::from([
             (HelperIdentity::ONE, Arc::downgrade(&transport1)),
             (HelperIdentity::TWO, Arc::downgrade(&transport2)),
@@ -533,14 +498,15 @@ mod tests {
 
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
-        let (tx, owned_transport) =
-            Setup::new(HelperIdentity::ONE).into_active_conn(TransportCallbacks::default());
+        let (tx, owned_transport) = Setup::new(HelperIdentity::ONE).into_active_conn(None);
         let gate = Gate::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
-        let stream = InMemoryStream::from(stream_rx);
+        let stream = ReceiverStream::from(stream_rx);
         let transport = Arc::downgrade(&owned_transport);
 
-        let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, gate.clone()));
+        let mut recv_stream = transport
+            .receive(HelperIdentity::TWO, (QueryId, gate.clone()))
+            .into_bytes_stream();
         send_and_ack(
             &tx,
             Addr::records(HelperIdentity::TWO, QueryId, gate.clone()),
@@ -577,7 +543,7 @@ mod tests {
     async fn can_consume_ordering_sender() {
         let tx = Arc::new(OrderingSender::new(NonZeroUsize::new(2).unwrap(), 2));
         let rx = Arc::clone(&tx).as_rc_stream();
-        let network = InMemoryNetwork::default();
+        let network = InMemoryMpcNetwork::default();
         let transport1 = network.transport(HelperIdentity::ONE);
         let transport2 = network.transport(HelperIdentity::TWO);
 
@@ -590,7 +556,9 @@ mod tests {
             )
             .await
             .unwrap();
-        let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, gate));
+        let mut recv = transport2
+            .receive(HelperIdentity::ONE, (QueryId, gate))
+            .into_bytes_stream();
 
         tx.send(0, Fp31::try_from(0_u128).unwrap()).await;
         // can't receive the value at index 0 because of buffering inside the sender

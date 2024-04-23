@@ -1,31 +1,32 @@
 use std::{borrow::Borrow, iter::zip, ops::Deref};
 
 use crate::{
-    ff::{Field, PrimeField},
-    protocol::boolean::RandomBitsShare,
+    ff::{Field, PrimeField, U128Conversions},
     secret_sharing::{
         replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        BitDecomposed, SecretSharing,
+        BitDecomposed, SharedValue, Vectorizable,
     },
 };
 
 /// Deconstructs a field value into N values, one for each bit.
-pub fn into_bits<F: PrimeField>(v: F) -> BitDecomposed<F> {
+///
+/// The bit width is determined based on the field type.
+pub fn into_bits<F: PrimeField + U128Conversions>(v: F) -> BitDecomposed<F> {
     BitDecomposed::decompose(u128::BITS - F::PRIME.into().leading_zeros(), |i| {
         F::truncate_from((v.as_u128() >> i) & 1)
     })
 }
 
-/// Deconstructs a value into N values, one for each bi3t.
-/// # Panics
-/// It won't
+/// Deconstructs a value into N values, one for each bit.
+///
+/// The bit width is specified explicitly.
 #[must_use]
-pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> BitDecomposed<F> {
-    BitDecomposed::decompose(num_bits, |i| F::truncate_from((x >> i) & 1))
+pub fn get_bits<V: U128Conversions>(x: u32, num_bits: u32) -> BitDecomposed<V> {
+    BitDecomposed::decompose(num_bits, |i| V::truncate_from((x >> i) & 1))
 }
 
 /// A trait that is helpful for reconstruction of values in tests.
@@ -37,8 +38,21 @@ pub trait Reconstruct<T> {
     fn reconstruct(&self) -> T;
 }
 
-impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
-    fn reconstruct(&self) -> F {
+/// Alternate version of `Reconstruct` for vectors.
+///
+/// There is no difference in the traits, but this avoids having to add
+/// type annotations everywhere to disambiguate whether a single-bit
+/// result should be reconstructed as `F` or `[F; 1]`.
+pub trait ReconstructArr<T> {
+    /// Validates correctness of the secret sharing scheme.
+    ///
+    /// # Panics
+    /// Panics if the given input is not a valid replicated secret share.
+    fn reconstruct_arr(&self) -> T;
+}
+
+impl<V: SharedValue> Reconstruct<V> for [&Replicated<V>; 3] {
+    fn reconstruct(&self) -> V {
         let s0 = &self[0];
         let s1 = &self[1];
         let s2 = &self[2];
@@ -56,9 +70,30 @@ impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
     }
 }
 
-impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
-    fn reconstruct(&self) -> F {
+impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
+    fn reconstruct(&self) -> V {
         [&self[0], &self[1], &self[2]].reconstruct()
+    }
+}
+
+impl<F: Field + Vectorizable<N>, const N: usize> ReconstructArr<<F as Vectorizable<N>>::Array>
+    for [Replicated<F, N>; 3]
+{
+    fn reconstruct_arr(&self) -> <F as Vectorizable<N>>::Array {
+        let s0l = self[0].left_arr();
+        let s0r = self[0].right_arr();
+        let s1l = self[1].left_arr();
+        let s1r = self[1].right_arr();
+        let s2l = self[2].left_arr();
+        let s2r = self[2].right_arr();
+
+        assert_eq!(s0l.clone() + s1l + s2l, s0r.clone() + s1r + s2r);
+
+        assert_eq!(s0r, s1l);
+        assert_eq!(s1r, s2l);
+        assert_eq!(s2r, s0l);
+
+        s0l.clone() + s1l + s2l
     }
 }
 
@@ -117,10 +152,15 @@ where
     }
 }
 
-impl<F, S> Reconstruct<F> for [RandomBitsShare<F, S>; 3]
+impl Reconstruct<()> for [(); 3] {
+    fn reconstruct(&self) {}
+}
+
+#[cfg(feature = "descriptive-gate")]
+impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
 where
-    F: Field,
-    S: SecretSharing<F>,
+    F: Field + U128Conversions,
+    S: crate::secret_sharing::SecretSharing<F>,
     for<'a> [&'a S; 3]: Reconstruct<F>,
 {
     fn reconstruct(&self) -> F {

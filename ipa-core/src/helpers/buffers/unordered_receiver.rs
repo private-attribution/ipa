@@ -11,7 +11,7 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{Error, Message},
+    helpers::{Error, Message, Role},
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
@@ -75,7 +75,7 @@ impl Spare {
         self.buf.extend_from_slice(v);
     }
 
-    /// Extend the buffer with new data.  
+    /// Extend the buffer with new data.
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
@@ -117,7 +117,7 @@ where
     /// The absolute index of the next value that will be received.
     next: usize,
     /// The maximum value that has ever been requested to receive.
-    max_polled_idx: usize,
+    max_polled_idx: Option<usize>,
     /// The underlying stream can provide chunks of data larger than a single
     /// message.  Save any spare data here.
     spare: Spare,
@@ -160,7 +160,7 @@ pub enum ReceiveError<M: Message> {
     #[error("Error deserializing {0:?} record: {1}")]
     DeserializationError(RecordId, #[source] M::DeserializationError),
     #[error(transparent)]
-    InfraError(#[from] Error),
+    InfraError(#[from] Error<Role>),
 }
 
 impl<S, C> OperatingState<S, C>
@@ -229,7 +229,7 @@ where
     /// Poll for the next record.  This should only be invoked when
     /// the future for the next message is polled.
     fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, ReceiveError<M>>> {
-        self.max_polled_idx = std::cmp::max(self.max_polled_idx, self.next);
+        self.max_polled_idx = std::cmp::max(self.max_polled_idx, Some(self.next));
         if let Some(m) = self.spare.read() {
             self.wake_next();
             return Poll::Ready(m.map_error_to_receive(self.next));
@@ -258,25 +258,6 @@ where
 
     #[cfg(feature = "stall-detection")]
     fn waiting(&self) -> impl Iterator<Item = usize> + '_ {
-        /// There is no waker for self.next and it could be advanced past the end of the stream.
-        /// This helps to conditionally add self.next to the waiting list.
-        struct MaybeNext {
-            currently_at: usize,
-            next: usize,
-        }
-        impl Iterator for MaybeNext {
-            type Item = usize;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                if self.currently_at == self.next {
-                    self.currently_at += 1;
-                    Some(self.next)
-                } else {
-                    None
-                }
-            }
-        }
-
         let start = self.next % self.wakers.len();
         self.wakers
             .iter()
@@ -290,10 +271,8 @@ where
                 }
             })
             .chain(self.overflow_wakers.iter().map(|v| v.1))
-            .chain(MaybeNext {
-                currently_at: self.max_polled_idx,
-                next: self.next,
-            })
+            // include `self.next` if it was ever polled
+            .chain(self.max_polled_idx.into_iter().filter(|v| *v == self.next))
     }
 }
 
@@ -329,7 +308,7 @@ where
             inner: Arc::new(Mutex::new(OperatingState {
                 stream,
                 next: 0,
-                max_polled_idx: 0,
+                max_polled_idx: None,
                 spare: Spare::default(),
                 wakers,
                 overflow_wakers: Vec::new(),
@@ -405,7 +384,7 @@ mod test {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Serializable},
+        ff::{Fp31, Fp32BitPrime, Serializable, U128Conversions},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
     };
 
