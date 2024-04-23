@@ -187,7 +187,6 @@ mod tests {
         insecure::Error,
     };
 
-
     #[test]
     fn dp_normal_distribution_sample_standard() {
         let mut rng = thread_rng();
