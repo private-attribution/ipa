@@ -177,8 +177,10 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
 mod tests {
     use std::{collections::HashMap, iter::repeat_with};
 
-    use rand::{distributions::Distribution, rngs::StdRng, thread_rng, SeedableRng};
+    use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
+
+    use crate::protocol::dp::distributions::{is_close, BoxMuller};
 
     use super::*;
     #[test]
@@ -299,7 +301,7 @@ mod tests {
     }
     #[test]
     fn test_truncated_double_geometric_loop() {
-        let mut rng = StdRng::seed_from_u64(2);
+        let mut rng = rand::thread_rng();
         let s = 60.0;
         let n = 5;
         let mut samples_double_geometric = Vec::new();
@@ -319,7 +321,7 @@ mod tests {
         assert!(count_number_to_reject > 0);
         println!("Number of samples to reject {count_number_to_reject}");
         println!("Samples from double_geometric with s={s}, n={n}: {samples_double_geometric:?}");
-        rng = StdRng::seed_from_u64(2);
+        rng = rand::thread_rng();
         let truncated_double_geometric = TruncatedDoubleGeometric::new(s, n)
             .expect("Truncated Double Geometric not constructed properly");
         for _ in 0..100 {
