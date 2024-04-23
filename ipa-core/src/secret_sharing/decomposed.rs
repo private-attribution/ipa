@@ -118,6 +118,10 @@ impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
         self.bits.resize(new_len, value);
     }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.bits.truncate(len);
+    }
 }
 
 impl<A, const N: usize> FromPrss<usize> for BitDecomposed<AdditiveShare<Boolean, N>>

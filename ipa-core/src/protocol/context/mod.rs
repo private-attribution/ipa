@@ -1,3 +1,9 @@
+pub mod dzkp_field;
+#[allow(dead_code)]
+mod dzkp_malicious;
+mod dzkp_semi_honest;
+#[allow(dead_code)]
+pub mod dzkp_validator;
 #[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
@@ -32,6 +38,7 @@ use crate::{
     },
     protocol::{
         basics::ZeroPositions,
+        context::dzkp_validator::DZKPValidator,
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
         RecordId,
@@ -120,6 +127,11 @@ pub trait UpgradableContext: Context {
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+
+    type DZKPUpgradedContext: DZKPContext;
+    type DZKPValidator: DZKPValidator<Self>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
 }
 
 #[async_trait]
@@ -508,6 +520,17 @@ where
     }
 
     Ok(r.into_iter().flatten().collect())
+}
+
+/// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
+pub trait DZKPContext: Context {
+    /// `is_unverified()` allows to confirm that there are currently no unverified shares,
+    /// i.e. shares that might have been manipulated.
+    /// when this is the case, it is safe to call functions like `reveal`
+    ///
+    /// ## Errors
+    /// Returns error when context contains unverified values
+    fn is_unverified(&self) -> Result<(), Error>;
 }
 
 #[cfg(all(test, unit_test))]

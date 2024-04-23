@@ -130,7 +130,7 @@ async fn run(args: Args) -> Result<(), Error> {
                 args.query_size,
             )
         };
-    let mut raw_data = EventGenerator::with_config(
+    let raw_data = EventGenerator::with_config(
         rng,
         EventGeneratorConfig {
             user_count,
@@ -143,9 +143,6 @@ async fn run(args: Args) -> Result<(), Error> {
     )
     .take(query_size)
     .collect::<Vec<_>>();
-    // EventGenerator produces events in random order, but IPA requires them to be sorted by
-    // timestamp.
-    raw_data.sort_by_key(|e| e.timestamp);
 
     let order = CappingOrder::CapMostRecentFirst;
 

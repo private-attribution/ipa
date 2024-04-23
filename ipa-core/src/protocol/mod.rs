@@ -129,6 +129,12 @@ impl From<RecordId> for usize {
     }
 }
 
+impl From<RecordId> for i64 {
+    fn from(r: RecordId) -> Self {
+        i64::from(r.0)
+    }
+}
+
 impl Add<usize> for RecordId {
     type Output = Self;
 
