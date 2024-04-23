@@ -4,6 +4,7 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
+    const_assert,
     ff::{Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
@@ -165,10 +166,7 @@ macro_rules! field_impl {
             fn mul(self, rhs: Self) -> Self::Output {
                 debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
                 // check container for multiply is large enough
-                debug_assert!(
-                    <$store_multiply>::MAX >> $bits
-                        >= <$store_multiply>::try_from(<$store>::MAX).unwrap()
-                );
+                const_assert!((<$store_multiply>::MAX >> $bits) as u128 >= (<$store>::MAX) as u128);
                 let c = <$store_multiply>::from;
                 // TODO(mt) - constant time?
                 // TODO(dm) - optimize arithmetics?
@@ -448,7 +446,7 @@ mod fp61bit {
             assert_eq!(y - x, Fp61BitPrime::truncate_from(Fp61BitPrime::PRIME - 1));
             assert_eq!(y + x, Fp61BitPrime::truncate_from(Fp61BitPrime::PRIME - 3));
 
-            assert_eq!(x * y, Fp61BitPrime::truncate_from(2_u32),);
+            assert_eq!(x * y, Fp61BitPrime::truncate_from(2_u32));
 
             let x = Fp61BitPrime::truncate_from(3_192_725_551_u32);
             let y = Fp61BitPrime::truncate_from(1_471_265_983_u32);
@@ -466,7 +464,6 @@ mod fp61bit {
             );
         }
 
-        // copied from 32 bit prime field, adjusted wrap arounds, computed using wolframalpha.com
         #[test]
         fn sixty_one_bit_additive_wrapping() {
             let x = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 20);
