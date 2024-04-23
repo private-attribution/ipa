@@ -180,9 +180,11 @@ mod tests {
     use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
 
-    use crate::protocol::dp::distributions::{is_close, BoxMuller};
+    use crate::protocol::dp::distributions::{is_close, BoxMuller, Geometric, DoubleGeometric, TruncatedDoubleGeometric};
+    use crate::protocol::dp::insecure::{Error};
+    use std::f64::consts::E;
 
-    use super::*;
+
     #[test]
     fn dp_normal_distribution_sample_standard() {
         let mut rng = thread_rng();
