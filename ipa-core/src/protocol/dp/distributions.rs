@@ -175,15 +175,17 @@ impl Distribution<u32> for TruncatedDoubleGeometric {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::{collections::HashMap, iter::repeat_with};
+    use std::{collections::HashMap, f64::consts::E, iter::repeat_with};
 
     use rand::{distributions::Distribution, thread_rng, Rng};
     use rand_core::RngCore;
 
-    use crate::protocol::dp::distributions::{is_close, BoxMuller, Geometric, DoubleGeometric, TruncatedDoubleGeometric};
-    use crate::protocol::dp::insecure::{Error};
-    use std::f64::consts::E;
-
+    use crate::protocol::dp::{
+        distributions::{
+            is_close, BoxMuller, DoubleGeometric, Geometric, TruncatedDoubleGeometric,
+        },
+        insecure::Error,
+    };
 
     #[test]
     fn dp_normal_distribution_sample_standard() {
