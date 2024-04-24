@@ -1,5 +1,7 @@
 use std::{io, io::BufRead};
 
+use rustls_pki_types::CertificateDer;
+
 use crate::config::{OwnedCertificate, OwnedPrivateKey};
 
 mod client;
@@ -25,7 +27,7 @@ pub fn parse_certificate_and_private_key_bytes(
     private_key_read: &mut dyn BufRead,
 ) -> Result<(Vec<OwnedCertificate>, OwnedPrivateKey), io::Error> {
     let certs = rustls_pemfile::certs(cert_read)
-        .map(|r| r.map(|c| c.into_owned()))
+        .map(|r| r.map(CertificateDer::into_owned))
         .collect::<Result<Vec<_>, _>>()?;
     if certs.is_empty() {
         return Err(io::Error::other("No certificates found"));
