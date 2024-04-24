@@ -61,6 +61,9 @@ macro_rules! field_impl {
     ( $field:ident, $store:ty, $store_multiply:ty, $bits:expr, $prime:expr ) => {
         use super::*;
 
+        // check container for multiply is large enough
+        const_assert!((<$store_multiply>::MAX >> $bits) as u128 >= (<$store>::MAX) as u128);
+
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub struct $field(<Self as SharedValue>::Storage);
 
@@ -165,8 +168,6 @@ macro_rules! field_impl {
 
             fn mul(self, rhs: Self) -> Self::Output {
                 debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
-                // check container for multiply is large enough
-                const_assert!((<$store_multiply>::MAX >> $bits) as u128 >= (<$store>::MAX) as u128);
                 let c = <$store_multiply>::from;
                 // TODO(mt) - constant time?
                 // TODO(dm) - optimize arithmetics?
