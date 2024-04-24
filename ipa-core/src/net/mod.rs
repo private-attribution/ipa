@@ -25,16 +25,13 @@ pub fn parse_certificate_and_private_key_bytes(
     private_key_read: &mut dyn BufRead,
 ) -> Result<(Vec<OwnedCertificate>, OwnedPrivateKey), io::Error> {
     let certs = rustls_pemfile::certs(cert_read)
-        .map(|r| match r {
-            Ok(c) => Ok(c.into_owned()),
-            e => e,
-        })
+        .map(|r| r.map(|c| c.into_owned()))
         .collect::<Result<Vec<_>, _>>()?;
-    let pk = rustls_pemfile::private_key(private_key_read)?
-        .ok_or_else(|| io::Error::other("No private key"))?;
     if certs.is_empty() {
         return Err(io::Error::other("No certificates found"));
     }
+    let pk = rustls_pemfile::private_key(private_key_read)?
+        .ok_or_else(|| io::Error::other("No private key"))?;
     Ok((certs, pk))
 }
 
@@ -75,7 +72,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "No private key")]
+    #[should_panic(expected = "No certificates found")]
     fn parse_cert_pk_invalid() {
         let mut c = GARBAGE;
         let mut pk = GARBAGE;

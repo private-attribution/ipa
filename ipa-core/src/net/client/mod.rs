@@ -194,7 +194,7 @@ impl MpcHelperClient {
             (
                 HttpsConnectorBuilder::new()
                     .with_native_roots()
-                    .unwrap()
+                    .expect("Error creating client with Rustls, native roots should be available.")
                     .https_or_http()
                     .enable_http2()
                     .wrap_connector(make_http_connector()),
