@@ -8,7 +8,7 @@ use crate::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
         context::{
             dzkp_semi_honest::DZKPUpgraded,
-            semi_honest::{Context as SemiHonestContext, Upgraded},
+            semi_honest::{Context as SemiHonestContext, Upgraded as SemiHonestUpgraded},
             Context,
         },
         prss::SharedRandomness,
@@ -119,7 +119,7 @@ where
 
 /// Implement secure multiplication for semi-honest upgraded
 #[async_trait]
-impl<'a, B, F, const N: usize> super::SecureMul<Upgraded<'a, B, F>> for Replicated<F, N>
+impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestUpgraded<'a, B, F>> for Replicated<F, N>
 where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N> + PrimeField,
@@ -127,12 +127,12 @@ where
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: Upgraded<'a, B, F>,
+        ctx: SemiHonestUpgraded<'a, B, F>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        Upgraded<'a, B, F>: 'fut,
+        SemiHonestUpgraded<'a, B, F>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }
