@@ -2,8 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io,
-    io::{BufReader, Cursor},
-    iter::repeat,
+    io::BufRead,
     pin::Pin,
     task::{ready, Context, Poll},
 };
@@ -16,11 +15,14 @@ use hyper::{
 };
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use pin_project::pin_project;
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
 use tracing::error;
 
 use crate::{
-    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
+    config::{
+        ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
+        PeerConfig,
+    },
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -29,7 +31,7 @@ use crate::{
     protocol::{step::Gate, QueryId},
 };
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub enum ClientIdentity {
     /// Claim the specified helper identity without any additional authentication.
     ///
@@ -39,7 +41,7 @@ pub enum ClientIdentity {
     /// Authenticate with an X.509 certificate or a certificate chain.
     ///
     /// This is only supported for HTTPS clients.
-    Certificate((Vec<Certificate>, PrivateKey)),
+    Certificate((Vec<OwnedCertificate>, OwnedPrivateKey)),
 
     /// Do not authenticate nor claim a helper identity.
     #[default]
@@ -57,19 +59,26 @@ impl ClientIdentity {
     ///
     /// ## Panics
     /// If either cert or private key byte slice is empty.
-    pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
-        let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
-        let mut pk_reader = BufReader::new(Cursor::new(private_key_bytes));
+    pub fn from_pkcs8(
+        cert_read: &mut dyn BufRead,
+        private_key_read: &mut dyn BufRead,
+    ) -> Result<Self, io::Error> {
+        Ok(Self::Certificate(
+            crate::net::parse_certificate_and_private_key_bytes(cert_read, private_key_read)?,
+        ))
+    }
 
-        let cert_chain = rustls_pemfile::certs(&mut certs_reader)?
-            .into_iter()
-            .map(Certificate)
-            .collect();
-        let pk = rustls_pemfile::pkcs8_private_keys(&mut pk_reader)?
-            .pop()
-            .expect("Non-empty byte slice is provided to parse a private key");
-
-        Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
+    /// Rust-tls-types crate intentionally does not implement Clone on private key types in order
+    /// to minimize the exposure of private key data in memory. Since `ClientBuilder` API requires
+    /// to own a private key, and we need to create 3 with the same config, we provide Clone
+    /// capabilities via this method to `ClientIdentity`.
+    #[must_use]
+    pub fn clone_with_key(&self) -> ClientIdentity {
+        match self {
+            Self::Certificate((c, pk)) => Self::Certificate((c.clone(), pk.clone_key())),
+            Self::Helper(h) => Self::Helper(*h),
+            Self::None => Self::None,
+        }
     }
 }
 
@@ -149,11 +158,10 @@ impl MpcHelperClient {
     /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig, identity: ClientIdentity) -> [MpcHelperClient; 3] {
+    pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .zip(repeat(identity))
-            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
+            .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -186,17 +194,20 @@ impl MpcHelperClient {
             (
                 HttpsConnectorBuilder::new()
                     .with_native_roots()
+                    .expect("Error creating client with Rustls, native roots should be available.")
                     .https_or_http()
                     .enable_http2()
                     .wrap_connector(make_http_connector()),
                 auth_header,
             )
         } else {
-            let builder = rustls::ClientConfig::builder().with_safe_defaults();
+            let builder = rustls::ClientConfig::builder();
             let client_config = if let Some(certificate) = peer_config.certificate {
                 let cert_store = {
                     let mut store = RootCertStore::empty();
-                    store.add(&certificate).unwrap();
+                    store
+                        .add(certificate)
+                        .expect("Error adding Certificate, should be a valid Trust Anchor.");
                     store
                 };
 
@@ -212,7 +223,7 @@ impl MpcHelperClient {
                     ClientIdentity::None => builder.with_no_client_auth(),
                 }
             } else {
-                builder.with_native_roots().with_no_client_auth()
+                builder.with_native_roots().unwrap().with_no_client_auth()
             };
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
