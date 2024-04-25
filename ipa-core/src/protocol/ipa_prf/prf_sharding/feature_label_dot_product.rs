@@ -122,8 +122,10 @@ impl From<usize> for UserNthRowStep {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Step)]
 pub(crate) enum Step {
+    BinaryValidator,
     PrimeFieldValidator,
     EverEncounteredTriggerEvent,
     DidSourceReceiveAttribution,
