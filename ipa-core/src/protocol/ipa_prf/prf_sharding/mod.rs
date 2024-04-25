@@ -323,8 +323,11 @@ impl From<usize> for BinaryTreeDepthStep {
     }
 }
 
+// DM: BinaryValidator is not used but will be in the future, rm allow dead code then
+#[allow(dead_code)]
 #[derive(Step)]
 pub(crate) enum Step {
+    BinaryValidator,
     PrimeFieldValidator,
     EverEncounteredSourceEvent,
     DidTriggerGetAttributed,
