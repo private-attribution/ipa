@@ -38,6 +38,8 @@ pub async fn compute_match_key_pseudonym<C>(
 ) -> Result<Vec<u64>, Error>
 where
     C: Context,
+    AdditiveShare<Boolean, 1>: SecureMul<C>,
+    AdditiveShare<Fp25519>: SecureMul<C>,
 {
     let ctx = sh_ctx.set_total_records(input_match_keys.len());
     let futures = input_match_keys

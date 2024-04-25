@@ -11,8 +11,10 @@ use crate::{
     error::Error,
     ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray},
     protocol::{
-        basics::Reveal, context::Context,
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
+        basics::{Reveal, SecureMul},
+        context::Context,
+        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt,
+        RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
     seq_join::seq_join,
@@ -62,6 +64,7 @@ where
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,
     AdditiveShare<K>: ArrayAccess + ArrayBuild<Input = AdditiveShare<Boolean>>,
+    AdditiveShare<Boolean, 1>: SecureMul<C>,
 {
     assert!(!ranges_to_sort.iter().any(Range::is_empty));
 

@@ -8,6 +8,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+        ec_prime_field::Fp25519,
         Field, PrimeField, Serializable,
     },
     helpers::{
@@ -16,7 +17,7 @@ use crate::{
     },
     hpke::{KeyPair, KeyRegistry},
     protocol::{
-        basics::ShareKnownValue,
+        basics::{SecureMul, ShareKnownValue},
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{oprf_ipa, OPRFIPAInputRow},
     },
@@ -51,8 +52,13 @@ where
     C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
     C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     F: PrimeField + ExtendableField,
-    Replicated<F>: Serializable + ShareKnownValue<C, F>,
-    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
+    Replicated<F>: Serializable
+        + ShareKnownValue<C, F>
+        + SecureMul<<C as UpgradableContext>::UpgradedContext<F>>,
+    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean> + SecureMul<C>,
+    Replicated<F>: SecureMul<C>,
+    Replicated<Fp25519, 64>: SecureMul<C>,
+    Replicated<Boolean, 64>: SecureMul<C>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute<'a>(

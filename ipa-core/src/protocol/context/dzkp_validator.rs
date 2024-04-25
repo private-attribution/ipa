@@ -716,6 +716,7 @@ mod tests {
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{join3v, Reconstruct, TestWorld},
     };
+    //use crate::test_fixture::Runner;
 
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs`
@@ -738,7 +739,9 @@ mod tests {
         let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         let futures = world
-            .malicious_contexts()
+            // DM: temporary change, will be changed back in follow up PR that implements mult for malicious DZKPUpgraded
+            .contexts()
+            //.malicious_contexts()
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {

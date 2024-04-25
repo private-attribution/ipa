@@ -9,12 +9,12 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, CustomArray, PrimeField, Serializable,
-        U128Conversions,
+        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, CustomArray, PrimeField,
+        Serializable, U128Conversions,
     },
     helpers::stream::{ChunkData, ProcessChunks, TryFlattenItersExt},
     protocol::{
-        basics::BooleanArrayMul,
+        basics::{BooleanArrayMul, SecureMul},
         context::{UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
@@ -192,7 +192,10 @@ where
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
-    Replicated<F>: Serializable,
+    Replicated<F>: Serializable + SecureMul<<C as UpgradableContext>::UpgradedContext<F>>,
+    Replicated<Boolean>: SecureMul<C>,
+    Replicated<Fp25519, 64>: SecureMul<C>,
+    Replicated<Boolean, 64>: SecureMul<C>,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs =
@@ -233,6 +236,8 @@ where
     TS: SharedValue + CustomArray<Element = Boolean>,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
+    Replicated<Boolean, 64>: SecureMul<C>,
+    Replicated<Fp25519, 64>: SecureMul<C>,
 {
     let ctx = ctx.set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);

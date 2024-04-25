@@ -129,6 +129,7 @@ where
         ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
     AdditiveShare<F>: BooleanProtocols<C, F>,
     AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
+    AdditiveShare<F, N>: SecureMul<C>,
 {
     let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
     let result = subtraction_circuit(

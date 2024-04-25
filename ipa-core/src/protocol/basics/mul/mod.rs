@@ -21,6 +21,7 @@ pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
 
+pub use semi_honest::multiply as semi_honest_multiply;
 pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.

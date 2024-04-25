@@ -52,14 +52,26 @@ pub trait BooleanProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N
 {
 }
 
-impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> {}
+impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> where
+    AdditiveShare<F>: SecureMul<C>
+{
+}
 
-impl<C: Context> BooleanProtocols<C, Boolean, 1> for AdditiveShare<Boolean> {}
+impl<C: Context> BooleanProtocols<C, Boolean, 1> for AdditiveShare<Boolean> where
+    AdditiveShare<Boolean>: SecureMul<C>
+{
+}
 
-impl<C: Context> BooleanProtocols<C, Boolean, PRF_CHUNK> for AdditiveShare<Boolean, PRF_CHUNK> {}
+impl<C: Context> BooleanProtocols<C, Boolean, PRF_CHUNK> for AdditiveShare<Boolean, PRF_CHUNK> where
+    AdditiveShare<Boolean, PRF_CHUNK>: SecureMul<C>
+{
+}
 
 // Used by semi_honest_compare_gt_vec test.
-impl<C: Context> BooleanProtocols<C, Boolean, 256> for AdditiveShare<Boolean, 256> {}
+impl<C: Context> BooleanProtocols<C, Boolean, 256> for AdditiveShare<Boolean, 256> where
+    AdditiveShare<Boolean, 256>: SecureMul<C>
+{
+}
 
 #[cfg(feature = "descriptive-gate")]
 impl<'a, F: ExtendableField> BasicProtocols<UpgradedMaliciousContext<'a, F>, F>

@@ -56,9 +56,10 @@ impl InputsRequiredFromPrevRow {
         input_row: &PrfShardedIpaInputRow<FV>,
     ) -> Result<Replicated<FV>, Error>
     where
-        C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+        C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
+        Replicated<Boolean>: SecureMul<C>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -123,7 +124,6 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(Step)]
 pub(crate) enum Step {
-    BinaryValidator,
     PrimeFieldValidator,
     EverEncounteredTriggerEvent,
     DidSourceReceiveAttribution,
@@ -135,7 +135,7 @@ pub(crate) enum Step {
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
-    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C: Context,
 {
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
@@ -226,12 +226,9 @@ where
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
+    Replicated<Boolean>: SecureMul<C>,
 {
     assert!(<FV as SharedValue>::BITS > 0);
-
-    // Get the validator and context to use for Boolean multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let binary_m_ctx = binary_validator.context();
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
@@ -240,7 +237,7 @@ where
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
     let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+    let ctx_for_row_number = set_up_contexts(&sh_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream_iter(input_rows);
@@ -300,9 +297,10 @@ async fn evaluate_per_user_attribution_circuit<C, FV>(
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
 ) -> Result<Vec<Replicated<FV>>, Error>
 where
-    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
+    Replicated<Boolean>: SecureMul<C>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {

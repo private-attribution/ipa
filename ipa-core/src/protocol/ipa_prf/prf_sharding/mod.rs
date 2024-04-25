@@ -143,6 +143,7 @@ where
     ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
     where
         C: Context,
+        Replicated<Boolean>: SecureMul<C>,
     {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
@@ -324,7 +325,6 @@ impl From<usize> for BinaryTreeDepthStep {
 
 #[derive(Step)]
 pub(crate) enum Step {
-    BinaryValidator,
     PrimeFieldValidator,
     EverEncounteredSourceEvent,
     DidTriggerGetAttributed,
@@ -477,10 +477,11 @@ where
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
+    Replicated<Boolean>: SecureMul<C>,
 {
-    // Get the validator and context to use for Boolean multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let binary_m_ctx = binary_validator.context();
+    // // Get the validator and context to use for Boolean multiplication operations
+    // let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
+    // let binary_m_ctx = binary_validator.context();
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
@@ -488,7 +489,7 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+    let ctx_for_row_number = set_up_contexts(&sh_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream_iter(input_rows);
@@ -509,7 +510,7 @@ where
             let num_user_rows = rows_for_user.len();
             let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
+            evaluate_per_user_attribution_circuit::<C, BK, TV, TS, SS>(
                 contexts,
                 RecordId::from(record_id),
                 rows_for_user,
@@ -585,6 +586,7 @@ where
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
+    Replicated<Boolean>: SecureMul<C>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -721,6 +723,7 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<TV>: BooleanArrayMul,
+    Replicated<Boolean>: SecureMul<C>,
 {
     let (did_trigger_get_attributed, is_trigger_within_window) = try_join(
         is_trigger_bit.multiply(
@@ -772,6 +775,7 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<Boolean>: SecureMul<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(

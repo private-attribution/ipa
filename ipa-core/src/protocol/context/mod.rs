@@ -1,7 +1,7 @@
 pub mod dzkp_field;
 #[allow(dead_code)]
-mod dzkp_malicious;
-mod dzkp_semi_honest;
+pub mod dzkp_malicious;
+pub mod dzkp_semi_honest;
 #[allow(dead_code)]
 pub mod dzkp_validator;
 #[cfg(feature = "descriptive-gate")]

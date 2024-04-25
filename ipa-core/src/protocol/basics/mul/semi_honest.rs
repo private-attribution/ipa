@@ -2,11 +2,15 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     helpers::Direction,
     protocol::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
-        context::Context,
+        context::{
+            dzkp_semi_honest::DZKPUpgraded,
+            semi_honest::{Context as SemiHonestContext, Upgraded},
+            Context,
+        },
         prss::SharedRandomness,
         RecordId,
     },
@@ -14,6 +18,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
         Vectorizable,
     },
+    sharding,
 };
 
 /// IKHC multiplication protocol
@@ -93,24 +98,67 @@ where
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<C, F, const N: usize> super::SecureMul<C> for Replicated<F, N>
+impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestContext<'a, B>> for Replicated<F, N>
 where
-    C: Context,
+    B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: C,
+        ctx: SemiHonestContext<'a, B>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        C: 'fut,
+        SemiHonestContext<'a, B>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }
 }
+
+/// Implement secure multiplication for semi-honest upgraded
+#[async_trait]
+impl<'a, B, F, const N: usize> super::SecureMul<Upgraded<'a, B, F>> for Replicated<F, N>
+where
+    B: sharding::ShardBinding,
+    F: Field + FieldSimd<N> + PrimeField,
+{
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: Upgraded<'a, B, F>,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+    where
+        Upgraded<'a, B, F>: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
+}
+
+/// Implement secure multiplication for semi-honest dzkpupgraded
+#[async_trait]
+impl<'a, B, F, const N: usize> super::SecureMul<DZKPUpgraded<'a, B>> for Replicated<F, N>
+where
+    B: sharding::ShardBinding,
+    F: Field + FieldSimd<N>,
+{
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: DZKPUpgraded<'a, B>,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+    where
+        DZKPUpgraded<'a, B>: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use std::{

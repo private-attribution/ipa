@@ -71,6 +71,7 @@ where
     S: SharedValue + CustomArray<Element = F>,
     AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
     AdditiveShare<F>: BooleanProtocols<C, F>,
+    AdditiveShare<F, N>: SecureMul<C>,
 {
     use crate::{ff::Expand, protocol::basics::if_else};
     let mut carry = AdditiveShare::<F>::ZERO;
