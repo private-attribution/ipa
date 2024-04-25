@@ -6,6 +6,7 @@ use std::{
     future::Ready,
     io,
     marker::PhantomData,
+    num::TryFromIntError,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -312,7 +313,7 @@ where
     }
 }
 
-struct Length(u16);
+pub struct Length(u16);
 
 impl Serializable for Length {
     type Size = U2;
@@ -332,6 +333,14 @@ impl Serializable for Length {
 impl From<Length> for usize {
     fn from(value: Length) -> Self {
         value.0.into()
+    }
+}
+
+impl TryFrom<usize> for Length {
+    type Error = TryFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
     }
 }
 

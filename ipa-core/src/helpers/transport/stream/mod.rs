@@ -3,6 +3,7 @@ mod axum_body;
 mod box_body;
 mod collection;
 mod input;
+mod multiplexer;
 
 use std::pin::Pin;
 
@@ -13,6 +14,7 @@ use bytes::Bytes;
 pub use collection::{StreamCollection, StreamKey};
 use futures::Stream;
 pub use input::{LengthDelimitedStream, RecordsStream, SingleRecordStream};
+pub use multiplexer::multiplex;
 
 use crate::error::BoxError;
 

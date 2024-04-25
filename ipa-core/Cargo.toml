@@ -238,3 +238,6 @@ required-features = [
     "test-fixture",
     "compact-gate",
 ]
+
+[[test]]
+name = "stream_multiplexer"

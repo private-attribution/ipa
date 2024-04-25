@@ -4,6 +4,7 @@ mod csv;
 mod ipa_output;
 #[cfg(feature = "web-app")]
 mod keygen;
+#[cfg(feature = "cli")]
 mod metric_collector;
 #[cfg(feature = "cli")]
 pub mod noise;
@@ -12,6 +13,7 @@ mod paths;
 pub mod playbook;
 #[cfg(feature = "web-app")]
 mod test_setup;
+#[cfg(feature = "cli")]
 mod verbosity;
 #[cfg(feature = "web-app")]
 pub use clientconf::{setup as client_config_setup, ConfGenArgs};
@@ -19,8 +21,10 @@ pub use csv::Serializer as CsvSerializer;
 pub use ipa_output::QueryResult as IpaQueryResult;
 #[cfg(feature = "web-app")]
 pub use keygen::{keygen, KeygenArgs};
+#[cfg(feature = "cli")]
 pub use metric_collector::{install_collector, CollectorHandle};
 pub use paths::PathExt as CliPaths;
 #[cfg(feature = "web-app")]
 pub use test_setup::{test_setup, TestSetupArgs};
+#[cfg(feature = "cli")]
 pub use verbosity::Verbosity;
