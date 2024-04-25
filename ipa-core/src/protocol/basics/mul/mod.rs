@@ -21,6 +21,7 @@ pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
 
+#[allow(unused_imports)]
 pub use semi_honest::multiply as semi_honest_multiply;
 pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
