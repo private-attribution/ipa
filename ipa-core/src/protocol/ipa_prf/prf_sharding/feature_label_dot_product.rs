@@ -122,7 +122,6 @@ impl From<usize> for UserNthRowStep {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
@@ -232,6 +231,9 @@ where
 {
     assert!(<FV as SharedValue>::BITS > 0);
 
+    // Get the validator and context to use for Boolean multiplication operations
+    let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
+
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
     let prime_field_ctx = prime_field_validator.context();
@@ -239,7 +241,7 @@ where
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
     let mut record_id_for_row_depth = vec![0_u32; histogram.len()];
-    let ctx_for_row_number = set_up_contexts(&sh_ctx, histogram);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream_iter(input_rows);

@@ -323,8 +323,6 @@ impl From<usize> for BinaryTreeDepthStep {
     }
 }
 
-// DM: BinaryValidator is not used but will be in the future, rm allow dead code then
-#[allow(dead_code)]
 #[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
@@ -482,9 +480,8 @@ where
     F: PrimeField + ExtendableField,
     Replicated<Boolean>: SecureMul<C>,
 {
-    // // Get the validator and context to use for Boolean multiplication operations
-    // let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    // let binary_m_ctx = binary_validator.context();
+    // Get the validator and context to use for Boolean multiplication operations
+    let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
@@ -492,7 +489,7 @@ where
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&sh_ctx, histogram);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream_iter(input_rows);
