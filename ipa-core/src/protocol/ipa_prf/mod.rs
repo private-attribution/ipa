@@ -201,7 +201,7 @@ where
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
@@ -252,7 +252,7 @@ where
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<Boolean, PRF_CHUNK>: BooleanProtocols<C, Boolean, PRF_CHUNK>,
+    Replicated<Boolean, PRF_CHUNK>: BooleanProtocols<C, PRF_CHUNK>,
     Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
     let ctx = ctx.set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);

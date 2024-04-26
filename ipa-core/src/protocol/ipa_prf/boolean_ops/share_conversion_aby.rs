@@ -106,7 +106,7 @@ where
     Fp25519: Vectorizable<N>,
     Boolean: FieldSimd<N>,
     BitDecomposed<AdditiveShare<Boolean, N>>: FromPrss<usize>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
     Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, N>>>,
     Vec<BA256>:
         for<'a> TransposeFrom<&'a [<Boolean as Vectorizable<N>>::Array; 256], Error = Infallible>,
@@ -350,8 +350,7 @@ mod tests {
     where
         Fp25519: Vectorizable<CHUNK>,
         Boolean: FieldSimd<CHUNK>,
-        AdditiveShare<Boolean, CHUNK>:
-            for<'a> BooleanProtocols<SemiHonestContext<'a>, Boolean, CHUNK>,
+        AdditiveShare<Boolean, CHUNK>: for<'a> BooleanProtocols<SemiHonestContext<'a>, CHUNK>,
         BitDecomposed<AdditiveShare<Boolean, CHUNK>>: for<'a> TransposeFrom<&'a [AdditiveShare<BA64>; CHUNK], Error = Infallible>
             + FromPrss<usize>,
         Vec<AdditiveShare<BA256>>:
