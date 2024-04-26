@@ -141,10 +141,9 @@ impl<S: BytesStream> Poller<S> {
             // Stream is either closed or generated an error. Closing this poller and notifying
             // consumers.
             Poll::Ready(v) => {
-                let r = self.close_with(shard, v);
                 self.wake(next);
 
-                r
+                self.close_with(shard, v)
             }
             Poll::Pending => Poll::Pending,
         }
