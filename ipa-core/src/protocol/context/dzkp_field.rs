@@ -26,22 +26,3 @@ pub trait DZKPBaseField: Field {
 }
 
 // TODO(dm) - implement Basefield for Fp61BitPrime in follow up PR
-
-/*
-we need to prove that z_left = x_left · y_left ⊕ x_left · y_right ⊕ x_right · y_left ⊕ prss_left ⊕ ρrss_right.
-The paper defines:
-
-a := x_left
-b := y_right
-c := y_left
-d := x_right
-e := x_left · y_left ⊕ z_left ⊕ prss_left
-f := prss_right
-
-We now need to prove:
-
-a · b ⊕ c · d ⊕ e ⊕ f = 0.
-
-xor can be computed via
-a ⊕ b = a + b − 2ab mod p = a(1 − 2b) + b mod p
-*/
