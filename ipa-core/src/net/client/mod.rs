@@ -27,7 +27,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
     },
-    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, setup_crypto_provider, Error},
     protocol::{step::Gate, QueryId},
 };
 
@@ -180,6 +180,7 @@ impl MpcHelperClient {
         peer_config: PeerConfig,
         identity: ClientIdentity,
     ) -> Self {
+        setup_crypto_provider();
         let (connector, auth_header) = if peer_config.url.scheme() == Some(&Scheme::HTTP) {
             // This connector works for both http and https. A regular HttpConnector would suffice,
             // but would make the type of `self.client` variable.

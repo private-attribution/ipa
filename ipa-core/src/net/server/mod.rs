@@ -43,7 +43,7 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport},
+    net::{parse_certificate_and_private_key_bytes, setup_crypto_provider, Error, HttpTransport},
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -84,6 +84,7 @@ impl MpcHelperServer {
         config: ServerConfig,
         network_config: NetworkConfig,
     ) -> Self {
+        setup_crypto_provider();
         MpcHelperServer {
             transport,
             config,

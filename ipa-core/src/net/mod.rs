@@ -1,4 +1,4 @@
-use std::{io, io::BufRead};
+use std::{io, io::BufRead, sync::Once};
 
 use rustls_pki_types::CertificateDer;
 
@@ -16,6 +16,17 @@ pub use client::{ClientIdentity, MpcHelperClient};
 pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
+
+static CRYPTO_INIT: Once = Once::new();
+
+/// Rustls requires to explicitly set the Crypto Provider before `ClientConfig::builder()`,
+/// `ServerConfig::builder()`, `WebPkiServerVerifier::builder()` and
+/// `WebPkiClientVerifier::builder()`.
+pub fn setup_crypto_provider() {
+    CRYPTO_INIT.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
 
 /// Reads certificates and a private key from the corresponding readers
 ///
