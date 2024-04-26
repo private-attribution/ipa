@@ -14,7 +14,7 @@ use std::{
 };
 
 use once_cell::sync::Lazy;
-use rustls::Certificate;
+use rustls_pki_types::CertificateDer;
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -166,7 +166,7 @@ impl TestConfigBuilder {
                 url: format!("{scheme}://localhost:{}", ports[i])
                     .parse()
                     .unwrap(),
-                certificate: cert.map(Certificate),
+                certificate: cert,
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
@@ -295,7 +295,7 @@ impl TestServerBuilder {
         else {
             panic!("TestConfig should have allocated ports");
         };
-        let clients = MpcHelperClient::from_conf(&network_config, identity.clone());
+        let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
         let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let (transport, server) = HttpTransport::new(
             HelperIdentity::ONE,
@@ -328,8 +328,8 @@ fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static 
 
 #[must_use]
 pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
-    let (certificate, private_key) = get_test_certificate_and_key(id);
-    ClientIdentity::from_pks8(certificate, private_key).unwrap()
+    let (mut certificate, mut private_key) = get_test_certificate_and_key(id);
+    ClientIdentity::from_pkcs8(&mut certificate, &mut private_key).unwrap()
 }
 
 pub const TEST_CERTS: [&[u8]; 3] = [
@@ -371,14 +371,8 @@ jn+NXYPeKEWnkCcVKjFED6MevGnOgrJylgY=
 ",
 ];
 
-pub static TEST_CERTS_DER: Lazy<[Vec<u8>; 3]> = Lazy::new(|| {
-    TEST_CERTS.map(|mut pem| {
-        rustls_pemfile::certs(&mut pem)
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap()
-    })
+pub static TEST_CERTS_DER: Lazy<[CertificateDer; 3]> = Lazy::new(|| {
+    TEST_CERTS.map(|mut pem| rustls_pemfile::certs(&mut pem).flatten().next().unwrap())
 });
 
 pub const TEST_KEYS: [&[u8]; 3] = [
