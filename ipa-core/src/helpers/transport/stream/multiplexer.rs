@@ -125,6 +125,8 @@ impl<S: BytesStream> Poller<S> {
             return Poll::Ready(buf.map(Ok));
         }
 
+        // SAFETY: stream is never moved out of this struct. Unsafe code seems to be the only
+        // ergonomic way to get pinned reference from inside a mutex.
         match unsafe { Pin::new_unchecked(&mut inner.stream) }
             .as_mut()
             .poll_next(cx)
