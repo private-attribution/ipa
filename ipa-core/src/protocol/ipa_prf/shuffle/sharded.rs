@@ -1,4 +1,12 @@
 #![allow(dead_code)] // until sharded shuffle is used in OPRF
+//! This implements the 3-way shuffle protocol from paper
+//! "Secure Graph Analysis at Scale" by
+//! Toshinori Araki, Jun Furukawa, Benny Pinkas, Kazuma Ohara, Hanan Rosemarin, and Hikaru Tsuchida.
+//!
+//! Concretely, it implements 2 round, 4 message Shuffle from section 5.2.
+//! This protocol was augmented to operate over sharded MPC networks. In addition to 4 rounds of
+//! MPC communication, it uses 6 rounds of intra-helper communications to send data between shards.
+//! In this implementation, this operation is called "resharding".
 
 use std::{cmp::max, future::Future, ops::Add};
 
@@ -43,7 +51,7 @@ trait ShuffleContext: ShardedContext {
         }
     }
 
-    /// This receives a single machine word (8 byte value) to one of the helpers specified in
+    /// This receives a single machine word (8 byte value) from one of the helpers specified in
     /// `direction` parameter.
     fn recv_word(
         self,
@@ -83,6 +91,7 @@ trait ShuffleContext: ShardedContext {
             let mut resharded = assert_send(reshard(
                 self.clone(),
                 data.enumerate().map(|(i, item)| {
+                    // FIXME(1029): update PRSS trait to compute only left or right part
                     let (l, r) = masking_ctx.prss().generate(RecordId::from(i));
                     let mask = match direction {
                         Direction::Left => l,
@@ -206,12 +215,12 @@ impl<C: ShardedContext> ShuffleContext for C {}
 ///
 /// [`ShuffleShare`] and [`Shuffleable`] are added to bridge the gap. They can be implemented for
 /// arbitrary structs as long as `Add` operation can be defined on them.
-trait ShuffleShare: Sendable + Clone + FromRandom + Add<Output = Self> {}
+pub trait ShuffleShare: Sendable + Clone + FromRandom + Add<Output = Self> {}
 
 impl<V: Sendable + Clone + FromRandom + Add<Output = Self>> ShuffleShare for V {}
 
 /// Trait for shuffle inputs that consists of two values (left and right).
-trait Shuffleable: Send + 'static {
+pub trait Shuffleable: Send + 'static {
     type Share: ShuffleShare;
 
     fn left(&self) -> Self::Share;
@@ -237,7 +246,7 @@ impl<V: SharedValue + FromRandomU128> Shuffleable for AdditiveShare<V> {
 }
 
 /// Sharded shuffle as performed by shards on H1.
-async fn h1_shuffle<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
+async fn h1_shuffle_for_shard<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: Send + ExactSizeIterator,
@@ -288,7 +297,7 @@ where
 }
 
 /// Sharded shuffle as performed by shards on H2.
-async fn h2_shuffle<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
+async fn h2_shuffle_for_shard<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: Send + ExactSizeIterator,
@@ -345,6 +354,7 @@ where
     Ok(ctx
         .try_join(x3.into_iter().enumerate().map(|(i, x3)| {
             let record_id = RecordId::from(i);
+            // FIXME(1029): update PRSS trait to compute only left or right part
             let (b, _): (S::Share, S::Share) = ctx
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
@@ -361,7 +371,7 @@ where
 
 /// Sharded shuffle as performed by shards on H3. Note that in semi-honest setting, H3 does not
 /// use its input. Adding support for active security will change that.
-async fn h3_shuffle<I, S, C>(ctx: C, _: I) -> Result<Vec<S>, crate::error::Error>
+async fn h3_shuffle_for_shard<I, S, C>(ctx: C, _: I) -> Result<Vec<S>, crate::error::Error>
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: Send + ExactSizeIterator,
@@ -402,6 +412,7 @@ where
     Ok(ctx
         .try_join(y3.into_iter().enumerate().map(|(i, y3)| {
             let record_id = RecordId::from(i);
+            // FIXME(1029): update PRSS trait to compute only left or right part
             let (_, a): (S::Share, S::Share) = ctx
                 .narrow(&ShuffleStep::PseudoRandomTable)
                 .prss()
@@ -416,19 +427,11 @@ where
         .await?)
 }
 
-/// This implements the 3-way shuffle protocol from paper
-/// "Secure Graph Analysis at Scale" by
-/// Toshinori Araki, Jun Furukawa, Benny Pinkas, Kazuma Ohara, Hanan Rosemarin, and Hikaru Tsuchida.
-///
-/// Concretely, it implements 2 round, 4 message Shuffle from section 5.2.
-/// This protocol was augmented to operate over sharded MPC networks. In addition to 4 rounds of
-/// MPC communication, it uses 6 rounds of intra-helper communications to send data between shards.
-/// In this implementation, this operation is called "resharding".
-///
+/// Entry point to execute sharded shuffle.
 /// ## Errors
 /// Failure to communicate over the network, either to other MPC helpers, and/or to other shards
 /// will generate a shuffle error.
-async fn shuffle<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
+pub async fn shuffle<I, S, C>(ctx: C, shares: I) -> Result<Vec<S>, crate::error::Error>
 where
     I: IntoIterator<Item = S>,
     I::IntoIter: Send + ExactSizeIterator,
@@ -436,9 +439,9 @@ where
     S: Shuffleable,
 {
     match ctx.role() {
-        Role::H1 => h1_shuffle(ctx, shares).await,
-        Role::H2 => h2_shuffle(ctx, shares).await,
-        Role::H3 => h3_shuffle(ctx, shares).await,
+        Role::H1 => h1_shuffle_for_shard(ctx, shares).await,
+        Role::H2 => h2_shuffle_for_shard(ctx, shares).await,
+        Role::H3 => h3_shuffle_for_shard(ctx, shares).await,
     }
 }
 

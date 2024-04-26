@@ -10,7 +10,6 @@ pub mod prss;
 pub mod semi_honest;
 pub mod upgrade;
 
-use futures::stream::StreamExt;
 /// Validators are not used in IPA v3 yet. Once we make use of MAC-based validation,
 /// this flag can be removed
 #[allow(dead_code)]
@@ -19,8 +18,7 @@ pub mod validator;
 use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
-use futures::Stream;
-use futures_util::stream;
+use futures::{stream, Stream, StreamExt};
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -328,9 +326,10 @@ pub trait ShardedContext: Context + ShardConfiguration {
         )
     }
 
-    /// Picks a shard according to the value obtained from sampling PRSS shared with the given helper.
+    /// Picks a shard according to the value obtained from sampling PRSS.
+    /// The `direction` argument indicates if the `left` or `right` PRSS is utilized.
     fn pick_shard(&self, record_id: RecordId, direction: Direction) -> ShardIndex {
-        // FIXME: update PRSS trait to compute only left or right part
+        // FIXME(1029): update PRSS trait to compute only left or right part
         let (l, r): (u128, u128) = self.prss().generate(record_id);
         let shard_index = u32::try_from(
             match direction {
@@ -423,7 +422,7 @@ where
 
     // Open communication channels to all shards on this helper and keep track of records sent
     // through any of them.
-    let mut sending_ends = ctx
+    let mut send_channels = ctx
         .peer_shards()
         .map(|shard_id| {
             (
@@ -444,7 +443,7 @@ where
         })
         .fuse();
 
-    // This produces a stream of outcomes for each se
+    // This produces a stream of outcomes of send requests.
     // In order to make it compatible with receive stream, it also returns records that must
     // stay on this shard, according to `shard_picker`'s decision.
     // That gives an awkward interface for output: (destination shard, Result<Option<Value>>)
@@ -458,28 +457,28 @@ where
         // misplacement on the recipient side.
         (
             input.enumerate().zip(iter::repeat(ctx.clone())),
-            &mut sending_ends,
+            &mut send_channels,
         ),
-        |(mut input, shard_ends)| async {
+        |(mut input, send_channels)| async {
             // Process more data as it comes in, or close the sending channels, if there is nothing
             // left.
             if let Some(((i, val), ctx)) = input.next() {
                 let dest_shard = shard_picker(ctx, RecordId::from(i), &val);
                 if dest_shard == my_shard {
-                    Some(((my_shard, Ok(Some(val.clone()))), (input, shard_ends)))
+                    Some(((my_shard, Ok(Some(val.clone()))), (input, send_channels)))
                 } else {
-                    let (record_id, se) = shard_ends.get_mut(&dest_shard).unwrap();
+                    let (record_id, se) = send_channels.get_mut(&dest_shard).unwrap();
                     let send_result = se
                         .send(*record_id, val)
                         .await
                         .map_err(crate::error::Error::from)
                         .map(|()| None);
                     *record_id += 1;
-                    Some(((my_shard, send_result), (input, shard_ends)))
+                    Some(((my_shard, send_result), (input, send_channels)))
                 }
             } else {
-                for (closing_id, sending_end) in shard_ends.values() {
-                    sending_end.close(*closing_id).await;
+                for (last_record, send_channel) in send_channels.values() {
+                    send_channel.close(*last_record).await;
                 }
                 None
             }
@@ -562,7 +561,7 @@ mod tests {
         },
         secret_sharing::replicated::{
             malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
-            semi_honest::{AdditiveShare, AdditiveShare as Replicated},
+            semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
         sharding::{ShardConfiguration, ShardIndex},
@@ -797,7 +796,7 @@ mod tests {
     #[test]
     fn receive_from_all_shards() {
         type Field = BA3;
-        type Share = AdditiveShare<Field>;
+        type Share = Replicated<Field>;
 
         run(|| async move {
             let world = TestWorld::<WithShards<3>>::with_shards(TestWorldConfig::default());
