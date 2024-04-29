@@ -1,5 +1,9 @@
-use std::{io, io::BufRead, sync::Once};
+use std::{
+    io::{self, BufRead},
+    sync::{Arc, Once},
+};
 
+use rustls::crypto::CryptoProvider;
 use rustls_pki_types::CertificateDer;
 
 use crate::config::{OwnedCertificate, OwnedPrivateKey};
@@ -19,13 +23,15 @@ pub use transport::{HttpShardTransport, HttpTransport};
 
 static CRYPTO_INIT: Once = Once::new();
 
-/// Rustls requires to explicitly set the Crypto Provider before `ClientConfig::builder()`,
-/// `ServerConfig::builder()`, `WebPkiServerVerifier::builder()` and
-/// `WebPkiClientVerifier::builder()`.
-pub fn setup_crypto_provider() {
+/// Provides access to IPAs Crypto Provider (AWS Libcrypto).
+///
+/// # Panics
+/// If there are issues starting the default crypto provider
+pub fn get_crypto_provider() -> &'static Arc<CryptoProvider> {
     CRYPTO_INIT.call_once(|| {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     });
+    CryptoProvider::get_default().expect("Default Crypto provider should be initialized")
 }
 
 /// Reads certificates and a private key from the corresponding readers

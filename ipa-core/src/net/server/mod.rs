@@ -43,7 +43,7 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{parse_certificate_and_private_key_bytes, setup_crypto_provider, Error, HttpTransport},
+    net::{get_crypto_provider, parse_certificate_and_private_key_bytes, Error, HttpTransport},
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -84,7 +84,6 @@ impl MpcHelperServer {
         config: ServerConfig,
         network_config: NetworkConfig,
     ) -> Self {
-        setup_crypto_provider();
         MpcHelperServer {
             transport,
             config,
@@ -295,8 +294,9 @@ async fn rustls_config(
         .allow_unauthenticated()
         .build()
         .expect("Error building client verifier, should specify valid Trust Anchors");
-
-    let mut config = rustls::ServerConfig::builder()
+    let mut config = rustls::ServerConfig::builder_with_provider(Arc::clone(get_crypto_provider()))
+        .with_safe_default_protocol_versions()
+        .expect("Default crypto provider should be valid")
         .with_client_cert_verifier(client_verifier)
         .with_single_cert(cert, key)?;
 
