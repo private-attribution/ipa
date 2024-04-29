@@ -3,7 +3,6 @@ use std::{
     io,
     io::Error,
     pin::Pin,
-    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -12,7 +11,10 @@ use futures::Stream;
 
 use crate::{
     helpers::{BytesStream, LengthDelimitedStream},
-    sync::{atomic::AtomicUsize, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 
 /// Errors received from the input stream must be replicated to reach every consumer, `Arc` allows
@@ -74,19 +76,23 @@ struct PollingEnd<S: BytesStream> {
 
 impl<S: BytesStream> Stream for PollingEnd<S> {
     type Item = Result<Bytes, MultiplexError>;
-
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Short circuit to avoid contention on poller when outer stream is closed.
-        if let Poll::Ready(value) = self.poller.closed_for(self.index) {
-            return Poll::Ready(value);
-        }
-
-        if self.poller.next.load(Ordering::Acquire) == self.index {
-            self.poller.poll_next(self.index, cx)
+        // Check if it is our turn to get the data, if not - register our waker and return pending
+        if self.poller.is_next(self.index) {
+            self.poller.take_next(self.index, cx)
         } else {
-            // it is not our turn, register waker and wait.
             self.poller.register_waker(self.index, cx.waker().clone());
-            Poll::Pending
+            // This is the part where we have to check the next index again because of a potential
+            // race between the writer (this thread that tries to save its waker) and the reader (thread that
+            // wakes up the next task). If we got unlucky,  another thread has already tried to wake
+            // our waker but couldn't find it because it happened before `register_waker` call.
+            // If that happens, poller's next pointer will be updated at this point, and can tell us
+            // if we need to try again.
+            if self.poller.is_next(self.index) {
+                self.poller.take_next(self.index, cx)
+            } else {
+                Poll::Pending
+            }
         }
     }
 }
@@ -108,52 +114,64 @@ struct State<S: BytesStream> {
 }
 
 impl<S: BytesStream> Poller<S> {
-    pub fn poll_next(
+    pub fn is_next(self: &Arc<Self>, cur: usize) -> bool {
+        self.next.load(Ordering::Acquire) == cur
+    }
+
+    pub fn take_next(
         self: &Arc<Self>,
-        shard: usize,
+        cur: usize,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Bytes, MultiplexError>>> {
         // To avoid contention, this function must be called after the check that `shard` == `next`
-        debug_assert_eq!(shard, self.next.load(Ordering::Acquire));
+        debug_assert_eq!(cur, self.next.load(Ordering::Acquire));
 
-        let mut inner = self.state.lock().unwrap();
-        let next = (shard + 1) % self.consumers.len();
-        if !inner.buf.is_empty() {
-            let buf = inner.buf.pop_front();
-            self.wake(next);
+        let r = if let Poll::Ready(value) = self.is_closed_or_failed(cur) {
+            // Short circuit to avoid contention on poller when outer stream is closed.
+            Poll::Ready(value)
+        } else {
+            // expensive path, requires a lock on shared the state.
+            // We check if there is data already in the buffer, and if not, we poll the outer stream.
+            let mut inner = self.state.lock().unwrap();
+            if inner.buf.is_empty() {
+                // SAFETY: stream is never moved out of this struct. Unsafe code seems to be the only
+                // ergonomic way to get pinned reference from inside a mutex.
+                match unsafe { Pin::new_unchecked(&mut inner.stream) }
+                    .as_mut()
+                    .poll_next(cx)
+                {
+                    // When data is ready, push it to the buffer and wake the next shard.
+                    Poll::Ready(Some(Ok(data))) => {
+                        inner.buf.extend(data);
 
-            return Poll::Ready(buf.map(Ok));
+                        Poll::Ready(inner.buf.pop_front().map(Ok))
+                    }
+                    // Stream is either closed or generated an error. Closing this poller and notifying
+                    // consumers.
+                    Poll::Ready(v) => self.close_with(cur, v),
+                    Poll::Pending => Poll::Pending,
+                }
+            } else {
+                let buf = inner.buf.pop_front();
+
+                Poll::Ready(buf.map(Ok))
+            }
+        };
+
+        if r.is_ready() {
+            // if there is something to return, we must notify the next consumer stream that
+            // it is their turn to poll for data.
+            self.wake_next(cur);
         }
 
-        // SAFETY: stream is never moved out of this struct. Unsafe code seems to be the only
-        // ergonomic way to get pinned reference from inside a mutex.
-        match unsafe { Pin::new_unchecked(&mut inner.stream) }
-            .as_mut()
-            .poll_next(cx)
-        {
-            // When data is ready, push it to the buffer and wake the next shard.
-            Poll::Ready(Some(Ok(data))) => {
-                inner.buf.extend(data);
-                self.wake(next);
-
-                Poll::Ready(inner.buf.pop_front().map(Ok))
-            }
-            // Stream is either closed or generated an error. Closing this poller and notifying
-            // consumers.
-            Poll::Ready(v) => {
-                self.wake(next);
-
-                self.close_with(shard, v)
-            }
-            Poll::Pending => Poll::Pending,
-        }
+        r
     }
 
-    fn closed_for(
+    fn is_closed_or_failed(
         self: &Arc<Self>,
-        consumer_index: usize,
+        cur: usize,
     ) -> Poll<Option<Result<Bytes, MultiplexError>>> {
-        let mut shard = self.consumers[consumer_index].lock().unwrap();
+        let mut shard = self.consumers[cur].lock().unwrap();
 
         if let Some(err) = shard.last_error.take() {
             Poll::Ready(Some(Err(err)))
@@ -173,10 +191,11 @@ impl<S: BytesStream> Poller<S> {
         shard.waker.replace(waker);
     }
 
-    fn wake(self: &Arc<Self>, consumer_index: usize) {
-        self.next.store(consumer_index, Ordering::Release);
+    fn wake_next(self: &Arc<Self>, cur: usize) {
+        let next = (cur + 1) % self.consumers.len();
+        self.next.store(next, Ordering::Release);
 
-        let mut shard = self.consumers[consumer_index].lock().unwrap();
+        let mut shard = self.consumers[next].lock().unwrap();
         if let Some(waker) = shard.waker.take() {
             waker.wake();
         }
@@ -209,13 +228,18 @@ impl<S: BytesStream> Poller<S> {
 #[cfg(all(test, any(unit_test, feature = "shuttle")))]
 mod tests {
 
-    use std::{fmt::Debug, iter::Map};
+    use std::{fmt::Debug, iter::Map, str::FromStr};
 
     use bytes::{Bytes, BytesMut};
-    use futures::{stream, Stream};
-    use futures_util::StreamExt;
+    use futures::{
+        future::poll_immediate,
+        stream,
+        stream::{FusedStream, FuturesUnordered},
+        Stream, StreamExt, TryStreamExt,
+    };
     use generic_array::GenericArray;
     use proptest::{collection::vec, proptest};
+    use rand::{thread_rng, Rng};
 
     use crate::{
         error::BoxError,
@@ -389,6 +413,76 @@ mod tests {
                 vec![vec!["hello"], vec!["world"], vec!["!"]],
                 collect_all(multiplex(input, 3), string_or_panic).await
             );
+        });
+    }
+
+    #[test]
+    fn random_order() {
+        run(|| async move {
+            let numbers = (0..100).map(|i| i.to_string()).collect::<Vec<_>>();
+            let input = numbers.clone().encode_rl();
+            let mut streams = multiplex(input, 20)
+                .into_iter()
+                .map(StreamExt::fuse)
+                .collect::<Vec<_>>();
+            let mut results = Vec::new();
+
+            // This loop picks a random stream and polls it. If stream makes progress, it gets an
+            // item from it and moves on. If stream returns Poll::Pending, it simply abandons its
+            // future and moves to another iteration. Loop terminates when all streams are completed.
+            loop {
+                if streams.is_empty() {
+                    break;
+                }
+
+                let idx = thread_rng().gen_range(0..streams.len());
+                let stream = streams.get_mut(idx).unwrap();
+
+                match poll_immediate(stream.next()).await {
+                    Some(Some(v)) => results.push(String::from_utf8(v.unwrap().to_vec()).unwrap()),
+                    Some(None) => {
+                        let s = streams.remove(idx);
+                        assert!(s.is_terminated());
+                    }
+                    None => {}
+                }
+            }
+
+            results.sort_by_key(|s| u16::from_str(s).unwrap());
+            assert_eq!(numbers, results);
+        });
+    }
+
+    #[test]
+    fn multithreading() {
+        #[cfg(feature = "shuttle")]
+        use shuttle::future as tokio;
+
+        run(|| async move {
+            let numbers = (0..10).map(|i| i.to_string()).collect::<Vec<_>>();
+            let input = numbers.clone().encode_rl();
+            let streams = multiplex(input, 3)
+                .into_iter()
+                .map(StreamExt::fuse)
+                .collect::<Vec<_>>();
+
+            let results: Vec<Vec<_>> = streams
+                .into_iter()
+                .map(|s| tokio::spawn(async move { s.try_collect().await.unwrap() }))
+                .collect::<FuturesUnordered<_>>()
+                .try_collect()
+                .await
+                .unwrap();
+
+            // convert to strings
+            let mut results = results
+                .into_iter()
+                .flatten()
+                .map(|bytes| String::from_utf8(bytes.to_vec()).unwrap())
+                .collect::<Vec<_>>();
+
+            results.sort_by_key(|s| u16::from_str(s).unwrap());
+            assert_eq!(numbers, results);
         });
     }
 

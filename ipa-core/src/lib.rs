@@ -42,7 +42,7 @@ extern crate shuttle_crate as shuttle;
 pub(crate) mod sync {
     pub use shuttle::sync::{Arc, Mutex, MutexGuard, Weak};
     pub mod atomic {
-        pub use shuttle::sync::atomic::{AtomicUsize, Ordering};
+        pub use shuttle::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     }
 }
 
@@ -50,7 +50,7 @@ pub(crate) mod sync {
 pub(crate) mod sync {
     pub use std::sync::{Arc, Mutex, MutexGuard, Weak};
     pub mod atomic {
-        pub use std::sync::atomic::{AtomicUsize, Ordering};
+        pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     }
 }
 
