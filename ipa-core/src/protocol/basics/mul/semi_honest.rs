@@ -8,7 +8,7 @@ use crate::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
         context::{
             dzkp_semi_honest::DZKPUpgraded,
-            semi_honest::{Context as SemiHonestContext, Upgraded as SemiHonestUpgraded},
+            semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext},
             Context,
         },
         prss::SharedRandomness,
@@ -97,6 +97,11 @@ where
 }
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
+//
+// TODO: This impl should be removed, and the (relatively few) things that truly need
+// to invoke multiplies on a base context should call the routines directly. However,
+// there are too many places that unnecessarily invoke multiplies on a base context
+// to make that change right now.
 #[async_trait]
 impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestContext<'a, B>> for Replicated<F, N>
 where
@@ -119,7 +124,8 @@ where
 
 /// Implement secure multiplication for semi-honest upgraded
 #[async_trait]
-impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestUpgraded<'a, B, F>> for Replicated<F, N>
+impl<'a, B, F, const N: usize> super::SecureMul<UpgradedSemiHonestContext<'a, B, F>>
+    for Replicated<F, N>
 where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N> + PrimeField,
@@ -127,12 +133,12 @@ where
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: SemiHonestUpgraded<'a, B, F>,
+        ctx: UpgradedSemiHonestContext<'a, B, F>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        SemiHonestUpgraded<'a, B, F>: 'fut,
+        UpgradedSemiHonestContext<'a, B, F>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }

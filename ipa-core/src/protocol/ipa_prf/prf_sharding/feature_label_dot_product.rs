@@ -12,7 +12,7 @@ use crate::{
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
-        RecordId,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -59,7 +59,7 @@ impl InputsRequiredFromPrevRow {
         C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
-        Replicated<Boolean>: SecureMul<C>,
+        Replicated<Boolean>: BasicProtocols<C, Boolean>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -227,7 +227,7 @@ where
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
-    Replicated<Boolean>: SecureMul<C>,
+    Replicated<Boolean>: BasicProtocols<C, Boolean>,
 {
     assert!(<FV as SharedValue>::BITS > 0);
 
@@ -304,7 +304,7 @@ where
     C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
-    Replicated<Boolean>: SecureMul<C>,
+    Replicated<Boolean>: BasicProtocols<C, Boolean>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {

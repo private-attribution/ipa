@@ -14,8 +14,8 @@ use crate::{
     },
     helpers::stream::{ChunkData, ProcessChunks, TryFlattenItersExt},
     protocol::{
-        basics::{BooleanArrayMul, SecureMul},
-        context::{UpgradableContext, UpgradedContext},
+        basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
+        context::{Context, SemiHonestContext, UpgradableContext, UpgradedContext},
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
@@ -23,6 +23,7 @@ use crate::{
                 attribute_cap_aggregate, histograms_ranges_sortkeys, PrfShardedIpaInputRow,
             },
         },
+        prss::FromPrss,
         RecordId,
     },
     secret_sharing::{
@@ -175,15 +176,12 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<C, BK, TV, TS, SS, F>(
-    ctx: C,
+pub async fn oprf_ipa<BK, TV, TS, SS, F>(
+    ctx: SemiHonestContext<'_>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = Replicated<F>>,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -192,10 +190,7 @@ where
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
-    Replicated<F>: Serializable + SecureMul<<C as UpgradableContext>::UpgradedContext<F>>,
-    Replicated<Boolean>: SecureMul<C>,
-    Replicated<Fp25519, 64>: SecureMul<C>,
-    Replicated<Boolean, 64>: SecureMul<C>,
+    Replicated<F>: Serializable,
 {
     let shuffled = shuffle_inputs(ctx.narrow(&Step::Shuffle), input_rows).await?;
     let mut prfd_inputs =
@@ -213,7 +208,7 @@ where
     )
     .await?;
 
-    attribute_cap_aggregate::<C, BK, TV, TS, SS, Replicated<F>, F>(
+    attribute_cap_aggregate::<BK, TV, TS, SS, F>(
         ctx,
         prfd_inputs,
         attribution_window_seconds,
@@ -236,8 +231,8 @@ where
     TS: SharedValue + CustomArray<Element = Boolean>,
     F: PrimeField + ExtendableField,
     Replicated<F>: Serializable,
-    Replicated<Boolean, 64>: SecureMul<C>,
-    Replicated<Fp25519, 64>: SecureMul<C>,
+    Replicated<Boolean, PRF_CHUNK>: BooleanProtocols<C, Boolean, PRF_CHUNK>,
+    Replicated<Fp25519, PRF_CHUNK>: SecureMul<C> + FromPrss,
 {
     let ctx = ctx.set_total_records((input_rows.len() + PRF_CHUNK - 1) / PRF_CHUNK);
     let convert_ctx = ctx.narrow(&Step::ConvertFp25519);
@@ -354,7 +349,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -396,7 +391,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<_, BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA20, BA5, Fp31>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })

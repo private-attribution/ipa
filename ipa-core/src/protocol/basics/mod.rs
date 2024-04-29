@@ -20,11 +20,15 @@ pub use share_known_value::ShareKnownValue;
 pub use sum_of_product::SumOfProducts;
 
 use crate::{
-    ff::{boolean::Boolean, Field},
-    protocol::{context::Context, ipa_prf::PRF_CHUNK},
+    ff::{boolean::Boolean, PrimeField},
+    protocol::{
+        context::{Context, SemiHonestContext, UpgradedSemiHonestContext},
+        ipa_prf::PRF_CHUNK,
+    },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, SecretSharing, SharedValue, Vectorizable,
     },
+    sharding::ShardBinding,
 };
 #[cfg(feature = "descriptive-gate")]
 use crate::{
@@ -52,13 +56,25 @@ pub trait BooleanProtocols<C: Context, V: SharedValue + Vectorizable<N>, const N
 {
 }
 
-impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> where
-    AdditiveShare<F>: SecureMul<C>
+// TODO: It might be better to remove this (protocols should use upgraded contexts)
+impl<'a, B: ShardBinding, F: PrimeField> BasicProtocols<SemiHonestContext<'a, B>, F>
+    for AdditiveShare<F>
 {
 }
 
-impl<C: Context> BooleanProtocols<C, Boolean, 1> for AdditiveShare<Boolean> where
-    AdditiveShare<Boolean>: SecureMul<C>
+impl<'a, B: ShardBinding, F: PrimeField> BasicProtocols<UpgradedSemiHonestContext<'a, B, F>, F>
+    for AdditiveShare<F>
+{
+}
+
+// TODO: It might be better to remove this (protocols should use upgraded contexts)
+impl<'a, B: ShardBinding> BooleanProtocols<SemiHonestContext<'a, B>, Boolean, 1>
+    for AdditiveShare<Boolean>
+{
+}
+
+impl<'a, B: ShardBinding> BooleanProtocols<UpgradedSemiHonestContext<'a, B, Boolean>, Boolean, 1>
+    for AdditiveShare<Boolean>
 {
 }
 
