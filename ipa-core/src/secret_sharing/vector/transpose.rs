@@ -772,9 +772,21 @@ impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
 
-// Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for details.
+// Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for
+// additional details.
+//
+// The input to this transpose is `&[BitDecomposed<AdditiveShare<Boolean, {agg chunk}>>]`, indexed
+// by buckets, bits of trigger value, and contribution rows.
+//
+// The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
+// contribution rows, bits of trigger value, and buckets.
+//
+// The transpose operates on contribution rows and buckets. It proceeds identically for
+// each trigger value bit, just like it does for the left and right shares. However, because
+// the trigger value bits exist between the row and bucket indexing, a special transpose
+// implementation is required for this case.
 macro_rules! impl_aggregation_transpose {
-    ($dst_row:ty, $src_row:ty, $src_rows:expr, $src_cols:expr $(,)?) => {
+    ($dst_row:ty, $src_row:ty, $src_rows:expr, $src_cols:expr, $test_fn:ident $(,)?) => {
         impl TransposeFrom<&[BitDecomposed<AdditiveShare<Boolean, $src_cols>>]>
             for Vec<BitDecomposed<AdditiveShare<Boolean, $src_rows>>>
         where
@@ -842,19 +854,25 @@ macro_rules! impl_aggregation_transpose {
                 Ok(())
             }
         }
+
+        #[cfg(all(test, unit_test))]
+        #[test]
+        fn $test_fn() {
+            tests::test_aggregation_transpose::<$src_rows, $src_cols>();
+        }
     };
 }
 
 // Usage: aggregation intermediate. M = number of breakdowns (2^|bk|), N = AGG_CHUNK
-impl_aggregation_transpose!(BA256, BA256, 256, 256);
-impl_aggregation_transpose!(BA32, BA256, 32, 256);
+impl_aggregation_transpose!(BA256, BA256, 256, 256, test_aggregation_transpose_256x256);
+impl_aggregation_transpose!(BA32, BA256, 32, 256, test_aggregation_transpose_32x256);
 
 #[cfg(all(test, unit_test))]
 mod tests {
     use std::{
         cmp::min,
         fmt::Debug,
-        iter::repeat_with,
+        iter::{repeat_with, zip},
         ops::{BitAnd, Not, Shl, Shr},
     };
 
@@ -1246,6 +1264,57 @@ mod tests {
         verify_transpose(SM, DM,
             |i, j| (m_t[i].get(j).unwrap().left(), m_t[i].get(j).unwrap().right()),
             |i, j| (m[i].left_arr().get(j).unwrap(), m[i].right_arr().get(j).unwrap()),
+        );
+    }
+
+    pub(super) fn test_aggregation_transpose<
+        const SM: usize, // Source rows (== dest cols)
+        const DM: usize, // Destination rows (== source cols)
+    >()
+    where
+        Boolean: Vectorizable<SM> + Vectorizable<DM>,
+        <Boolean as Vectorizable<SM>>::Array: ArrayAccess<Output = Boolean>,
+        <Boolean as Vectorizable<DM>>::Array: ArrayAccess<Output = Boolean>,
+        Vec<BitDecomposed<AdditiveShare<Boolean, SM>>>: for<'a> TransposeFrom<
+            &'a [BitDecomposed<AdditiveShare<Boolean, DM>>],
+            Error = Infallible,
+        >,
+    {
+        let step = min(SM, DM);
+
+        // For most transpose tests, we do a test of a structured matrix, and then a test of a random matrix.
+        // For this test, we pack the structured and random matrices together as the two bits of trigger
+        // value. We then transpose both at once using the aggregation transpose.
+        let m0 = bool_shares_test_matrix::<SM, DM>(step);
+        let mut left_rng = thread_rng();
+        let mut right_rng = thread_rng();
+        let m1 = repeat_with(|| AdditiveShare::from_fns(|_| left_rng.gen(), |_| right_rng.gen()))
+            .take(SM)
+            .collect::<Vec<_>>();
+
+        let mut m = Vec::with_capacity(SM);
+        for (row0, row1) in zip(m0, m1.clone()) {
+            m.push(BitDecomposed::new([row0, row1]));
+        }
+
+        let mut m_t = Vec::<BitDecomposed<AdditiveShare<Boolean, SM>>>::new();
+        m_t.transpose_from(&m).unwrap_infallible();
+
+        let (m_t0, m_t1): (Vec<_>, Vec<_>) = m_t
+            .into_iter()
+            .map(|bits_and_rows| {
+                assert_eq!(bits_and_rows.len(), 2);
+                let mut br = bits_and_rows.into_iter();
+                (br.next().unwrap(), br.next().unwrap())
+            })
+            .unzip();
+
+        assert_eq!(m_t0, bool_shares_test_matrix::<DM, SM>(step));
+
+        #[rustfmt::skip]
+        verify_transpose(SM, DM,
+            |i, j| (m_t1[i].left_arr().get(j).unwrap(), m_t1[i].right_arr().get(j).unwrap()),
+            |i, j| (m1[i].left_arr().get(j).unwrap(), m1[i].right_arr().get(j).unwrap()),
         );
     }
 }

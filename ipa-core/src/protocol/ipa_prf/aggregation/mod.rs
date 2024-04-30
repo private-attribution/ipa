@@ -120,11 +120,6 @@ pub(crate) enum Step {
 //
 // The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
 // contribution rows, bits of trigger value, and buckets.
-//
-// The transpose operates on contribution rows and buckets. It proceeds identically for
-// each trigger value bit, just like it does for the left and right shares. However, because
-// the trigger value bits exist between the row and bucket indexing, a special transpose
-// implementation is required for this case.
 pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N: usize>(
     ctx: C,
     contributions_stream: St,
