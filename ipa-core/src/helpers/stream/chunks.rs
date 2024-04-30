@@ -146,7 +146,7 @@ where
 
     process_fn: F,
 
-    dummy_fn: D,
+    pad_record_fn: D,
 }
 
 impl<'a, T, U, F, Fut, D, const N: usize> SliceChunkProcessor<'a, T, U, F, Fut, D, N>
@@ -174,7 +174,7 @@ where
             let remainder_len = mem::replace(this.remainder_len, 0);
             let mut last_chunk = Vec::with_capacity(N);
             last_chunk.extend_from_slice(&this.slice[N * idx..]);
-            last_chunk.resize_with(N, this.dummy_fn);
+            last_chunk.resize_with(N, this.pad_record_fn);
             let last_chunk = Box::<[T; N]>::try_from(last_chunk).ok().unwrap();
             Some(ChunkFuture::new(
                 (*this.process_fn)(idx, ChunkData::Owned(last_chunk)),
@@ -203,7 +203,7 @@ where
 pub fn process_slice_by_chunks<'a, T, U, F, Fut, D, const N: usize>(
     slice: &'a [T],
     process_fn: F,
-    dummy_fn: D,
+    pad_record_fn: D,
 ) -> impl Stream<Item = ChunkFuture<Fut, [U; N], N>> + 'a
 where
     T: Clone,
@@ -217,7 +217,7 @@ where
         pos: 0,
         remainder_len: slice.len() % N,
         process_fn,
-        dummy_fn,
+        pad_record_fn,
     }
 }
 
@@ -284,7 +284,7 @@ where
     stream: St,
     buffer: B,
     process_fn: F,
-    dummy_fn: Option<D>,
+    pad_record_fn: Option<D>,
 
     /// Current input position, counted in chunks.
     pos: usize,
@@ -325,10 +325,10 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
 
-        // dummy_fn serves as our fuse -- it is taken out of the `Option` when we are finished. In
-        // the case where we terminate early due to an error, fusing the inner stream cannot serve
-        // this purpose.
-        let Ok(dummy_fn) = DefinitelySome::try_from(this.dummy_fn) else {
+        // pad_record_fn serves as our fuse -- it is taken out of the `Option` when we are finished.
+        // In the case where we terminate early due to an error, fusing the inner stream cannot
+        // serve this purpose.
+        let Ok(pad_record_fn) = DefinitelySome::try_from(this.pad_record_fn) else {
             return Poll::Ready(None);
         };
 
@@ -341,20 +341,20 @@ where
                     }
                 }
                 Some(Err(e)) => {
-                    dummy_fn.take();
+                    pad_record_fn.take();
                     return Poll::Ready(Some(MaybeFuture::value(Err(e))));
                 }
                 None if this.buffer.len() != 0 => {
                     // Input stream ended, but we still have some items to process.
                     let remainder_len = this.buffer.len();
-                    this.buffer.resize_with(N, dummy_fn.take());
+                    this.buffer.resize_with(N, pad_record_fn.take());
                     break (this.buffer.take(), ChunkType::Partial(remainder_len));
                 }
                 None => {
-                    // Input stream ended at a chunk boundary. Unlike the partial chunk case, we return
-                    // None, so we shouldn't be polled again regardless of dummy_fn signalling, but
-                    // might as well make this a fused stream since it's easy.
-                    dummy_fn.take();
+                    // Input stream ended at a chunk boundary. Unlike the partial chunk case, we
+                    // return None, so we shouldn't be polled again regardless of pad_record_fn
+                    // signalling, but might as well make this a fused stream since it's easy.
+                    pad_record_fn.take();
                     return Poll::Ready(None);
                 }
             }
@@ -379,20 +379,20 @@ where
     D: Fn() -> T,
 {
     fn is_terminated(&self) -> bool {
-        self.dummy_fn.is_none()
+        self.pad_record_fn.is_none()
     }
 }
 
 /// Process stream through a function that operates on chunks.
 ///
 /// Processes `stream` by collecting chunks of `N` items into `buffer`, then calling `process_fn`
-/// for each chunk. If there is a partial chunk at the end of the stream, `dummy_fn` is called
+/// for each chunk. If there is a partial chunk at the end of the stream, `pad_record_fn` is called
 /// repeatedly to fill out the last chunk.
 pub fn process_stream_by_chunks<St, T, B, K, F, Fut, D, const N: usize>(
     stream: St,
     buffer: B,
     process_fn: F,
-    dummy_fn: D,
+    pad_record_fn: D,
 ) -> impl FusedStream<Item = MaybeChunkFuture<Fut, K, N>>
 where
     St: Stream<Item = Result<T, Error>> + Send,
@@ -406,7 +406,7 @@ where
         stream,
         buffer,
         process_fn,
-        dummy_fn: Some(dummy_fn),
+        pad_record_fn: Some(pad_record_fn),
         pos: 0,
     }
 }
