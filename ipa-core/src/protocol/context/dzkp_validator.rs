@@ -21,7 +21,8 @@ use crate::{
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::DZKPBaseField, dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            dzkp_field::{DZKPBaseField, UVPolynomials},
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             Base, SemiHonestContext, UpgradableContext,
         },
         step::Gate,
@@ -101,15 +102,15 @@ impl UnverifiedValues {
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
     /// Converted values will take more space in memory.
     #[allow(dead_code)]
-    fn convert<DF: DZKPBaseField>(&self) -> DF::UnverifiedFieldValues {
-        DF::convert(
+    fn convert_prover<DF: DZKPBaseField>(&self) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
+        DF::convert_prover(
             &self.x_left,
             &self.x_right,
             &self.y_left,
             &self.y_right,
-            &self.prss_left,
+            //&self.prss_left,
             &self.prss_right,
-            &self.z_right,
+            //&self.z_right,
         )
     }
 }
@@ -422,13 +423,14 @@ impl UnverifiedValuesStore {
     /// `get_unverified_field_value` converts a `UnverifiedValuesStore` into an iterator over `UnverifiedFieldValues`
     /// compatible with DZKPs
     #[allow(dead_code)]
-    fn get_unverified_field_values<DF: DZKPBaseField>(
+    fn get_unverified_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+    ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.vec
             .iter()
             .flatten()
-            .map(UnverifiedValues::convert::<DF>)
+            .map(UnverifiedValues::convert_prover::<DF>)
+            .flatten()
     }
 }
 
@@ -479,12 +481,12 @@ impl Batch {
     /// `get_unverified_field_value` converts a `Batch` into an iterator over `UnverifiedFieldValues`
     /// compatible with DZKPs
     #[allow(dead_code)]
-    fn get_unverified_field_values<DF: DZKPBaseField>(
+    fn get_unverified_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
+    ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_unverified_field_values::<DF>)
+            .flat_map(UnverifiedValuesStore::get_unverified_field_values_prover::<DF>)
     }
 }
 
@@ -699,7 +701,7 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Fp31, U128Conversions},
+        ff::{Fp31, Fp61BitPrime, U128Conversions},
         protocol::{
             basics::SecureMul,
             context::{
@@ -747,7 +749,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .seq_join::<_, _, _, Fp31>(iter(
+                    .seq_join::<_, _, _, Fp61BitPrime>(iter(
                         zip(
                             repeat(m_ctx.set_total_records(count - 1)).enumerate(),
                             zip(input_shares.iter(), input_shares.iter().skip(1)),
@@ -781,7 +783,7 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .seq_join::<_, _, _, Fp31>(iter(
+                    .seq_join::<_, _, _, Fp61BitPrime>(iter(
                         zip(
                             repeat(m_ctx.set_total_records(count - 1)).enumerate(),
                             zip(input_shares.iter(), input_shares.iter().skip(1)),
@@ -853,8 +855,8 @@ mod tests {
         z_right: Vec<Fp31>,
     }
 
+    /*
     impl DZKPBaseField for Fp31 {
-        type UnverifiedFieldValues = UnverifiedFp31Values;
 
         fn convert(
             x_left: &BitArray32,
@@ -1100,4 +1102,5 @@ mod tests {
             }
         }
     }
+    */
 }

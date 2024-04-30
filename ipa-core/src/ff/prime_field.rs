@@ -433,6 +433,12 @@ mod fp32bit {
 mod fp61bit {
     field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
 
+    impl Fp61BitPrime {
+        pub const fn const_truncate(input: u64) -> Self {
+            Fp61BitPrime(input % Self::PRIME)
+        }
+    }
+
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
         use super::*;
