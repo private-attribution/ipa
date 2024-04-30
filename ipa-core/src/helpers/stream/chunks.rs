@@ -7,7 +7,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use futures::{Stream, TryStream};
+use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project::pin_project;
 
 use crate::{
@@ -325,8 +325,9 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
 
-        // dummy_fn is taken out of the `Option` when processing the final chunk, as an indicator
-        // that we should not poll the inner stream again.
+        // dummy_fn serves as our fuse -- it is taken out of the `Option` when we are finished. In
+        // the case where we terminate early due to an error, fusing the inner stream cannot serve
+        // this purpose.
         let Ok(dummy_fn) = DefinitelySome::try_from(this.dummy_fn) else {
             return Poll::Ready(None);
         };
@@ -367,6 +368,21 @@ where
     }
 }
 
+impl<St, T, B, K, F, Fut, D, const N: usize> FusedStream
+    for StreamChunkProcessor<St, T, B, K, F, Fut, D, N>
+where
+    St: Stream<Item = Result<T, Error>> + Send,
+    B: ChunkBuffer<N, Item = T>,
+    K: IntoIterator,
+    F: Fn(usize, B::Chunk) -> Fut,
+    Fut: Future<Output = Result<K, Error>>,
+    D: Fn() -> T,
+{
+    fn is_terminated(&self) -> bool {
+        self.dummy_fn.is_none()
+    }
+}
+
 /// Process stream through a function that operates on chunks.
 ///
 /// Processes `stream` by collecting chunks of `N` items into `buffer`, then calling `process_fn`
@@ -377,7 +393,7 @@ pub fn process_stream_by_chunks<St, T, B, K, F, Fut, D, const N: usize>(
     buffer: B,
     process_fn: F,
     dummy_fn: D,
-) -> impl Stream<Item = MaybeChunkFuture<Fut, K, N>>
+) -> impl FusedStream<Item = MaybeChunkFuture<Fut, K, N>>
 where
     St: Stream<Item = Result<T, Error>> + Send,
     B: ChunkBuffer<N, Item = T>,
@@ -525,6 +541,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_slice_chunks_empty() {
+        let mut st = process_slice_by_chunks(
+            &[],
+            |_, chunk: ChunkData<i32, 2>| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
+
+        assert!(st.next().await.is_none());
+    }
+
+    #[tokio::test]
     async fn process_slice_chunks_partial() {
         let data = vec![1, 2, 3];
 
@@ -564,6 +591,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_stream_chunks_empty() {
+        let mut st = process_stream_by_chunks(
+            stream::empty(),
+            Vec::new(),
+            |_, chunk: Box<[i32; 2]>| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
+
+        assert!(!st.is_terminated());
+        assert!(st.next().await.is_none());
+        assert!(st.is_terminated());
+    }
+
+    #[tokio::test]
     async fn process_stream_chunks_partial() {
         let data = vec![1, 2, 3];
 
@@ -574,7 +615,9 @@ mod tests {
             || 7,
         );
 
+        assert!(!st.is_terminated());
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
+        assert!(!st.is_terminated());
         assert_eq!(
             st.next().await.unwrap().await.unwrap(),
             Chunk {
@@ -582,8 +625,9 @@ mod tests {
                 data: [-3, -7]
             },
         );
-        assert!(st.next().await.is_none());
-        assert!(st.next().await.is_none());
+        assert!(st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
     }
 
     #[tokio::test]
@@ -611,15 +655,17 @@ mod tests {
             || 7,
         );
 
+        assert!(!st.is_terminated());
         let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
             panic!("expected stream to return a future");
         };
         assert_eq!(&fut.await.unwrap(), &[0, -1]);
 
-        assert!(poll_immediate(&mut st).next().await.is_none());
+        assert!(!st.is_terminated()); // Not detected until we poll
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
 
         // It should still be pending, and it should not try to advance the source iterator again.
-        assert!(poll_immediate(&mut st).next().await.is_none());
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
     }
 
     #[tokio::test]
@@ -648,11 +694,13 @@ mod tests {
             || 7,
         );
 
+        assert!(!st.is_terminated());
         let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
             panic!("expected stream to return a future");
         };
         assert_eq!(&fut.await.unwrap(), &[0, -1]);
 
+        assert!(!st.is_terminated());
         let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
             panic!("expected stream to return a future");
         };
@@ -664,8 +712,9 @@ mod tests {
             },
         );
 
+        assert!(st.is_terminated());
         // It should be finished, and it should not try to advance the source iterator again.
-        assert!(poll_immediate(&mut st).next().await.is_none());
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
     }
 
     #[test]
