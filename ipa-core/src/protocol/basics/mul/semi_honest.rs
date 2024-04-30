@@ -7,7 +7,7 @@ use crate::{
     protocol::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
         context::{
-            dzkp_semi_honest::DZKPUpgraded,
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext},
             Context,
         },
@@ -128,7 +128,7 @@ impl<'a, B, F, const N: usize> super::SecureMul<UpgradedSemiHonestContext<'a, B,
     for Replicated<F, N>
 where
     B: sharding::ShardBinding,
-    F: Field + FieldSimd<N> + PrimeField,
+    F: PrimeField + FieldSimd<N>,
 {
     async fn multiply_sparse<'fut>(
         &self,
@@ -146,7 +146,7 @@ where
 
 /// Implement secure multiplication for semi-honest dzkpupgraded
 #[async_trait]
-impl<'a, B, F, const N: usize> super::SecureMul<DZKPUpgraded<'a, B>> for Replicated<F, N>
+impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestDZKPUpgraded<'a, B>> for Replicated<F, N>
 where
     B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
@@ -154,12 +154,12 @@ where
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: DZKPUpgraded<'a, B>,
+        ctx: SemiHonestDZKPUpgraded<'a, B>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        DZKPUpgraded<'a, B>: 'fut,
+        SemiHonestDZKPUpgraded<'a, B>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }
