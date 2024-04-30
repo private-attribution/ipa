@@ -214,7 +214,8 @@ where
     let mut depth = 0;
     while num_rows > 1 {
         // We reduce pairwise, passing through the odd record at the end if there is one, so the
-        // record count gets rounded down, but the number of outputs gets rounded up.
+        // number of outputs (`num_rows`) gets rounded up. If calculating an explicit total
+        // records, that would get rounded down.
         let par_agg_ctx = ctx
             .narrow(&Step::Aggregate(depth))
             .set_total_records(TotalRecords::Indeterminate);
@@ -224,7 +225,11 @@ where
                 let ctx = par_agg_ctx.clone();
                 async move {
                     match chunk_res {
-                        Err(e) => Err(e.1),
+                        Err(e) => {
+                            // `e.0` contains any elements that `try_chunks` buffered before the
+                            // error. We can drop them, since we don't try to recover from errors.
+                            Err(e.1)
+                        }
                         Ok(mut chunk_vec) if chunk_vec.len() == 1 => Ok(chunk_vec.pop().unwrap()),
                         Ok(mut chunk_pair) => {
                             assert_eq!(chunk_pair.len(), 2);
