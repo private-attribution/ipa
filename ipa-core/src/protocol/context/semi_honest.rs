@@ -6,9 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
-use super::{Context as SuperContext, UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{
@@ -25,7 +23,7 @@ use crate::{
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -244,16 +242,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> SeqJoin for Upgraded<'a, B, F> {
     }
 }
 
-// This is a dummy step that is used to narrow (but never executed) the semi-honest
-// context. Semi-honest implementations of `UpgradedContext::upgrade()` and subsequent
-// `UpgradeToMalicious::upgrade()` narrows but these will end up in
-// `UpgradedContext::upgrade_one()` or `UpgradedContext::upgrade_sparse()` which both
-// return Ok() and never trigger communications.
-#[derive(Step)]
-pub(crate) enum UpgradeStep {
-    UpgradeSemiHonest,
-}
-
 #[async_trait]
 impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, B, F> {
     type Share = Replicated<F>;
@@ -269,31 +257,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(x)
-    }
-
-    // Moved from "context/mod.rs" because we want to use the local `UpgradeContext`.
-    // `upgrade` for semi-honest is narrowed but never executed. That causes `Compact`
-    // gate to panic because it doesn't know anything about state transitions that are
-    // not executed. To workaround this, we use a dummy step to narrow the context to
-    // let `Compact` gate know that it could be ignored.
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), NoRecord)
-            .upgrade(input)
-            .await
-    }
-
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::UpgradeSemiHonest), record_id)
-            .upgrade(input)
-            .await
     }
 
     #[cfg(test)]
