@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        basics::SecureMul, context::Context, ipa_prf::prf_sharding::BinaryTreeDepthStep,
         step::BitOpStep, RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
@@ -85,7 +85,7 @@ pub async fn move_single_value_to_bucket<C, const N: usize>(
     robust: bool,
 ) -> Result<Vec<BitDecomposed<AdditiveShare<Boolean, N>>>, Error>
 where
-    C: UpgradedContext<Boolean>,
+    C: Context,
     Boolean: FieldSimd<N>,
 {
     const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
@@ -169,10 +169,7 @@ pub mod tests {
     use super::move_single_value_to_bucket;
     use crate::{
         ff::{boolean::Boolean, boolean_array::BA8, Gf8Bit, Gf9Bit, U128Conversions},
-        protocol::{
-            context::{Context, UpgradableContext, Validator},
-            RecordId,
-        },
+        protocol::{context::Context, RecordId},
         rand::Rng,
         secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
@@ -193,8 +190,6 @@ pub mod tests {
             .semi_honest(
                 (breakdown_key_bits, value),
                 |ctx, (breakdown_key_share, value_share)| async move {
-                    let validator = ctx.validator();
-                    let ctx = validator.context();
                     move_single_value_to_bucket::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::from(0),
@@ -291,8 +286,6 @@ pub mod tests {
                 .semi_honest(
                     (breakdown_key_bits, value),
                     |ctx, (breakdown_key_share, value_share)| async move {
-                        let validator = ctx.validator();
-                        let ctx = validator.context();
                         move_single_value_to_bucket::<_, 1>(
                             ctx.set_total_records(1),
                             RecordId::from(0),

@@ -60,6 +60,9 @@ impl<C: Context, F: Field> BasicProtocols<C, F> for AdditiveShare<F> {}
 
 impl<C: Context> BooleanProtocols<C, Boolean, 1> for AdditiveShare<Boolean> {}
 
+// Used for aggregation tests
+impl<C: Context> BooleanProtocols<C, Boolean, 8> for AdditiveShare<Boolean, 8> {}
+
 impl<C: Context> BooleanProtocols<C, Boolean, PRF_CHUNK> for AdditiveShare<Boolean, PRF_CHUNK> {}
 
 impl<C: Context> BooleanProtocols<C, Boolean, AGG_CHUNK> for AdditiveShare<Boolean, AGG_CHUNK> {}
