@@ -86,7 +86,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<Fp32BitPrime>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -100,7 +100,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, crate::ff::Fp31>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<crate::ff::Fp31>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
