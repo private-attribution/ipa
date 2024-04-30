@@ -5,9 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
-use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{
@@ -29,7 +27,7 @@ use crate::{
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -223,12 +221,6 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
     }
 }
 
-/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[derive(Step)]
-pub(crate) enum UpgradeStep {
-    Upgrade,
-}
-
 #[async_trait]
 impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     type Share = MaliciousReplicated<F>;
@@ -276,33 +268,16 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         Ok(m)
     }
 
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade(input)
-            .await
-    }
-
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
-            .upgrade(input)
-            .await
-    }
-
     #[cfg(test)]
     async fn upgrade_sparse(
         &self,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{context::upgrade::UpgradeContext, NoRecord};
+        use crate::protocol::{
+            context::{upgrade::UpgradeContext, UpgradeStep},
+            NoRecord,
+        };
 
         UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
             .upgrade_sparse(input, zeros_at)

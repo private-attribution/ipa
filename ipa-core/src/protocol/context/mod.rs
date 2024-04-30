@@ -17,6 +17,7 @@ pub mod validator;
 use std::num::NonZeroUsize;
 
 use async_trait::async_trait;
+use ipa_macros::Step;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -37,7 +38,7 @@ use crate::{
         context::dzkp_validator::DZKPValidator,
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
-        RecordId,
+        NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -130,6 +131,12 @@ pub trait UpgradableContext: Context {
     fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
 }
 
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
+#[derive(Step)]
+pub(crate) enum UpgradeStep {
+    Upgrade,
+}
+
 #[async_trait]
 pub trait UpgradedContext<F: ExtendableField>: Context {
     // TODO: can we add BasicProtocols to this so that we don't need it as a constraint everywhere.
@@ -151,7 +158,12 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>;
+        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
+            .upgrade(input)
+            .await
+    }
 
     /// Upgrade an input for a specific bit index and record using this context.
     /// # Errors
@@ -160,7 +172,12 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>;
+        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
+            .upgrade(input)
+            .await
+    }
 
     /// Upgrade a sparse input using this context.
     /// # Errors

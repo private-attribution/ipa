@@ -9,7 +9,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA32, BA5, BA8},
+        boolean_array::{BA20, BA3, BA32, BA5, BA64, BA8},
         Expand,
     },
     protocol::{context::Context, RecordId},
@@ -119,3 +119,4 @@ boolean_array_mul!(5, BA5);
 boolean_array_mul!(8, BA8);
 boolean_array_mul!(20, BA20);
 boolean_array_mul!(32, BA32);
+boolean_array_mul!(64, BA64);

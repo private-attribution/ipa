@@ -30,10 +30,8 @@ use futures::{
 };
 use hyper::{header::HeaderName, server::conn::AddrStream, Request};
 use metrics::increment_counter;
-use rustls::{
-    server::AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore,
-};
-use rustls_pemfile::Item;
+use rustls::{server::WebPkiClientVerifier, RootCertStore};
+use rustls_pki_types::CertificateDer;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tokio_rustls::server::TlsStream;
@@ -42,10 +40,10 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, Span};
 
 use crate::{
-    config::{NetworkConfig, ServerConfig, TlsConfig},
+    config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{Error, HttpTransport},
+    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport},
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -244,7 +242,7 @@ where
 
 async fn certificate_and_key(
     config: &ServerConfig,
-) -> Result<(Vec<Certificate>, PrivateKey), BoxError> {
+) -> Result<(Vec<OwnedCertificate>, OwnedPrivateKey), BoxError> {
     let (cert, key) = match &config.tls {
         None => return Err("missing TLS configuration".into()),
         Some(TlsConfig::Inline {
@@ -263,18 +261,8 @@ async fn certificate_and_key(
             (Cow::Owned(cert), Cow::Owned(key))
         }
     };
-
-    let cert = rustls_pemfile::certs(&mut cert.as_ref())?;
-    let Some(Item::RSAKey(key) | Item::PKCS8Key(key) | Item::ECKey(key)) =
-        rustls_pemfile::read_one(&mut key.as_ref())?
-    else {
-        return Err("private key format not supported".into());
-    };
-
-    let cert = cert.into_iter().map(Certificate).collect();
-    let key = PrivateKey(key);
-
-    Ok((cert, key))
+    parse_certificate_and_private_key_bytes(&mut cert.as_ref(), &mut key.as_ref())
+        .map_err(BoxError::from)
 }
 
 /// Create a `RustlsConfig` for the `ServerConfig`.
@@ -295,18 +283,20 @@ async fn rustls_config(
     for cert in network
         .peers()
         .iter()
-        .filter_map(|peer| peer.certificate.as_ref())
+        .filter_map(|peer| peer.certificate.clone())
     {
         // Note that this uses `webpki::TrustAnchor::try_from_cert_der`, which *does not* validate
         // the certificate. That is not required for security, but might be desirable to flag
         // configuration errors.
         trusted_certs.add(cert)?;
     }
-    let verifier = AllowAnyAnonymousOrAuthenticatedClient::new(trusted_certs);
+    let client_verifier = WebPkiClientVerifier::builder(trusted_certs.into())
+        .allow_unauthenticated()
+        .build()
+        .expect("Error building client verifier, should specify valid Trust Anchors");
 
     let mut config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(verifier.boxed())
+        .with_client_cert_verifier(client_verifier)
         .with_single_cert(cert, key)?;
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
@@ -349,7 +339,7 @@ impl ClientCertRecognizingAcceptor {
     // This can't be a method (at least not that takes `&self`) because it needs to go in a 'static future.
     fn identify_client(
         network_config: &NetworkConfig,
-        cert_option: Option<&Certificate>,
+        cert_option: Option<&CertificateDer>,
     ) -> Option<ClientIdentity> {
         let cert = cert_option?;
         // We currently require an exact match with the peer cert (i.e. we don't support verifying
@@ -479,14 +469,14 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 
 #[cfg(all(test, unit_test))]
 mod e2e_tests {
-    use std::{collections::HashMap, time::SystemTime};
+    use std::collections::HashMap;
 
     use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
     use hyper_rustls::HttpsConnector;
     use metrics_util::debugging::Snapshotter;
     use rustls::{
-        client::{ServerCertVerified, ServerCertVerifier},
-        ServerName,
+        client::danger::{ServerCertVerified, ServerCertVerifier},
+        pki_types::ServerName,
     };
     use tracing::Level;
 
@@ -536,17 +526,43 @@ mod e2e_tests {
         assert_eq!(expected, resp_body);
     }
 
+    #[derive(Debug)]
     struct NoVerify;
 
     impl ServerCertVerifier for NoVerify {
+        fn verify_tls12_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &rustls::DigitallySignedStruct,
+        ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            vec![
+                rustls::SignatureScheme::RSA_PKCS1_SHA256,
+                rustls::SignatureScheme::RSA_PSS_SHA256,
+                rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            ]
+        }
+
         fn verify_server_cert(
             &self,
-            _end_entity: &Certificate,
-            _intermediates: &[Certificate],
-            _server_name: &ServerName,
-            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
             _ocsp_response: &[u8],
-            _now: SystemTime,
+            _now: rustls_pki_types::UnixTime,
         ) -> Result<ServerCertVerified, rustls::Error> {
             Ok(ServerCertVerified::assertion())
         }
@@ -561,7 +577,7 @@ mod e2e_tests {
 
         // https client
         let config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
+            .dangerous()
             .with_custom_certificate_verifier(Arc::new(NoVerify))
             .with_no_client_auth();
         let mut http = HttpConnector::new();

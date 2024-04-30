@@ -7,7 +7,7 @@ use sha2::{
 };
 
 use crate::{
-    ff::{Field, Serializable},
+    ff::{PrimeField, Serializable},
     protocol::prss::FromRandomU128,
 };
 
@@ -50,31 +50,51 @@ where
     Hash(sha.finalize())
 }
 
-/// This function takes two hash a vector of field elements into a single field element
+/// This function takes two hashes, combines them together and returns a single field element.
+///
+/// Its use is tailored to malicious security requirements where the random challenge point `r`
+/// must be uniformly drawn from the field `F`, with the constraint that it does NOT appear
+/// in the set {0, 1, ..., λ-1}.
+/// In the paper [`ZKP_PROOF`] this is shown on step (2.f) of protocol C.2.1
+/// on page 21 where it says: "The parties call `F_{coin}` to receive a random `r ∈ F_{p} \ [λ]`"
+/// When using Fiat-Shamir to generate the random challenge point, we simply constrain
+/// the conversion from SHA-derived-entropy to field element to only generate valid values,
+/// rather than use rejection sampling. The range [0, λ) is provided through `exclude_to` parameter.
+///
+/// [`ZKP_PROOF`]: https://eprint.iacr.org/2023/909.pdf
 /// # Panics
-/// does not panic
-pub fn hash_to_field<F>(left: &Hash, right: &Hash) -> F
+/// If field size is too large compared to 128 bits of entropy required to generate `r` or
+/// if exclude range is greater than half size of the field `F`.
+pub fn hash_to_field<F>(left: &Hash, right: &Hash, exclude_to: u128) -> F
 where
-    F: Field + FromRandomU128,
+    F: PrimeField + FromRandomU128,
 {
-    // set up hash
-    let mut sha = Sha256::new();
+    let prime = F::PRIME.into();
+    assert!(
+        F::BITS <= 64,
+        "Field size {f_sz} is too large, compared to the 128 bits of entropy, \
+        which will result in excessive bias when converting to a field element",
+        f_sz = F::BITS
+    );
+    assert!(
+        2 * exclude_to < prime,
+        "Exclude range {exclude_range:?} is too large relative to the size of the field {prime:?}",
+        exclude_range = 0..exclude_to,
+    );
 
     // set state
+    let combine = compute_hash([left, right]);
     let mut buf = GenericArray::default();
-    left.serialize(&mut buf);
-    sha.update(buf);
-    right.serialize(&mut buf);
-    sha.update(buf);
+    combine.serialize(&mut buf);
 
     // compute hash as a field element
     // ideally we would generate `hash` as a `[u8;F::Size]` and `deserialize` it to generate `r`
-    // however, deserialize might fail for some fields so we use `from_random_128` instead
+    // however, deserialize might fail for some fields so we use `truncate_from` instead
     // this results in at most 128 bits of security/collision probability rather than 256 bits as offered by `Sha256`
     // for field elements of size less than 129 bits, this does not make a difference
-    F::from_random_u128(u128::from_le_bytes(
-        sha.finalize()[0..16].try_into().unwrap(),
-    ))
+    let val = u128::from_le_bytes(buf[..16].try_into().unwrap());
+
+    F::truncate_from(val % (prime - exclude_to) + exclude_to)
 }
 
 #[cfg(all(test, unit_test))]
@@ -154,6 +174,7 @@ mod test {
     #[test]
     fn field_element_changes() {
         const LIST_LENGTH: usize = 5;
+        const EXCLUDE: u128 = 7;
 
         let mut rng = thread_rng();
 
@@ -163,7 +184,7 @@ mod test {
             left.push(rng.gen::<Fp32BitPrime>());
             right.push(rng.gen::<Fp32BitPrime>());
         }
-        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
+        let r1: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         // modify one, randomly selected element in the list
         let random_index = rng.gen::<usize>() % LIST_LENGTH;
@@ -175,7 +196,7 @@ mod test {
             right[random_index] = modified_value;
         }
 
-        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right));
+        let r2: Fp32BitPrime = hash_to_field(&compute_hash(&left), &compute_hash(&right), EXCLUDE);
 
         assert_ne!(
             r1, r2,
