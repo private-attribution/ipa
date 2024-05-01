@@ -548,7 +548,7 @@ pub trait DZKPContext: Context {
     ///
     /// ## Errors
     /// Returns error when context contains unverified values
-    fn is_unverified(&self) -> Result<(), Error>;
+    fn is_verified(&self) -> Result<(), Error>;
 
     /// This function allows to add segments to a batch. This function is called by `multiply` to add
     /// values that need to be verified using the DZKP prover and verifiers.

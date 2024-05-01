@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
+    ff::Field,
     helpers::Direction,
     protocol::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul},
@@ -13,8 +14,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
-        Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated, SharedValueArray, Vectorizable,
     },
 };
 
@@ -38,7 +38,7 @@ pub async fn multiply<F, const N: usize>(
     zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
-    F: DZKPCompatibleField + FieldSimd<N>,
+    F: Field + DZKPCompatibleField<N>,
 {
     let role = ctx.role();
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
@@ -47,14 +47,14 @@ where
 
     // include x in the segment
     segment.set_x(
-        F::as_segment_entry(&a.left_arr()),
-        F::as_segment_entry(&a.right_arr()),
+        F::as_segment_entry(a.left_arr()),
+        F::as_segment_entry(a.right_arr()),
     );
 
     // include y in the segment
     segment.set_y(
-        F::as_segment_entry(&b.left_arr()),
-        F::as_segment_entry(&b.right_arr()),
+        F::as_segment_entry(b.left_arr()),
+        F::as_segment_entry(b.right_arr()),
     );
 
     zeros.0.check(role, "a", a);
@@ -89,7 +89,7 @@ where
     // peer to the right needed to send.  If they send, they subtract randomness,
     // and we need to add to our share to compensate.
     if need_random_right {
-        rhs += s1;
+        rhs += s1.clone();
     }
 
     // Sleep until helper on the left sends us their (d_i-1) value.
@@ -103,7 +103,7 @@ where
     }
     // If we send, we subtract randomness, so we need to add to our share.
     if need_to_send {
-        lhs += s0;
+        lhs += s0.clone();
     }
 
     // add z_right to the segment
@@ -121,7 +121,9 @@ where
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<'a, F: DZKPCompatibleField> SecureMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<F> {
+impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
+    SecureMul<DZKPUpgradedMaliciousContext<'a>> for Replicated<F, N>
+{
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
@@ -136,12 +138,15 @@ impl<'a, F: DZKPCompatibleField> SecureMul<DZKPUpgradedMaliciousContext<'a>> for
     }
 }
 
-/*
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
-        ff::Fp31,
-        protocol::{basics::SecureMul, context::Context, RecordId},
+        ff::{boolean::Boolean, Fp31},
+        protocol::{
+            basics::SecureMul,
+            context::{dzkp_validator::DZKPValidator, Context, DZKPContext, UpgradableContext},
+            RecordId,
+        },
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -151,18 +156,31 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
+        let a = rng.gen::<Boolean>();
+        let b = rng.gen::<Boolean>();
 
         let res = world
-            .upgraded_malicious((a, b), |ctx, (a, b)| async move {
-                a.multiply(&b, ctx.set_total_records(1), RecordId::from(0))
+            .malicious((a, b), |ctx, (a, b)| async move {
+                let validator = ctx.dzkp_validator(10);
+                let mctx = validator.context();
+                let result = a
+                    .multiply(&b, mctx.set_total_records(1), RecordId::from(0))
                     .await
-                    .unwrap()
+                    .unwrap();
+
+                // batch contains elements
+                assert!(mctx.is_verified().is_err());
+
+                // validate all elements in the batch
+                validator.validate::<Fp31>().await.unwrap();
+
+                // batch is empty now
+                assert!(mctx.is_verified().is_ok());
+
+                result
             })
             .await;
 
         assert_eq!(a * b, res.reconstruct());
     }
 }
-*/

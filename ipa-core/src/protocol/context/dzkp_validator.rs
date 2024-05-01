@@ -118,7 +118,7 @@ impl UnverifiedValues {
 /// For efficiency reasons we constrain the segments size in bits to be a divisor of 256
 /// when less than 256 or a multiple of 256 when more than 256.
 /// Therefore, segments eventually need to be filled with `0` to be a multiple of 256
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Segment<'a> {
     x_left: SegmentEntry<'a>,
     x_right: SegmentEntry<'a>,
@@ -203,46 +203,32 @@ impl<'a> Segment<'a> {
     }
 
     /// This function allows to set the `SegmentEntries` `x_left` and `x_right` to the `Segment`
-    pub fn set_x(&mut self, x_left: SegmentEntry, x_right: SegmentEntry) {
+    pub fn set_x(&mut self, x_left: SegmentEntry<'a>, x_right: SegmentEntry<'a>) {
         self.x_left = x_left;
         self.x_right = x_right;
     }
 
     /// This function allows to set the `SegmentEntries` `y_left` and `y_right` to the `Segment`
-    pub fn set_y(&mut self, y_left: SegmentEntry, y_right: SegmentEntry) {
+    pub fn set_y(&mut self, y_left: SegmentEntry<'a>, y_right: SegmentEntry<'a>) {
         self.y_left = y_left;
         self.y_right = y_right;
     }
 
     /// This function allows to set the `SegmentEntries` `prss_left` and `prss_right` to the `Segment`
-    pub fn set_prss(&mut self, prss_left: SegmentEntry, prss_right: SegmentEntry) {
+    pub fn set_prss(&mut self, prss_left: SegmentEntry<'a>, prss_right: SegmentEntry<'a>) {
         self.prss_left = prss_left;
         self.prss_right = prss_right;
     }
 
     /// This function allows to set the `SegmentEntry` `z_right` to the `Segment`
-    pub fn set_z(&mut self, z_right: SegmentEntry) {
+    pub fn set_z(&mut self, z_right: SegmentEntry<'a>) {
         self.z_right = z_right;
-    }
-}
-
-impl Default for Segment<'_> {
-    fn default() -> Self {
-        Self {
-            x_left: Default::default(),
-            x_right: Default::default(),
-            y_left: Default::default(),
-            y_right: Default::default(),
-            prss_left: Default::default(),
-            prss_right: Default::default(),
-            z_right: Default::default(),
-        }
     }
 }
 
 /// `SegmentEntry` is a simple wrapper to represent one entry of a `Segment`
 /// currently, we only support `BitSlices`
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SegmentEntry<'a>(Option<&'a BitSliceType>);
 
 impl<'a> SegmentEntry<'a> {
@@ -253,18 +239,12 @@ impl<'a> SegmentEntry<'a> {
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.map_or_else(|| 0, |x| x.len())
+        self.0.map_or_else(|| 0, BitSlice::len)
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.map_or_else(|| true, |x| x.is_empty())
-    }
-}
-
-impl<'a> Default for SegmentEntry<'a> {
-    fn default() -> Self {
-        SegmentEntry(None)
+        self.0.map_or_else(|| true, BitSlice::is_empty)
     }
 }
 
@@ -836,7 +816,7 @@ mod tests {
                     .await?;
                 // check whether verification was successful
                 v.is_unverified().unwrap();
-                m_ctx.is_unverified().unwrap();
+                m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
 
@@ -869,7 +849,7 @@ mod tests {
                     .try_collect::<Vec<_>>()
                     .await?;
                 v.is_unverified().unwrap();
-                m_ctx.is_unverified().unwrap();
+                m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
 

@@ -1,24 +1,23 @@
+use bitvec::slice::BitSlice;
 use generic_array::GenericArray;
-use typenum::U1;
 
 use crate::{
     ff::{Field, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
-    protocol::prss::FromRandomU128,
+    protocol::{
+        context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
+        prss::FromRandomU128,
+    },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
-impl Block for bool {
-    type Size = U1;
-}
-
 ///implements shared value framework for bool
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
-pub struct Boolean(bool);
+pub struct Boolean(u8);
 
 impl Boolean {
-    pub const TRUE: Boolean = Self(true);
-    pub const FALSE: Boolean = Self(false);
+    pub const TRUE: Boolean = Self(1u8);
+    pub const FALSE: Boolean = Self(0u8);
 
     #[must_use]
     pub fn as_u128(&self) -> u128 {
@@ -32,9 +31,9 @@ impl PrimeField for Boolean {
 }
 
 impl SharedValue for Boolean {
-    type Storage = bool;
+    type Storage = u8;
     const BITS: u32 = 1;
-    const ZERO: Self = Self(false);
+    const ZERO: Self = Self(0u8);
 
     impl_shared_value_common!();
 }
@@ -50,6 +49,12 @@ impl FieldVectorizable<1> for Boolean {
 ///conversion to Scalar struct of `curve25519_dalek`
 impl From<Boolean> for bool {
     fn from(s: Boolean) -> Self {
+        s.0 != 0
+    }
+}
+
+impl From<Boolean> for u8 {
+    fn from(s: Boolean) -> Self {
         s.0
     }
 }
@@ -63,21 +68,21 @@ impl Serializable for Boolean {
     type DeserializationError = ParseBooleanError;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        buf[0] = u8::from(self.0);
+        buf[0] = self.0;
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
         if buf[0] > 1 {
             return Err(ParseBooleanError(buf[0]));
         }
-        Ok(Boolean(buf[0] != 0))
+        Ok(Boolean(buf[0]))
     }
 }
 
 ///generate random bool
 impl rand::distributions::Distribution<Boolean> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> Boolean {
-        Boolean(rng.gen::<bool>())
+        Boolean(rng.gen::<u8>() % Boolean::PRIME)
     }
 }
 
@@ -147,14 +152,14 @@ impl std::ops::Not for Boolean {
 
 impl From<bool> for Boolean {
     fn from(s: bool) -> Self {
-        Boolean(s)
+        Boolean(u8::from(s))
     }
 }
 
 impl Field for Boolean {
     const NAME: &'static str = "Boolean";
 
-    const ONE: Boolean = Boolean(true);
+    const ONE: Boolean = Boolean(1u8);
 }
 
 impl U128Conversions for Boolean {
@@ -163,7 +168,7 @@ impl U128Conversions for Boolean {
     }
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
-        Boolean((v.into() % 2u128) != 0)
+        Boolean(u8::from(v.into() != 0))
     }
 }
 
@@ -173,7 +178,7 @@ impl TryFrom<u128> for Boolean {
 
     fn try_from(v: u128) -> Result<Self, Self::Error> {
         if v < 2u128 {
-            Ok(Boolean(v != 0u128))
+            Ok(Boolean(u8::from(v != 0u128)))
         } else {
             Err(crate::error::Error::FieldValueTruncation(format!(
                 "Boolean size {} is too small to hold the value {}.",
@@ -187,6 +192,18 @@ impl TryFrom<u128> for Boolean {
 impl FromRandomU128 for Boolean {
     fn from_random_u128(src: u128) -> Self {
         Self::truncate_from(src)
+    }
+}
+
+impl AsRef<u8> for Boolean {
+    fn as_ref(&self) -> &u8 {
+        &self.0
+    }
+}
+
+impl DZKPCompatibleField for Boolean {
+    fn as_segment_entry(array: &<Self as Vectorizable<1>>::Array) -> SegmentEntry<'_> {
+        SegmentEntry::from_bitslice(BitSlice::from_element(array.first().as_ref()))
     }
 }
 
@@ -204,7 +221,7 @@ mod test {
         type Strategy = prop::strategy::Map<<bool as Arbitrary>::Strategy, fn(bool) -> Self>;
 
         fn arbitrary_with(args: Self::Parameters) -> Self::Strategy {
-            <bool>::arbitrary_with(args).prop_map(Boolean)
+            <bool>::arbitrary_with(args).prop_map(Boolean::from)
         }
     }
 
