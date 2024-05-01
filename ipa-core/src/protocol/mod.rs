@@ -13,7 +13,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-pub use basics::BasicProtocols;
+pub use basics::{BasicProtocols, BooleanProtocols};
 use serde::{Deserialize, Serialize};
 
 use crate::{

@@ -131,7 +131,7 @@ pub struct Segment<'a> {
 
 impl<'a> Segment<'a> {
     #[must_use]
-    pub fn new(
+    pub fn from_entries(
         x_left: SegmentEntry<'a>,
         x_right: SegmentEntry<'a>,
         y_left: SegmentEntry<'a>,
@@ -165,36 +165,106 @@ impl<'a> Segment<'a> {
         }
     }
 
+    /// This function returns the length of the first entry, i.e. `x_left`
+    ///
+    /// The lengths of the entries might be inconsistent, for asserting that the length is identical
+    /// across entries, call function `assert_len`
     #[must_use]
     pub fn len(&self) -> usize {
         self.x_left.len()
     }
 
+    /// This function allows to assert that the length of all entries is identical
+    ///
+    /// This function is mainly for debugging purposes but it can be used together with `len` to
+    /// determine that the segment is fully specified, i.e. all entries are not empty.
+    #[must_use]
+    pub fn assert_len(&self) -> bool {
+        (self.x_left.len() == self.x_right.len())
+            & (self.x_left.len() == self.y_left.len())
+            & (self.x_left.len() == self.y_right.len())
+            & (self.x_left.len() == self.prss_left.len())
+            & (self.x_left.len() == self.prss_right.len())
+            & (self.x_left.len() == self.z_right.len())
+    }
+
+    /// This function checks whether all entries are empty
+    ///
+    /// if one of the entries is not empty, the function returns `false`
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.x_left.is_empty()
+            & self.x_right.is_empty()
+            & self.y_left.is_empty()
+            & self.y_right.is_empty()
+            & self.prss_left.is_empty()
+            & self.prss_right.is_empty()
+            & self.z_right.is_empty()
+    }
+
+    /// This function allows to set the `SegmentEntries` `x_left` and `x_right` to the `Segment`
+    pub fn set_x(&mut self, x_left: SegmentEntry, x_right: SegmentEntry) {
+        self.x_left = x_left;
+        self.x_right = x_right;
+    }
+
+    /// This function allows to set the `SegmentEntries` `y_left` and `y_right` to the `Segment`
+    pub fn set_y(&mut self, y_left: SegmentEntry, y_right: SegmentEntry) {
+        self.y_left = y_left;
+        self.y_right = y_right;
+    }
+
+    /// This function allows to set the `SegmentEntries` `prss_left` and `prss_right` to the `Segment`
+    pub fn set_prss(&mut self, prss_left: SegmentEntry, prss_right: SegmentEntry) {
+        self.prss_left = prss_left;
+        self.prss_right = prss_right;
+    }
+
+    /// This function allows to set the `SegmentEntry` `z_right` to the `Segment`
+    pub fn set_z(&mut self, z_right: SegmentEntry) {
+        self.z_right = z_right;
+    }
+}
+
+impl Default for Segment<'_> {
+    fn default() -> Self {
+        Self {
+            x_left: Default::default(),
+            x_right: Default::default(),
+            y_left: Default::default(),
+            y_right: Default::default(),
+            prss_left: Default::default(),
+            prss_right: Default::default(),
+            z_right: Default::default(),
+        }
     }
 }
 
 /// `SegmentEntry` is a simple wrapper to represent one entry of a `Segment`
 /// currently, we only support `BitSlices`
 #[derive(Clone, Debug)]
-pub struct SegmentEntry<'a>(&'a BitSliceType);
+pub struct SegmentEntry<'a>(Option<&'a BitSliceType>);
 
 impl<'a> SegmentEntry<'a> {
     #[must_use]
-    pub fn new(entry: &'a BitSliceType) -> Self {
-        SegmentEntry(entry)
+    pub fn from_bitslice(entry: &'a BitSliceType) -> Self {
+        SegmentEntry(Some(entry))
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.0.map_or_else(|| 0, |x| x.len())
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.0.map_or_else(|| true, |x| x.is_empty())
+    }
+}
+
+impl<'a> Default for SegmentEntry<'a> {
+    fn default() -> Self {
+        SegmentEntry(None)
     }
 }
 
@@ -362,7 +432,7 @@ impl UnverifiedValuesStore {
     /// insert `segments` for `segments` that divide 256
     ///
     /// ## Panics
-    /// Panics when `length` and `positions` are out of bounds.
+    /// Panics when `length` and `positions` are out of bounds or when some segment entries are `None`.
     fn insert_segment_small(
         &mut self,
         length: usize,
@@ -390,14 +460,14 @@ impl UnverifiedValuesStore {
             let values_in_array = array_value
                 .get_mut(position_bit_array..position_bit_array + length)
                 .unwrap();
-            values_in_array.clone_from_bitslice(segment_value.0);
+            values_in_array.clone_from_bitslice(segment_value.0.unwrap());
         }
     }
 
     /// insert `segments` for `segments` that are multiples of 256
     ///
     /// ## Panics
-    /// Panics when segment is not a multiple of 256
+    /// Panics when segment is not a multiple of 256 or when some segment entries are empty.
     fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
         let length_in_entries = length >> BIT_ARRAY_SHIFT;
         for i in 0..length_in_entries {
@@ -406,13 +476,13 @@ impl UnverifiedValuesStore {
             debug_assert!(entry_option.is_none());
             *entry_option = Some(
                 UnverifiedValues::new(
-                    &segment.x_left.0[256 * i..256 * (i + 1)],
-                    &segment.x_right.0[256 * i..256 * (i + 1)],
-                    &segment.y_left.0[256 * i..256 * (i + 1)],
-                    &segment.y_right.0[256 * i..256 * (i + 1)],
-                    &segment.prss_left.0[256 * i..256 * (i + 1)],
-                    &segment.prss_right.0[256 * i..256 * (i + 1)],
-                    &segment.z_right.0[256 * i..256 * (i + 1)],
+                    &segment.x_left.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.x_right.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.y_left.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.y_right.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.prss_left.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.prss_right.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.z_right.0.unwrap()[256 * i..256 * (i + 1)],
                 )
                 .unwrap(),
             );
@@ -737,8 +807,9 @@ mod tests {
         let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
         let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
 
+        // todo(DM): change to malicious once we can run the dzkps
         let futures = world
-            .malicious_contexts()
+            .contexts()
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
@@ -992,14 +1063,14 @@ mod tests {
                 );
 
                 // define segment
-                let segment = Segment::new(
-                    SegmentEntry::new(&x_left),
-                    SegmentEntry::new(&x_right),
-                    SegmentEntry::new(&y_left),
-                    SegmentEntry::new(&y_right),
-                    SegmentEntry::new(&prss_left),
-                    SegmentEntry::new(&prss_right),
-                    SegmentEntry::new(&z_right),
+                let segment = Segment::from_entries(
+                    SegmentEntry::from_bitslice(&x_left),
+                    SegmentEntry::from_bitslice(&x_right),
+                    SegmentEntry::from_bitslice(&y_left),
+                    SegmentEntry::from_bitslice(&y_right),
+                    SegmentEntry::from_bitslice(&prss_left),
+                    SegmentEntry::from_bitslice(&prss_right),
+                    SegmentEntry::from_bitslice(&z_right),
                 );
 
                 // push segment into batch

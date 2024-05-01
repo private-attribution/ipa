@@ -16,11 +16,14 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
+mod dzkp_malicious;
 #[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
 
+#[cfg(feature = "descriptive-gate")]
+pub use semi_honest::multiply as semi_honest_multiply;
 pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.

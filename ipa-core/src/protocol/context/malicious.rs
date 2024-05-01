@@ -14,8 +14,8 @@ use crate::{
     },
     protocol::{
         basics::{
-            mul::malicious::Step::RandomnessForValidation, SecureMul, ShareKnownValue,
-            ZeroPositions,
+            mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
+            ShareKnownValue, ZeroPositions,
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
@@ -253,14 +253,14 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         //
         let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
-        let rx = induced_share
-            .multiply_sparse(
-                &self.inner.r_share,
-                self.as_base(),
-                record_id,
-                (zeros_at, ZeroPositions::Pvvv),
-            )
-            .await?;
+        let rx = semi_honest_multiply(
+            self.as_base(),
+            record_id,
+            &induced_share,
+            &self.inner.r_share,
+            (zeros_at, ZeroPositions::Pvvv),
+        )
+        .await?;
         let m = MaliciousReplicated::new(x, rx);
         let narrowed = self.narrow(&RandomnessForValidation);
         let prss = narrowed.prss();

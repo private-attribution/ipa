@@ -23,7 +23,10 @@ use crate::{
 #[cfg(all(test, unit_test))]
 use crate::{
     ff::{boolean::Boolean, CustomArray},
-    protocol::basics::{select, BooleanArrayMul},
+    protocol::{
+        basics::{select, BooleanArrayMul},
+        context::SemiHonestContext,
+    },
     secret_sharing::SharedValue,
 };
 
@@ -107,14 +110,13 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn integer_sat_sub<C, S>(
-    ctx: C,
+pub async fn integer_sat_sub<S>(
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
-    C: Context,
     S: SharedValue + CustomArray<Element = Boolean>,
     AdditiveShare<S>: BooleanArrayMul,
 {
@@ -565,7 +567,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_, _>(
+                    integer_sat_sub::<_>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],
