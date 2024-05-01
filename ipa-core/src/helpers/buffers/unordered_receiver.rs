@@ -11,10 +11,27 @@ use generic_array::GenericArray;
 use typenum::Unsigned;
 
 use crate::{
-    helpers::{Error, Message, Role},
+    error::BoxError,
+    helpers::Message,
     protocol::RecordId,
     sync::{Arc, Mutex},
 };
+
+#[derive(Debug, thiserror::Error)]
+#[error("Expected to receive {0:?} but hit end of stream")]
+pub struct EndOfStreamError(RecordId);
+
+#[derive(Debug, thiserror::Error)]
+#[error("Error deserializing {0:?} record: {1}")]
+pub struct DeserializeError(RecordId, BoxError);
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    DeserializeFailed(#[from] DeserializeError),
+    #[error(transparent)]
+    EndOfStream(#[from] EndOfStreamError),
+}
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
@@ -34,7 +51,7 @@ where
     C: AsRef<[u8]>,
     M: Message,
 {
-    type Output = Result<M, ReceiveError<M>>;
+    type Output = Result<M, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.as_ref();
@@ -155,14 +172,6 @@ where
     _marker: PhantomData<C>,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum ReceiveError<M: Message> {
-    #[error("Error deserializing {0:?} record: {1}")]
-    DeserializationError(RecordId, #[source] M::DeserializationError),
-    #[error(transparent)]
-    InfraError(#[from] Error<Role>),
-}
-
 impl<S, C> OperatingState<S, C>
 where
     S: Stream<Item = C> + Send,
@@ -228,11 +237,11 @@ where
 
     /// Poll for the next record.  This should only be invoked when
     /// the future for the next message is polled.
-    fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, ReceiveError<M>>> {
+    fn poll_next<M: Message>(&mut self, cx: &mut Context<'_>) -> Poll<Result<M, Error>> {
         self.max_polled_idx = std::cmp::max(self.max_polled_idx, Some(self.next));
         if let Some(m) = self.spare.read() {
             self.wake_next();
-            return Poll::Ready(m.map_error_to_receive(self.next));
+            return Poll::Ready(m.map_err(|e| DeserializeError::new::<M>(self.next, e).into()));
         }
 
         loop {
@@ -243,14 +252,13 @@ where
                 Poll::Ready(Some(b)) => {
                     if let Some(m) = self.spare.extend(b.as_ref()) {
                         self.wake_next();
-                        return Poll::Ready(m.map_error_to_receive(self.next));
+                        return Poll::Ready(
+                            m.map_err(|e| DeserializeError::new::<M>(self.next, e).into()),
+                        );
                     }
                 }
                 Poll::Ready(None) => {
-                    return Poll::Ready(Err(Error::EndOfStream {
-                        record_id: RecordId::from(self.next),
-                    }
-                    .into()));
+                    return Poll::Ready(Err(EndOfStreamError(RecordId::from(self.next)).into()))
                 }
             }
         }
@@ -355,14 +363,9 @@ where
     }
 }
 
-/// Convert `Result<M, M::DeserError>` to `Result<M, ReceiveError<M>>`
-trait ReceiveErrorExt<M: Message>: Sized {
-    fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>>;
-}
-
-impl<M: Message> ReceiveErrorExt<M> for Result<M, M::DeserializationError> {
-    fn map_error_to_receive(self, next: usize) -> Result<M, ReceiveError<M>> {
-        self.map_err(|e| ReceiveError::DeserializationError(RecordId::from(next), e))
+impl DeserializeError {
+    pub fn new<M: Message>(next: usize, error: M::DeserializationError) -> Self {
+        Self(RecordId::from(next), Box::new(error))
     }
 }
 

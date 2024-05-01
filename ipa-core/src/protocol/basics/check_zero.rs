@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{reveal::Reveal, SecureMul},
+        basics::{mul::semi_honest_multiply, reveal::Reveal, ZeroPositions},
         context::Context,
         prss::{FromRandom, SharedRandomness},
         RecordId,
@@ -47,16 +47,21 @@ pub(crate) enum Step {
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn check_zero<C: Context, F: Field + FromRandom>(
-    ctx: C,
-    record_id: RecordId,
-    v: &Replicated<F>,
-) -> Result<bool, Error> {
+pub async fn check_zero<C, F>(ctx: C, record_id: RecordId, v: &Replicated<F>) -> Result<bool, Error>
+where
+    C: Context,
+    F: Field + FromRandom,
+{
     let r_sharing: Replicated<F> = ctx.prss().generate(record_id);
 
-    let rv_share = r_sharing
-        .multiply(v, ctx.narrow(&Step::MultiplyWithR), record_id)
-        .await?;
+    let rv_share = semi_honest_multiply(
+        ctx.narrow(&Step::MultiplyWithR),
+        record_id,
+        &r_sharing,
+        v,
+        ZeroPositions::NONE,
+    )
+    .await?;
     let rv = F::from_array(
         &rv_share
             .reveal(ctx.narrow(&Step::RevealR), record_id)

@@ -347,6 +347,14 @@ impl OrderingSender {
         Close { i, sender: self }
     }
 
+    /// Returns `true` if this sender is closed for writes.
+    ///
+    /// ## Panics
+    /// If the underlying mutex is poisoned or locked by the same thread.
+    pub fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
     /// Perform the next `send` or `close` operation.
     fn next_op<F>(&self, i: usize, cx: &Context<'_>, f: F) -> Poll<()>
     where
