@@ -15,6 +15,8 @@ use crate::{
 };
 
 pub mod base;
+#[cfg(feature = "descriptive-gate")]
+mod sharded;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
