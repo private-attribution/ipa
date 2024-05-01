@@ -12,7 +12,7 @@ use crate::{
         boolean::or::or,
         context::{Context, UpgradableContext, UpgradedContext, Validator},
         modulus_conversion::convert_bits,
-        RecordId,
+        BasicProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -56,9 +56,10 @@ impl InputsRequiredFromPrevRow {
         input_row: &PrfShardedIpaInputRow<FV>,
     ) -> Result<Replicated<FV>, Error>
     where
-        C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+        C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
+        Replicated<Boolean>: BasicProtocols<C, Boolean>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -135,7 +136,7 @@ pub(crate) enum Step {
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
 where
-    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C: Context,
 {
     let mut context_per_row_depth = Vec::with_capacity(histogram.len());
     for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
@@ -226,12 +227,12 @@ where
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
     F: PrimeField + ExtendableField,
+    Replicated<Boolean>: BasicProtocols<C, Boolean>,
 {
     assert!(<FV as SharedValue>::BITS > 0);
 
     // Get the validator and context to use for Boolean multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let binary_m_ctx = binary_validator.context();
+    let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
     // Get the validator and context to use for `Z_p` operations (modulus conversion)
     let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
@@ -300,9 +301,10 @@ async fn evaluate_per_user_attribution_circuit<C, FV>(
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
 ) -> Result<Vec<Replicated<FV>>, Error>
 where
-    C: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
+    C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
+    Replicated<Boolean>: BasicProtocols<C, Boolean>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {

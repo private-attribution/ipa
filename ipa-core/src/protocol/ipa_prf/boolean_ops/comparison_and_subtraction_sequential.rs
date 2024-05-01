@@ -9,8 +9,6 @@ use std::{borrow::Borrow, iter::repeat};
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
 
-#[cfg(all(test, unit_test))]
-use crate::secret_sharing::FieldVectorizable;
 use crate::{
     error::Error,
     ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
@@ -24,16 +22,13 @@ use crate::{
 };
 #[cfg(all(test, unit_test))]
 use crate::{
-    ff::{CustomArray, Expand},
+    ff::{boolean::Boolean, CustomArray},
+    protocol::{
+        basics::{select, BooleanArrayMul},
+        context::SemiHonestContext,
+    },
     secret_sharing::SharedValue,
 };
-
-#[cfg(all(test, unit_test))]
-#[derive(Step)]
-pub(crate) enum Step {
-    SaturatedSubtraction,
-    MultiplyWithCarry,
-}
 
 /// Comparison operation
 ///
@@ -115,40 +110,36 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn integer_sat_sub<F, C, S, const N: usize>(
-    ctx: C,
+pub async fn integer_sat_sub<S>(
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
-    F: Field + FieldSimd<N> + FieldVectorizable<N, ArrayAlias = S>,
-    C: Context,
-    S: SharedValue + CustomArray<Element = F>,
-    AdditiveShare<S>:
-        ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
-    AdditiveShare<F>: BooleanProtocols<C, F>,
-    AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
+    S: SharedValue + CustomArray<Element = Boolean>,
+    AdditiveShare<S>: BooleanArrayMul,
 {
-    let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
-    let result = subtraction_circuit(
-        ctx.narrow(&Step::SaturatedSubtraction),
-        record_id,
-        x,
-        y,
-        &mut carry,
-    )
-    .await?
-    .into();
+    #[derive(Step)]
+    enum Step {
+        Subtract,
+        Select,
+    }
+
+    let mut carry = !AdditiveShare::<Boolean>::ZERO;
+    let result =
+        subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, x, y, &mut carry).await?;
 
     // carry computes carry=(x>=y)
-    // if carry==0 {all 0 array, i.e. Array[carry]} else {result}:
-    // compute (1-carry)*Array[carry]+carry*result =carry*result
-    AdditiveShare::<S>::expand(&carry)
-        .into()
-        .multiply(&result, ctx.narrow(&Step::MultiplyWithCarry), record_id)
-        .await
-        .map(Into::into)
+    // if carry==0 then {zero} else {result}
+    select(
+        ctx.narrow(&Step::Select),
+        record_id,
+        &carry,
+        &result,
+        &AdditiveShare::<S>::ZERO,
+    )
+    .await
 }
 
 /// subtraction using bit subtractor
@@ -576,7 +567,7 @@ mod test {
 
             let result = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    integer_sat_sub::<_, _, _, 64>(
+                    integer_sat_sub::<_>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y[0],

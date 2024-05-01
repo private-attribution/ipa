@@ -210,7 +210,7 @@ impl TestWorld<NotSharded> {
 
 impl<S: ShardingScheme> Drop for TestWorld<S> {
     fn drop(&mut self) {
-        if tracing::span_enabled!(Level::DEBUG) {
+        if tracing::span_enabled!(Level::DEBUG) || cfg!(feature = "step-trace") {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }

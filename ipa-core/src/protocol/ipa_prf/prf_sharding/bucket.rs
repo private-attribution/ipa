@@ -3,14 +3,19 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{PrimeField, Serializable},
+    ff::PrimeField,
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        basics::SecureMul,
+        context::{Context, UpgradedSemiHonestContext},
+        ipa_prf::prf_sharding::BinaryTreeDepthStep,
         RecordId,
     },
     secret_sharing::{
-        replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
+        replicated::{malicious::ExtendableField, semi_honest::AdditiveShare},
+        BitDecomposed,
     },
+    seq_join::SeqJoin,
+    sharding::NotSharded,
 };
 
 #[derive(Step)]
@@ -76,17 +81,16 @@ impl From<MoveToBucketError> for Error {
 ///
 /// ## Errors
 /// If `breakdown_count` does not fit into `BK` bits or greater than or equal to $2^9$
-pub async fn move_single_value_to_bucket<C, S, F>(
-    ctx: C,
+pub async fn move_single_value_to_bucket<'a, F>(
+    ctx: UpgradedSemiHonestContext<'a, NotSharded, F>,
     record_id: RecordId,
-    bd_key: BitDecomposed<S>,
-    value: S,
+    bd_key: BitDecomposed<AdditiveShare<F>>,
+    value: AdditiveShare<F>,
     breakdown_count: usize,
     robust: bool,
-) -> Result<Vec<S>, Error>
+) -> Result<Vec<AdditiveShare<F>>, Error>
 where
-    C: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
+    AdditiveShare<F>: SecureMul<UpgradedSemiHonestContext<'a, NotSharded, F>>,
     F: PrimeField + ExtendableField,
 {
     const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
@@ -172,7 +176,7 @@ pub mod tests {
                 |ctx, (breakdown_key_share, value_share)| async move {
                     let validator = ctx.validator();
                     let ctx = validator.context();
-                    move_single_value_to_bucket::<_, _, Fp32BitPrime>(
+                    move_single_value_to_bucket(
                         ctx.set_total_records(1),
                         RecordId::from(0),
                         breakdown_key_share,
@@ -266,7 +270,7 @@ pub mod tests {
                     |ctx, (breakdown_key_share, value_share)| async move {
                         let validator = ctx.validator();
                         let ctx = validator.context();
-                        move_single_value_to_bucket::<_, _, Fp32BitPrime>(
+                        move_single_value_to_bucket::<Fp32BitPrime>(
                             ctx.set_total_records(1),
                             RecordId::from(0),
                             breakdown_key_share,

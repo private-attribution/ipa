@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     protocol::{
-        basics::{BooleanProtocols, Reveal, SecureMul},
+        basics::{Reveal, SecureMul},
         context::Context,
         prss::{FromPrss, SharedRandomness},
         RecordId,
@@ -38,6 +38,8 @@ pub async fn compute_match_key_pseudonym<C>(
 ) -> Result<Vec<u64>, Error>
 where
     C: Context,
+    AdditiveShare<Boolean, 1>: SecureMul<C>,
+    AdditiveShare<Fp25519>: SecureMul<C>,
 {
     let ctx = sh_ctx.set_total_records(input_match_keys.len());
     let futures = input_match_keys
@@ -91,7 +93,7 @@ where
     Fp25519: Vectorizable<N>,
     RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: SecureMul<C>,
     AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
     StdArray<RP25519, N>: Sendable,
 {
