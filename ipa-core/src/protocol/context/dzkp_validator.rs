@@ -12,6 +12,8 @@ use bitvec::{array::BitArray, prelude::Lsb0, slice::BitSlice};
 use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
+#[cfg(all(test, unit_test))]
+use crate::protocol::context::dzkp_field::{SingleUVPolynomial, UVPolynomials};
 #[cfg(feature = "descriptive-gate")]
 use crate::protocol::context::{
     dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
@@ -21,8 +23,7 @@ use crate::{
     helpers::stream::TryFlattenItersExt,
     protocol::{
         context::{
-            dzkp_field::{DZKPBaseField, UVPolynomials},
-            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            dzkp_field::DZKPBaseField, dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
             Base, SemiHonestContext, UpgradableContext,
         },
         step::Gate,
@@ -100,18 +101,39 @@ impl UnverifiedValues {
     }
 
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
-    /// Converted values will take more space in memory.
-    #[allow(dead_code)]
+    /// This is the convert function called by the prover.
+    #[cfg(all(test, unit_test))]
     fn convert_prover<DF: DZKPBaseField>(&self) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         DF::convert_prover(
             &self.x_left,
             &self.x_right,
             &self.y_left,
             &self.y_right,
-            //&self.prss_left,
             &self.prss_right,
-            //&self.z_right,
         )
+    }
+
+    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// This is the convert function called by the verifier on the left.
+    #[cfg(all(test, unit_test))]
+    fn convert_verifier_left<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        DF::convert_verifier_left(
+            &self.x_right,
+            &self.y_right,
+            &self.prss_right,
+            &self.z_right,
+        )
+    }
+
+    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// This is the convert function called by the verifier on the right.
+    #[cfg(all(test, unit_test))]
+    fn convert_verifier_right<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        DF::convert_verifier_right(&self.x_left, &self.y_left, &self.prss_left)
     }
 }
 
@@ -420,17 +442,40 @@ impl UnverifiedValuesStore {
         }
     }
 
-    /// `get_unverified_field_value` converts a `UnverifiedValuesStore` into an iterator over `UnverifiedFieldValues`
-    /// compatible with DZKPs
-    #[allow(dead_code)]
-    fn get_unverified_field_values_prover<DF: DZKPBaseField>(
+    /// `get_field_values_prover` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// values used by the prover of the DZKPs
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.vec
             .iter()
             .flatten()
-            .map(UnverifiedValues::convert_prover::<DF>)
+            .flat_map(UnverifiedValues::convert_prover::<DF>)
+    }
+
+    /// `get_field_values_verifier_left` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the left side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_left<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        self.vec
+            .iter()
             .flatten()
+            .flat_map(UnverifiedValues::convert_verifier_left::<DF>)
+    }
+
+    /// `get_field_values_verifier_right` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// values used by the verifier of the DZKPs on the right side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_right<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        self.vec
+            .iter()
+            .flatten()
+            .flat_map(UnverifiedValues::convert_verifier_right::<DF>)
     }
 }
 
@@ -478,15 +523,37 @@ impl Batch {
             .for_each(UnverifiedValuesStore::update);
     }
 
-    /// `get_unverified_field_value` converts a `Batch` into an iterator over `UnverifiedFieldValues`
-    /// compatible with DZKPs
-    #[allow(dead_code)]
-    fn get_unverified_field_values_prover<DF: DZKPBaseField>(
+    /// `get_field_values_prover` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// which is used by the prover of the DZKP
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_unverified_field_values_prover::<DF>)
+            .flat_map(UnverifiedValuesStore::get_field_values_prover::<DF>)
+    }
+
+    /// `get_field_values_verifier_left` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// which is used by the verifier of the DZKP on the left side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_left<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        self.inner
+            .values()
+            .flat_map(UnverifiedValuesStore::get_field_values_verifier_left::<DF>)
+    }
+
+    /// `get_field_values_verifier_right` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// which is used by the verifier of the DZKP on the right side of the prover
+    #[cfg(all(test, unit_test))]
+    fn get_field_values_verifier_right<DF: DZKPBaseField>(
+        &self,
+    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+        self.inner
+            .values()
+            .flat_map(UnverifiedValuesStore::get_field_values_verifier_right::<DF>)
     }
 }
 
@@ -693,7 +760,7 @@ impl<'a> Drop for MaliciousDZKPValidator<'a> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use bitvec::{field::BitField, vec::BitVec};
+    use bitvec::vec::BitVec;
     use futures::TryStreamExt;
     use futures_util::stream::iter;
     use proptest::{prop_compose, proptest};
@@ -701,14 +768,12 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Fp31, Fp61BitPrime, U128Conversions},
+        ff::{Fp31, Fp61BitPrime},
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_field::DZKPBaseField,
                 dzkp_validator::{
-                    Batch, BitArray32, DZKPValidator, Segment, SegmentEntry, Step,
-                    UnverifiedValuesStore,
+                    Batch, DZKPValidator, Segment, SegmentEntry, Step, UnverifiedValuesStore,
                 },
                 Context, DZKPContext, UpgradableContext,
             },
@@ -845,63 +910,8 @@ mod tests {
         }
     }
 
-    pub struct UnverifiedFp31Values {
-        x_left: Vec<Fp31>,
-        x_right: Vec<Fp31>,
-        y_left: Vec<Fp31>,
-        y_right: Vec<Fp31>,
-        prss_left: Vec<Fp31>,
-        prss_right: Vec<Fp31>,
-        z_right: Vec<Fp31>,
-    }
-
-    /*
-    impl DZKPBaseField for Fp31 {
-
-        fn convert(
-            x_left: &BitArray32,
-            x_right: &BitArray32,
-            y_left: &BitArray32,
-            y_right: &BitArray32,
-            prss_left: &BitArray32,
-            prss_right: &BitArray32,
-            z_right: &BitArray32,
-        ) -> Self::UnverifiedFieldValues {
-            UnverifiedFp31Values {
-                x_left: x_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                x_right: x_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                y_left: y_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                y_right: y_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                prss_left: prss_left
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                prss_right: prss_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-                z_right: z_right
-                    .chunks(8)
-                    .map(|x| Fp31::truncate_from(x.load_le::<u8>()))
-                    .collect(),
-            }
-        }
-    }
-
     #[test]
-    fn batch_and_convert() {
+    fn batch_convert() {
         let mut rng = thread_rng();
 
         // test for small and large segments, i.e. 8bit and 512 bit
@@ -923,15 +933,6 @@ mod tests {
                 Batch::new(1024 / segment_size)
             };
 
-            // vec to collect expected
-            let mut expected_x_left = Vec::<Fp31>::new();
-            let mut expected_x_right = Vec::<Fp31>::new();
-            let mut expected_y_left = Vec::<Fp31>::new();
-            let mut expected_y_right = Vec::<Fp31>::new();
-            let mut expected_prss_left = Vec::<Fp31>::new();
-            let mut expected_prss_right = Vec::<Fp31>::new();
-            let mut expected_z_right = Vec::<Fp31>::new();
-
             // vec for segments
             let mut vec_x_left = Vec::<u8>::new();
             let mut vec_x_right = Vec::<u8>::new();
@@ -943,22 +944,21 @@ mod tests {
 
             // gen 1024 random values
             for _i in 0..1024 {
+                // we need to set shares left and right identical since it is a test against a parties own shares
                 let x_left: u8 = rng.gen();
-                let x_right: u8 = rng.gen();
+                let x_right: u8 = x_left;
                 let y_left: u8 = rng.gen();
-                let y_right: u8 = rng.gen();
+                let y_right: u8 = y_left;
                 let prss_left: u8 = rng.gen();
-                let prss_right: u8 = rng.gen();
-                let z_right: u8 = rng.gen();
-
-                // fill expected
-                expected_x_left.push(Fp31::truncate_from(x_left));
-                expected_x_right.push(Fp31::truncate_from(x_right));
-                expected_y_left.push(Fp31::truncate_from(y_left));
-                expected_y_right.push(Fp31::truncate_from(y_right));
-                expected_prss_left.push(Fp31::truncate_from(prss_left));
-                expected_prss_right.push(Fp31::truncate_from(prss_right));
-                expected_z_right.push(Fp31::truncate_from(z_right));
+                let prss_right: u8 = prss_left;
+                // we set this up to be equal to z_right for this local test
+                // local here means that only a single party is involved
+                // and we just test this against this single party
+                let z_right: u8 = (x_left & y_left)
+                    ^ (x_left & y_right)
+                    ^ (x_right & y_left)
+                    ^ prss_left
+                    ^ prss_right;
 
                 // fill segment vec
                 vec_x_left.push(x_left);
@@ -1009,98 +1009,18 @@ mod tests {
             }
 
             // check correctness of batch
-            assert_batch(
-                &batch,
-                check_resizing,
-                &expected_x_left,
-                &expected_x_right,
-                &expected_y_left,
-                &expected_y_right,
-                &expected_prss_left,
-                &expected_prss_right,
-                &expected_z_right,
-            );
+            assert_batch_convert(&batch);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn assert_batch(
-        batch: &Batch,
-        check_resizing: bool,
-        expected_x_left: &[Fp31],
-        expected_x_right: &[Fp31],
-        expected_y_left: &[Fp31],
-        expected_y_right: &[Fp31],
-        expected_prss_left: &[Fp31],
-        expected_prss_right: &[Fp31],
-        expected_z_right: &[Fp31],
-    ) {
-        // assert that it is not empty
-        assert!(!batch.is_empty());
-
-        // check that length matches, i.e. offset and allocation are correct and minimal
-        if !check_resizing {
-            assert_eq!(
-                1024usize,
-                batch
-                    .inner
-                    .values()
-                    .map(UnverifiedValuesStore::actual_len)
-                    .fold(0, |acc, x| acc + 32 * x)
-            );
-        }
-
-        // check that batch is filled with non-trivial values
-        for x in batch.inner.values() {
-            for uv in x.vec.iter().flatten() {
-                assert_ne!(uv.x_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.x_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.y_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.y_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.prss_left, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.prss_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-                assert_ne!(uv.z_right, BitVec::<u8>::from_vec(vec![0u8; 32]));
-            }
-        }
-
-        // offset is negative when segments are small in test function batch_and_convert
-        let offset_in_bits =
-            8 * usize::try_from(batch.inner.values().next().unwrap().offset.abs()).unwrap();
-        // compare converted values from batch iter to expected
-        for (i, x) in batch.get_unverified_field_values::<Fp31>().enumerate() {
-            for j in 0..32 {
-                if 32 * i + j >= offset_in_bits {
-                    assert_eq!(
-                        (i, x.x_left[j]),
-                        (i, expected_x_left[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.x_right[j]),
-                        (i, expected_x_right[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.y_left[j]),
-                        (i, expected_y_left[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.y_right[j]),
-                        (i, expected_y_right[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.prss_left[j]),
-                        (i, expected_prss_left[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.prss_right[j]),
-                        (i, expected_prss_right[32 * i + j - offset_in_bits])
-                    );
-                    assert_eq!(
-                        (i, x.z_right[j]),
-                        (i, expected_z_right[32 * i + j - offset_in_bits])
-                    );
-                }
-            }
-        }
+    fn assert_batch_convert(batch: &Batch) {
+        batch
+            .get_field_values_prover::<Fp61BitPrime>()
+            .zip(batch.get_field_values_verifier_left::<Fp61BitPrime>())
+            .zip(batch.get_field_values_verifier_right::<Fp61BitPrime>())
+            .for_each(|((prover, verifier_left), verifier_right)| {
+                assert_eq!(prover.0, verifier_left);
+                assert_eq!(prover.1, verifier_right);
+            });
     }
-    */
 }
