@@ -19,7 +19,6 @@ use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
 use futures::{stream, Stream, StreamExt};
-use ipa_macros::Step;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -29,6 +28,8 @@ pub use validator::Validator;
 pub type SemiHonestContext<'a, B = NotSharded> = semi_honest::Context<'a, B>;
 pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::NoRecord;
 use crate::{
     error::Error,
     helpers::{
@@ -40,7 +41,7 @@ use crate::{
         context::dzkp_validator::DZKPValidator,
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -134,7 +135,8 @@ pub trait UpgradableContext: Context {
 }
 
 /// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[derive(Step)]
+#[cfg(feature = "descriptive-gate")]
+#[derive(ipa_macros::Step)]
 pub(crate) enum UpgradeStep {
     Upgrade,
 }
@@ -162,9 +164,17 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
         T: Send,
         for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade(input)
-            .await
+        #[cfg(feature = "descriptive-gate")]
+        {
+            UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
+                .upgrade(input)
+                .await
+        }
+        #[cfg(not(feature = "descriptive-gate"))]
+        {
+            let _ = input;
+            unimplemented!()
+        }
     }
 
     /// Upgrade an input for a specific bit index and record using this context.
@@ -176,9 +186,17 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
         T: Send,
         for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
     {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
-            .upgrade(input)
-            .await
+        #[cfg(feature = "descriptive-gate")]
+        {
+            UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
+                .upgrade(input)
+                .await
+        }
+        #[cfg(not(feature = "descriptive-gate"))]
+        {
+            let _ = (record_id, input);
+            unimplemented!()
+        }
     }
 
     /// Upgrade a sparse input using this context.
