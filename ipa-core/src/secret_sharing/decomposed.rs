@@ -107,16 +107,13 @@ impl<S> BitDecomposed<S> {
     }
 }
 
-// Provides BitDecomposed <-> BooleanArray interoperability. Otherwise just use `new`.
-impl<S> FromIterator<S> for BitDecomposed<S> {
-    fn from_iter<I: IntoIterator<Item = S>>(iter: I) -> Self {
-        Self::new(iter)
-    }
-}
-
 impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
         self.bits.resize(new_len, value);
+    }
+
+    pub fn push(&mut self, value: S) {
+        self.bits.push(value);
     }
 
     pub fn truncate(&mut self, len: usize) {

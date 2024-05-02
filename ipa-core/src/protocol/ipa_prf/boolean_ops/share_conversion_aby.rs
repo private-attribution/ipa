@@ -347,8 +347,8 @@ mod tests {
     use super::*;
     use crate::{
         ff::{boolean_array::BA64, Serializable},
-        helpers::stream::{ProcessChunks, TryFlattenItersExt},
-        protocol::context::SemiHonestContext,
+        helpers::stream::{process_slice_by_chunks, TryFlattenItersExt},
+        protocol::{context::SemiHonestContext, ipa_prf::MK_BITS},
         rand::thread_rng,
         seq_join::{seq_join, SeqJoin},
         test_executor::run,
@@ -407,12 +407,13 @@ mod tests {
                     let begin = std::time::Instant::now();
                     let res: Result<Vec<AdditiveShare<Fp25519>>, Error> = seq_join(
                         ctx.active_work(),
-                        records.process_chunks(
+                        process_slice_by_chunks(
+                            &records,
                             |idx, chunk| {
                                 let ctx = ctx.clone();
                                 async move {
                                     let mut match_keys_builder = XS::builder();
-                                    for _ in 0..CHUNK {
+                                    for _ in 0..MK_BITS {
                                         match_keys_builder
                                             .push(AdditiveShare::<Boolean, CHUNK>::ZERO);
                                     }
