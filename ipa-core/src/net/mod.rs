@@ -1,6 +1,6 @@
 use std::{
     io::{self, BufRead},
-    sync::{Arc, Once},
+    sync::Arc,
 };
 
 use once_cell::sync::Lazy;
@@ -22,21 +22,9 @@ pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
 
-static CRYPTO_INIT: Once = Once::new();
-
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
 static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
     Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
-
-///
-/// # Panics
-/// If there are issues starting the default crypto provider
-pub fn get_crypto_provider_old() -> &'static Arc<CryptoProvider> {
-    CRYPTO_INIT.call_once(|| {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    });
-    CryptoProvider::get_default().expect("Default Crypto provider should be initialized")
-}
 
 /// Reads certificates and a private key from the corresponding readers
 ///
