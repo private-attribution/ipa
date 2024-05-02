@@ -99,11 +99,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn multiply_in_field<F: Field + U128Conversions>(
-    args: &Args,
-    helper_clients: &[MpcHelperClient; 3],
-) where
-    F: Field + IntoShares<AdditiveShare<F>>,
+async fn multiply_in_field<F>(args: &Args, helper_clients: &[MpcHelperClient; 3])
+where
+    F: Field + U128Conversions + IntoShares<AdditiveShare<F>>,
     <F as Serializable>::Size: Add<<F as Serializable>::Size>,
     <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength,
 {

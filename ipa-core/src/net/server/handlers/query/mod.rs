@@ -5,8 +5,6 @@ mod results;
 mod status;
 mod step;
 
-use std::any::Any;
-
 use axum::{
     response::{IntoResponse, Response},
     Router,
@@ -15,7 +13,7 @@ use futures_util::{
     future::{ready, Either, Ready},
     FutureExt,
 };
-use hyper::{http::request, Request, StatusCode};
+use hyper::{Request, StatusCode};
 use tower::{layer::layer_fn, Service};
 
 use crate::{
@@ -100,28 +98,30 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
     }
 }
 
-/// Helper trait for optionally adding an extension to a request.
-trait MaybeExtensionExt {
-    fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self;
-}
-
-impl MaybeExtensionExt for request::Builder {
-    fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self {
-        if let Some(extension) = extension {
-            self.extension(extension)
-        } else {
-            self
-        }
-    }
-}
-
 #[cfg(all(test, unit_test))]
 pub mod test_helpers {
+    use std::any::Any;
+
     use futures_util::future::poll_immediate;
-    use hyper::{service::Service, StatusCode};
+    use hyper::{http::request, service::Service, StatusCode};
     use tower::ServiceExt;
 
     use crate::net::test::TestServer;
+
+    /// Helper trait for optionally adding an extension to a request.
+    pub trait MaybeExtensionExt {
+        fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self;
+    }
+
+    impl MaybeExtensionExt for request::Builder {
+        fn maybe_extension<T: Any + Send + Sync + 'static>(self, extension: Option<T>) -> Self {
+            if let Some(extension) = extension {
+                self.extension(extension)
+            } else {
+                self
+            }
+        }
+    }
 
     /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
     /// axum routing. Pair with `assert_req_fails_with` to detect specific [`StatusCode`] failures.

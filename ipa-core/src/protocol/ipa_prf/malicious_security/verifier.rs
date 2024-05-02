@@ -29,7 +29,7 @@ where
         Self { u_or_v, out_share }
     }
 
-    pub fn verify_proof<λ: ArrayLength>(
+    pub fn verify_proof<λ>(
         &self,
         zkp: &ZeroKnowledgeProof<F, TwoNMinusOne<λ>>,
         r: F,

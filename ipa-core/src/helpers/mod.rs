@@ -481,7 +481,7 @@ pub enum TotalRecords {
     Specified(NonZeroUsize),
 
     /// Total number of records is not well-determined. When the record ID is
-    /// counting solved_bits attempts. The total record count for solved_bits
+    /// counting `solved_bits` attempts. The total record count for `solved_bits`
     /// depends on the number of failures.
     ///
     /// The purpose of this is to waive the warning that there is a known
