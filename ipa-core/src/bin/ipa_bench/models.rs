@@ -1,13 +1,9 @@
-use std::{
-    fmt::{Debug, Formatter},
-    ops::Range,
-};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
-type PlainText = String;
 pub type MatchKey = u64;
 pub type Number = u32;
 
@@ -148,66 +144,6 @@ enum Node {
     Helper1,
     Helper2,
     Helper3,
-}
-
-#[derive(Serialize)]
-struct IPAQuery {
-    /// Caller authentication token.
-    auth_token: PlainText,
-
-    /// Initial MPC helper node to send the data to.
-    leader_node: Node,
-
-    /// List of match key providers to be used by the source and trigger events during an epoch.
-    mk_providers: Vec<String>,
-
-    /// Source-fanout or Trigger-fanout.
-    query_type: QueryType,
-
-    /// Percentage of epoch-level privacy budget this query should consume. Likely 1-100.
-    privacy_budget: u8,
-
-    /// A collection of source events. At least 100 (TBD) unique source events must be provided.
-    reports: Vec<GenericReport>,
-}
-
-#[derive(Serialize)]
-struct SourceFanoutQuery {
-    query: IPAQuery,
-
-    /// The maximum number of attributed conversion events that a single person can contribute
-    /// towards the final output. We could also express this using sum of trigger values.
-    /// We'll leave it for the future spec to decide.
-    cap: u8,
-}
-
-#[cfg(feature = "debug")]
-impl Debug for SourceFanoutQuery {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "SourceFanoutQuery:\n  {} events",
-            &self.query.reports.len(),
-        )
-    }
-}
-
-#[derive(Serialize)]
-struct TriggerFanoutQuery {
-    query: IPAQuery,
-
-    /// The range within which all the trigger event values must lie.
-    value_range: Range<u32>,
-}
-
-impl Debug for TriggerFanoutQuery {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "TriggerFanoutQuery:\n  {} events",
-            &self.query.reports.len(),
-        )
-    }
 }
 
 #[cfg(all(test, unit_test))]

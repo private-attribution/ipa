@@ -375,7 +375,7 @@ impl Debug for Http1Configurator {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Http2Configurator {
     /// Enable [`PING`] frames to keep connection alive. Default value is 90 seconds to match [`Hyper`] value
-    /// for SO_KEEPALIVE. Note that because
+    /// for `SO_KEEPALIVE`. Note that because
     /// IPA builds [`http`] connector manually, keep-alive is not enabled by Hyper. It is somewhat
     /// confusing that Hyper turns it on inside [`build_http`] method only.
     ///

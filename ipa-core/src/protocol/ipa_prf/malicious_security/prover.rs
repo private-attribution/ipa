@@ -56,7 +56,7 @@ where
         Self { u, v }
     }
 
-    pub fn compute_proof<λ: ArrayLength, I, J>(
+    pub fn compute_proof<λ, I, J>(
         u: I,
         v: J,
         lagrange_table: &LagrangeTable<F, λ, <λ as Sub<U1>>::Output>,
@@ -106,7 +106,7 @@ where
         ZeroKnowledgeProof::new(proof)
     }
 
-    pub fn compute_final_proof<λ: ArrayLength, I, J>(
+    pub fn compute_final_proof<λ, I, J>(
         u: I,
         v: J,
         p_0: F,
@@ -154,7 +154,7 @@ where
         ZeroKnowledgeProof::new(proof)
     }
 
-    pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
+    pub fn gen_challenge_and_recurse<λ, I, J>(
         proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
         proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
         u: I,

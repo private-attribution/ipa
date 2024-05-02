@@ -194,7 +194,7 @@ enum ShuffleStep {
     Cardinality,
     /// Send all the shares from helper on the left to the helper on the right.
     LeftToRight,
-    /// H2 and H3 interaction - Exchange C_1 and C_2.
+    /// H2 and H3 interaction - Exchange `C_1` and `C_2`.
     C,
     /// Apply a mask to the given set of shares. Masking values come from PRSS.
     Mask,
