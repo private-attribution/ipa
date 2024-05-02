@@ -1,4 +1,4 @@
-use bitvec::slice::BitSlice;
+use bitvec::{macros::internal::funty::Fundamental, slice::BitSlice};
 use generic_array::GenericArray;
 
 use crate::{
@@ -82,16 +82,15 @@ impl Serializable for Boolean {
 ///generate random bool
 impl rand::distributions::Distribution<Boolean> for rand::distributions::Standard {
     fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> Boolean {
-        Boolean(rng.gen::<u8>() % Boolean::PRIME)
+        Boolean::from(rng.gen::<bool>())
     }
 }
 
 impl std::ops::Add for Boolean {
     type Output = Self;
 
-    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 ^ rhs.0)
+        Self((self.0 + rhs.0) % Self::PRIME)
     }
 }
 
@@ -146,7 +145,7 @@ impl std::ops::Not for Boolean {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        Boolean(!self.0)
+        self + Self::ONE
     }
 }
 
@@ -168,7 +167,7 @@ impl U128Conversions for Boolean {
     }
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
-        Boolean(u8::from(v.into() != 0))
+        Boolean(u8::from(v.into() % Self::PRIME.as_u128() != 0))
     }
 }
 
