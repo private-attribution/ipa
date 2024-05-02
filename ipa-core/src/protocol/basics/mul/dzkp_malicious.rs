@@ -3,9 +3,8 @@ use async_trait::async_trait;
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Direction,
     protocol::{
-        basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul},
+        basics::{mul::semi_honest::multiplication_protocol, MultiplyZeroPositions, SecureMul},
         context::{
             dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context, DZKPContext,
             DZKPUpgradedMaliciousContext,
@@ -13,9 +12,7 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, SharedValueArray, Vectorizable,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Vectorizable},
 };
 
 /// This function implements an MPC multiply using the standard strategy, i.e. via computing the
@@ -40,8 +37,6 @@ pub async fn multiply<'a, F, const N: usize>(
 where
     F: Field + DZKPCompatibleField<N>,
 {
-    let role = ctx.role();
-    let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     // dzkp segment that is going to be added to the batch
     let mut segment = Segment::default();
 
@@ -57,57 +52,30 @@ where
         F::as_segment_entry(b.right_arr()),
     );
 
-    zeros.0.check(role, "a", a);
-    zeros.1.check(role, "b", b);
-
     // Shared randomness used to mask the values that are sent.
-    let (s0, s1) = ctx
+    let (prss_left, prss_right) = ctx
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
     // include prss in the segment
-    segment.set_prss(F::as_segment_entry(&s0), F::as_segment_entry(&s1));
+    segment.set_prss(
+        F::as_segment_entry(&prss_left),
+        F::as_segment_entry(&prss_right),
+    );
 
-    let mut rhs = a.right_arr().clone() * b.right_arr();
-
-    if need_to_send {
-        // Compute the value (d_i) we want to send to the right helper (i+1).
-        let right_d =
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - &s0;
-
-        ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
-            .send(record_id, &right_d)
-            .await?;
-        rhs += right_d;
-    } else {
-        debug_assert_eq!(
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr(),
-            <<F as Vectorizable<N>>::Array as SharedValueArray<F>>::ZERO_ARRAY
-        );
-    }
-    // Add randomness to this value whether we sent or not, depending on whether the
-    // peer to the right needed to send.  If they send, they subtract randomness,
-    // and we need to add to our share to compensate.
-    if need_random_right {
-        rhs += s1.clone();
-    }
-
-    // Sleep until helper on the left sends us their (d_i-1) value.
-    let mut lhs = a.left_arr().clone() * b.left_arr();
-    if need_to_recv {
-        let left_d: <F as Vectorizable<N>>::Array = ctx
-            .recv_channel(role.peer(Direction::Left))
-            .receive(record_id)
-            .await?;
-        lhs += left_d;
-    }
-    // If we send, we subtract randomness, so we need to add to our share.
-    if need_to_send {
-        lhs += s0.clone();
-    }
+    let z = multiplication_protocol(
+        &ctx,
+        record_id,
+        a,
+        b,
+        prss_left.clone(),
+        prss_right.clone(),
+        zeros,
+    )
+    .await?;
 
     // add z_right to the segment
-    segment.set_z(F::as_segment_entry(&lhs));
+    segment.set_z(F::as_segment_entry(z.right_arr()));
 
     // check that the segment is not empty
     debug_assert!(!segment.is_empty());
@@ -116,7 +84,7 @@ where
     // add segment to the batch that needs to be verified by the dzkp prover and verifiers
     ctx.push(record_id, segment);
 
-    Ok(Replicated::new_arr(lhs, rhs))
+    Ok(z)
 }
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.

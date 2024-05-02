@@ -21,13 +21,8 @@ use crate::{
     sharding,
 };
 
-/// IKHC multiplication protocol
-/// for use with replicated secret sharing over some field F.
-/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
-/// their part, eventually producing 2/3 shares of the product and that is what this function
-/// returns.
-///
+/// This function allows to multiply secret shared values.
+/// This is a wrapper function around the actual MPC multiplication protocol
 ///
 /// The `zeros_at` argument indicates where there are known zeros in the inputs.
 ///
@@ -45,22 +40,52 @@ where
     C: Context,
     F: Field + FieldSimd<N>,
 {
+    // Generate shared randomness using prss
+    // the shared randomness is used to mask the values that are sent during the multiplication procotol
+    let (prss_left, prss_right) = ctx
+        .prss()
+        .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
+
+    multiplication_protocol(&ctx, record_id, a, b, prss_left, prss_right, zeros).await
+}
+
+/// IKHC multiplication protocol
+/// for use with replicated secret sharing over some field F.
+/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
+/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
+/// their part, eventually producing 2/3 shares of the product and that is what this function
+/// returns.
+///
+///
+/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+///
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn multiplication_protocol<C, F, const N: usize>(
+    ctx: &C,
+    record_id: RecordId,
+    a: &Replicated<F, N>,
+    b: &Replicated<F, N>,
+    prss_left: <F as Vectorizable<N>>::Array,
+    prss_right: <F as Vectorizable<N>>::Array,
+    zeros: MultiplyZeroPositions,
+) -> Result<Replicated<F, N>, Error>
+where
+    C: Context,
+    F: Field + FieldSimd<N>,
+{
     let role = ctx.role();
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
 
-    // Shared randomness used to mask the values that are sent.
-    let (s0, s1) = ctx
-        .prss()
-        .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
-
     let mut rhs = a.right_arr().clone() * b.right_arr();
 
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
-        let right_d =
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - &s0;
+        let right_d = a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr()
+            - &prss_left;
 
         ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
             .send(record_id, &right_d)
@@ -76,7 +101,7 @@ where
     // peer to the right needed to send.  If they send, they subtract randomness,
     // and we need to add to our share to compensate.
     if need_random_right {
-        rhs += s1;
+        rhs += prss_right;
     }
 
     // Sleep until helper on the left sends us their (d_i-1) value.
@@ -90,7 +115,7 @@ where
     }
     // If we send, we subtract randomness, so we need to add to our share.
     if need_to_send {
-        lhs += s0;
+        lhs += prss_left;
     }
 
     Ok(Replicated::new_arr(lhs, rhs))
