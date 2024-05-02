@@ -4,7 +4,8 @@ use generic_array::GenericArray;
 
 use super::Field;
 use crate::{
-    ff::{FieldType, Serializable, U128Conversions},
+    const_assert,
+    ff::{Serializable, U128Conversions},
     impl_shared_value_common,
     protocol::prss::FromRandomU128,
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
@@ -57,8 +58,11 @@ pub trait PrimeField: Field + U128Conversions {
 pub struct GreaterThanPrimeError<V: Display>(V, u128);
 
 macro_rules! field_impl {
-    ( $field:ident, $store:ty, $bits:expr, $prime:expr ) => {
+    ( $field:ident, $store:ty, $store_multiply:ty, $bits:expr, $prime:expr ) => {
         use super::*;
+
+        // check container for multiply is large enough
+        const_assert!((<$store_multiply>::MAX >> $bits) as u128 >= (<$store>::MAX) as u128);
 
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub struct $field(<Self as SharedValue>::Storage);
@@ -163,9 +167,10 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self::Output {
-                debug_assert!(u32::try_from(Self::PRIME).is_ok());
-                let c = u64::from;
+                debug_assert!(<$store>::try_from(Self::PRIME).is_ok());
+                let c = <$store_multiply>::from;
                 // TODO(mt) - constant time?
+                // TODO(dm) - optimize arithmetics?
                 #[allow(clippy::cast_possible_truncation)]
                 Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as SharedValue>::Storage)
             }
@@ -341,15 +346,12 @@ macro_rules! field_impl {
                 }
             }
         }
-
-        // Make sure FieldType has a member for this field implementation.
-        const _FIELD_TYPE_VALUE: FieldType = crate::ff::FieldType::$field;
     };
 }
 
 #[cfg(any(test, feature = "weak-field"))]
 mod fp31 {
-    field_impl! { Fp31, u8, 8, 31 }
+    field_impl! { Fp31, u8, u16, 8, 31 }
 
     #[cfg(all(test, unit_test))]
     mod specialized_tests {
@@ -372,7 +374,7 @@ mod fp31 {
 }
 
 mod fp32bit {
-    field_impl! { Fp32BitPrime, u32, 32, 4_294_967_291 }
+    field_impl! { Fp32BitPrime, u32, u64, 32, 4_294_967_291 }
 
     impl Vectorizable<32> for Fp32BitPrime {
         type Array = StdArray<Fp32BitPrime, 32>;
@@ -428,6 +430,63 @@ mod fp32bit {
     }
 }
 
+mod fp61bit {
+    field_impl! { Fp61BitPrime, u64, u128, 61, 2_305_843_009_213_693_951 }
+
+    #[cfg(all(test, unit_test))]
+    mod specialized_tests {
+        use super::*;
+
+        // copied from 32 bit prime field, adjusted wrap arounds, computed using wolframalpha.com
+        #[test]
+        fn sixty_one_bit_prime() {
+            let x = Fp61BitPrime::truncate_from(2_305_843_009_213_693_950_u64); // PRIME - 1
+            let y = Fp61BitPrime::truncate_from(2_305_843_009_213_693_949_u64); // PRIME - 2
+
+            assert_eq!(x - y, Fp61BitPrime::ONE);
+            assert_eq!(y - x, Fp61BitPrime::truncate_from(Fp61BitPrime::PRIME - 1));
+            assert_eq!(y + x, Fp61BitPrime::truncate_from(Fp61BitPrime::PRIME - 3));
+
+            assert_eq!(x * y, Fp61BitPrime::truncate_from(2_u32));
+
+            let x = Fp61BitPrime::truncate_from(3_192_725_551_u32);
+            let y = Fp61BitPrime::truncate_from(1_471_265_983_u32);
+
+            assert_eq!(x - y, Fp61BitPrime::truncate_from(1_721_459_568_u32));
+            assert_eq!(
+                y - x,
+                Fp61BitPrime::truncate_from(2_305_843_007_492_234_383_u64)
+            );
+            assert_eq!(x + y, Fp61BitPrime::truncate_from(4_663_991_534_u64));
+
+            assert_eq!(
+                x * y,
+                Fp61BitPrime::truncate_from(85_662_477_813_843_731_u64),
+            );
+        }
+
+        #[test]
+        fn sixty_one_bit_additive_wrapping() {
+            let x = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 20);
+            let y = Fp61BitPrime::truncate_from(20_u32);
+            assert_eq!(x + y, Fp61BitPrime::truncate_from(0_u32));
+
+            let x = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 20);
+            let y = Fp61BitPrime::truncate_from(21_u32);
+            assert_eq!(x + y, Fp61BitPrime::truncate_from(1_u32));
+
+            let x = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 20);
+            let y = Fp61BitPrime::truncate_from(22_u32);
+            assert_eq!(x + y, Fp61BitPrime::truncate_from(2_u32));
+
+            let x = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 1); // PRIME - 1
+            let y = Fp61BitPrime::truncate_from((u64::MAX >> 3) - 1); // PRIME - 1
+            assert_eq!(x + y, Fp61BitPrime::truncate_from((u64::MAX >> 3) - 2));
+        }
+    }
+}
+
 #[cfg(any(test, feature = "weak-field"))]
 pub use fp31::Fp31;
 pub use fp32bit::Fp32BitPrime;
+pub use fp61bit::Fp61BitPrime;

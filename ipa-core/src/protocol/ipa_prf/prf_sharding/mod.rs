@@ -18,28 +18,30 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA32, BA7},
-        ArrayAccess, CustomArray, Expand, Field, U128Conversions,
+        ArrayAccess, CustomArray, Expand, Field, PrimeField, U128Conversions,
     },
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa_prf::{
-            aggregation::aggregate_contributions,
-            boolean_ops::{
-                addition_sequential::integer_add,
-                comparison_and_subtraction_sequential::{compare_gt, integer_sub},
-            },
-            AGG_CHUNK,
+        context::{
+            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
+        },
+        ipa_prf::boolean_ops::{
+            addition_sequential::integer_add,
+            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
         },
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
+        replicated::{
+            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
+        BitDecomposed, SharedValue,
     },
-    seq_join::seq_join,
+    seq_join::{seq_join, SeqJoin},
+    sharding::NotSharded,
 };
 
 #[cfg(feature = "descriptive-gate")]
@@ -135,16 +137,13 @@ where
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    pub async fn compute_row_with_previous<C>(
+    pub async fn compute_row_with_previous<'a>(
         &mut self,
-        ctx: C,
+        ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>
-    where
-        C: Context,
-    {
+    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error> {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
@@ -410,15 +409,13 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
-pub async fn attribute_cap_aggregate<C, BK, TV, HV, TS, SS, const B: usize>(
-    sh_ctx: C,
+pub async fn attribute_cap_aggregate<BK, TV, HV, TS, SS, const B: usize>(
+    sh_ctx: SemiHonestContext<'a>,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -466,7 +463,7 @@ where
                 let num_user_rows = rows_for_user.len();
                 let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-                evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
+                evaluate_per_user_attribution_circuit::<BK, TV, TS, SS>(
                     contexts,
                     RecordId::from(record_id),
                     rows_for_user,
@@ -481,7 +478,7 @@ where
             .collect()
             .await;
 
-    aggregate_contributions::<_, _, _, _, HV, B, AGG_CHUNK>(
+    aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
         binary_m_ctx.narrow(&Step::Aggregate),
         stream::iter(flattened_user_results),
         num_outputs,
@@ -489,14 +486,13 @@ where
     .await
 }
 
-async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
-    ctx_for_row_number: Vec<C>,
+async fn evaluate_per_user_attribution_circuit<BK, TV, TS, SS>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<AttributionOutputs<Replicated<BK>, Replicated<TV>>>, Error>
 where
-    C: Context,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -618,8 +614,8 @@ where
 /// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
 #[allow(clippy::too_many_arguments)]
-async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
-    ctx: C,
+async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
+    ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
     record_id: RecordId,
     is_trigger_bit: &Replicated<Boolean>,
     ever_encountered_a_source_event: &Replicated<Boolean>,
@@ -629,7 +625,6 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
     source_event_timestamp: &Replicated<TS>,
 ) -> Result<Replicated<TV>, Error>
 where
-    C: Context,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<TV>: BooleanArrayMul,
@@ -684,6 +679,7 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<Boolean>: BooleanProtocols<C, Boolean>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -954,7 +950,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, BA5, 32>(
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
                         ctx, input_rows, None, &histogram,
                     )
                     .await
@@ -1008,7 +1004,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<_, BA5, BA3, BA16, BA20, BA5, 32>(
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
                         ctx,
                         input_rows,
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
@@ -1099,7 +1095,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<_, BA8, BA3, BA8, BA20, SaturatingSumType, 256>(
+                    attribute_cap_aggregate::<BA8, BA3, BA8, BA20, SaturatingSumType, 256>(
                         ctx, input_rows, None, &HISTOGRAM,
                     )
                     .await

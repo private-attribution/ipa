@@ -355,7 +355,7 @@ mod tests {
                         get_test_identity(id)
                     };
                     let (setup, handler) = AppSetup::new();
-                    let clients = MpcHelperClient::from_conf(network_config, identity);
+                    let clients = MpcHelperClient::from_conf(network_config, &identity);
                     let (transport, server) = HttpTransport::new(
                         id,
                         server_config,
@@ -376,7 +376,7 @@ mod tests {
     }
 
     async fn test_three_helpers(mut conf: TestConfig) {
-        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,
@@ -391,7 +391,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn happy_case_twice() {
         let mut conf = TestConfigBuilder::with_open_ports().build();
-        let clients = MpcHelperClient::from_conf(&conf.network, ClientIdentity::None);
+        let clients = MpcHelperClient::from_conf(&conf.network, &ClientIdentity::None);
         let _helpers = make_helpers(
             conf.sockets.take().unwrap(),
             conf.servers,

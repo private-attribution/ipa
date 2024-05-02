@@ -1,5 +1,4 @@
 use crate::{
-    ff::Field,
     helpers::Role,
     protocol::context::Context,
     secret_sharing::{
@@ -24,12 +23,12 @@ pub trait ShareKnownValue<C: Context, V: SharedValue> {
     fn share_known_value(ctx: &C, value: V) -> Self;
 }
 
-impl<C: Context, F: Field> ShareKnownValue<C, F> for Replicated<F> {
-    fn share_known_value(ctx: &C, value: F) -> Self {
+impl<C: Context, V: SharedValue> ShareKnownValue<C, V> for Replicated<V> {
+    fn share_known_value(ctx: &C, value: V) -> Self {
         match ctx.role() {
-            Role::H1 => Self::new(value, F::ZERO),
-            Role::H2 => Self::new(F::ZERO, F::ZERO),
-            Role::H3 => Self::new(F::ZERO, value),
+            Role::H1 => Self::new(value, V::ZERO),
+            Role::H2 => Self::new(V::ZERO, V::ZERO),
+            Role::H3 => Self::new(V::ZERO, value),
         }
     }
 }

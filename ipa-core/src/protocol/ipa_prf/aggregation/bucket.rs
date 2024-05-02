@@ -87,6 +87,7 @@ pub async fn move_single_value_to_bucket<C, const N: usize>(
 where
     C: Context,
     Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: SecureMul<C>,
 {
     const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
     let mut step: usize = 1 << bd_key.len();

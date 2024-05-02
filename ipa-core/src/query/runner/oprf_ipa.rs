@@ -17,7 +17,7 @@ use crate::{
     hpke::{KeyPair, KeyRegistry},
     protocol::{
         basics::ShareKnownValue,
-        context::{UpgradableContext, UpgradedContext},
+        context::SemiHonestContext,
         ipa_prf::{oprf_ipa, OPRFIPAInputRow},
     },
     report::{EncryptedOprfReport, EventType},
@@ -28,13 +28,13 @@ use crate::{
     sync::Arc,
 };
 
-pub struct OprfIpaQuery<C, HV> {
+pub struct OprfIpaQuery<'a, HV> {
     config: IpaQueryConfig,
     key_registry: Arc<KeyRegistry<KeyPair>>,
-    phantom_data: PhantomData<(C, HV)>,
+    phantom_data: PhantomData<&'a HV>,
 }
 
-impl<C, HV> OprfIpaQuery<C, HV> {
+impl<'a, HV> OprfIpaQuery<'a, HV> {
     pub fn new(config: IpaQueryConfig, key_registry: Arc<KeyRegistry<KeyPair>>) -> Self {
         Self {
             config,
@@ -45,19 +45,17 @@ impl<C, HV> OprfIpaQuery<C, HV> {
 }
 
 #[allow(clippy::too_many_lines)]
-impl<C, HV> OprfIpaQuery<C, HV>
+impl<'a, HV> OprfIpaQuery<'a, HV>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<Boolean>: Serializable + ShareKnownValue<C, Boolean>,
+    Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'a>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
-    pub async fn execute<'a>(
+    pub async fn execute(
         self,
-        ctx: C,
+        ctx: SemiHonestContext<'a>,
         query_size: QuerySize,
         input_stream: BodyStream,
     ) -> Result<Vec<Replicated<HV>>, Error> {
@@ -113,11 +111,11 @@ where
 
         let aws = config.attribution_window_seconds;
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<C, BA8, BA3, HV, BA20, BA3, 256>(ctx, input, aws).await,
-            16 => oprf_ipa::<C, BA8, BA3, HV, BA20, BA4, 256>(ctx, input, aws).await,
-            32 => oprf_ipa::<C, BA8, BA3, HV, BA20, BA5, 256>(ctx, input, aws).await,
-            64 => oprf_ipa::<C, BA8, BA3, HV, BA20, BA6, 256>(ctx, input, aws).await,
-            128 => oprf_ipa::<C, BA8, BA3, HV, BA20, BA7, 256>(ctx, input, aws).await,
+            8 => oprf_ipa::<BA8, BA3, HV, BA20, BA3, 256>(ctx, input, aws).await,
+            16 => oprf_ipa::<BA8, BA3, HV, BA20, BA4, 256>(ctx, input, aws).await,
+            32 => oprf_ipa::<BA8, BA3, HV, BA20, BA5, 256>(ctx, input, aws).await,
+            64 => oprf_ipa::<BA8, BA3, HV, BA20, BA6, 256>(ctx, input, aws).await,
+            128 => oprf_ipa::<BA8, BA3, HV, BA20, BA7, 256>(ctx, input, aws).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap
@@ -227,7 +225,7 @@ mod tests {
                 plaintext_match_keys: false,
             };
             let input = BodyStream::from(buffer);
-            OprfIpaQuery::<_, BA16>::new(query_config, Arc::clone(&key_registry))
+            OprfIpaQuery::<BA16>::new(query_config, Arc::clone(&key_registry))
                 .execute(ctx, query_size, input)
         }))
         .await;

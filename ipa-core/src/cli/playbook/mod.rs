@@ -93,7 +93,7 @@ pub async fn make_clients(
 
     // Note: This closure is only called when the selected action uses clients.
 
-    let clients = MpcHelperClient::from_conf(&network, ClientIdentity::None);
+    let clients = MpcHelperClient::from_conf(&network, &ClientIdentity::None);
     while wait > 0 && !clients_ready(&clients).await {
         tracing::debug!("waiting for servers to come up");
         sleep(Duration::from_secs(1)).await;

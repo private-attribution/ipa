@@ -7,7 +7,6 @@ use std::{
 
 use async_trait::async_trait;
 
-use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{
@@ -17,13 +16,14 @@ use crate::{
     protocol::{
         basics::{ShareKnownValue, ZeroPositions},
         context::{
+            dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
             InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
@@ -143,6 +143,14 @@ impl<'a, B: ShardBinding> UpgradableContext for Context<'a, B> {
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Self::Validator::new(self.inner)
     }
+
+    type DZKPUpgradedContext = DZKPUpgraded<'a, B>;
+    type DZKPValidator = SemiHonestDZKPValidator<'a, B>;
+
+    #[allow(unused_variables)]
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+        Self::DZKPValidator::new(self.inner)
+    }
 }
 
 impl<'a, B: ShardBinding> SeqJoin for Context<'a, B> {
@@ -249,31 +257,6 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(x)
-    }
-
-    // Moved from "context/mod.rs" because we want to use the local `UpgradeContext`.
-    // `upgrade` for semi-honest is narrowed but never executed. That causes `Compact`
-    // gate to panic because it doesn't know anything about state transitions that are
-    // not executed. To workaround this, we use a dummy step to narrow the context to
-    // let `Compact` gate know that it could be ignored.
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.clone(), NoRecord)
-            .upgrade(input)
-            .await
-    }
-
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.clone(), record_id)
-            .upgrade(input)
-            .await
     }
 
     #[cfg(test)]

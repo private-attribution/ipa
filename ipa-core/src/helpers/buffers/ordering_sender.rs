@@ -257,13 +257,11 @@ impl Waiting {
 
     /// Returns all records currently waiting to be sent in sorted order.
     #[cfg(feature = "stall-detection")]
-    fn waiting(&self) -> Vec<usize> {
-        let mut records = Vec::new();
+    fn waiting(&self) -> std::collections::BTreeSet<usize> {
+        let mut records = std::collections::BTreeSet::new();
         self.shards
             .iter()
             .for_each(|shard| records.extend(shard.lock().unwrap().waiting()));
-
-        records.sort_unstable();
 
         records
     }
@@ -349,6 +347,14 @@ impl OrderingSender {
         Close { i, sender: self }
     }
 
+    /// Returns `true` if this sender is closed for writes.
+    ///
+    /// ## Panics
+    /// If the underlying mutex is poisoned or locked by the same thread.
+    pub fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
     /// Perform the next `send` or `close` operation.
     fn next_op<F>(&self, i: usize, cx: &Context<'_>, f: F) -> Poll<()>
     where
@@ -431,9 +437,21 @@ impl OrderingSender {
         OrderedStream { sender: self }
     }
 
+    /// This returns a set of record indices waiting to be sent.
+    ///
+    /// ## Panics
+    /// If state mutex is poisoned.
     #[cfg(feature = "stall-detection")]
-    pub fn waiting(&self) -> Vec<usize> {
-        self.waiting.waiting()
+    pub fn waiting(&self) -> std::collections::BTreeSet<usize> {
+        use crate::sync::atomic::Ordering::Relaxed;
+
+        let mut waiting_indices = self.waiting.waiting();
+        let state = self.state.lock().unwrap();
+        if state.write_ready.is_some() {
+            waiting_indices.insert(self.next.load(Relaxed));
+        }
+
+        waiting_indices
     }
 }
 

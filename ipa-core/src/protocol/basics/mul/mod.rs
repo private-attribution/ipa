@@ -9,7 +9,7 @@ use crate::{
     error::Error,
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA32, BA5, BA8},
+        boolean_array::{BA20, BA3, BA32, BA5, BA64, BA8},
         Expand,
     },
     protocol::{context::Context, RecordId},
@@ -21,6 +21,8 @@ pub(crate) mod malicious;
 mod semi_honest;
 pub(in crate::protocol) mod sparse;
 
+#[cfg(feature = "descriptive-gate")]
+pub use semi_honest::multiply as semi_honest_multiply;
 pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
@@ -117,3 +119,4 @@ boolean_array_mul!(5, BA5);
 boolean_array_mul!(8, BA8);
 boolean_array_mul!(20, BA20);
 boolean_array_mul!(32, BA32);
+boolean_array_mul!(64, BA64);

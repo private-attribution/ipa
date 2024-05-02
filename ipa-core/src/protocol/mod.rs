@@ -14,7 +14,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-pub use basics::BasicProtocols;
+pub use basics::{BasicProtocols, BooleanProtocols};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -127,6 +127,12 @@ impl From<RecordId> for u32 {
 impl From<RecordId> for usize {
     fn from(r: RecordId) -> Self {
         r.0 as usize
+    }
+}
+
+impl From<RecordId> for i64 {
+    fn from(r: RecordId) -> Self {
+        i64::from(r.0)
     }
 }
 

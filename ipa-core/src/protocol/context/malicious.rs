@@ -5,9 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ipa_macros::Step;
 
-use super::{UpgradeContext, UpgradeToMalicious};
 use crate::{
     error::Error,
     helpers::{
@@ -16,10 +14,12 @@ use crate::{
     },
     protocol::{
         basics::{
-            mul::malicious::Step::RandomnessForValidation, SecureMul, ShareKnownValue,
-            ZeroPositions,
+            mul::{malicious::Step::RandomnessForValidation, semi_honest_multiply},
+            ShareKnownValue, ZeroPositions,
         },
         context::{
+            dzkp_malicious::DZKPUpgraded,
+            dzkp_validator::{DZKPBatch, MaliciousDZKPValidator},
             prss::InstrumentedIndexedSharedRandomness,
             validator::{Malicious as Validator, MaliciousAccumulator},
             Base, Context as ContextTrait, InstrumentedSequentialSharedRandomness,
@@ -27,7 +27,7 @@ use crate::{
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
-        NoRecord, RecordId,
+        RecordId,
     },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
@@ -51,7 +51,7 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// Upgrade this context to malicious.
+    /// Upgrade this context to malicious using MACs.
     /// `malicious_step` is the step that will be used for malicious protocol execution.
     /// `upgrade_step` is the step that will be used for upgrading inputs
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
@@ -67,6 +67,21 @@ impl<'a> Context<'a> {
         Gate: StepNarrow<S>,
     {
         Upgraded::new(&self.inner, malicious_step, accumulator, r_share)
+    }
+
+    /// Upgrade this context to malicious using DZKPs
+    /// `malicious_step` is the step that will be used for malicious protocol execution.
+    /// `DZKPBatch` comes from a `MaliciousDZKPValidator`.
+    #[must_use]
+    pub fn dzkp_upgrade<S: Step + ?Sized>(
+        self,
+        malicious_step: &S,
+        batch: DZKPBatch,
+    ) -> DZKPUpgraded<'a>
+    where
+        Gate: StepNarrow<S>,
+    {
+        DZKPUpgraded::new(&self.inner, malicious_step, batch)
     }
 
     pub(crate) fn base_context(self) -> Base<'a> {
@@ -139,6 +154,13 @@ impl<'a> UpgradableContext for Context<'a> {
     fn validator<F: ExtendableField>(self) -> Self::Validator<F> {
         Validator::new(self)
     }
+
+    type DZKPUpgradedContext = DZKPUpgraded<'a>;
+    type DZKPValidator = MaliciousDZKPValidator<'a>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, chunk_size)
+    }
 }
 
 impl<'a> SeqJoin for Context<'a> {
@@ -199,12 +221,6 @@ impl<'a, F: ExtendableField> Upgraded<'a, F> {
     }
 }
 
-/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
-#[derive(Step)]
-pub(crate) enum UpgradeStep {
-    Upgrade,
-}
-
 #[async_trait]
 impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     type Share = MaliciousReplicated<F>;
@@ -237,39 +253,19 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         //
         let induced_share = Replicated::new(x.left().to_extended(), x.right().to_extended());
 
-        let rx = induced_share
-            .multiply_sparse(
-                &self.inner.r_share,
-                self.as_base(),
-                record_id,
-                (zeros_at, ZeroPositions::Pvvv),
-            )
-            .await?;
+        let rx = semi_honest_multiply(
+            self.as_base(),
+            record_id,
+            &induced_share,
+            &self.inner.r_share,
+            (zeros_at, ZeroPositions::Pvvv),
+        )
+        .await?;
         let m = MaliciousReplicated::new(x, rx);
         let narrowed = self.narrow(&RandomnessForValidation);
         let prss = narrowed.prss();
         self.inner.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
-    }
-
-    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
-            .upgrade(input)
-            .await
-    }
-
-    async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
-    where
-        T: Send,
-        UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
-    {
-        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
-            .upgrade(input)
-            .await
     }
 
     #[cfg(test)]
@@ -278,7 +274,10 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         input: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::{context::upgrade::UpgradeContext, NoRecord};
+        use crate::protocol::{
+            context::{upgrade::UpgradeContext, UpgradeStep},
+            NoRecord,
+        };
 
         UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
             .upgrade_sparse(input, zeros_at)

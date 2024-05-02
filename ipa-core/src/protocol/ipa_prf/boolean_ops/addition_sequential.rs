@@ -16,16 +16,13 @@ use crate::{
 };
 #[cfg(all(test, unit_test))]
 use crate::{
-    ff::CustomArray,
-    secret_sharing::{FieldVectorizable, SharedValue},
+    ff::{boolean::Boolean, CustomArray},
+    protocol::{
+        basics::{select, BooleanArrayMul},
+        context::SemiHonestContext,
+    },
+    secret_sharing::SharedValue,
 };
-
-#[cfg(all(test, unit_test))]
-#[derive(Step)]
-pub(crate) enum Step {
-    SaturatedAddition,
-    IfElse,
-}
 
 /// Non-saturated unsigned integer addition
 /// This function adds y to x.
@@ -59,44 +56,34 @@ where
 /// # Errors
 /// propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn integer_sat_add<F, C, S, const N: usize>(
-    ctx: C,
+pub async fn integer_sat_add<S>(
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     x: &AdditiveShare<S>,
     y: &AdditiveShare<S>,
 ) -> Result<AdditiveShare<S>, Error>
 where
-    F: Field + FieldSimd<N> + FieldVectorizable<N, ArrayAlias = S>,
-    C: Context,
-    S: SharedValue + CustomArray<Element = F>,
-    AdditiveShare<S>: From<AdditiveShare<F, N>> + Into<AdditiveShare<F, N>>,
-    AdditiveShare<F>: BooleanProtocols<C, F>,
+    S: SharedValue + CustomArray<Element = Boolean>,
+    AdditiveShare<S>: BooleanArrayMul + std::ops::Not<Output = AdditiveShare<S>>,
 {
-    use crate::{ff::Expand, protocol::basics::if_else};
-    let mut carry = AdditiveShare::<F>::ZERO;
-    let result = addition_circuit(
-        ctx.narrow(&Step::SaturatedAddition),
-        record_id,
-        x,
-        y,
-        &mut carry,
-    )
-    .await?
-    .into();
+    #[derive(Step)]
+    enum Step {
+        Add,
+        Select,
+    }
 
-    // expand carry bit to array
-    let carry_array = AdditiveShare::<S>::expand(&carry).into();
+    let mut carry = AdditiveShare::<Boolean>::ZERO;
+    let result = addition_circuit(ctx.narrow(&Step::Add), record_id, x, y, &mut carry).await?;
 
-    // if carry_array==1 then {carry_array} else {result}:
-    if_else(
-        ctx.narrow(&Step::IfElse),
+    // if carry==1 then {all ones} else {result}
+    select(
+        ctx.narrow(&Step::Select),
         record_id,
-        &carry_array,
-        &carry_array,
+        &carry,
+        &!AdditiveShare::<S>::ZERO,
         &result,
     )
     .await
-    .map(Into::into)
 }
 
 /// addition using bit adder
@@ -258,7 +245,7 @@ mod test {
 
             let result = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_sat_add::<_, _, _, 64>(
+                    integer_sat_add::<_>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
                         &x_y.0,

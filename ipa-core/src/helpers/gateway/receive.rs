@@ -12,9 +12,11 @@ use pin_project::pin_project;
 use crate::{
     error::BoxError,
     helpers::{
-        buffers::UnorderedReceiver, gateway::transport::RoleResolvingTransport,
-        transport::SingleRecordStream, ChannelId, Error, HelperChannelId, LogErrors, Message,
-        MpcMessage, Role, ShardChannelId, ShardTransportImpl, Transport, TransportIdentity,
+        buffers::{UnorderedReceiver, UnorderedReceiverError},
+        gateway::transport::RoleResolvingTransport,
+        transport::SingleRecordStream,
+        ChannelId, Error, HelperChannelId, LogErrors, Message, MpcMessage, Role, ShardChannelId,
+        ShardTransportImpl, Transport, TransportIdentity,
     },
     protocol::RecordId,
     sync::{Arc, Mutex},
@@ -29,7 +31,7 @@ use crate::{
 pub struct MpcReceivingEnd<M> {
     channel_id: HelperChannelId,
     unordered_rx: UR,
-    _phantom: PhantomData<M>,
+    _phantom: PhantomData<fn() -> M>,
 }
 
 #[pin_project]
@@ -82,10 +84,15 @@ impl<M: MpcMessage> MpcReceivingEnd<M> {
         self.unordered_rx
             .recv::<M, _>(record_id)
             .await
-            .map_err(|e| Error::ReceiveError {
-                source: self.channel_id.peer,
-                step: self.channel_id.gate.to_string(),
-                inner: Box::new(e),
+            .map_err(|e| match e {
+                UnorderedReceiverError::DeserializeFailed(inner) => Error::DeserializeFailed {
+                    channel_id: self.channel_id.clone(),
+                    inner,
+                },
+                UnorderedReceiverError::EndOfStream(inner) => Error::EndOfStream {
+                    channel_id: self.channel_id.clone(),
+                    inner,
+                },
             })
     }
 }

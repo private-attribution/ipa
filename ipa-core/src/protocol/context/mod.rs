@@ -1,3 +1,9 @@
+pub mod dzkp_field;
+#[allow(dead_code)]
+pub mod dzkp_malicious;
+pub mod dzkp_semi_honest;
+#[allow(dead_code)]
+pub mod dzkp_validator;
 #[cfg(feature = "descriptive-gate")]
 pub mod malicious;
 pub mod prss;
@@ -9,9 +15,11 @@ pub mod upgrade;
 #[allow(dead_code)]
 pub mod validator;
 
-use std::num::NonZeroUsize;
+use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
+use futures::{stream, Stream, StreamExt};
+use ipa_macros::Step;
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
 use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -24,14 +32,15 @@ pub type ShardedSemiHonestContext<'a> = semi_honest::Context<'a, Sharded>;
 use crate::{
     error::Error,
     helpers::{
-        ChannelId, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
+        ChannelId, Direction, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
         ShardReceivingEnd, TotalRecords,
     },
     protocol::{
         basics::ZeroPositions,
-        prss::Endpoint as PrssEndpoint,
+        context::dzkp_validator::DZKPValidator,
+        prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
-        RecordId,
+        NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{malicious::ExtendableField, semi_honest::AdditiveShare as Replicated},
@@ -117,6 +126,17 @@ pub trait UpgradableContext: Context {
     type Validator<F: ExtendableField>: Validator<Self, F>;
 
     fn validator<F: ExtendableField>(self) -> Self::Validator<F>;
+
+    type DZKPUpgradedContext: DZKPContext;
+    type DZKPValidator: DZKPValidator<Self>;
+
+    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
+}
+
+/// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.
+#[derive(Step)]
+pub(crate) enum UpgradeStep {
+    Upgrade,
 }
 
 #[async_trait]
@@ -140,7 +160,12 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>;
+        for<'a> UpgradeContext<'a, Self, F>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), NoRecord)
+            .upgrade(input)
+            .await
+    }
 
     /// Upgrade an input for a specific bit index and record using this context.
     /// # Errors
@@ -149,7 +174,12 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     async fn upgrade_for<T, M>(&self, record_id: RecordId, input: T) -> Result<M, Error>
     where
         T: Send,
-        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>;
+        for<'a> UpgradeContext<'a, Self, F, RecordId>: UpgradeToMalicious<'a, T, M>,
+    {
+        UpgradeContext::new(self.narrow(&UpgradeStep::Upgrade), record_id)
+            .upgrade(input)
+            .await
+    }
 
     /// Upgrade a sparse input using this context.
     /// # Errors
@@ -301,7 +331,36 @@ impl<'a, B: ShardBinding> Context for Base<'a, B> {
 
 /// Context for MPC circuits that can operate on multiple shards. Provides access to shard information
 /// via [`ShardConfiguration`] trait.
-pub trait ShardedContext: Context + ShardConfiguration {}
+pub trait ShardedContext: Context + ShardConfiguration {
+    /// Requests data to be received from all shards that are registered in the system.
+    /// Shards that don't have any data to send, must explicitly open and close the send channel.
+    fn recv_from_shards<M: Message>(
+        &self,
+    ) -> impl Stream<Item = (ShardIndex, Result<M, crate::error::Error>)> + Send {
+        stream::select_all(
+            self.peer_shards()
+                .map(|origin| self.shard_recv_channel(origin).map(move |v| (origin, v))),
+        )
+    }
+
+    /// Picks a shard according to the value obtained from sampling PRSS.
+    /// The `direction` argument indicates if the `left` or `right` PRSS is utilized.
+    fn pick_shard(&self, record_id: RecordId, direction: Direction) -> ShardIndex {
+        // FIXME(1029): update PRSS trait to compute only left or right part
+        let (l, r): (u128, u128) = self.prss().generate(record_id);
+        let shard_index = u32::try_from(
+            match direction {
+                Direction::Left => l,
+                Direction::Right => r,
+            } % u128::from(self.shard_count()),
+        )
+        .expect("Number of shards should not exceed u32 capacity");
+
+        ShardIndex::from(shard_index)
+    }
+}
+
+impl<C: Context + ShardConfiguration> ShardedContext for C {}
 
 impl ShardConfiguration for Base<'_, Sharded> {
     fn shard_id(&self) -> ShardIndex {
@@ -312,8 +371,6 @@ impl ShardConfiguration for Base<'_, Sharded> {
         self.sharding.shard_count
     }
 }
-
-impl<'a> ShardedContext for Base<'a, Sharded> {}
 
 impl<'a, B: ShardBinding> SeqJoin for Base<'a, B> {
     fn active_work(&self) -> NonZeroUsize {
@@ -333,11 +390,170 @@ impl<'a> Inner<'a> {
     }
 }
 
+/// Reshards the given set of shares across all shards available on the current helper. It uses the
+/// provided function to determine destination shards for each input row.
+///
+/// The resulting vector contains all shares sent to this shard by other shards and shares selected
+/// locally by `shard_picker` fn to stay on this shard.
+///
+/// Resharding opens one communication channel per peer (N^2 channels will be open in total,
+/// N per shard). Each channel stays open until the very last row is processed, then they are explicitly
+/// closed, even if nothing has been communicated between that pair.
+///
+/// ## Shard picking considerations
+/// It is expected for `shard_picker` to select shards uniformly, by either using [`prss`] or sampling
+/// random values with enough entropy. Failure to do so may lead to extra memory overhead - this
+/// function uses the conservative `1.2` coefficent to estimate the number of records per shard after
+/// resharding is completed, according to our [`calculations`] that is sufficient with 2^-60 failure
+/// probability. This is a very conservative estimate, assuming 1M events per shard and 100k shards.
+///
+/// [`calculations`]: https://docs.google.com/document/d/1vej6tYgNV3GWcldD4tl7a4Z9EeZwda3F5u7roPGArlU/
+///
+/// ## Panics
+/// When `shard_picker` returns an out-of-bounds index.
+///
+/// ## Errors
+/// If cross-shard communication fails
+pub async fn reshard<L, K, C, S>(
+    ctx: C,
+    input: L,
+    shard_picker: S,
+) -> Result<Vec<K>, crate::error::Error>
+where
+    L: IntoIterator<Item = K>,
+    L::IntoIter: ExactSizeIterator,
+    S: Fn(C, RecordId, &K) -> ShardIndex,
+    K: Message + Clone,
+    C: ShardedContext,
+{
+    let input = input.into_iter();
+    let input_len = input.len();
+
+    // We set channels capacity to be at least 1 to be able to open send channels to all peers.
+    // It is prohibited to create them if total records is not set. We also over-provision here
+    // because it is not known in advance how many records each peer receives. We could've set
+    // the channel capacity to be indeterminate, but it could be less efficient in using our most
+    // precious resource - network.
+    let ctx = ctx.set_total_records(std::cmp::max(1, input_len));
+    let my_shard = ctx.shard_id();
+
+    // Open communication channels to all shards on this helper and keep track of records sent
+    // through any of them.
+    let mut send_channels = ctx
+        .peer_shards()
+        .map(|shard_id| {
+            (
+                shard_id,
+                (RecordId::FIRST, ctx.shard_send_channel::<K>(shard_id)),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Request data from all shards.
+    let rcv_stream = ctx
+        .recv_from_shards::<K>()
+        .map(|(shard_id, v)| {
+            (
+                shard_id,
+                v.map(Option::Some).map_err(crate::error::Error::from),
+            )
+        })
+        .fuse();
+
+    // This produces a stream of outcomes of send requests.
+    // In order to make it compatible with receive stream, it also returns records that must
+    // stay on this shard, according to `shard_picker`'s decision.
+    // That gives an awkward interface for output: (destination shard, Result<Option<Value>>)
+    // The second argument is set to Err if we failed to send the value out. This will fail the
+    // whole resharding process.
+    // If send was successful, we set the argument to Ok(None). Only records assigned to this shard
+    // by the `shard_picker` will have the value of Ok(Some(Value))
+    let send_stream = futures::stream::unfold(
+        // it is crucial that the following execution is completed sequentially, in order for record id
+        // tracking per shard to work correctly. If tasks complete out of order, this will cause share
+        // misplacement on the recipient side.
+        (
+            input.enumerate().zip(iter::repeat(ctx.clone())),
+            &mut send_channels,
+        ),
+        |(mut input, send_channels)| async {
+            // Process more data as it comes in, or close the sending channels, if there is nothing
+            // left.
+            if let Some(((i, val), ctx)) = input.next() {
+                let dest_shard = shard_picker(ctx, RecordId::from(i), &val);
+                if dest_shard == my_shard {
+                    Some(((my_shard, Ok(Some(val.clone()))), (input, send_channels)))
+                } else {
+                    let (record_id, se) = send_channels.get_mut(&dest_shard).unwrap();
+                    let send_result = se
+                        .send(*record_id, val)
+                        .await
+                        .map_err(crate::error::Error::from)
+                        .map(|()| None);
+                    *record_id += 1;
+                    Some(((my_shard, send_result), (input, send_channels)))
+                }
+            } else {
+                for (last_record, send_channel) in send_channels.values() {
+                    send_channel.close(*last_record).await;
+                }
+                None
+            }
+        },
+    )
+    .fuse();
+    let shard_records_est = {
+        let v = input_len / usize::from(ctx.shard_count());
+        // this gives us ~ 1.25 capacity, very close to 1.26 overhead estimated
+        // If 25% extra capacity becomes a problem and number of events/shards is not close
+        // to the worst case, this can be tuned down to 1.01
+        v + v / 4
+    };
+
+    // This contains the deterministic order of events after resharding is complete.
+    // Each shard will hold the records in this order:
+    // [shard_0_records], [shard_1_records], ..., [shard_N].
+    // There is no reason why this strategy was chosen. As long as it is consistent across helpers,
+    // other ways to build the total order work too. For example, we could put records with
+    // record_id = 0 first, then records with record_id = 1, etc.
+    let mut r: Vec<Vec<_>> = ctx
+        .shard_count()
+        .iter()
+        .map(|_| Vec::with_capacity(shard_records_est))
+        .collect();
+
+    // Interleave send and receive streams to ensure the backpressure does not block the flow.
+    // For example, if this shard just sends all the data and then receives, the flow control from
+    // another shard (say S2) may prevent it from sending more data until it receives records from
+    // S2.
+    // This approach makes sure we do what we can - send or receive.
+    let mut send_recv = pin!(futures::stream::select(send_stream, rcv_stream));
+
+    while let Some((shard_id, v)) = send_recv.next().await {
+        if let Some(m) = v? {
+            r[usize::from(shard_id)].push(m);
+        }
+    }
+
+    Ok(r.into_iter().flatten().collect())
+}
+
+/// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
+pub trait DZKPContext: Context {
+    /// `is_unverified()` allows to confirm that there are currently no unverified shares,
+    /// i.e. shares that might have been manipulated.
+    /// when this is the case, it is safe to call functions like `reveal`
+    ///
+    /// ## Errors
+    /// Returns error when context contains unverified values
+    fn is_unverified(&self) -> Result<(), Error>;
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::iter::repeat;
+    use std::{iter, iter::repeat};
 
-    use futures_util::{future::join_all, try_join};
+    use futures::{future::join_all, stream::StreamExt, try_join};
     use rand::{
         distributions::{Distribution, Standard},
         Rng,
@@ -345,12 +561,16 @@ mod tests {
     use typenum::Unsigned;
 
     use crate::{
-        ff::{Field, Fp31, Serializable, U128Conversions},
+        ff::{
+            boolean_array::{BA3, BA8},
+            Field, Fp31, Serializable, U128Conversions,
+        },
         helpers::{Direction, Role},
         protocol::{
+            basics::ShareKnownValue,
             context::{
-                validator::Step::MaliciousProtocol, Context, UpgradableContext, UpgradedContext,
-                Validator,
+                reshard, validator::Step::MaliciousProtocol, Context, ShardedContext,
+                UpgradableContext, UpgradedContext, Validator,
             },
             prss::SharedRandomness,
             step::{Gate, StepNarrow},
@@ -361,10 +581,15 @@ mod tests {
             semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
+        sharding::{ShardConfiguration, ShardIndex},
         telemetry::metrics::{
             BYTES_SENT, INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
         },
-        test_fixture::{Reconstruct, Runner, TestExecutionStep, TestWorld, TestWorldConfig},
+        test_executor::run,
+        test_fixture::{
+            Reconstruct, RoundRobinInputDistribution, Runner, TestExecutionStep, TestWorld,
+            TestWorldConfig, WithShards,
+        },
     };
 
     trait ReplicatedLeftValue<F: Field> {
@@ -583,5 +808,76 @@ mod tests {
                 ctx.upgrade(shares).await.unwrap();
             })
             .await;
+    }
+
+    #[test]
+    fn receive_from_all_shards() {
+        type Field = BA3;
+        type Share = Replicated<Field>;
+
+        run(|| async move {
+            let world = TestWorld::<WithShards<3>>::with_shards(TestWorldConfig::default());
+            let r = world
+                .semi_honest(iter::empty::<()>(), |ctx, _| async move {
+                    let ctx = ctx.set_total_records(1);
+                    if ctx.shard_id() == ShardIndex::FIRST {
+                        let mut r = vec![Vec::new(); ctx.shard_count().into()];
+                        let mut recv_stream = ctx.recv_from_shards::<Share>();
+                        while let Some((from, share)) = recv_stream.next().await {
+                            r[usize::from(from)].push(share.unwrap());
+                        }
+
+                        r.into_iter().flatten().collect()
+                    } else if ctx.shard_id() == ShardIndex::from(1) {
+                        ctx.shard_send_channel(ShardIndex::FIRST)
+                            .send(
+                                RecordId::FIRST,
+                                Share::share_known_value(&ctx, Field::try_from(1).unwrap()),
+                            )
+                            .await
+                            .unwrap();
+
+                        Vec::new()
+                    } else {
+                        // Explicit FIN is required from each shard, when `recv_from_shards` is used.
+                        // `reshard` functionality is more convenient to use.
+                        ctx.shard_send_channel::<Share>(ShardIndex::FIRST)
+                            .close(RecordId::FIRST)
+                            .await;
+                        Vec::new()
+                    }
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(vec![Field::try_from(1).unwrap()], r);
+        });
+    }
+
+    /// Ensure global record order across shards is consistent.
+    #[test]
+    fn shard_picker() {
+        run(|| async move {
+            const SHARDS: u32 = 5;
+            let world: TestWorld<WithShards<5, RoundRobinInputDistribution>> =
+                TestWorld::with_shards(TestWorldConfig::default());
+            let input: Vec<_> = (0..SHARDS).map(BA8::truncate_from).collect();
+            let r = world
+                .semi_honest(input.clone().into_iter(), |ctx, shard_input| async move {
+                    reshard(ctx, shard_input, |_, record_id, _| {
+                        ShardIndex::from(u32::from(record_id) % SHARDS)
+                    })
+                    .await
+                    .unwrap()
+                })
+                .await
+                .into_iter()
+                .flat_map(|v| v.reconstruct())
+                .collect::<Vec<_>>();
+
+            assert_eq!(input, r);
+        });
     }
 }
