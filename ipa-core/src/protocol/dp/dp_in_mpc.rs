@@ -18,7 +18,6 @@ use crate::{
     },
 };
 
-
 pub async fn my_new_function<C, F, const N: usize>(
     ctx: C,
     a: &Vec<Replicated<F, N>>,
@@ -28,11 +27,20 @@ where
     F: Field  + FieldSimd<N>,
 {
     let role = ctx.role();
+    let mut counter : u32 = 0;
+    let (l,r) = ctx
+        .prss()
+        .generate::<(<F as Vectorizable<N>>::Array,_),_>(counter);
+    counter += 1;
+    let (left,right) = ctx
+        .prss()
+        .generate::<(u128,u128),_>(counter);
+
+
+
+
     Ok(a.to_vec())
 }
-
-
-
 
 #[cfg(all(test, unit_test))]
 mod test {
@@ -60,7 +68,6 @@ mod test {
     };
 
     use crate::protocol::dp::dp_in_mpc::my_new_function;
-
     #[tokio::test]
     pub async fn test_new_my_function(){
         let world = TestWorld::default();
