@@ -16,7 +16,7 @@ use crate::{
     },
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols},
-        context::Context,
+        context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
             boolean_ops::addition_sequential::integer_add, prf_sharding::AttributionOutputs,
         },
@@ -26,6 +26,7 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
         SharedValue, TransposeFrom, Vectorizable,
     },
+    sharding::NotSharded,
 };
 
 mod bucket;
@@ -124,19 +125,19 @@ pub(crate) enum Step {
 //
 // The output is `&[BitDecomposed<AdditiveShare<Boolean, {buckets}>>]`, indexed by
 // contribution rows, bits of trigger value, and buckets.
-pub async fn aggregate_contributions<C, St, BK, TV, HV, const B: usize, const N: usize>(
-    ctx: C,
+pub async fn aggregate_contributions<'ctx, St, BK, TV, HV, const B: usize, const N: usize>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     contributions_stream: St,
     contributions_stream_len: usize,
 ) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: Context,
     St: Stream<Item = Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error>> + Send,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<N> + FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C, Boolean, B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     BitDecomposed<Replicated<Boolean, N>>:
@@ -192,7 +193,7 @@ where
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
     );
 
-    aggregate_values::<_, _, B>(ctx, aggregation_input, num_chunks * N).await
+    aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
 }
 
 pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>>, Error>;
@@ -208,16 +209,17 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 ///
 /// `OV` is the output value type, which is called `HV` (histogram value) in the attribution
 /// protocol.
-pub async fn aggregate_values<'fut, C, OV, const B: usize>(
-    ctx: C,
+pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
     mut num_rows: usize,
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
-    C: Context,
+    'ctx: 'fut,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C, Boolean, B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -315,9 +317,9 @@ pub mod tests {
             ];
 
             let result = TestWorld::default()
-                .semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await
                 .map(Result::unwrap)
@@ -338,9 +340,9 @@ pub mod tests {
             ];
 
             let result = TestWorld::default()
-                .semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await
                 .map(Result::unwrap)
@@ -361,9 +363,9 @@ pub mod tests {
             ];
 
             let result = TestWorld::default()
-                .semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await
                 .map(Result::unwrap)
@@ -386,9 +388,9 @@ pub mod tests {
             ];
 
             let result = TestWorld::default()
-                .semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await
                 .map(Result::unwrap)
@@ -402,8 +404,8 @@ pub mod tests {
     fn aggregate_empty() {
         run(|| async move {
             let result = TestWorld::default()
-                .semi_honest((), |ctx, ()| {
-                    aggregate_values::<_, BA8, 8>(ctx, stream::empty().boxed(), 0)
+                .upgraded_semi_honest((), |ctx, ()| {
+                    aggregate_values::<BA8, 8>(ctx, stream::empty().boxed(), 0)
                 })
                 .await
                 .map(Result::unwrap)
@@ -423,9 +425,9 @@ pub mod tests {
             ];
 
             let result = TestWorld::default()
-                .semi_honest(inputs.into_iter(), |ctx, inputs| {
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
                 })
                 .await;
 
@@ -496,9 +498,9 @@ pub mod tests {
                     expected,
                     ..
                 } = input_struct;
-                let result = TestWorld::default().semi_honest(inputs.into_iter(), |ctx, inputs| {
+                let result = TestWorld::default().upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
                     let num_rows = inputs.len();
-                    aggregate_values::<_, PropHistogramValue, PROP_BUCKETS>(
+                    aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
                         ctx,
                         stream::iter(inputs).boxed(),
                         num_rows,

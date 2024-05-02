@@ -9,13 +9,16 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, CustomArray, PrimeField,
-        Serializable, U128Conversions,
+        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, ArrayBuild, ArrayBuilder,
+        CustomArray, Serializable, U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
     protocol::{
         basics::{BooleanArrayMul, BooleanProtocols, SecureMul},
-        context::{Context, SemiHonestContext, UpgradableContext, UpgradedContext},
+        context::{
+            Context, SemiHonestContext, UpgradableContext, UpgradedContext,
+            UpgradedSemiHonestContext,
+        },
         ipa_prf::{
             boolean_ops::convert_to_fp25519,
             prf_eval::{eval_dy_prf, gen_prf_key},
@@ -31,6 +34,7 @@ use crate::{
         SharedValue, TransposeFrom,
     },
     seq_join::seq_join,
+    sharding::NotSharded,
     BoolVector,
 };
 
@@ -180,8 +184,8 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<BK, TV, HV, TS, SS, const B: usize>(
-    ctx: SemiHonestContext<'_>,
+pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+    ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
 ) -> Result<Vec<Replicated<HV>>, Error>
@@ -192,7 +196,8 @@ where
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C::UpgradedContext<Boolean>, Boolean, B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,

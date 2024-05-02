@@ -11,15 +11,16 @@ use crate::{
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        modulus_conversion::convert_bits,
-        BasicProtocols, RecordId,
+        context::{Context, UpgradedSemiHonestContext},
+        ipa_prf::aggregation::aggregate_values,
+        RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
         BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, TransposeFrom,
     },
-    seq_join::seq_join,
+    seq_join::{seq_join, SeqJoin},
+    sharding::NotSharded,
 };
 
 pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>> {
@@ -50,17 +51,15 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<C, FV>(
+    pub async fn compute_row_with_previous<'ctx, FV>(
         &mut self,
-        ctx: C,
+        ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<FV>,
     ) -> Result<Replicated<FV>, Error>
     where
-        C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
-        Replicated<Boolean>: BasicProtocols<C, Boolean>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -213,19 +212,18 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<C, FV, OV, const B: usize>(
-    sh_ctx: C,
+pub async fn compute_feature_label_dot_product<'ctx, FV, OV, const B: usize>(
+    sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     input_rows: Vec<PrfShardedIpaInputRow<FV>>,
     histogram: &[usize],
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
     FV: SharedValue + CustomArray<Element = Boolean>,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
     Replicated<FV>: BooleanArrayMul,
-    Replicated<Boolean, B>: BooleanProtocols<C::UpgradedContext<Boolean>, Boolean, B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -272,19 +270,17 @@ where
             }),
     );
 
-    aggregate_values::<_, _, B>(binary_m_ctx, flattened_stream, num_outputs).await
+    aggregate_values::<_, B>(binary_m_ctx, flattened_stream, num_outputs).await
 }
 
-async fn evaluate_per_user_attribution_circuit<C, FV>(
-    ctx_for_row_number: Vec<C>,
+async fn evaluate_per_user_attribution_circuit<FV>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
 ) -> Result<Vec<Replicated<FV>>, Error>
 where
-    C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
-    Replicated<Boolean>: BasicProtocols<C, Boolean>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -441,10 +437,10 @@ pub mod tests {
             let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: Vec<BA8> = world
-                .semi_honest(records.into_iter(), |ctx, input_rows| {
+                .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = histogram.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<_, BA32, BA8, 32>(ctx, input_rows, h)
+                        compute_feature_label_dot_product::<BA32, BA8, 32>(ctx, input_rows, h)
                             .await
                             .unwrap()
                     }

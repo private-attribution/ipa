@@ -45,17 +45,17 @@ impl<'a, HV> OprfIpaQuery<'a, HV> {
 }
 
 #[allow(clippy::too_many_lines)]
-impl<'a, HV> OprfIpaQuery<'a, HV>
+impl<'ctx, HV> OprfIpaQuery<'ctx, HV>
 where
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'a>, Boolean>,
+    Replicated<Boolean>: Serializable + ShareKnownValue<SemiHonestContext<'ctx>, Boolean>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, 256>>, Error = LengthError>,
 {
     #[tracing::instrument("oprf_ipa_query", skip_all, fields(sz=%query_size))]
     pub async fn execute(
         self,
-        ctx: SemiHonestContext<'a>,
+        ctx: SemiHonestContext<'ctx>,
         query_size: QuerySize,
         input_stream: BodyStream,
     ) -> Result<Vec<Replicated<HV>>, Error> {

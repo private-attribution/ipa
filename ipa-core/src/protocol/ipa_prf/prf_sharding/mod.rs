@@ -18,7 +18,7 @@ use crate::{
     ff::{
         boolean::Boolean,
         boolean_array::{BA32, BA7},
-        ArrayAccess, CustomArray, Expand, Field, PrimeField, U128Conversions,
+        ArrayAccess, CustomArray, Expand, Field, U128Conversions,
     },
     helpers::stream::TryFlattenItersExt,
     protocol::{
@@ -27,18 +27,19 @@ use crate::{
         context::{
             Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_add,
-            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+        ipa_prf::{
+            aggregation::aggregate_contributions,
+            boolean_ops::{
+                addition_sequential::integer_add,
+                comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+            },
+            AGG_CHUNK,
         },
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed, SharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -409,8 +410,8 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
-pub async fn attribute_cap_aggregate<BK, TV, HV, TS, SS, const B: usize>(
-    sh_ctx: SemiHonestContext<'a>,
+pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+    sh_ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
@@ -422,7 +423,8 @@ where
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<C::UpgradedContext<Boolean>, Boolean, B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
