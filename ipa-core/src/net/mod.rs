@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Once},
 };
 
+use once_cell::sync::Lazy;
 use rustls::crypto::CryptoProvider;
 use rustls_pki_types::CertificateDer;
 
@@ -24,10 +25,13 @@ pub use transport::{HttpShardTransport, HttpTransport};
 static CRYPTO_INIT: Once = Once::new();
 
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
+static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
+    Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
+
 ///
 /// # Panics
 /// If there are issues starting the default crypto provider
-pub fn get_crypto_provider() -> &'static Arc<CryptoProvider> {
+pub fn get_crypto_provider_old() -> &'static Arc<CryptoProvider> {
     CRYPTO_INIT.call_once(|| {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     });
