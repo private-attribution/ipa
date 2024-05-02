@@ -18,7 +18,6 @@ pub mod validator;
 use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
-#[cfg(feature = "descriptive-gate")]
 pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 use futures::{stream, Stream, StreamExt};
 use ipa_macros::Step;
