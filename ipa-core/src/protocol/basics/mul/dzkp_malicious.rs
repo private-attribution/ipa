@@ -37,50 +37,24 @@ pub async fn multiply<'a, F, const N: usize>(
 where
     F: Field + DZKPCompatibleField<N>,
 {
-    // dzkp segment that is going to be added to the batch
-    let mut segment = Segment::default();
-
-    // include x in the segment
-    segment.set_x(
-        F::as_segment_entry(a.left_arr()),
-        F::as_segment_entry(a.right_arr()),
-    );
-
-    // include y in the segment
-    segment.set_y(
-        F::as_segment_entry(b.left_arr()),
-        F::as_segment_entry(b.right_arr()),
-    );
-
     // Shared randomness used to mask the values that are sent.
     let (prss_left, prss_right) = ctx
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    // include prss in the segment
-    segment.set_prss(
+    let z = multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await?;
+
+    // create segment
+    let segment = Segment::from_entries(
+        F::as_segment_entry(a.left_arr()),
+        F::as_segment_entry(a.right_arr()),
+        F::as_segment_entry(b.left_arr()),
+        F::as_segment_entry(b.right_arr()),
         F::as_segment_entry(&prss_left),
         F::as_segment_entry(&prss_right),
+        F::as_segment_entry(z.right_arr()),
     );
 
-    let z = multiplication_protocol(
-        &ctx,
-        record_id,
-        a,
-        b,
-        prss_left.clone(),
-        prss_right.clone(),
-        zeros,
-    )
-    .await?;
-
-    // add z_right to the segment
-    segment.set_z(F::as_segment_entry(z.right_arr()));
-
-    // check that the segment is not empty
-    debug_assert!(!segment.is_empty());
-    // check the consistency of the entry lengths of the segment
-    debug_assert!(segment.assert_len());
     // add segment to the batch that needs to be verified by the dzkp prover and verifiers
     ctx.push(record_id, segment);
 
@@ -109,6 +83,7 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
 #[cfg(all(test, unit_test))]
 mod test {
     use crate::{
+        error::Error,
         ff::{boolean::Boolean, Fp31},
         protocol::{
             basics::SecureMul,
@@ -137,7 +112,7 @@ mod test {
                     .unwrap();
 
                 // batch contains elements
-                assert!(mctx.is_verified().is_err());
+                assert!(matches!(mctx.is_verified(), Err(Error::ContextUnsafe(_))));
 
                 // validate all elements in the batch
                 validator.validate::<Fp31>().await.unwrap();

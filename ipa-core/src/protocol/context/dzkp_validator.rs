@@ -118,7 +118,7 @@ impl UnverifiedValues {
 /// For efficiency reasons we constrain the segments size in bits to be a divisor of 256
 /// when less than 256 or a multiple of 256 when more than 256.
 /// Therefore, segments eventually need to be filled with `0` to be a multiple of 256
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Segment<'a> {
     x_left: SegmentEntry<'a>,
     x_right: SegmentEntry<'a>,
@@ -174,77 +174,31 @@ impl<'a> Segment<'a> {
         self.x_left.len()
     }
 
-    /// This function allows to assert that the length of all entries is identical
-    ///
-    /// This function is mainly for debugging purposes but it can be used together with `len` to
-    /// determine that the segment is fully specified, i.e. all entries are not empty.
-    #[must_use]
-    pub fn assert_len(&self) -> bool {
-        (self.x_left.len() == self.x_right.len())
-            & (self.x_left.len() == self.y_left.len())
-            & (self.x_left.len() == self.y_right.len())
-            & (self.x_left.len() == self.prss_left.len())
-            & (self.x_left.len() == self.prss_right.len())
-            & (self.x_left.len() == self.z_right.len())
-    }
-
-    /// This function checks whether all entries are empty
-    ///
-    /// if one of the entries is not empty, the function returns `false`
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.x_left.is_empty()
-            & self.x_right.is_empty()
-            & self.y_left.is_empty()
-            & self.y_right.is_empty()
-            & self.prss_left.is_empty()
-            & self.prss_right.is_empty()
-            & self.z_right.is_empty()
-    }
-
-    /// This function allows to set the `SegmentEntries` `x_left` and `x_right` to the `Segment`
-    pub fn set_x(&mut self, x_left: SegmentEntry<'a>, x_right: SegmentEntry<'a>) {
-        self.x_left = x_left;
-        self.x_right = x_right;
-    }
-
-    /// This function allows to set the `SegmentEntries` `y_left` and `y_right` to the `Segment`
-    pub fn set_y(&mut self, y_left: SegmentEntry<'a>, y_right: SegmentEntry<'a>) {
-        self.y_left = y_left;
-        self.y_right = y_right;
-    }
-
-    /// This function allows to set the `SegmentEntries` `prss_left` and `prss_right` to the `Segment`
-    pub fn set_prss(&mut self, prss_left: SegmentEntry<'a>, prss_right: SegmentEntry<'a>) {
-        self.prss_left = prss_left;
-        self.prss_right = prss_right;
-    }
-
-    /// This function allows to set the `SegmentEntry` `z_right` to the `Segment`
-    pub fn set_z(&mut self, z_right: SegmentEntry<'a>) {
-        self.z_right = z_right;
     }
 }
 
 /// `SegmentEntry` is a simple wrapper to represent one entry of a `Segment`
 /// currently, we only support `BitSlices`
-#[derive(Clone, Debug, Default)]
-pub struct SegmentEntry<'a>(Option<&'a BitSliceType>);
+#[derive(Clone, Debug)]
+pub struct SegmentEntry<'a>(&'a BitSliceType);
 
 impl<'a> SegmentEntry<'a> {
     #[must_use]
     pub fn from_bitslice(entry: &'a BitSliceType) -> Self {
-        SegmentEntry(Some(entry))
+        SegmentEntry(entry)
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.map_or_else(|| 0, BitSlice::len)
+        self.0.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.map_or_else(|| true, BitSlice::is_empty)
+        self.0.is_empty()
     }
 }
 
@@ -440,7 +394,7 @@ impl UnverifiedValuesStore {
             let values_in_array = array_value
                 .get_mut(position_bit_array..position_bit_array + length)
                 .unwrap();
-            values_in_array.clone_from_bitslice(segment_value.0.unwrap());
+            values_in_array.clone_from_bitslice(segment_value.0);
         }
     }
 
@@ -456,13 +410,13 @@ impl UnverifiedValuesStore {
             debug_assert!(entry_option.is_none());
             *entry_option = Some(
                 UnverifiedValues::new(
-                    &segment.x_left.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.x_right.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.y_left.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.y_right.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.prss_left.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.prss_right.0.unwrap()[256 * i..256 * (i + 1)],
-                    &segment.z_right.0.unwrap()[256 * i..256 * (i + 1)],
+                    &segment.x_left.0[256 * i..256 * (i + 1)],
+                    &segment.x_right.0[256 * i..256 * (i + 1)],
+                    &segment.y_left.0[256 * i..256 * (i + 1)],
+                    &segment.y_right.0[256 * i..256 * (i + 1)],
+                    &segment.prss_left.0[256 * i..256 * (i + 1)],
+                    &segment.prss_right.0[256 * i..256 * (i + 1)],
+                    &segment.z_right.0[256 * i..256 * (i + 1)],
                 )
                 .unwrap(),
             );
@@ -592,11 +546,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
 
-    /// `is_unverified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    /// `is_verified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_unverified(&self) -> Result<(), Error>;
+    fn is_verified(&self) -> Result<(), Error>;
 
     /// `get_chunk_size` returns the chunk size of the validator
     fn get_chunk_size(&self) -> Option<usize>;
@@ -650,7 +604,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         Ok(())
     }
 
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         Ok(())
     }
 
@@ -693,12 +647,12 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         // LOCK END
     }
 
-    /// `is_unverified` checks that there are no `UnverifiedValues`.
+    /// `is_verified` checks that there are no `UnverifiedValues`.
     /// This function is called by drop() to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
         } else {
@@ -733,7 +687,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
 #[cfg(feature = "descriptive-gate")]
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        self.is_unverified().unwrap();
+        self.is_verified().unwrap();
     }
 }
 
@@ -815,7 +769,7 @@ mod tests {
                     .try_collect::<Vec<_>>()
                     .await?;
                 // check whether verification was successful
-                v.is_unverified().unwrap();
+                v.is_verified().unwrap();
                 m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
@@ -848,7 +802,7 @@ mod tests {
                     ))
                     .try_collect::<Vec<_>>()
                     .await?;
-                v.is_unverified().unwrap();
+                v.is_verified().unwrap();
                 m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });

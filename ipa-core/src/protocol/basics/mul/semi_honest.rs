@@ -46,7 +46,7 @@ where
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    multiplication_protocol(&ctx, record_id, a, b, prss_left, prss_right, zeros).await
+    multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await
 }
 
 /// IKHC multiplication protocol
@@ -67,8 +67,8 @@ pub async fn multiplication_protocol<C, F, const N: usize>(
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,
-    prss_left: <F as Vectorizable<N>>::Array,
-    prss_right: <F as Vectorizable<N>>::Array,
+    prss_left: &<F as Vectorizable<N>>::Array,
+    prss_right: &<F as Vectorizable<N>>::Array,
     zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
@@ -84,8 +84,8 @@ where
 
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
-        let right_d = a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr()
-            - &prss_left;
+        let right_d =
+            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
 
         ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
             .send(record_id, &right_d)
