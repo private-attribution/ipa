@@ -59,7 +59,7 @@ where
         if recv.is_next(this.i) {
             recv.poll_next(cx)
         } else {
-            recv.add_waker(this.i, cx.waker().clone());
+            recv.add_waker(this.i, cx.waker());
             Poll::Pending
         }
     }
@@ -190,7 +190,7 @@ where
     ///
     /// [`recv`]: UnorderedReceiver::recv
     /// [`poll`]: Future::poll
-    fn add_waker(&mut self, i: usize, waker: Waker) {
+    fn add_waker(&mut self, i: usize, waker: &Waker) {
         assert!(
             i > self.next,
             "Awaiting a read (record = {i}) that has already been fulfilled. Read cursor is currently at {}", self.next
@@ -198,20 +198,17 @@ where
         // We don't save a waker at `self.next`, so `>` and not `>=`.
         if i > self.next + self.wakers.len() {
             #[cfg(feature = "stall-detection")]
-            let overflow = (waker, i);
+            let overflow = (waker.clone(), i);
             #[cfg(not(feature = "stall-detection"))]
-            let overflow = waker;
+            let overflow = waker.clone();
             self.overflow_wakers.push(overflow);
         } else {
             let index = i % self.wakers.len();
-            if let Some(old) = self.wakers[index].as_ref() {
-                // We are OK with having multiple polls of the same `Receiver`
-                // (or two `Receiver`s for the same item being polled).
-                // However, as we are only tracking one waker, they both need
-                // to be woken when we invoke the waker we get.
-                assert!(waker.will_wake(old));
+            if let Some(old) = self.wakers[index].as_mut() {
+                old.clone_from(waker);
+            } else {
+                self.wakers[index] = Some(waker.clone());
             }
-            self.wakers[index] = Some(waker);
         }
     }
 
