@@ -40,7 +40,7 @@ pub trait DZKPBaseField: PrimeField {
         prss_right: &'a BitArray32,
     ) -> impl Iterator<Item = UVPolynomials<Self>>;
 
-    /// This is similar to `convert_prover` except that it is called by the verifier to the left.
+    /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
     fn convert_verifier_left<'a>(
         x_right: &'a BitArray32,
@@ -49,7 +49,7 @@ pub trait DZKPBaseField: PrimeField {
         z_right: &'a BitArray32,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>>;
 
-    /// This is similar to `convert_prover` except that it is called by the verifier to the right.
+    /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
     fn convert_verifier_right<'a>(
         x_left: &'a BitArray32,
@@ -81,9 +81,14 @@ impl DZKPBaseField for Fp61BitPrime {
     // h4=1-2f,
     //
     // where
-    // (a,b,c,d,f) = (xleft, yright, yleft, xright, prssright)
+    // (a,b,c,d,f) = (x_left, y_right, y_left, x_right, prss_right)
     // and
     // e = ab⊕cd⊕ f
+    // e is defined different from the paper here,
+    // in the paper e is defined as e = x_left · y_left ⊕ z_left ⊕ prss_left
+    // notice that the prover is supposed to show that ab⊕cd⊕ f⊕ e =0
+    // therefore e = ab⊕cd⊕ f must hold. (alternatively, you can also see this by substituting z_left,
+    // i.e. z_left = x_left · y_left ⊕ x_left · y_right ⊕ x_right · y_left ⊕ prss_left ⊕ prss_right
     fn convert_prover<'a>(
         x_left: &'a BitArray32,
         x_right: &'a BitArray32,
@@ -109,7 +114,7 @@ impl DZKPBaseField for Fp61BitPrime {
                 let ac: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(a)
                     .unwrap()
                     & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(c).unwrap();
-                // precompute bd = b & c
+                // precompute bd = b & d
                 let bd: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(b)
                     .unwrap()
                     & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(d).unwrap();
@@ -174,6 +179,8 @@ impl DZKPBaseField for Fp61BitPrime {
     //
     // where
     // (a,c,e) = (xright, yright, xright * yright ⊕ zright ⊕ prssright)
+    // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
+    // he cannot use the simplified formula for e)
     fn convert_verifier_left<'a>(
         x_right: &'a BitArray32,
         y_right: &'a BitArray32,
@@ -191,6 +198,7 @@ impl DZKPBaseField for Fp61BitPrime {
                     .unwrap()
                     & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(c).unwrap();
                 // e = ac ⊕ zright ⊕ prssright
+                // as defined in the paper
                 let e: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = ac
                     ^ BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(prss).unwrap()
                     ^ BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(z).unwrap();
@@ -241,7 +249,7 @@ impl DZKPBaseField for Fp61BitPrime {
             .zip(x_left.chunks(RECURSION_CHUNK_SIZE))
             .zip(prss_left.chunks(RECURSION_CHUNK_SIZE))
             .map(|((b, d), f)| {
-                // precompute bd = b & c
+                // precompute bd = b & d
                 let bd: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(b)
                     .unwrap()
                     & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(d).unwrap();
@@ -330,7 +338,7 @@ mod tests {
             BitArray::<[u8; 32]>::try_from(BitSlice::from_slice(&vec_prss_right)).unwrap();
         let z_right = BitArray::<[u8; 32]>::try_from(BitSlice::from_slice(&vec_z_right)).unwrap();
 
-        // check correctness of the polynomials
+        // check consistency of the polynomials
         assert_convert(
             Fp61BitPrime::convert_prover(&x_left, &x_right, &y_left, &y_right, &prss_right),
             // flip intputs right to left since it is checked against itself and not party on the left
