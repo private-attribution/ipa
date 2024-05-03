@@ -18,7 +18,7 @@ use crate::{
         context::{
             dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
-            InstrumentedSequentialSharedRandomness, SpecialAccessToUpgradedContext,
+            InstrumentedSequentialSharedRandomness, ShardedContext, SpecialAccessToUpgradedContext,
             UpgradableContext, UpgradedContext,
         },
         prss::Endpoint as PrssEndpoint,
@@ -78,6 +78,16 @@ impl<'a, B: ShardBinding> Context<'a, B> {
     }
 }
 
+impl ShardedContext for Context<'_, Sharded> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.shard_send_channel(dest_shard)
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner.shard_recv_channel(origin)
+    }
+}
+
 impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
     fn role(&self) -> Role {
         self.inner.role()
@@ -123,16 +133,8 @@ impl<'a, B: ShardBinding> super::Context for Context<'a, B> {
         self.inner.send_channel(role)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.shard_send_channel(dest_shard)
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner.recv_channel(role)
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner.shard_recv_channel(origin)
     }
 }
 
@@ -182,6 +184,26 @@ impl<'a, B: ShardBinding, F: ExtendableField> Upgraded<'a, B, F> {
     }
 }
 
+impl<F: ExtendableField> ShardConfiguration for Upgraded<'_, Sharded, F> {
+    fn shard_id(&self) -> ShardIndex {
+        self.inner.shard_id()
+    }
+
+    fn shard_count(&self) -> ShardIndex {
+        self.inner.shard_count()
+    }
+}
+
+impl<F: ExtendableField> ShardedContext for Upgraded<'_, Sharded, F> {
+    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
+        self.inner.shard_send_channel(dest_shard)
+    }
+
+    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
+        self.inner.shard_recv_channel(origin)
+    }
+}
+
 impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B, F> {
     fn role(&self) -> Role {
         self.inner.role()
@@ -223,16 +245,8 @@ impl<'a, B: ShardBinding, F: ExtendableField> super::Context for Upgraded<'a, B,
         self.inner.send_channel(role)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.shard_send_channel(dest_shard)
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner.recv_channel(role)
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner.shard_recv_channel(origin)
     }
 }
 
