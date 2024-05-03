@@ -14,7 +14,7 @@ pub type UVPolynomials<F> = (
 );
 pub type SingleUVPolynomial<F> = GenericArray<F, InitialRecursionFactor>;
 
-const RECURSION_CHUNK_SIZE: usize = 8;
+const RECURSION_CHUNK_SIZE_BITS: usize = 8;
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
@@ -60,8 +60,8 @@ pub trait DZKPBaseField: PrimeField {
 
 impl DZKPBaseField for Fp61BitPrime {
     const INVERSE_OF_TWO: Self = Fp61BitPrime::const_truncate(1_152_921_504_606_846_976u64);
-    const MINUS_ONE_HALF: Self = Fp61BitPrime::const_neg(Self::INVERSE_OF_TWO);
-    const MINUS_TWO: Self = Fp61BitPrime::const_neg(Fp61BitPrime::const_truncate(2));
+    const MINUS_ONE_HALF: Self = Fp61BitPrime::const_truncate(1_152_921_504_606_846_975u64);
+    const MINUS_TWO: Self = Fp61BitPrime::const_truncate(2_305_843_009_213_693_949u64);
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
     // We use the conversion logic from https://eprint.iacr.org/2023/909.pdf
@@ -97,27 +97,33 @@ impl DZKPBaseField for Fp61BitPrime {
         prss_right: &'a BitArray32,
     ) -> impl Iterator<Item = UVPolynomials<Fp61BitPrime>> {
         x_left
-            .chunks(RECURSION_CHUNK_SIZE)
-            .zip(y_right.chunks(RECURSION_CHUNK_SIZE))
-            .zip(y_left.chunks(RECURSION_CHUNK_SIZE))
-            .zip(x_right.chunks(RECURSION_CHUNK_SIZE))
-            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE))
+            .chunks(RECURSION_CHUNK_SIZE_BITS)
+            .zip(y_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(y_left.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(x_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE_BITS))
             .map(|((((a, b), c), d), f)| {
                 // e = ab⊕cd⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
-                let e: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = (BitArray::try_from(a)
-                    .unwrap()
-                    & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(b).unwrap())
-                    ^ (BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(c).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(d).unwrap())
-                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(f).unwrap();
+                let e: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
+                    (BitArray::try_from(a).unwrap()
+                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(b)
+                            .unwrap())
+                        ^ (BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
+                            .unwrap()
+                            & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
+                                .unwrap())
+                        ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(f)
+                            .unwrap();
                 // precompute ac = a & c
-                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(a)
-                    .unwrap()
-                    & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(c).unwrap();
+                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
+                    BitArray::try_from(a).unwrap()
+                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
+                            .unwrap();
                 // precompute bd = b & d
-                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(b)
-                    .unwrap()
-                    & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(d).unwrap();
+                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
+                    BitArray::try_from(b).unwrap()
+                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
+                            .unwrap();
                 (
                     // g polynomial
                     a.iter()
@@ -188,20 +194,22 @@ impl DZKPBaseField for Fp61BitPrime {
         z_right: &'a BitArray32,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         x_right
-            .chunks(RECURSION_CHUNK_SIZE)
-            .zip(y_right.chunks(RECURSION_CHUNK_SIZE))
-            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE))
-            .zip(z_right.chunks(RECURSION_CHUNK_SIZE))
+            .chunks(RECURSION_CHUNK_SIZE_BITS)
+            .zip(y_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(z_right.chunks(RECURSION_CHUNK_SIZE_BITS))
             .map(|(((a, c), prss), z)| {
                 // precompute ac = a & c
-                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(a)
-                    .unwrap()
-                    & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(c).unwrap();
+                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
+                    BitArray::try_from(a).unwrap()
+                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
+                            .unwrap();
                 // e = ac ⊕ zright ⊕ prssright
                 // as defined in the paper
-                let e: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = ac
-                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(prss).unwrap()
-                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(z).unwrap();
+                let e: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> = ac
+                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(prss)
+                        .unwrap()
+                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(z).unwrap();
                 // g polynomial
                 a.iter()
                     .zip(c.iter())
@@ -245,14 +253,15 @@ impl DZKPBaseField for Fp61BitPrime {
         prss_left: &'a BitArray32,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         y_left
-            .chunks(RECURSION_CHUNK_SIZE)
-            .zip(x_left.chunks(RECURSION_CHUNK_SIZE))
-            .zip(prss_left.chunks(RECURSION_CHUNK_SIZE))
+            .chunks(RECURSION_CHUNK_SIZE_BITS)
+            .zip(x_left.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .zip(prss_left.chunks(RECURSION_CHUNK_SIZE_BITS))
             .map(|((b, d), f)| {
                 // precompute bd = b & d
-                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0> = BitArray::try_from(b)
-                    .unwrap()
-                    & BitArray::<[u8; RECURSION_CHUNK_SIZE >> 3], Lsb0>::try_from(d).unwrap();
+                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
+                    BitArray::try_from(b).unwrap()
+                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
+                            .unwrap();
                 // h polynomial
                 b.iter()
                     .zip(d.iter())
@@ -279,12 +288,14 @@ impl DZKPBaseField for Fp61BitPrime {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use bitvec::{array::BitArray, slice::BitSlice};
+    use bitvec::{array::BitArray, macros::internal::funty::Fundamental, slice::BitSlice};
+    use proptest::proptest;
     use rand::{thread_rng, Rng};
 
     use crate::{
-        ff::Fp61BitPrime,
+        ff::{Field, Fp61BitPrime, U128Conversions},
         protocol::context::dzkp_field::{DZKPBaseField, SingleUVPolynomial, UVPolynomials},
+        secret_sharing::SharedValue,
     };
 
     #[test]
@@ -360,5 +371,120 @@ mod tests {
                 assert_eq!(prover.1, verifier_right);
             },
         );
+    }
+
+    #[test]
+    fn check_constants() {
+        // check one
+        assert_eq!(
+            Fp61BitPrime::ONE,
+            Fp61BitPrime::ZERO + Fp61BitPrime::truncate_from(1u128)
+        );
+        // check two inverse
+        assert_eq!(
+            Fp61BitPrime::INVERSE_OF_TWO * Fp61BitPrime::truncate_from(2u128),
+            Fp61BitPrime::ONE
+        );
+        // check minus one half
+        assert_eq!(
+            Fp61BitPrime::MINUS_ONE_HALF * Fp61BitPrime::truncate_from(2u128) + Fp61BitPrime::ONE,
+            Fp61BitPrime::ZERO
+        );
+        // check minus two
+        assert_eq!(
+            Fp61BitPrime::MINUS_TWO * Fp61BitPrime::MINUS_ONE_HALF,
+            Fp61BitPrime::ONE
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn prop_test_correctness_prover(x_left: bool, x_right: bool, y_left: bool, y_right: bool, prss_left: bool, prss_right: bool){
+            correctness_prover_values(x_left, x_right, y_left, y_right, prss_left, prss_right);
+        }
+    }
+
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn correctness_prover_values(
+        x_left: bool,
+        x_right: bool,
+        y_left: bool,
+        y_right: bool,
+        prss_left: bool,
+        prss_right: bool,
+    ) {
+        let mut array_x_left = BitArray::<[u8; 32]>::ZERO;
+        let mut array_x_right = BitArray::<[u8; 32]>::ZERO;
+        let mut array_y_left = BitArray::<[u8; 32]>::ZERO;
+        let mut array_y_right = BitArray::<[u8; 32]>::ZERO;
+        let mut array_prss_left = BitArray::<[u8; 32]>::ZERO;
+        let mut array_prss_right = BitArray::<[u8; 32]>::ZERO;
+
+        // initialize bits
+        array_x_left.set(0, x_left);
+        array_x_right.set(0, x_right);
+        array_y_left.set(0, y_left);
+        array_y_right.set(0, y_right);
+        array_prss_left.set(0, prss_left);
+        array_prss_right.set(0, prss_right);
+
+        let prover = Fp61BitPrime::convert_prover(
+            &array_x_left,
+            &array_x_right,
+            &array_y_left,
+            &array_y_right,
+            &array_prss_right,
+        )
+        .next()
+        .unwrap();
+
+        // compute expected
+        // (a,b,c,d,f) = (x_left, y_right, y_left, x_right, prss_right)
+        // e = x_left · y_left ⊕ z_left ⊕ prss_left
+
+        // z_left = x_left * y_left ⊕ x_left * y_right ⊕ x_right * y_left ⊕ prss_right ⊕ prss_left
+        let z_left =
+            (x_left & y_left) ^ (x_left & y_right) ^ (x_right & y_left) ^ prss_right ^ prss_left;
+
+        // ac = x_left * y_left
+        let ac = Fp61BitPrime::truncate_from((x_left & y_left).as_u128());
+        // (1-e) = (1 - x_left · y_left ⊕ z_left ⊕ prss_left)
+        let one_minus_two_e = Fp61BitPrime::ONE
+            + Fp61BitPrime::MINUS_TWO
+                * Fp61BitPrime::truncate_from((x_left & y_left ^ z_left ^ prss_left).as_u128());
+        // g1 = -2ac(1-2e)
+        let g1 = Fp61BitPrime::MINUS_TWO * ac * one_minus_two_e;
+        // g2=c(1-2e),
+        let g2 = Fp61BitPrime::truncate_from(y_left.as_u128()) * one_minus_two_e;
+        // g3=a(1-2e),
+        let g3 = Fp61BitPrime::truncate_from(x_left) * one_minus_two_e;
+        // g4=-1/2(1-2e),
+        let g4 = Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e;
+        // bd = y_right * x_right
+        let bd = Fp61BitPrime::truncate_from((x_right & y_right).as_u128());
+        // (1-2f)
+        let one_minus_two_f = Fp61BitPrime::ONE
+            + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::truncate_from(prss_right.as_u128());
+        // h1=bd(1-2f),
+        let h1 = bd * one_minus_two_f;
+        // h2=d(1-2f),
+        let h2 = Fp61BitPrime::truncate_from(x_right.as_u128()) * one_minus_two_f;
+        // h3=b(1-2f),
+        let h3 = Fp61BitPrime::truncate_from(y_right) * one_minus_two_f;
+        // h4=1-2f,
+        let h4 = one_minus_two_f;
+
+        // check expected == computed
+        // g polynomial
+        assert_eq!(g1, prover.0[0]);
+        assert_eq!(g2, prover.0[1]);
+        assert_eq!(g3, prover.0[2]);
+        assert_eq!(g4, prover.0[3]);
+
+        // h polynomial
+        assert_eq!(h1, prover.1[0]);
+        assert_eq!(h2, prover.1[1]);
+        assert_eq!(h3, prover.1[2]);
+        assert_eq!(h4, prover.1[3]);
     }
 }

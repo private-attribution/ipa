@@ -439,11 +439,6 @@ mod fp61bit {
             Self(input % Self::PRIME)
         }
 
-        #[must_use]
-        pub const fn const_neg(input: Self) -> Self {
-            Self(Self::PRIME - input.0)
-        }
-
         /// `from_bit` is more efficient than `truncate_from` since it does not use a mod operation.
         /// However, it only allows conversions from `bool`.
         #[must_use]
