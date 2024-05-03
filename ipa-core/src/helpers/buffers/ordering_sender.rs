@@ -182,7 +182,6 @@ impl WaitingShard {
             match self.wakers[j].i.cmp(&i) {
                 Ordering::Greater => (),
                 Ordering::Equal => {
-                    assert!(item.w.will_wake(&self.wakers[j].w));
                     self.wakers[j] = item;
                     return Ok(());
                 }
