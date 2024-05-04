@@ -7,6 +7,7 @@ mod reshare;
 mod reveal;
 mod share_known_value;
 pub mod sum_of_product;
+pub mod validate;
 
 use std::ops::Not;
 
