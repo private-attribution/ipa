@@ -2,11 +2,12 @@ use std::iter::{self, zip};
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
+use generic_array::{functional::FunctionalSequence, sequence::GenericSequence, ArrayLength, GenericArray};
 use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::{BA16, BA8}, ArrayAccess, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
@@ -23,10 +24,10 @@ use crate::{
     sharding::NotSharded,
 };
 
-pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>> {
+pub struct PrfShardedIpaInputRow<M: ArrayLength, FV: SharedValue + CustomArray<Element = Boolean>> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
-    feature_vector: Replicated<FV>,
+    feature_vector: GenericArray<Replicated<FV>, M>,
 }
 
 struct InputsRequiredFromPrevRow {
@@ -51,15 +52,18 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<'ctx, FV>(
+    pub async fn compute_row_with_previous<C, M, FV>(
         &mut self,
-        ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+        ctx: C,
         record_id: RecordId,
-        input_row: &PrfShardedIpaInputRow<FV>,
-    ) -> Result<Replicated<FV>, Error>
+        input_row: &PrfShardedIpaInputRow<M, FV>,
+    ) -> Result<GenericArray<Replicated<FV>, M>, Error>
     where
+        C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
+        M: ArrayLength,
+        Replicated<Boolean>: SecureMul<C>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -94,19 +98,29 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let capped_attributed_feature_vector = select(
-            ctx.narrow(&Step::ComputedCappedFeatureVector),
-            record_id,
-            &capped_label,
-            &input_row.feature_vector,
-            &Replicated::<FV>::ZERO,
-        )
-        .await?;
+        let feature_contexts = (0..).map(|i| ctx.narrow(&Step::ComputedCappedFeatureVector(i)));
+        let capped_label_ref = &capped_label;
+        let capped_attributed_feature_vector = ctx
+            .parallel_join(zip(feature_contexts, &input_row.feature_vector).map(
+                |(c, feature)| async move {
+                    select(
+                        c,
+                        record_id,
+                        capped_label_ref,
+                        feature,
+                        &Replicated::<FV>::ZERO,
+                    )
+                    .await
+                },
+            ))
+            .await?;
 
         self.ever_encountered_a_trigger_event = ever_encountered_a_trigger_event;
         self.is_saturated = updated_is_saturated;
 
-        Ok(capped_attributed_feature_vector)
+        Ok(GenericArray::from_iter(
+            capped_attributed_feature_vector.into_iter(),
+        ))
     }
 }
 
@@ -124,12 +138,16 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(Step)]
 pub(crate) enum Step {
-    BinaryValidator,
     EverEncounteredTriggerEvent,
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
     IsAttributedSourceAndPrevRowNotSaturated,
-    ComputedCappedFeatureVector,
+    #[dynamic(1024)]
+    ComputedCappedFeatureVector(usize),
+    #[dynamic(32)]
+    AggregatePass(usize),
+    #[dynamic(64)]
+    AggregateFeatureIndex(usize),
 }
 
 fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
@@ -154,13 +172,14 @@ where
 /// Takes an input stream of `PrfShardedIpaInputRecordRow` which is assumed to have all records with a given PRF adjacent
 /// and converts it into a stream of vectors of `PrfShardedIpaInputRecordRow` having the same PRF.
 ///
-fn chunk_rows_by_user<FV, IS>(
+fn chunk_rows_by_user<FV, IS, M>(
     input_stream: IS,
-    first_row: PrfShardedIpaInputRow<FV>,
-) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV>>>
+    first_row: PrfShardedIpaInputRow<M, FV>,
+) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<M, FV>>>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
-    IS: Stream<Item = PrfShardedIpaInputRow<FV>> + Unpin,
+    IS: Stream<Item = PrfShardedIpaInputRow<M, FV>> + Unpin,
+    M: ArrayLength,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
         let (mut s, last_row) = state?;
@@ -212,34 +231,27 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<'ctx, FV, OV, const B: usize>(
-    sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
-    input_rows: Vec<PrfShardedIpaInputRow<FV>>,
+pub async fn compute_feature_label_dot_product<C, M /*FV, FVS*/, const B: usize>(
+    ctx: C,
+    input_rows: Vec<PrfShardedIpaInputRow<M, BA8>>,
     histogram: &[usize],
-) -> Result<Vec<Replicated<OV>>, Error>
+) -> Result<GenericArray<Replicated<BA16>, M>, Error>
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
-    Replicated<FV>: BooleanArrayMul,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
-    Vec<Replicated<OV>>:
-        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
+    C: Context,
+    // FV: SharedValue + CustomArray<Element = Boolean>,
+    // FVS: SharedValue + CustomArray<Element = Boolean>,
+    Replicated<BA8>: BooleanArrayMul,
+    Replicated<Boolean>: SecureMul<C>,
+    M: ArrayLength,
 {
-    assert_eq!(<FV as SharedValue>::BITS, u32::try_from(B).unwrap());
-
-    // Get the validator and context to use for Boolean multiplication operations
-    let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
-
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+    let num_outputs = histogram[0];
+    let ctx_for_row_number = set_up_contexts(&ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        return Ok(vec![]);
+        return Ok(GenericArray::generate(|_| Replicated::<BA16>::ZERO));
     };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
@@ -263,33 +275,43 @@ where
 
     // Execute all of the async futures (sequentially), and flatten the result
     let flattened_stream = Box::pin(
-        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
-            .try_flatten_iters()
+        seq_join(ctx.active_work(), stream::iter(chunked_user_results))
             .map_ok(|value| {
-                BitDecomposed::new(iter::once(Replicated::new_arr(value.left(), value.right())))
+                BitDecomposed::new(iter::once(Replicated::new_arr(value[0].left(), value[0].right())))
+                /*
+                value.map(|feature| {
+                    BitDecomposed::new(&feature)
+                })
+                */
             }),
     );
 
-    aggregate_values::<_, B>(binary_m_ctx, flattened_stream, num_outputs).await
+    let foo = aggregate_values::<BA16, B>(ctx, flattened_stream, num_outputs).await?;
+
+    Ok(GenericArray::from_iter(foo))
 }
 
-async fn evaluate_per_user_attribution_circuit<FV>(
-    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
+async fn evaluate_per_user_attribution_circuit<C, M, FV>(
+    ctx_for_row_number: Vec<C>,
     record_id: RecordId,
-    rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Result<Vec<Replicated<FV>>, Error>
+    rows_for_user: Vec<PrfShardedIpaInputRow<M, FV>>,
+) -> Result<GenericArray<Replicated<FV>, M>, Error>
 where
+    C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
+    Replicated<Boolean>: SecureMul<C>,
+    M: ArrayLength,
 {
+    let mut output = GenericArray::<Replicated<FV>, M>::generate(|_| Replicated::<FV>::ZERO);
+
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
-        return Ok(Vec::new());
+        return Ok(output);
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs = initialize_new_device_attribution_variables(first_row);
 
-    let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
@@ -297,7 +319,9 @@ where
             .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
-        output.push(capped_attribution_outputs);
+        output = zip(output, capped_attribution_outputs)
+            .map(|(x, y)| x + y)
+            .collect();
     }
 
     Ok(output)
@@ -307,11 +331,12 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<FV>(
-    input_row: &PrfShardedIpaInputRow<FV>,
+fn initialize_new_device_attribution_variables<M, FV>(
+    input_row: &PrfShardedIpaInputRow<M, FV>,
 ) -> InputsRequiredFromPrevRow
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
+    M: ArrayLength,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -321,12 +346,11 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+    use typenum::U32;
+
     use crate::{
-        ff::{
-            boolean::Boolean,
-            boolean_array::{BA32, BA8},
-            CustomArray, Field, U128Conversions,
-        },
+        ff::{boolean::Boolean, boolean_array::BA8, CustomArray, Field, U128Conversions},
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },
@@ -338,17 +362,17 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>> {
+    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>, M: ArrayLength> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
-        feature_vector: FV,
+        feature_vector: GenericArray<FV, M>,
     }
 
     fn test_input(
         prf_of_match_key: u64,
         is_trigger: bool,
-        feature_vector: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<BA32> {
+        feature_vector: [u8; 32],
+    ) -> PreShardedAndSortedOPRFTestInput<BA8, U32> {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
@@ -358,15 +382,18 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            feature_vector: BA32::truncate_from(feature_vector),
+            feature_vector: GenericArray::<_, U32>::generate(|i| {
+                BA8::truncate_from(feature_vector[i])
+            }),
         }
     }
 
-    impl<FV> IntoShares<PrfShardedIpaInputRow<FV>> for PreShardedAndSortedOPRFTestInput<FV>
+    impl<M, FV> IntoShares<PrfShardedIpaInputRow<M, FV>> for PreShardedAndSortedOPRFTestInput<FV, M>
     where
         FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
+        M: ArrayLength,
     {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV>; 3] {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<M, FV>; 3] {
             let PreShardedAndSortedOPRFTestInput {
                 prf_of_match_key,
                 is_trigger_bit,
@@ -403,51 +430,154 @@ pub mod tests {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<BA32>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, U32>> = vec![
                 /* First User */
-                test_input(123, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(123, false, 0b1101_0100_1111_0001_0111_0010_1010_1011), // this source DOES receive attribution
-                test_input(123, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
-                test_input(123, false, 0b0110_1101_0001_0100_1011_0100_1010_1001), // this source does not receive attribution (capped)
+                test_input(
+                    123,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    123,
+                    false,
+                    [
+                        2, 8, 127, 4, 19, 33, 51, 92, 126, 22, 60, 12, 15, 201, 227, 56, 107, 40,
+                        66, 29, 14, 42, 78, 99, 100, 48, 3, 5, 9, 91, 42, 198,
+                    ],
+                ), // this source DOES receive attribution
+                test_input(
+                    123,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    123,
+                    false,
+                    [
+                        14, 12, 110, 210, 52, 3, 89, 32, 74, 28, 50, 216, 184, 163, 49, 211, 19,
+                        162, 182, 244, 35, 8, 97, 23, 168, 9, 12, 68, 178, 234, 40, 196,
+                    ],
+                ), // this source does not receive attribution (capped)
                 /* Second User */
-                test_input(234, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(234, false, 0b0001_1010_0011_0111_0110_0010_1111_0000), // this source DOES receive attribution
+                test_input(
+                    234,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    234,
+                    false,
+                    [
+                        227, 107, 125, 75, 50, 15, 115, 120, 49, 144, 160, 122, 11, 129, 117, 165,
+                        181, 92, 98, 167, 33, 90, 48, 149, 171, 253, 67, 70, 142, 166, 163, 47,
+                    ],
+                ), // this source DOES receive attribution
                 /* Third User */
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, false, 0b0111_0101_0001_0000_0111_0100_0101_0011), // this source DOES receive attribution
-                test_input(345, false, 0b1001_1000_1011_1101_0100_0110_0001_0100), // this source does not receive attribution (capped)
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
-                test_input(345, false, 0b1000_1001_0100_0011_0111_0010_0000_1101), // this source does not receive attribution (capped)
+                test_input(
+                    345,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    345,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    345,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    345,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    345,
+                    false,
+                    [
+                        107, 205, 128, 36, 178, 207, 60, 220, 201, 97, 152, 28, 38, 53, 186, 254,
+                        222, 240, 117, 117, 66, 178, 175, 89, 101, 76, 243, 219, 22, 30, 251, 85,
+                    ],
+                ), // this source DOES receive attribution
+                test_input(
+                    345,
+                    false,
+                    [
+                        44, 207, 162, 138, 83, 125, 3, 250, 170, 189, 81, 234, 182, 245, 19, 122,
+                        181, 196, 161, 27, 69, 45, 9, 251, 152, 39, 7, 104, 192, 250, 252, 205,
+                    ],
+                ), // this source does not receive attribution (capped)
+                test_input(
+                    345,
+                    true,
+                    [
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                ), // trigger
+                test_input(
+                    345,
+                    false,
+                    [
+                        160, 183, 201, 55, 144, 46, 252, 73, 99, 143, 14, 49, 168, 156, 133, 20,
+                        171, 211, 253, 215, 172, 20, 99, 53, 218, 135, 246, 162, 101, 54, 198, 187,
+                    ],
+                ), // this source does not receive attribution (capped)
             ];
 
-            let mut expected: [u128; 32] = [
-                //     1101_0100_1111_0001_0111_0010_1010_1011
-                //     0001_1010_0011_0111_0110_0010_1111_0000
-                // +   0111_0101_0001_0000_0111_0100_0101_0011
-                // -------------------------------------------
-                //     1213_1211_1123_0112_0332_0120_2222_1022
-                1, 2, 1, 3, 1, 2, 1, 1, 1, 1, 2, 3, 0, 1, 1, 2, 0, 3, 3, 2, 0, 1, 2, 0, 2, 2, 2, 2,
-                1, 0, 2, 2,
+            let expected: [u128; 32] = [
+                //      2	8	127	4	19	33	51	92	126	22	60	12	15	201	227	56	107	40	66	29	14	42	78	99	100	48	3	5	9	91	42	198
+                //      227	107	125	75	50	15	115	120	49	144	160	122	11	129	117	165	181	92	98	167	33	90	48	149	171	253	67	70	142	166	163	47
+                // +    107	205	128	36	178	207	60	220	201	97	152	28	38	53	186	254	222	240	117	117	66	178	175	89	101	76	243	219	22	30	251	85
+                // ------------------------------------------------------------------------------------------------------------------------------------
+                //      336	320	380	115	247	255	226	432	376	263	372	162	64	383	530	475	510	372	281	313	113	310	301	337	372	377	313	294	173	287	456	330
+                336, 320, 380, 115, 247, 255, 226, 432, 376, 263, 372, 162, 64, 383, 530, 475, 510,
+                372, 281, 313, 113, 310, 301, 337, 372, 377, 313, 294, 173, 287, 456, 330,
             ];
-            expected.reverse(); // convert to little-endian order
 
             let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
-            let result: Vec<BA8> = world
-                .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
+            let results = world
+                .semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = histogram.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<BA32, BA8, 32>(ctx, input_rows, h)
+                        compute_feature_label_dot_product::<_, U32>(ctx, input_rows, h)
                             .await
                             .unwrap()
                     }
                 })
-                .await
-                .reconstruct();
-            assert_eq!(result, &expected);
+                .await;
+
+            let result = [&results[0], &results[1], &results[2]]
+                .reconstruct()
+                .iter()
+                .map(|x| x.as_u128())
+                .collect::<Vec<_>>();
+
+            assert_eq!(&result, &expected);
         });
     }
 }
