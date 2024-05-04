@@ -232,7 +232,7 @@ where
     let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
+    let num_outputs = histogram[0];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
