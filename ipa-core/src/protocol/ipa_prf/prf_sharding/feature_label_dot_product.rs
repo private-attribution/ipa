@@ -7,7 +7,6 @@ use ipa_macros::Step;
 use crate::{
     error::{Error, LengthError},
     ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
-    helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
@@ -264,7 +263,6 @@ where
     // Execute all of the async futures (sequentially), and flatten the result
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
-            .try_flatten_iters()
             .map_ok(|value| {
                 BitDecomposed::new(iter::once(Replicated::new_arr(value.left(), value.right())))
             }),
@@ -277,19 +275,19 @@ async fn evaluate_per_user_attribution_circuit<FV>(
     ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Result<Vec<Replicated<FV>>, Error>
+) -> Result<Replicated<FV>, Error>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
-        return Ok(Vec::new());
+        return Ok(Replicated::<FV>::ZERO);
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs = initialize_new_device_attribution_variables(first_row);
 
-    let mut output = Vec::with_capacity(rows_for_user.len() - 1);
+    let mut output = Replicated::<FV>::ZERO;
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
@@ -297,7 +295,7 @@ where
             .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
-        output.push(capped_attribution_outputs);
+        output = output + capped_attribution_outputs;
     }
 
     Ok(output)
