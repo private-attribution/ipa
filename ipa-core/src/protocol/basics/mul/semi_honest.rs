@@ -284,16 +284,8 @@ mod test {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
-        let a: [Fp32BitPrime; COUNT] = (0..COUNT)
-            .map(|_| rng.gen::<Fp32BitPrime>())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let b: [Fp32BitPrime; COUNT] = (0..COUNT)
-            .map(|_| rng.gen::<Fp32BitPrime>())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let a: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.gen());
+        let b: [Fp32BitPrime; COUNT] = array::from_fn(|_| rng.gen());
         let expected: [Fp32BitPrime; COUNT] = zip(a.iter(), b.iter())
             .map(|(&a, &b)| a * b)
             .collect::<Vec<_>>()

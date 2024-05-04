@@ -555,6 +555,18 @@ impl From<usize> for TotalRecords {
     }
 }
 
+pub fn zip3<T, U>(a: [T; 3], b: [U; 3]) -> [(T, U); 3] {
+    let [a0, a1, a2] = a;
+    let [b0, b1, b2] = b;
+    [(a0, b0), (a1, b1), (a2, b2)]
+}
+
+pub fn zip3_ref<'t, 'u, T, U>(a: &'t [T; 3], b: &'u [U; 3]) -> [(&'t T, &'u U); 3] {
+    let [a0, a1, a2] = a.each_ref();
+    let [b0, b1, b2] = b.each_ref();
+    [(a0, b0), (a1, b1), (a2, b2)]
+}
+
 #[cfg(all(test, unit_test))]
 mod tests {
     use super::*;
@@ -592,11 +604,7 @@ mod tests {
 
         #[test]
         fn basic() {
-            let identities = (1..=3)
-                .map(HelperIdentity::from)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let identities = HelperIdentity::make_three();
             let assignment = RoleAssignment::new(identities);
 
             assert_eq!(Role::H1, assignment.role(HelperIdentity::from(1)));

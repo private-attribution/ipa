@@ -7,7 +7,7 @@ use crate::{
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
+        zip3, ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
     },
     protocol::QueryId,
     query::QueryStatus,
@@ -64,15 +64,8 @@ impl Default for TestApp {
 
         let mpc_network = InMemoryMpcNetwork::new(handlers.map(Some));
         let shard_network = InMemoryShardNetwork::with_shards(1);
-        let drivers = mpc_network
-            .transports()
-            .iter()
-            .zip(setup)
-            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)))
-            .collect::<Vec<_>>()
-            .try_into()
-            .ok()
-            .unwrap();
+        let drivers = zip3(mpc_network.transports().each_ref(), setup)
+            .map(|(t, s)| s.connect(Clone::clone(t), shard_network.transport(t.identity(), 0)));
 
         Self {
             drivers,

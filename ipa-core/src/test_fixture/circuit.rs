@@ -6,7 +6,7 @@ use rand::distributions::{Distribution, Standard};
 
 use crate::{
     ff::{Field, U128Conversions},
-    helpers::{GatewayConfig, TotalRecords},
+    helpers::{zip3, GatewayConfig, TotalRecords},
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
@@ -83,31 +83,21 @@ pub async fn arithmetic<F, const N: usize>(
     // Re-use contexts for the entire execution because record identifiers are contiguous.
     let contexts = world.contexts();
 
-    let [inp0, inp1, inp2] = input_data;
-
-    let Ok([fut0, fut1, fut2]): Result<[_; 3], _> = contexts
-        .into_iter()
-        .zip([inp0, inp1, inp2])
-        .map(|(ctx, col_data)| {
-            // Setting TotalRecords::Indeterminate causes OrderingSender to make data available to
-            // the channel immediately, instead of doing so only after active_work records have
-            // accumulated. This gives the best performance for vectorized operation.
-            let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
-            seq_join(
-                NonZeroUsize::new(active_work).unwrap(),
-                stream::iter((0..(width / u32::try_from(N).unwrap())).zip(col_data)).map(
-                    move |(record, Inputs { a, b })| {
-                        circuit(ctx.clone(), RecordId::from(record), depth, a, b)
-                    },
-                ),
-            )
-            .collect::<Vec<_>>()
-        })
+    let [fut0, fut1, fut2] = zip3(contexts, input_data).map(|(ctx, col_data)| {
+        // Setting TotalRecords::Indeterminate causes OrderingSender to make data available to
+        // the channel immediately, instead of doing so only after active_work records have
+        // accumulated. This gives the best performance for vectorized operation.
+        let ctx = ctx.set_total_records(TotalRecords::Indeterminate);
+        seq_join(
+            NonZeroUsize::new(active_work).unwrap(),
+            stream::iter((0..(width / u32::try_from(N).unwrap())).zip(col_data)).map(
+                move |(record, Inputs { a, b })| {
+                    circuit(ctx.clone(), RecordId::from(record), depth, a, b)
+                },
+            ),
+        )
         .collect::<Vec<_>>()
-        .try_into()
-    else {
-        unreachable!("infallible try_into array");
-    };
+    });
 
     let (res0, res1, res2) = join3(fut0, fut1, fut2).await;
 
