@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
     future::Future,
-    io,
-    io::BufRead,
+    io::{self, BufRead},
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
@@ -27,7 +27,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
     },
-    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error, CRYPTO_PROVIDER},
     protocol::{step::Gate, QueryId},
 };
 
@@ -193,7 +193,7 @@ impl MpcHelperClient {
             };
             (
                 HttpsConnectorBuilder::new()
-                    .with_native_roots()
+                    .with_provider_and_native_roots(CRYPTO_PROVIDER.as_ref().clone())
                     .expect("Error creating client with Rustls, native roots should be available.")
                     .https_or_http()
                     .enable_http2()
@@ -201,7 +201,9 @@ impl MpcHelperClient {
                 auth_header,
             )
         } else {
-            let builder = rustls::ClientConfig::builder();
+            let builder = rustls::ClientConfig::builder_with_provider(Arc::clone(&CRYPTO_PROVIDER))
+                .with_safe_default_protocol_versions()
+                .expect("Default crypto provider should be valid");
             let client_config = if let Some(certificate) = peer_config.certificate {
                 let cert_store = {
                     let mut store = RootCertStore::empty();
