@@ -7,7 +7,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::{BA16, BA8}, ArrayAccess, CustomArray, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::{BA16, BA32, BA8}, ArrayAccess, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
@@ -17,8 +17,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, TransposeFrom,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing}, BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom, Vectorizable
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -277,12 +276,16 @@ where
     let flattened_stream = Box::pin(
         seq_join(ctx.active_work(), stream::iter(chunked_user_results))
             .map_ok(|value| {
-                BitDecomposed::new(iter::once(Replicated::new_arr(value[0].left(), value[0].right())))
-                /*
-                value.map(|feature| {
-                    BitDecomposed::new(&feature)
-                })
-                */
+                
+                BitDecomposed::new(
+                    (0..BA8::BITS).map(|bit| {
+                        let mut packed_bits = Replicated::new(BA32::ZERO_ARRAY, BA32::ZERO_ARRAY);
+                        for (i, feature) in value.iter().enumerate() {
+                            packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
+                        }
+                        packed_bits
+                    })
+                )                
             }),
     );
 
