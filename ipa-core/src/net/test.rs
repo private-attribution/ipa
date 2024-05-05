@@ -8,14 +8,13 @@
 //! `net::transport::tests`.
 
 #![allow(clippy::missing_panics_doc)]
-
 use std::{
     array,
     net::{SocketAddr, TcpListener},
 };
 
 use once_cell::sync::Lazy;
-use rustls::Certificate;
+use rustls_pki_types::CertificateDer;
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -23,7 +22,7 @@ use crate::{
         ClientConfig, HpkeClientConfig, HpkeServerConfig, NetworkConfig, PeerConfig, ServerConfig,
         TlsConfig,
     },
-    helpers::{HelperIdentity, TransportCallbacks},
+    helpers::{HandlerBox, HelperIdentity, RequestHandler},
     hpke::{Deserializable as _, IpaPublicKey},
     net::{ClientIdentity, HttpTransport, MpcHelperClient, MpcHelperServer},
     sync::Arc,
@@ -167,7 +166,7 @@ impl TestConfigBuilder {
                 url: format!("{scheme}://localhost:{}", ports[i])
                     .parse()
                     .unwrap(),
-                certificate: cert.map(Certificate),
+                certificate: cert,
                 hpke_config: if self.disable_matchkey_encryption {
                     None
                 } else {
@@ -204,14 +203,13 @@ impl TestConfigBuilder {
     }
 }
 
-type HttpTransportCallbacks = TransportCallbacks<Arc<HttpTransport>>;
-
 pub struct TestServer {
     pub addr: SocketAddr,
     pub handle: JoinHandle<()>,
     pub transport: Arc<HttpTransport>,
     pub server: MpcHelperServer,
     pub client: MpcHelperClient,
+    pub request_handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
 }
 
 impl TestServer {
@@ -232,7 +230,7 @@ impl TestServer {
 
 #[derive(Default)]
 pub struct TestServerBuilder {
-    callbacks: Option<HttpTransportCallbacks>,
+    handler: Option<Arc<dyn RequestHandler<Identity = HelperIdentity>>>,
     metrics: Option<MetricsHandle>,
     disable_https: bool,
     use_http1: bool,
@@ -241,8 +239,11 @@ pub struct TestServerBuilder {
 
 impl TestServerBuilder {
     #[must_use]
-    pub fn with_callbacks(mut self, callbacks: HttpTransportCallbacks) -> Self {
-        self.callbacks = Some(callbacks);
+    pub fn with_request_handler(
+        mut self,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+    ) -> Self {
+        self.handler = Some(handler);
         self
     }
 
@@ -294,13 +295,14 @@ impl TestServerBuilder {
         else {
             panic!("TestConfig should have allocated ports");
         };
-        let clients = MpcHelperClient::from_conf(&network_config, identity.clone());
+        let clients = MpcHelperClient::from_conf(&network_config, &identity.clone_with_key());
+        let handler = self.handler.as_ref().map(HandlerBox::owning_ref);
         let (transport, server) = HttpTransport::new(
             HelperIdentity::ONE,
             server_config,
             network_config.clone(),
             clients,
-            self.callbacks.unwrap_or_default(),
+            handler,
         );
         let (addr, handle) = server.start_on(Some(server_socket), self.metrics).await;
         // Get the config for HelperIdentity::ONE
@@ -315,6 +317,7 @@ impl TestServerBuilder {
             transport,
             server,
             client,
+            request_handler: self.handler,
         }
     }
 }
@@ -325,8 +328,8 @@ fn get_test_certificate_and_key(id: HelperIdentity) -> (&'static [u8], &'static 
 
 #[must_use]
 pub fn get_test_identity(id: HelperIdentity) -> ClientIdentity {
-    let (certificate, private_key) = get_test_certificate_and_key(id);
-    ClientIdentity::from_pks8(certificate, private_key).unwrap()
+    let (mut certificate, mut private_key) = get_test_certificate_and_key(id);
+    ClientIdentity::from_pkcs8(&mut certificate, &mut private_key).unwrap()
 }
 
 pub const TEST_CERTS: [&[u8]; 3] = [
@@ -368,14 +371,8 @@ jn+NXYPeKEWnkCcVKjFED6MevGnOgrJylgY=
 ",
 ];
 
-pub static TEST_CERTS_DER: Lazy<[Vec<u8>; 3]> = Lazy::new(|| {
-    TEST_CERTS.map(|mut pem| {
-        rustls_pemfile::certs(&mut pem)
-            .unwrap()
-            .into_iter()
-            .next()
-            .unwrap()
-    })
+pub static TEST_CERTS_DER: Lazy<[CertificateDer; 3]> = Lazy::new(|| {
+    TEST_CERTS.map(|mut pem| rustls_pemfile::certs(&mut pem).flatten().next().unwrap())
 });
 
 pub const TEST_KEYS: [&[u8]; 3] = [

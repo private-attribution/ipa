@@ -21,7 +21,7 @@ pub use galois_field::{GaloisField, Gf2, Gf20Bit, Gf32Bit, Gf3Bit, Gf40Bit, Gf8B
 use generic_array::{ArrayLength, GenericArray};
 #[cfg(any(test, feature = "weak-field"))]
 pub use prime_field::Fp31;
-pub use prime_field::{Fp32BitPrime, PrimeField};
+pub use prime_field::{Fp32BitPrime, Fp61BitPrime, PrimeField};
 
 use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128};
 

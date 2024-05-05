@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
+use serde::Deserialize;
+
 use crate::{Gate, Step, StepNarrow};
 
 pub mod labels {
@@ -25,7 +27,7 @@ pub mod labels {
 /// Step "a" would be executed with a context identifier of "protocol/a", which it
 ///  would `narrow()` into "protocol/a/x" and "protocol/a/y" to produce a final set
 /// of identifiers: ".../a/x", ".../a/y", ".../b", and ".../c".
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(from = "&str")]
 pub struct Descriptive {
     id: String,

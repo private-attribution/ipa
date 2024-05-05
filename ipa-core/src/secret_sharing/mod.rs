@@ -1,65 +1,18 @@
-//! # Vectorization
-//!
-//! Vectorization refers to adapting an implementation that previously operated on one value at a
-//! time, to instead operate on `N` values at a time. Vectorization improves performance in two ways:
-//!
-//!  1. Vectorized code can make use of special CPU instructions (Intel AVX, ARM NEON) that operate
-//!     on multiple values at a time. This reduces the CPU time required to perform computations.
-//!     We also use vectorization to refer to "bit packing" of boolean values, i.e., packing
-//!     64 boolean values into a single u64 rather than using a byte (or even a word) for each
-//!     value.
-//!  2. Aside from the core arithmetic operations that are involved in our MPC, a substantial
-//!     amount of other code is needed to send values between helpers, schedule futures for
-//!     execution, etc. Vectorization can result in a greater amount of arithmetic work being
-//!     performed for a given amount of overhead work, thus increasing the efficiency of the
-//!     implementation.
-//!
-//! ## Vectorization traits
-//!
-//! There are two sets of traits related to vectorization.
-//!
-//! If you are writing protocols, the trait of interest is `FieldSimd<N>`, which can be specified in
-//! a trait bound, something like `F: Field + FieldSimd<N>`.
-//!
-//! The other traits are `Vectorizable` (for `SharedValue`s) and `FieldVectorizable`. These traits
-//! are needed to work around a limitation in the rust type system. In most cases, you do not need
-//! to reference the `Vectorizable` or `FieldVectorizable` traits directly when implementing
-//! protocols. Usually the vector type is hidden within `AdditiveShare`, but if you are writing a
-//! vectorized low-level primitive, you may need to refer to it directly, as `<S as
-//! Vectorizable<N>>::Array`. It is even more rare to need to use `FieldVectorizable`; see its
-//! documentation and the documentation of `FieldSimd` for details.
-//!
-//! We require that each supported vectorization configuration (i.e. combination of data type and
-//! width) be explicitly identified, by implementing the `Vectorizable` and/or `FieldVectorizable`
-//! traits for base data type (e.g. `Fp32BitPrime`). This is for two reasons:
-//!  1. Rust doesn't yet support evaluating expressions involving const parameters at compile time,
-//!     which makes it difficult or impossible to write generic serialization routines for
-//!     arbitrary widths.
-//!  2. As a measure of protection against inadvertently using a configuration that will not be
-//!     efficient (i.e. an excessive vector width).
-//!
-//! ## Adding a new supported vectorization
-//!
-//! To add a new supported vectorization:
-//!
-//!  1. Add `FieldSimd` impl (in `secret_sharing/mod.rs`)
-//!  2. Add `FromRandom` impl (in `array.rs` or `boolean_array.rs`)
-//!  3. Add `Serializable` impl (in `array.rs` or `boolean_array.rs`)
-//!  4. Add `Vectorizable` and `FieldVectorizable` impls (with the primitive type def in e.g. `galois_field.rs`
-
 pub mod replicated;
 
-mod array;
 mod decomposed;
 mod into_shares;
 mod scheme;
+#[cfg(not(feature = "enable-benches"))]
+mod vector;
+#[cfg(feature = "enable-benches")]
+pub mod vector;
 
 use std::{
     fmt::Debug,
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    ops::{Mul, MulAssign, Neg},
 };
 
-pub use array::StdArray;
 pub(crate) use decomposed::BitDecomposed;
 use generic_array::ArrayLength;
 pub use into_shares::IntoShares;
@@ -69,16 +22,16 @@ use rand::{
     Rng,
 };
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
+pub use vector::{
+    BoolVectorLookup, BoolVectorTrait, FieldArray, FieldSimd, FieldVectorizable, SharedValueArray,
+    StdArray, TransposeFrom, Vectorizable,
+};
 
+#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare;
 use crate::{
-    error::LengthError,
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BA20, BA256, BA3, BA32, BA5, BA64, BA8},
-        AddSub, AddSubAssign, Field, Fp32BitPrime, Serializable,
-    },
-    protocol::prss::FromRandom,
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    ff::{AddSub, AddSubAssign, Serializable},
+    secret_sharing::replicated::ReplicatedSecretSharing,
 };
 
 /// Operations supported for weak shared values.
@@ -168,148 +121,6 @@ macro_rules! impl_shared_value_common {
             array.first_mut()
         }
     };
-}
-
-// Note that we can either make `trait Vectorizable<N>: SharedValue`, or we can make `trait
-// SharedValue: Vectorizable<1>`, but doing both creates a cycle. (Similarly for
-// `FieldVectorizable` / `Field`.)
-//
-// Although it is somewhat unnatural, we choose to do the latter, because it allows existing
-// high-level protocols unaware of vectorization to call vectorized versions of core protocols (with
-// width of 1) without updating all of the trait bounds. This does mean that the trait definitions
-// do not prevent implementing `Vectorizable` for something that is not a `SharedValue`, but please
-// don't do that.
-
-/// Trait for `SharedValue`s supporting operations on `N`-wide vectors.
-pub trait Vectorizable<const N: usize>: Sized {
-    type Array: SharedValueArray<Self>;
-}
-
-/// Trait for `Field`s supporting operations on `N`-wide vectors.
-///
-/// We would like `F` to be `FieldVectorizable` if it satisfies all of the following:
-///  1. `F: Field`.
-///  2. `<F as Vectorizable<N>>::Array: FieldArray<Self>`. Rust does not support expressing a
-///     constraint on a super-trait's associated type directly. Instead, this effect is achieved
-///     by constraining the `ArrayAlias` associated type and then constraining that
-///     `Vectorizable::Array == FieldVectorizable::ArrayAlias` where necessary (e.g. in the
-///     definition and blanket impl of the `FieldSimd` trait. We call it `ArrayAlias` instead of
-///     `Array` so that references to the `Array` associated type do not require qualification
-///     with a trait name.
-///  3. `F: Vectorizable<N>`. This is implied by the previous two, because `FieldArray`
-///     is a sub-trait of `SharedValueArray`. (See the `FieldSimd` documentation for another
-///     important consequence of this sub-trait relationship.)
-pub trait FieldVectorizable<const N: usize>: SharedValue + Sized {
-    type ArrayAlias: FieldArray<Self>;
-}
-
-// Convenience alias to express a supported vectorization when writing protocols.
-//
-// Typically appears like this: `F: Field + FieldSimd<N>`.
-//
-// We could define a `SharedValueSimd` trait that is the analog of this for `SharedValue`s, but
-// there are not currently any protocols that need it.
-//
-// Because we have constrained the associated types Vectorizable::Array and
-// FieldVectorizable::ArrayAlias to be equal, the type they refer to must satisfy the union of all
-// trait bounds applicable to either. However, in some cases the compiler has trouble proving
-// properties related to this. (See rust issues [41118] and [60471].) A typical workaround for
-// problems of this sort is to redundantly list a trait bound on both associated types, but for us
-// that is not necessary in most cases because `FieldArray` is a sub-trait of `SharedValueArray`.
-//
-// Another consequence of this limitation of the compiler is that if you write the bound `F: Field +
-// FieldSimd<N> + Vectorizable<N, Array = S>`, you will get the error ``type annotations needed:
-// cannot satisfy `<F as secret_sharing::Vectorizable<N>>::Array == <F as
-// secret_sharing::FieldVectorizable<N>>::ArrayAlias```. The compiler is not smart enough to
-// coalesce the constraints and see that `S`, `<F as Vectorizable>::Array`, and `<F as
-// FieldVectorizable>::ArrayAlias` must all to refer to the same type.
-//
-// [41118](https://github.com/rust-lang/rust/issues/41118)
-// [60471](https://github.com/rust-lang/rust/issues/60471)
-pub trait FieldSimd<const N: usize>:
-    Field + Vectorizable<N, Array = <Self as FieldVectorizable<N>>::ArrayAlias> + FieldVectorizable<N>
-{
-}
-
-// Portions of the implementation treat non-vectorized operations as a vector with `N = 1`. This
-// blanket impl (and the fact that `F: Field` is the only trait bound) is important in allowing code
-// that writes `F: Field` to continue working without modification.
-impl<F: Field> FieldSimd<1> for F {}
-
-// Supported vectorizations
-
-impl FieldSimd<32> for Fp32BitPrime {}
-
-macro_rules! boolean_vector {
-    ($dim:expr, $vec:ty) => {
-        impl Vectorizable<$dim> for Boolean {
-            type Array = $vec;
-        }
-
-        impl FieldVectorizable<$dim> for Boolean {
-            type ArrayAlias = $vec;
-        }
-
-        impl FieldSimd<$dim> for Boolean {}
-
-        impl From<AdditiveShare<$vec>> for AdditiveShare<Boolean, $dim> {
-            fn from(value: AdditiveShare<$vec>) -> Self {
-                AdditiveShare::new_arr(value.left(), value.right())
-            }
-        }
-
-        impl From<AdditiveShare<Boolean, $dim>> for AdditiveShare<$vec> {
-            fn from(value: AdditiveShare<Boolean, $dim>) -> Self {
-                AdditiveShare::new(*value.left_arr(), *value.right_arr())
-            }
-        }
-    };
-}
-
-boolean_vector!(3, BA3);
-boolean_vector!(5, BA5);
-boolean_vector!(8, BA8);
-boolean_vector!(20, BA20);
-boolean_vector!(32, BA32);
-boolean_vector!(64, BA64);
-boolean_vector!(256, BA256);
-
-pub trait SharedValueArray<V>:
-    Clone
-    + Eq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + Sendable
-    + TryFrom<Vec<V>, Error = LengthError>
-    + FromIterator<V>
-    + IntoIterator<Item = V>
-    + Add<Self, Output = Self>
-    + for<'a> Add<&'a Self, Output = Self>
-    + AddAssign<Self>
-    + for<'a> AddAssign<&'a Self>
-    + Neg<Output = Self>
-    + Sub<Self, Output = Self>
-    + for<'a> Sub<&'a Self, Output = Self>
-    + SubAssign<Self>
-    + for<'a> SubAssign<&'a Self>
-{
-    const ZERO_ARRAY: Self;
-
-    fn from_fn<F: FnMut(usize) -> V>(f: F) -> Self;
-}
-
-// Some `SharedValue` types (and thus their arrays) implement `FromRandom`, but `RP25519` does not.
-// We overload this distinction on `FieldArray` instead of creating a separate `ArrayFromRandom` trait,
-// to avoid making the `Vectorizable` / `FieldVectorizable` situation that much more complicated.
-pub trait FieldArray<F: SharedValue>:
-    SharedValueArray<F>
-    + FromRandom
-    + for<'a> Mul<F, Output = Self>
-    + for<'a> Mul<&'a F, Output = Self>
-    + for<'a> Mul<&'a Self, Output = Self>
-{
 }
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]

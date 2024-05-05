@@ -5,7 +5,8 @@ use crate::{
     error::Error,
     protocol::{
         basics::{
-            mul::step::MaliciousMultiplyStep, MultiplyZeroPositions, SecureMul, ZeroPositions,
+            mul::{semi_honest_multiply, step::MaliciousMultiplyStep},
+            MultiplyZeroPositions, SecureMul, ZeroPositions,
         },
         context::{Context, UpgradedMaliciousContext},
         RecordId,
@@ -84,16 +85,18 @@ where
     //
     let b_induced_share = Replicated::new(b_x.left().to_extended(), b_x.right().to_extended());
     let (ab, rab) = try_join(
-        a.x().access_without_downgrade().multiply_sparse(
-            b_x,
+        semi_honest_multiply(
             ctx.base_context(),
             record_id,
+            a.x().access_without_downgrade(),
+            b_x,
             zeros_at,
         ),
-        a.rx().multiply_sparse(
-            &b_induced_share,
+        semi_honest_multiply(
             duplicate_multiply_ctx.base_context(),
             record_id,
+            a.rx(),
+            &b_induced_share,
             (ZeroPositions::Pvvv, zeros_at.1),
         ),
     )

@@ -7,14 +7,14 @@ use std::{
 use futures::Stream;
 
 use crate::{
-    helpers::HelperIdentity,
+    helpers::TransportIdentity,
     protocol::{Gate, QueryId},
     sync::{Arc, Mutex},
 };
 
 /// Each stream is indexed by query id, the identity of helper where stream is originated from
 /// and step.
-pub type StreamKey = (QueryId, HelperIdentity, Gate);
+pub type StreamKey<I> = (QueryId, I, Gate);
 
 /// Thread-safe append-only collection of homogeneous record streams.
 /// Streams are indexed by [`StreamKey`] and the lifecycle of each stream is described by the
@@ -22,11 +22,11 @@ pub type StreamKey = (QueryId, HelperIdentity, Gate);
 ///
 /// Each stream can be inserted and taken away exactly once, any deviation from this behaviour will
 /// result in panic.
-pub struct StreamCollection<S> {
-    inner: Arc<Mutex<HashMap<StreamKey, StreamState<S>>>>,
+pub struct StreamCollection<I, S> {
+    inner: Arc<Mutex<HashMap<StreamKey<I>, StreamState<S>>>>,
 }
 
-impl<S> Default for StreamCollection<S> {
+impl<I, S> Default for StreamCollection<I, S> {
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::default())),
@@ -34,7 +34,7 @@ impl<S> Default for StreamCollection<S> {
     }
 }
 
-impl<S> Clone for StreamCollection<S> {
+impl<I, S> Clone for StreamCollection<I, S> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -42,12 +42,12 @@ impl<S> Clone for StreamCollection<S> {
     }
 }
 
-impl<S: Stream> StreamCollection<S> {
+impl<I: TransportIdentity, S: Stream> StreamCollection<I, S> {
     /// Adds a new stream associated with the given key.
     ///
     /// ## Panics
     /// If there was another stream associated with the same key some time in the past.
-    pub fn add_stream(&self, key: StreamKey, stream: S) {
+    pub fn add_stream(&self, key: StreamKey<I>, stream: S) {
         let mut streams = self.inner.lock().unwrap();
         match streams.entry(key) {
             Entry::Occupied(mut entry) => match entry.get_mut() {
@@ -77,33 +77,28 @@ impl<S: Stream> StreamCollection<S> {
     ///
     /// ## Panics
     /// If [`Waker`] that exists already inside this collection will not wake the given one.
-    pub fn add_waker(&self, key: &StreamKey, waker: &Waker) -> Option<S> {
+    pub fn add_waker(&self, key: &StreamKey<I>, waker: &Waker) -> Option<S> {
         let mut streams = self.inner.lock().unwrap();
 
         match streams.entry(key.clone()) {
-            Entry::Occupied(mut entry) => {
-                match entry.get_mut() {
-                    StreamState::Waiting(old_waker) => {
-                        let will_wake = old_waker.will_wake(waker);
-                        drop(streams); // avoid mutex poisoning
-                        assert!(will_wake);
-                        None
-                    }
-                    rs @ StreamState::Ready(_) => {
-                        let StreamState::Ready(stream) =
-                            std::mem::replace(rs, StreamState::Completed)
-                        else {
-                            unreachable!();
-                        };
-
-                        Some(stream)
-                    }
-                    StreamState::Completed => {
-                        drop(streams);
-                        panic!("{key:?} stream has been consumed already")
-                    }
+            Entry::Occupied(mut entry) => match entry.get_mut() {
+                StreamState::Waiting(old_waker) => {
+                    old_waker.clone_from(waker);
+                    None
                 }
-            }
+                rs @ StreamState::Ready(_) => {
+                    let StreamState::Ready(stream) = std::mem::replace(rs, StreamState::Completed)
+                    else {
+                        unreachable!();
+                    };
+
+                    Some(stream)
+                }
+                StreamState::Completed => {
+                    drop(streams);
+                    panic!("{key:?} stream has been consumed already")
+                }
+            },
             Entry::Vacant(entry) => {
                 entry.insert(StreamState::Waiting(waker.clone()));
                 None

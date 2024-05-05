@@ -11,7 +11,7 @@ use crate::{
     ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray},
     protocol::{
         basics::Reveal,
-        context::Context,
+        context::{Context, SemiHonestContext},
         ipa_prf::{
             boolean_ops::comparison_and_subtraction_sequential::compare_gt,
             step::QuicksortStep as Step,
@@ -19,7 +19,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
-    seq_join::seq_join,
+    seq_join::{seq_join, SeqJoin},
 };
 
 /// Insecure quicksort using MPC comparisons and a key extraction function `get_key`.
@@ -45,15 +45,14 @@ use crate::{
 ///
 /// # Panics
 /// If you provide any invalid ranges, such as 0..0
-pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
-    ctx: C,
+pub async fn quicksort_ranges_by_key_insecure<'a, K, F, S>(
+    ctx: SemiHonestContext<'a>,
     list: &mut [S],
     desc: bool,
     get_key: F,
     mut ranges_to_sort: Vec<Range<usize>>,
 ) -> Result<(), Error>
 where
-    C: Context,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,
@@ -108,7 +107,7 @@ where
                                 .await?;
 
                             // desc = true will flip the order of the sort
-                            Ok::<_, Error>(Boolean::from(desc) == comparison)
+                            Ok::<_, Error>(Boolean::from(desc) == Boolean::from_array(&comparison))
                         }
                     }),
             ),

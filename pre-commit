@@ -90,6 +90,8 @@ check "Clippy concurrency checks" \
 check "Clippy web checks" \
     cargo clippy --tests --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate" -- -D warnings
 
+# The tests here need to be kept in sync with scripts/coverage-ci.
+
 check "Tests" \
     cargo test
 
@@ -97,7 +99,7 @@ check "Web tests" \
     cargo test -p ipa-core --no-default-features --features "cli web-app real-world-infra test-fixture compact-gate"
 
 check "Concurrency tests" \
-    cargo test -p ipa-core --release --features shuttle
+    cargo test -p ipa-core --release --features "shuttle multi-threading"
 
 check "IPA benchmark" \
     cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches compact-gate" -- -n 62 -c 16

@@ -30,13 +30,20 @@ pub fn setup() {
                 Level::INFO.into()
             };
 
+            let fmt_layer = fmt::layer().with_test_writer();
+            #[cfg(not(feature = "step-trace"))]
+            let fmt_layer = {
+                use tracing_subscriber::fmt::format::FmtSpan;
+                fmt_layer.with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+            };
+
             tracing_subscriber::registry()
                 .with(
                     EnvFilter::builder()
                         .with_default_directive(default_directive)
                         .from_env_lossy(),
                 )
-                .with(fmt::layer())
+                .with(fmt_layer)
                 .with(MetricsLayer::new())
                 .init();
         }

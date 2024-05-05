@@ -38,7 +38,7 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -89,7 +89,7 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -123,7 +123,7 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -204,7 +204,7 @@ jobs:
         run: ./scripts/coverage-ci --lcov --output-path ipa.cov
 
       - name: Report to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ipa.cov

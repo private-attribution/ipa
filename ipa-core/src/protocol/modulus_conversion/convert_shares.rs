@@ -32,9 +32,8 @@ use pin_project::pin_project;
 
 use crate::{
     error::Error,
-    exact::ExactSizeStream,
     ff::{ArrayAccess, Field, Gf2, PrimeField, U128Conversions},
-    helpers::Role,
+    helpers::{stream::ExactSizeStream, Role},
     protocol::{
         basics::{SecureMul, ZeroPositions},
         boolean::xor_sparse,

@@ -8,12 +8,13 @@ mod world;
 #[cfg(feature = "in-memory-infra")]
 mod app;
 
-#[cfg(all(feature = "in-memory-infra", descriptive_gate))]
+#[cfg(feature = "in-memory-infra")]
 pub mod circuit;
 mod event_gen;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
+pub(crate) mod step;
 
 use std::fmt::Debug;
 
@@ -25,10 +26,11 @@ use ipa_step::{Step, StepNarrow};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
-#[cfg(all(feature = "in-memory-infra", descriptive_gate))]
-pub use world::Runner;
 #[cfg(feature = "in-memory-infra")]
-pub use world::{TestWorld, TestWorldConfig};
+pub use world::{
+    Distribute, Random as RandomInputDistribution, RoundRobin as RoundRobinInputDistribution,
+    Runner, TestWorld, TestWorldConfig, WithShards,
+};
 
 use crate::{
     ff::{Field, U128Conversions},

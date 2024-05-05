@@ -1,14 +1,18 @@
+use std::iter::zip;
+
 use crate::{
     error::Error,
-    ff::{curve_points::RP25519, ec_prime_field::Fp25519},
+    ff::{boolean::Boolean, curve_points::RP25519, ec_prime_field::Fp25519, Expand},
     protocol::{
         basics::{Reveal, SecureMul},
         context::Context,
         ipa_prf::step::PrfStep as Step,
-        prss::SharedRandomness,
+        prss::{FromPrss, SharedRandomness},
         RecordId,
     },
-    secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, FieldSimd, Sendable, StdArray, Vectorizable,
+    },
 };
 
 /// generates match key pseudonyms from match keys (in Fp25519 format) and PRF key
@@ -24,18 +28,30 @@ pub async fn compute_match_key_pseudonym<C>(
 ) -> Result<Vec<u64>, Error>
 where
     C: Context,
+    AdditiveShare<Boolean, 1>: SecureMul<C>,
+    AdditiveShare<Fp25519>: SecureMul<C>,
 {
     let ctx = sh_ctx.set_total_records(input_match_keys.len());
     let futures = input_match_keys
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(i, x)| eval_dy_prf(ctx.clone(), i.into(), &prf_key, x));
-    ctx.try_join(futures).await
+    Ok(ctx.try_join(futures).await?.into_iter().flatten().collect())
 }
 
-impl From<AdditiveShare<Fp25519>> for AdditiveShare<RP25519> {
-    fn from(s: AdditiveShare<Fp25519>) -> Self {
-        AdditiveShare::new(RP25519::from(s.left()), RP25519::from(s.right()))
+impl<const N: usize> From<AdditiveShare<Fp25519, N>> for AdditiveShare<RP25519, N>
+where
+    Fp25519: Vectorizable<N>,
+    RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
+    StdArray<RP25519, N>: Sendable,
+{
+    fn from(value: AdditiveShare<Fp25519, N>) -> Self {
+        let (left_arr, right_arr) =
+            StdArray::<RP25519, N>::from_tuple_iter(value.into_unpacking_iter().map(|sh| {
+                let (l, r) = sh.as_tuple();
+                (RP25519::from(l), RP25519::from(r))
+            }));
+        Self::new_arr(left_arr, right_arr)
     }
 }
 
@@ -54,35 +70,47 @@ where
 /// outputs a u64 as specified in `protocol/prf_sharding/mod.rs`, all parties learn the output
 /// # Errors
 /// Propagates errors from multiplications, reveal and scalar multiplication
-
-pub async fn eval_dy_prf<C>(
+/// # Panics
+/// Never as of when this comment was written, but the compiler didn't know that.
+pub async fn eval_dy_prf<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
     k: &AdditiveShare<Fp25519>,
-    x: &AdditiveShare<Fp25519>,
-) -> Result<u64, Error>
+    x: AdditiveShare<Fp25519, N>,
+) -> Result<[u64; N], Error>
 where
     C: Context,
+    Fp25519: Vectorizable<N>,
+    RP25519: Vectorizable<N, Array = StdArray<RP25519, N>>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: SecureMul<C>,
+    AdditiveShare<Fp25519, N>: SecureMul<C> + FromPrss,
+    StdArray<RP25519, N>: Sendable,
 {
-    let sh_r: AdditiveShare<Fp25519> = ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
-
-    //compute (g^left, g^right)
-    let sh_gr = AdditiveShare::<RP25519>::from(sh_r.clone());
+    let sh_r: AdditiveShare<Fp25519, N> =
+        ctx.narrow(&Step::GenRandomMask).prss().generate(record_id);
 
     //compute x+k
-    let mut y = x + k;
+    let mut y = x + AdditiveShare::<Fp25519, N>::expand(k);
 
     //compute y <- r*y
     y = y
         .multiply(&sh_r, ctx.narrow(&Step::MultMaskWithPRFInput), record_id)
         .await?;
 
+    //compute (g^left, g^right)
+    let sh_gr = AdditiveShare::<RP25519, N>::from(sh_r);
+
     //reconstruct (z,R)
-    let gr: RP25519 = sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?;
+    let gr = sh_gr.reveal(ctx.narrow(&Step::RevealR), record_id).await?;
     let z = y.reveal(ctx.narrow(&Step::Revealz), record_id).await?;
 
     //compute R^(1/z) to u64
-    Ok(u64::from(gr * (z.invert())))
+    Ok(zip(gr, z)
+        .map(|(gr, z)| u64::from(gr * z.invert()))
+        .collect::<Vec<_>>()
+        .try_into()
+        .expect("iteration over arrays"))
 }
 
 #[cfg(all(test, unit_test))]

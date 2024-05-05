@@ -58,4 +58,10 @@ pub enum DeadCodeStep {
     FeatureLabelDotProduct,
     #[step(child = crate::protocol::modulus_conversion::step::ConvertSharesStep)]
     ConvertShares,
+    #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
+    Aggregate,
+    #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]
+    ZeroKnowledgeProofValidate,
+    #[cfg_attr(any(test, feature = "test-fixture"), step(child = crate::test_fixture::step::TestExecutionStep))]
+    TestExecution,
 }

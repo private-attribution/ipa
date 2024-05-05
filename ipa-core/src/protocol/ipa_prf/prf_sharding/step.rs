@@ -32,6 +32,7 @@ pub(crate) enum AttributionStep {
     ModulusConvertBreakdownKeyBitsAndTriggerValues,
     #[step(child = BinaryTreeDepthStep)]
     MoveValueToCorrectBreakdown,
+    Aggregate,
 }
 
 #[derive(CompactStep)]

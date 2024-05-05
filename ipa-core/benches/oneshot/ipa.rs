@@ -1,4 +1,5 @@
 use std::{
+    env,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     time::Instant,
 };
@@ -102,10 +103,12 @@ async fn run(args: Args) -> Result<(), Error> {
         gateway_config: GatewayConfig::new(args.active()),
         ..TestWorldConfig::default()
     };
+    // Construct TestWorld early to initialize logging.
+    let world = TestWorld::new_with(&config);
 
     let seed = args.random_seed.unwrap_or_else(|| random());
-    tracing::trace!(
-        "Using random seed: {seed} for {q} records",
+    tracing::info!(
+        "Using random seed {seed} for {q} records",
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
@@ -127,7 +130,7 @@ async fn run(args: Args) -> Result<(), Error> {
                 args.query_size,
             )
         };
-    let mut raw_data = EventGenerator::with_config(
+    let raw_data = EventGenerator::with_config(
         rng,
         EventGeneratorConfig {
             user_count,
@@ -140,9 +143,6 @@ async fn run(args: Args) -> Result<(), Error> {
     )
     .take(query_size)
     .collect::<Vec<_>>();
-    // EventGenerator produces events in random order, but IPA requires them to be sorted by
-    // timestamp.
-    raw_data.sort_by_key(|e| e.timestamp);
 
     let order = CappingOrder::CapMostRecentFirst;
 
@@ -154,12 +154,11 @@ async fn run(args: Args) -> Result<(), Error> {
         &order,
     );
 
-    let world = TestWorld::new_with(config.clone());
     tracing::trace!("Preparation complete in {:?}", _prep_time.elapsed());
 
     let _protocol_time = Instant::now();
     test_oprf_ipa::<BenchField>(&world, raw_data, &expected_results, args.config()).await;
-    tracing::trace!(
+    tracing::info!(
         "{m:?} IPA for {q} records took {t:?}",
         m = args.mode,
         q = args.query_size,
@@ -171,6 +170,19 @@ async fn run(args: Args) -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
+
+    // The default in test_fixture::logging is to enable logging for ipa-core only. Override that to
+    // include logs from the bench as well.
+    if env::var_os("RUST_LOG").is_none() {
+        env::set_var(
+            "RUST_LOG",
+            format!(
+                "{}=INFO,{}=INFO",
+                ipa_core::CRATE_NAME,
+                env!("CARGO_CRATE_NAME")
+            ),
+        );
+    }
 
     let args = Args::parse();
     let rt = Builder::new_multi_thread()

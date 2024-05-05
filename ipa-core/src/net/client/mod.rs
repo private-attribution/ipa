@@ -1,10 +1,9 @@
 use std::{
     collections::HashMap,
     future::Future,
-    io,
-    io::{BufReader, Cursor},
-    iter::repeat,
+    io::{self, BufRead},
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
@@ -16,20 +15,23 @@ use hyper::{
 };
 use hyper_rustls::{ConfigBuilderExt, HttpsConnector, HttpsConnectorBuilder};
 use pin_project::pin_project;
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use rustls::RootCertStore;
 use tracing::error;
 
 use crate::{
-    config::{ClientConfig, HyperClientConfigurator, NetworkConfig, PeerConfig},
+    config::{
+        ClientConfig, HyperClientConfigurator, NetworkConfig, OwnedCertificate, OwnedPrivateKey,
+        PeerConfig,
+    },
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
     },
-    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error},
+    net::{http_serde, server::HTTP_CLIENT_ID_HEADER, Error, CRYPTO_PROVIDER},
     protocol::{Gate, QueryId},
 };
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub enum ClientIdentity {
     /// Claim the specified helper identity without any additional authentication.
     ///
@@ -39,7 +41,7 @@ pub enum ClientIdentity {
     /// Authenticate with an X.509 certificate or a certificate chain.
     ///
     /// This is only supported for HTTPS clients.
-    Certificate((Vec<Certificate>, PrivateKey)),
+    Certificate((Vec<OwnedCertificate>, OwnedPrivateKey)),
 
     /// Do not authenticate nor claim a helper identity.
     #[default]
@@ -57,19 +59,26 @@ impl ClientIdentity {
     ///
     /// ## Panics
     /// If either cert or private key byte slice is empty.
-    pub fn from_pks8(cert_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Self, io::Error> {
-        let mut certs_reader = BufReader::new(Cursor::new(cert_bytes));
-        let mut pk_reader = BufReader::new(Cursor::new(private_key_bytes));
+    pub fn from_pkcs8(
+        cert_read: &mut dyn BufRead,
+        private_key_read: &mut dyn BufRead,
+    ) -> Result<Self, io::Error> {
+        Ok(Self::Certificate(
+            crate::net::parse_certificate_and_private_key_bytes(cert_read, private_key_read)?,
+        ))
+    }
 
-        let cert_chain = rustls_pemfile::certs(&mut certs_reader)?
-            .into_iter()
-            .map(Certificate)
-            .collect();
-        let pk = rustls_pemfile::pkcs8_private_keys(&mut pk_reader)?
-            .pop()
-            .expect("Non-empty byte slice is provided to parse a private key");
-
-        Ok(Self::Certificate((cert_chain, PrivateKey(pk))))
+    /// Rust-tls-types crate intentionally does not implement Clone on private key types in order
+    /// to minimize the exposure of private key data in memory. Since `ClientBuilder` API requires
+    /// to own a private key, and we need to create 3 with the same config, we provide Clone
+    /// capabilities via this method to `ClientIdentity`.
+    #[must_use]
+    pub fn clone_with_key(&self) -> ClientIdentity {
+        match self {
+            Self::Certificate((c, pk)) => Self::Certificate((c.clone(), pk.clone_key())),
+            Self::Helper(h) => Self::Helper(*h),
+            Self::None => Self::None,
+        }
     }
 }
 
@@ -149,11 +158,10 @@ impl MpcHelperClient {
     /// Authentication is not required when calling the report collector APIs.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(conf: &NetworkConfig, identity: ClientIdentity) -> [MpcHelperClient; 3] {
+    pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .zip(repeat(identity))
-            .map(|(peer_conf, identity)| Self::new(&conf.client, peer_conf.clone(), identity))
+            .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -185,18 +193,23 @@ impl MpcHelperClient {
             };
             (
                 HttpsConnectorBuilder::new()
-                    .with_native_roots()
+                    .with_provider_and_native_roots(CRYPTO_PROVIDER.as_ref().clone())
+                    .expect("Error creating client with Rustls, native roots should be available.")
                     .https_or_http()
                     .enable_http2()
                     .wrap_connector(make_http_connector()),
                 auth_header,
             )
         } else {
-            let builder = rustls::ClientConfig::builder().with_safe_defaults();
+            let builder = rustls::ClientConfig::builder_with_provider(Arc::clone(&CRYPTO_PROVIDER))
+                .with_safe_default_protocol_versions()
+                .expect("Default crypto provider should be valid");
             let client_config = if let Some(certificate) = peer_config.certificate {
                 let cert_store = {
                     let mut store = RootCertStore::empty();
-                    store.add(&certificate).unwrap();
+                    store
+                        .add(certificate)
+                        .expect("Error adding Certificate, should be a valid Trust Anchor.");
                     store
                 };
 
@@ -212,7 +225,7 @@ impl MpcHelperClient {
                     ClientIdentity::None => builder.with_no_client_auth(),
                 }
             } else {
-                builder.with_native_roots().with_no_client_auth()
+                builder.with_native_roots().unwrap().with_no_client_auth()
             };
             // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
             // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
@@ -431,43 +444,15 @@ pub(crate) mod tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::{
-            query::QueryType::TestMultiply, BytesStream, RoleAssignment, Transport,
-            TransportCallbacks, MESSAGE_PAYLOAD_SIZE_BYTES,
+            make_owned_handler, query::QueryType::TestMultiply, BytesStream, HelperResponse,
+            RequestHandler, RoleAssignment, Transport, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        net::{test::TestServer, HttpTransport},
+        net::test::TestServer,
         protocol::step::StepNarrow,
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::Arc,
     };
-
-    // This is a kludgy way of working around `TransportCallbacks` not being `Clone`, so
-    // that tests can run against both HTTP and HTTPS servers with one set.
-    //
-    // If the use grows beyond that, it's probably worth doing something more elegant, on the
-    // TransportCallbacks type itself (references and lifetime parameters, dyn_clone, or make it a
-    // trait and implement it on an `Arc` type).
-    fn clone_callbacks<T: 'static>(
-        cb: TransportCallbacks<T>,
-    ) -> (TransportCallbacks<T>, TransportCallbacks<T>) {
-        fn wrap<T: 'static>(inner: &Arc<TransportCallbacks<T>>) -> TransportCallbacks<T> {
-            let ri = Arc::clone(inner);
-            let pi = Arc::clone(inner);
-            let qi = Arc::clone(inner);
-            let si = Arc::clone(inner);
-            let ci = Arc::clone(inner);
-            TransportCallbacks {
-                receive_query: Box::new(move |t, req| (ri.receive_query)(t, req)),
-                prepare_query: Box::new(move |t, req| (pi.prepare_query)(t, req)),
-                query_input: Box::new(move |t, req| (qi.query_input)(t, req)),
-                query_status: Box::new(move |t, req| (si.query_status)(t, req)),
-                complete_query: Box::new(move |t, req| (ci.complete_query)(t, req)),
-            }
-        }
-
-        let arc_cb = Arc::new(cb);
-        (wrap(&arc_cb), wrap(&arc_cb))
-    }
 
     #[tokio::test]
     async fn untrusted_certificate() {
@@ -500,21 +485,18 @@ pub(crate) mod tests {
     /// Also tests that the same functionality works for both `http` and `https` and all supported
     /// HTTP versions (HTTP 1.1 and HTTP 2 at the moment) . In order to ensure
     /// this, the return type of `clientf` must be `Eq + Debug` so that the results can be compared.
-    async fn test_query_command<ClientOut, ClientFut, ClientF>(
+    async fn test_query_command<ClientOut, ClientFut, ClientF, HandlerF>(
         clientf: ClientF,
-        server_cb: TransportCallbacks<Arc<HttpTransport>>,
+        server_handler: HandlerF,
     ) -> ClientOut
     where
         ClientOut: Eq + Debug,
         ClientFut: Future<Output = ClientOut>,
         ClientF: Fn(MpcHelperClient) -> ClientFut,
+        HandlerF: Fn() -> Arc<dyn RequestHandler<Identity = HelperIdentity>>,
     {
-        let mut cb = server_cb;
         let mut results = Vec::with_capacity(4);
         for (use_https, use_http1) in zip([true, false], [true, false]) {
-            let (cur, next) = clone_callbacks(cb);
-            cb = next;
-
             let mut test_server_builder = TestServer::builder();
             if !use_https {
                 test_server_builder = test_server_builder.disable_https();
@@ -524,12 +506,12 @@ pub(crate) mod tests {
                 test_server_builder = test_server_builder.use_http1();
             }
 
-            let TestServer {
-                client: http_client,
-                ..
-            } = test_server_builder.with_callbacks(cur).build().await;
+            let test_server = test_server_builder
+                .with_request_handler(server_handler())
+                .build()
+                .await;
 
-            results.push(clientf(http_client).await);
+            results.push(clientf(test_server.client).await);
         }
 
         assert!(results.windows(2).all(|slice| slice[0] == slice[1]));
@@ -543,7 +525,11 @@ pub(crate) mod tests {
 
         let output = test_query_command(
             |client| async move { client.echo(expected_output).await.unwrap() },
-            TransportCallbacks::default(),
+            || {
+                make_owned_handler(move |addr, _| async move {
+                    panic!("unexpected call: {addr:?}");
+                })
+            },
         )
         .await;
         assert_eq!(expected_output, &output);
@@ -554,16 +540,21 @@ pub(crate) mod tests {
         let expected_query_id = QueryId;
         let expected_query_config = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
 
-        let cb = TransportCallbacks {
-            receive_query: Box::new(move |_transport, query_config| {
+        let handler = || {
+            make_owned_handler(move |addr, _| async move {
+                let query_config = addr.into::<QueryConfig>().unwrap();
                 assert_eq!(query_config, expected_query_config);
-                Box::pin(ready(Ok(expected_query_id)))
-            }),
-            ..Default::default()
+
+                Ok(HelperResponse::from(PrepareQuery {
+                    query_id: expected_query_id,
+                    config: query_config,
+                    roles: RoleAssignment::new(HelperIdentity::make_three()),
+                }))
+            })
         };
         let query_id = test_query_command(
             |client| async move { client.create_query(expected_query_config).await.unwrap() },
-            cb,
+            handler,
         )
         .await;
         assert_eq!(query_id, expected_query_id);
@@ -571,25 +562,31 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn prepare() {
-        let input = PrepareQuery {
-            query_id: QueryId,
-            config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
-            roles: RoleAssignment::new(HelperIdentity::make_three()),
+        let config = QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap();
+        let handler = move || {
+            make_owned_handler(move |addr, _| async move {
+                let input = PrepareQuery {
+                    query_id: QueryId,
+                    config,
+                    roles: RoleAssignment::new(HelperIdentity::make_three()),
+                };
+                let prepare_query = addr.into::<PrepareQuery>().unwrap();
+                assert_eq!(prepare_query, input);
+
+                Ok(HelperResponse::ok())
+            })
         };
-        let expected_data = input.clone();
-        let cb = TransportCallbacks {
-            prepare_query: Box::new(move |_transport, prepare_query| {
-                assert_eq!(prepare_query, expected_data);
-                Box::pin(ready(Ok(())))
-            }),
-            ..Default::default()
-        };
+
         test_query_command(
             |client| {
-                let req = input.clone();
+                let req = PrepareQuery {
+                    query_id: QueryId,
+                    config,
+                    roles: RoleAssignment::new(HelperIdentity::make_three()),
+                };
                 async move { client.prepare_query(req).await.unwrap() }
             },
-            cb,
+            handler,
         )
         .await;
     }
@@ -598,15 +595,13 @@ pub(crate) mod tests {
     async fn input() {
         let expected_query_id = QueryId;
         let expected_input = &[8u8; 25];
-        let cb = TransportCallbacks {
-            query_input: Box::new(move |_transport, query_input| {
-                Box::pin(async move {
-                    assert_eq!(query_input.query_id, expected_query_id);
-                    assert_eq!(&query_input.input_stream.to_vec().await, expected_input);
-                    Ok(())
-                })
-            }),
-            ..Default::default()
+        let handler = move || {
+            make_owned_handler(move |addr, data| async move {
+                assert_eq!(addr.query_id, Some(expected_query_id));
+                assert_eq!(data.to_vec().await, expected_input);
+
+                Ok(HelperResponse::ok())
+            })
         };
         test_query_command(
             |client| async move {
@@ -616,7 +611,7 @@ pub(crate) mod tests {
                 };
                 client.query_input(data).await.unwrap();
             },
-            cb,
+            handler,
         )
         .await;
     }
@@ -642,8 +637,9 @@ pub(crate) mod tests {
 
         MpcHelperClient::resp_ok(resp).await.unwrap();
 
-        let mut stream =
-            Arc::clone(&transport).receive(HelperIdentity::ONE, (QueryId, expected_step.clone()));
+        let mut stream = Arc::clone(&transport)
+            .receive(HelperIdentity::ONE, (QueryId, expected_step.clone()))
+            .into_bytes_stream();
 
         assert_eq!(
             poll_immediate(&mut stream).next().await,
@@ -653,25 +649,30 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn results() {
-        let expected_results = Box::new(vec![Replicated::from((
+        let expected_results = [
             Fp31::try_from(1u128).unwrap(),
             Fp31::try_from(2u128).unwrap(),
-        ))]);
+        ];
         let expected_query_id = QueryId;
-        let raw_results = expected_results.to_vec();
-        let cb = TransportCallbacks {
-            complete_query: Box::new(move |_transport, query_id| {
-                let results: Box<dyn ProtocolResult> = Box::new(raw_results.clone());
-                assert_eq!(query_id, expected_query_id);
-                Box::pin(ready(Ok(results)))
-            }),
-            ..Default::default()
+        let handler = move || {
+            make_owned_handler(move |addr, _| async move {
+                let results: Box<dyn ProtocolResult> = Box::new(
+                    [Replicated::from((expected_results[0], expected_results[1]))].to_vec(),
+                );
+                assert_eq!(addr.query_id, Some(expected_query_id));
+                Ok(HelperResponse::from(results))
+            })
         };
         let results = test_query_command(
             |client| async move { client.query_results(expected_query_id).await.unwrap() },
-            cb,
+            handler,
         )
         .await;
-        assert_eq!(results.to_vec(), expected_results.into_bytes());
+        assert_eq!(
+            results.to_vec(),
+            [Replicated::from((expected_results[0], expected_results[1]))]
+                .to_vec()
+                .to_bytes()
+        );
     }
 }

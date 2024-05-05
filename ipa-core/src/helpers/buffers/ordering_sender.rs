@@ -55,14 +55,11 @@ impl State {
     }
 
     fn save_waker(v: &mut Option<Waker>, cx: &Context<'_>) {
-        // here used to be a check that new waker will wake the same task.
-        // however, the contract for `will_wake` states that it is a best-effort and even if
-        // both wakes wake the same task, `will_wake` may still return `false`.
-        // This is exactly what happened once we started using HTTP/2 - somewhere deep inside hyper
-        // h2 implementation, there is a new waker (with the same vtable) that is used to poll
-        // this stream again. This does not happen when we use HTTP/1.1, but it does not matter for
-        // this code.
-        v.replace(cx.waker().clone());
+        if let Some(waker) = v {
+            waker.clone_from(cx.waker());
+        } else {
+            v.replace(cx.waker().clone());
+        }
     }
 
     fn wake(v: &mut Option<Waker>) {
@@ -182,7 +179,6 @@ impl WaitingShard {
             match self.wakers[j].i.cmp(&i) {
                 Ordering::Greater => (),
                 Ordering::Equal => {
-                    assert!(item.w.will_wake(&self.wakers[j].w));
                     self.wakers[j] = item;
                     return Ok(());
                 }
@@ -257,13 +253,11 @@ impl Waiting {
 
     /// Returns all records currently waiting to be sent in sorted order.
     #[cfg(feature = "stall-detection")]
-    fn waiting(&self) -> Vec<usize> {
-        let mut records = Vec::new();
+    fn waiting(&self) -> std::collections::BTreeSet<usize> {
+        let mut records = std::collections::BTreeSet::new();
         self.shards
             .iter()
             .for_each(|shard| records.extend(shard.lock().unwrap().waiting()));
-
-        records.sort_unstable();
 
         records
     }
@@ -349,6 +343,14 @@ impl OrderingSender {
         Close { i, sender: self }
     }
 
+    /// Returns `true` if this sender is closed for writes.
+    ///
+    /// ## Panics
+    /// If the underlying mutex is poisoned or locked by the same thread.
+    pub fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
     /// Perform the next `send` or `close` operation.
     fn next_op<F>(&self, i: usize, cx: &Context<'_>, f: F) -> Poll<()>
     where
@@ -431,9 +433,21 @@ impl OrderingSender {
         OrderedStream { sender: self }
     }
 
+    /// This returns a set of record indices waiting to be sent.
+    ///
+    /// ## Panics
+    /// If state mutex is poisoned.
     #[cfg(feature = "stall-detection")]
-    pub fn waiting(&self) -> Vec<usize> {
-        self.waiting.waiting()
+    pub fn waiting(&self) -> std::collections::BTreeSet<usize> {
+        use crate::sync::atomic::Ordering::Relaxed;
+
+        let mut waiting_indices = self.waiting.waiting();
+        let state = self.state.lock().unwrap();
+        if state.write_ready.is_some() {
+            waiting_indices.insert(self.next.load(Relaxed));
+        }
+
+        waiting_indices
     }
 }
 
@@ -524,7 +538,7 @@ mod test {
     use super::OrderingSender;
     use crate::{
         ff::{Fp31, Fp32BitPrime, Gf20Bit, Gf9Bit, Serializable, U128Conversions},
-        helpers::Message,
+        helpers::MpcMessage,
         rand::thread_rng,
         sync::Arc,
         test_executor::run,
@@ -622,7 +636,7 @@ mod test {
     >;
 
     // Given a message, returns a closure that sends the message and increments an associated record index.
-    fn send_fn<M: Message>(m: M) -> BoxedSendFn {
+    fn send_fn<M: MpcMessage>(m: M) -> BoxedSendFn {
         Box::new(|s: &OrderingSender, i: &mut usize| {
             let fut = s.send(*i, m).boxed();
             *i += 1;

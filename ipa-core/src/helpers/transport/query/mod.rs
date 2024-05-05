@@ -1,5 +1,3 @@
-pub mod oprf_shuffle;
-
 use std::{
     fmt::{Debug, Display, Formatter},
     num::NonZeroU32,
@@ -11,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     ff::FieldType,
     helpers::{
-        transport::{BodyStream, NoQueryId, NoStep},
-        GatewayConfig, RoleAssignment, RouteId, RouteParams,
+        transport::{routing::RouteId, BodyStream, NoQueryId, NoStep},
+        GatewayConfig, RoleAssignment, RouteParams,
     },
     protocol::{
         step::{ProtocolGate, ProtocolStep},
@@ -83,9 +81,8 @@ impl From<QuerySize> for usize {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
-#[derive(Serialize, Deserialize)]
 pub struct QueryConfig {
     pub size: QuerySize,
     pub field_type: FieldType,
@@ -104,6 +101,26 @@ pub struct PrepareQuery {
     pub query_id: QueryId,
     pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+impl RouteParams<RouteId, QueryId, NoStep> for PrepareQuery {
+    type Params = String;
+
+    fn resource_identifier(&self) -> RouteId {
+        RouteId::PrepareQuery
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.query_id
+    }
+
+    fn gate(&self) -> NoStep {
+        NoStep
+    }
+
+    fn extra(&self) -> Self::Params {
+        serde_json::to_string(self).unwrap()
+    }
 }
 
 impl RouteParams<RouteId, NoQueryId, NoStep> for &QueryConfig {
@@ -330,20 +347,5 @@ impl Default for ContributionBits {
 impl std::fmt::Display for ContributionBits {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SparseAggregateQueryConfig {
-    pub contribution_bits: ContributionBits,
-    pub num_contributions: u32,
-}
-
-impl Default for SparseAggregateQueryConfig {
-    fn default() -> Self {
-        Self {
-            contribution_bits: ContributionBits::default(),
-            num_contributions: 8,
-        }
     }
 }

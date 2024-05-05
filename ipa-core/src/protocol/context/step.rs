@@ -31,3 +31,12 @@ pub(crate) enum ValidateStep {
     /// Check that there is no disagreement between accumulated values.
     CheckZero,
 }
+
+/// Steps used by the validation component of the DZKP
+#[derive(CompactStep)]
+pub(crate) enum ZeroKnowledgeProofValidateStep {
+    /// For the execution of the malicious protocol.
+    DZKPMaliciousProtocol,
+    /// Step for validating the DZK proof.
+    DZKPValidate,
+}

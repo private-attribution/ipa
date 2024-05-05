@@ -19,7 +19,7 @@ use ipa_core::{
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
-    ff::{FieldType, Fp32BitPrime},
+    ff::{boolean_array::BA16, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
@@ -155,10 +155,9 @@ fn gen_inputs(
     let rng = seed
         .map(StdRng::seed_from_u64)
         .unwrap_or_else(StdRng::from_entropy);
-    let mut event_gen = EventGenerator::with_config(rng, args)
+    let event_gen = EventGenerator::with_config(rng, args)
         .take(count as usize)
         .collect::<Vec<_>>();
-    event_gen.sort_by_key(|e| e.timestamp);
     let mut writer: Box<dyn Write> = if let Some(path) = output_file {
         Box::new(OpenOptions::new().write(true).create_new(true).open(path)?)
     } else {
@@ -182,16 +181,14 @@ impl KeyRegistries {
         network: &NetworkConfig,
     ) -> Option<(KeyIdentifier, [&KeyRegistry<PublicKeyOnly>; 3])> {
         // Get the configs, if all three peers have one
-        let Some(configs) = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
+        let configs = network.peers().iter().try_fold(Vec::new(), |acc, peer| {
             if let (mut vec, Some(hpke_config)) = (acc, peer.hpke_config.as_ref()) {
                 vec.push(hpke_config);
                 Some(vec)
             } else {
                 None
             }
-        }) else {
-            return None;
-        };
+        })?;
 
         // Create key registries
         self.0 = configs
@@ -256,7 +253,7 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
-            playbook_oprf_ipa::<Fp32BitPrime, _>(
+            playbook_oprf_ipa::<BA16, _>(
                 input_rows,
                 helper_clients,
                 query_id,

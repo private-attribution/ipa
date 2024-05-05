@@ -14,17 +14,23 @@ use crate::{
         basics::Reveal,
         context::{
             step::{MaliciousProtocolStep as Step, ValidateStep},
-            Base, Context, MaliciousContext, SemiHonestContext, UpgradableContext,
-            UpgradedMaliciousContext, UpgradedSemiHonestContext,
+            Base, Context, MaliciousContext, UpgradableContext, UpgradedMaliciousContext,
+            UpgradedSemiHonestContext,
         },
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::{
-        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField},
-        semi_honest::AdditiveShare as Replicated,
-        ReplicatedSecretSharing,
+    secret_sharing::{
+        replicated::{
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious, ExtendableField,
+            },
+            semi_honest::AdditiveShare as Replicated,
+            ReplicatedSecretSharing,
+        },
+        SharedValue,
     },
+    sharding::ShardBinding,
     sync::{Arc, Mutex, Weak},
 };
 
@@ -34,13 +40,13 @@ pub trait Validator<B: UpgradableContext, F: ExtendableField> {
     async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>;
 }
 
-pub struct SemiHonest<'a, F: ExtendableField> {
-    context: UpgradedSemiHonestContext<'a, F>,
+pub struct SemiHonest<'a, B: ShardBinding, F: ExtendableField> {
+    context: UpgradedSemiHonestContext<'a, B, F>,
     _f: PhantomData<F>,
 }
 
-impl<'a, F: ExtendableField> SemiHonest<'a, F> {
-    pub(super) fn new(inner: Base<'a>) -> Self {
+impl<'a, B: ShardBinding, F: ExtendableField> SemiHonest<'a, B, F> {
+    pub(super) fn new(inner: Base<'a, B>) -> Self {
         Self {
             context: UpgradedSemiHonestContext::new(inner),
             _f: PhantomData,
@@ -49,8 +55,10 @@ impl<'a, F: ExtendableField> SemiHonest<'a, F> {
 }
 
 #[async_trait]
-impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<'a, F> {
-    fn context(&self) -> UpgradedSemiHonestContext<'a, F> {
+impl<'a, B: ShardBinding, F: ExtendableField> Validator<super::semi_honest::Context<'a, B>, F>
+    for SemiHonest<'a, B, F>
+{
+    fn context(&self) -> UpgradedSemiHonestContext<'a, B, F> {
         self.context.clone()
     }
 
@@ -60,9 +68,14 @@ impl<'a, F: ExtendableField> Validator<SemiHonestContext<'a>, F> for SemiHonest<
     }
 }
 
-impl<F: ExtendableField> Debug for SemiHonest<'_, F> {
+impl<B: ShardBinding, F: ExtendableField> Debug for SemiHonest<'_, B, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SemiHonestValidator<{:?}>", type_name::<F>())
+        write!(
+            f,
+            "SemiHonestValidator<{:?}, {:?}>",
+            type_name::<B>(),
+            type_name::<F>()
+        )
     }
 }
 
@@ -205,7 +218,9 @@ impl<'a, F: ExtendableField> Validator<MaliciousContext<'a>, F> for Malicious<'a
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?;
+        let r = <F as ExtendableField>::ExtendedField::from_array(
+            &self.r_share.reveal(narrow_ctx, RecordId::FIRST).await?,
+        );
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self

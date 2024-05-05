@@ -17,6 +17,8 @@ pub mod metrics {
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
     pub use ::ipa_step::descriptive::labels::STEP_NARROWED;
+    pub const DZKP_BATCH_REALLOCATION_FRONT: &str = "batch.realloc.front";
+    pub const DZKP_BATCH_REALLOCATION_BACK: &str = "batch.realloc.back";
 
     #[cfg(feature = "web-app")]
     pub mod web {
@@ -104,6 +106,18 @@ pub mod metrics {
             STEP_NARROWED,
             Unit::Count,
             "Number of times the step is narrowed"
+        );
+
+        describe_counter!(
+            DZKP_BATCH_REALLOCATION_FRONT,
+            Unit::Count,
+            "Number of DZKP reallocations due to records smaller than the offset"
+        );
+
+        describe_counter!(
+            DZKP_BATCH_REALLOCATION_BACK,
+            Unit::Count,
+            "Number of DZKP reallocations due to insufficient length"
         );
     }
 }

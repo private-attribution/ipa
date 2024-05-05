@@ -14,9 +14,9 @@ use shuttle::future as tokio;
 use typenum::Unsigned;
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-use crate::query::runner::execute_test_multiply;
+use crate::{ff::Fp32BitPrime, query::runner::execute_test_multiply};
 use crate::{
-    ff::{FieldType, Fp32BitPrime, Serializable},
+    ff::{boolean_array::BA16, FieldType, Serializable},
     helpers::{
         negotiate_prss,
         query::{QueryConfig, QueryType},
@@ -32,7 +32,7 @@ use crate::{
 };
 
 pub trait Result: Send + Debug {
-    fn into_bytes(self: Box<Self>) -> Vec<u8>;
+    fn to_bytes(&self) -> Vec<u8>;
 }
 
 impl<T> Result for Vec<T>
@@ -40,9 +40,9 @@ where
     T: Serializable,
     Vec<T>: Debug + Send,
 {
-    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut r = vec![0u8; self.len() * T::Size::USIZE];
-        for (i, row) in self.into_iter().enumerate() {
+        for (i, row) in self.iter().enumerate() {
             row.serialize(GenericArray::from_mut_slice(
                 &mut r[(i * T::Size::USIZE)..((i + 1) * T::Size::USIZE)],
             ));
@@ -75,6 +75,8 @@ pub fn execute(
                 Box::pin(execute_test_multiply::<Fp32BitPrime>(prss, gateway, input))
             })
         }
+        // TODO(953): This is really using BA32, not Fp32bitPrime. The `FieldType` mechanism needs
+        // to be reworked.
         (QueryType::OprfIpa(ipa_config), FieldType::Fp32BitPrime) => do_query(
             config,
             gateway,
@@ -82,12 +84,13 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, Fp32BitPrime>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<BA16>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
             },
         ),
+        // TODO(953): This is not doing anything differently than the Fp32BitPrime case.
         #[cfg(any(test, feature = "weak-field"))]
         (QueryType::OprfIpa(ipa_config), FieldType::Fp31) => do_query(
             config,
@@ -96,7 +99,7 @@ pub fn execute(
             move |prss, gateway, config, input| {
                 let ctx = SemiHonestContext::new(prss, gateway);
                 Box::pin(
-                    OprfIpaQuery::<_, crate::ff::Fp31>::new(ipa_config, key_registry)
+                    OprfIpaQuery::<BA16>::new(ipa_config, key_registry)
                         .execute(ctx, config.size, input)
                         .then(|res| ready(res.map(|out| Box::new(out) as Box<dyn Result>))),
                 )
@@ -152,10 +155,10 @@ mod tests {
     fn serialize_result() {
         let [input, ..] = (0u128..=3).map(Fp31::truncate_from).share();
         let expected = input.clone();
-        let bytes = Box::new(input).into_bytes();
+        let bytes = &input.to_bytes();
         assert_eq!(
             expected,
-            AdditiveShare::<Fp31>::from_byte_slice(&bytes)
+            AdditiveShare::<Fp31>::from_byte_slice(bytes)
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
         );

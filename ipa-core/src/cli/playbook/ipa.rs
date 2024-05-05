@@ -14,7 +14,7 @@ use typenum::Unsigned;
 
 use crate::{
     cli::IpaQueryResult,
-    ff::{PrimeField, Serializable},
+    ff::{Serializable, U128Conversions},
     helpers::{
         query::{IpaQueryConfig, QueryInput, QuerySize},
         BodyStream,
@@ -24,7 +24,7 @@ use crate::{
     protocol::{ipa_prf::OPRFIPAInputRow, BreakdownKey, QueryId, Timestamp, TriggerValue},
     query::QueryStatus,
     report::{KeyIdentifier, OprfReport},
-    secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, IntoShares, SharedValue},
     test_fixture::{ipa::TestRawDataRecord, Reconstruct},
 };
 
@@ -32,7 +32,7 @@ use crate::{
 ///
 /// ## Panics
 /// If report encryption fails
-pub async fn playbook_oprf_ipa<F, KR>(
+pub async fn playbook_oprf_ipa<HV, KR>(
     records: Vec<TestRawDataRecord>,
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
@@ -40,8 +40,8 @@ pub async fn playbook_oprf_ipa<F, KR>(
     encryption: Option<(KeyIdentifier, [&KR; 3])>,
 ) -> IpaQueryResult
 where
-    F: PrimeField,
-    AdditiveShare<F>: Serializable,
+    HV: SharedValue + U128Conversions,
+    AdditiveShare<HV>: Serializable,
     KR: PublicKeyRegistry,
 {
     let mut buffers: [_; 3] = std::array::from_fn(|_| Vec::new());
@@ -89,11 +89,11 @@ where
     let inputs = buffers.map(BodyStream::from);
     tracing::info!("Starting query for OPRF");
 
-    run_query_and_validate::<F>(inputs, query_size, clients, query_id, query_config).await
+    run_query_and_validate::<HV>(inputs, query_size, clients, query_id, query_config).await
 }
 
 #[allow(clippy::disallowed_methods)] // allow try_join_all
-pub async fn run_query_and_validate<F>(
+pub async fn run_query_and_validate<HV>(
     inputs: [BodyStream; 3],
     query_size: usize,
     clients: &[MpcHelperClient; 3],
@@ -101,8 +101,8 @@ pub async fn run_query_and_validate<F>(
     query_config: IpaQueryConfig,
 ) -> IpaQueryResult
 where
-    F: PrimeField,
-    AdditiveShare<F>: Serializable,
+    HV: SharedValue + U128Conversions,
+    AdditiveShare<HV>: Serializable,
 {
     let mpc_time = Instant::now();
     try_join_all(
@@ -143,9 +143,9 @@ where
         .try_into()
         .unwrap();
 
-    let results: Vec<F> = results
+    let results: Vec<HV> = results
         .map(|bytes| {
-            AdditiveShare::<F>::from_byte_slice(&bytes)
+            AdditiveShare::<HV>::from_byte_slice(&bytes)
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap()
         })
@@ -160,7 +160,7 @@ where
         // I think using u32 is wrong, we should move to u128
         assert!(
             breakdown_key < query_config.max_breakdown_key.try_into().unwrap()
-                || trigger_value == F::ZERO,
+                || trigger_value == HV::ZERO,
             "trigger values were attributed to buckets more than max breakdown key"
         );
         if breakdown_key < query_config.max_breakdown_key.try_into().unwrap() {

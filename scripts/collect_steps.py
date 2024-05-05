@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os
 import re
 import subprocess
@@ -7,22 +8,11 @@ import sys
 # This script collects all the steps that are executed in the oneshot_ipa with
 # all possible configurations.
 
-IPA_ENV = [["RUST_LOG", "ipa_core=DEBUG"]]
-ARGS = [
-    "cargo",
-    "bench",
-    "--bench",
-    "oneshot_ipa",
-    "--no-default-features",
-    "--features=enable-benches debug-trace step-trace",
-    "--",
-    "--num-multi-bits",
-    "3",
-]
+IPA_ENV = [["RUST_LOG", "WARN,ipa_core::test_fixture::metrics=DEBUG"]]
 QUERY_SIZE = 100
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
 ATTRIBUTION_WINDOW = [0, 86400]
-ROOT_STEP_PREFIX = "protocol/alloc::string::String::run-0"
+ROOT_STEP_PREFIX = "protocol/ipa_core::test_fixture::world::TestExecutionStep::iter0"
 BREAKDOWN_KEYS = 256
 USER_CAP = [8, 16, 32, 64, 128]
 SECURITY_MODEL = "semi-honest"
@@ -79,6 +69,9 @@ def collect_steps(args):
 
         if not line or line == "":
             break
+
+        if line.startswith("TestWorld random seed "):
+            continue
 
         if not line.startswith(ROOT_STEP_PREFIX):
             print("Unexpected line: " + line, flush=True)
@@ -147,12 +140,12 @@ def extract_intermediate_steps(steps):
     return steps
 
 
-def ipa_steps():
+def ipa_steps(base_args):
     output = set()
     for c in USER_CAP:
         for w in ATTRIBUTION_WINDOW:
             for tv in TRIGGER_VALUES:
-                args = ARGS + [
+                args = base_args + [
                     "-n",
                     str(QUERY_SIZE),
                     "-c",
@@ -165,14 +158,39 @@ def ipa_steps():
                     SECURITY_MODEL,
                     "-t",
                     str(tv),
-            ]
+                ]
             print(" ".join(args), file=sys.stderr)
             output.update(collect_steps(args))
     return output
 
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate steps file")
+    parser.add_argument(
+        "-m",
+        "--multi-threading",
+        action="store_true",
+    )
+    args = parser.parse_args()
+
+    features = ["enable-benches", "debug-trace", "step-trace"]
+    if args.multi_threading:
+        features.append("multi-threading")
+
+    ARGS = [
+        "cargo",
+        "bench",
+        "--bench",
+        "oneshot_ipa",
+        "--no-default-features",
+        f'--features={" ".join(features)}',
+        "--",
+        "--num-multi-bits",
+        "3",
+    ]
+
     steps = set()
-    steps.update(ipa_steps())
+    steps.update(ipa_steps(ARGS))
 
     full_steps = extract_intermediate_steps(steps)
     sorted_steps = sorted(full_steps)

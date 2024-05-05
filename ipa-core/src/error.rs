@@ -6,7 +6,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{report::InvalidReportError, task::JoinError};
+use crate::{helpers::Role, report::InvalidReportError, sharding::ShardIndex, task::JoinError};
 
 /// An error raised by the IPA protocol.
 ///
@@ -51,8 +51,10 @@ pub enum Error {
     RuntimeError(JoinError),
     #[error("failed to parse json: {0}")]
     Serde(#[from] serde_json::Error),
-    #[error("Infrastructure error: {0}")]
-    InfraError(#[from] crate::helpers::Error),
+    #[error("MPC Infrastructure error: {0}")]
+    MpcInfraError(#[from] crate::helpers::Error<Role>),
+    #[error("Shard Infrastructure error: {0}")]
+    ShardInfraError(#[from] crate::helpers::Error<ShardIndex>),
     #[error("Value truncation error: {0}")]
     FieldValueTruncation(String),
     #[error("Invalid query parameter: {0}")]
@@ -65,6 +67,10 @@ pub enum Error {
     DecompressingInvalidCurvePoint(String),
     #[error(transparent)]
     LengthError(#[from] LengthError),
+    #[error("Current Context is unsafe, call validate to make it safe: {0}")]
+    ContextUnsafe(String),
+    #[error("DZKP Validation failed")]
+    DZKPValidationFailed,
 }
 
 impl Default for Error {

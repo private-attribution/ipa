@@ -5,7 +5,7 @@ use futures::{
     Future, Stream, TryStreamExt,
 };
 
-use crate::exact::ExactSizeStream;
+use crate::helpers::stream::ExactSizeStream;
 
 #[cfg(not(feature = "multi-threading"))]
 mod local;

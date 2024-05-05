@@ -2,6 +2,7 @@ use crate::{
     error::Error,
     ff::{Field, PrimeField},
     protocol::{
+        basics::reveal,
         boolean::{
             or::or,
             random_bits_generator::RandomBitsGenerator,
@@ -80,9 +81,7 @@ where
     let r = rbg.generate(record_id).await?;
 
     // Mask `a` with random `r` and reveal.
-    let b = (r.b_p + a)
-        .reveal(ctx.narrow(&Step::Reveal), record_id)
-        .await?;
+    let b = F::from_array(&reveal(ctx.narrow(&Step::Reveal), record_id, &(r.b_p + a)).await?);
 
     let RBounds { r_lo, r_hi, invert } = compute_r_bounds(b.as_u128(), c, F::PRIME.into());
 

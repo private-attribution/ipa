@@ -22,11 +22,13 @@ track_steps!(
             boolean_ops::step,
             prf_sharding::step,
             shuffle::step,
+            aggregation::step,
             step,
         },
         modulus_conversion::step,
         step,
     },
+    test_fixture::step
 );
 
 fn main() {
