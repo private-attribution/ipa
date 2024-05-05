@@ -79,6 +79,7 @@ pub fn build<S: CompactStep>() {
     let from_panic = format!("unknown string for {gate_name}: \"{{s}}\"");
     let mut syntax = quote! {
         impl ::std::convert::AsRef<str> for #ident {
+            #[allow(clippy::too_many_lines)]
             fn as_ref(&self) -> &str {
                 match self.0 {
                     0 => "/",
@@ -90,6 +91,7 @@ pub fn build<S: CompactStep>() {
 
         impl ::std::str::FromStr for #ident {
             type Err = String;
+            #[allow(clippy::too_many_lines)]
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
                     "/" => Ok(Self::default()),
