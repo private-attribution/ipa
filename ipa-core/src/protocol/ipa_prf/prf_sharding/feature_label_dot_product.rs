@@ -132,12 +132,13 @@ pub(crate) enum Step {
     ComputedCappedFeatureVector,
 }
 
-fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
+fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>
 where
     C: Context,
 {
-    let mut context_per_row_depth = Vec::with_capacity(histogram.len());
-    for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
+    let mut context_per_row_depth = Vec::with_capacity(users_having_n_records.len());
+    for (row_number, num_users_having_that_row_number) in users_having_n_records.iter().enumerate()
+    {
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
         } else {
@@ -196,7 +197,7 @@ where
 ///
 /// Due to limitation in our infra, it's necessary to set the total number of records each channel will ever need to process.
 /// The number of records each channel processes is a function of the distribution of number of records per user.
-/// Rather than calculate this histogram within this function (challenging to do while streaming), at present the caller must pass this in.
+/// Rather than calculate this distribution within this function (challenging to do while streaming), at present the caller must pass this in.
 ///
 /// The count at a given index indicates the number of users having at least that many rows of data.
 ///
@@ -205,7 +206,7 @@ where
 ///     - the first having 2 records
 ///     - the second having 4 records
 ///     - the third having 6 records
-///   Then the histogram that should be provided is:
+///   Then the data-structure that should be provided for the `users_having_n_records` is:
 ///     - [3, 3, 2, 2, 1, 1]
 ///
 /// # Errors
@@ -215,7 +216,7 @@ where
 pub async fn compute_feature_label_dot_product<'ctx, FV, OV, const B: usize>(
     sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     input_rows: Vec<PrfShardedIpaInputRow<FV>>,
-    histogram: &[usize],
+    users_having_n_records: &[usize],
 ) -> Result<Vec<Replicated<OV>>, Error>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
@@ -233,8 +234,11 @@ where
     let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = input_rows.len() - histogram[0];
-    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
+    // There will be 0 outputs for users with just one row.
+    // There will be 1 output for users with at least 2 rows.
+    // So we just use the number of users having at least 2 rows.
+    let num_outputs = users_having_n_records[1];
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, users_having_n_records);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -277,19 +281,23 @@ async fn evaluate_per_user_attribution_circuit<FV>(
     ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Result<Vec<Replicated<FV>>, Error>
+) -> Result<Option<Replicated<FV>>, Error>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs = initialize_new_device_attribution_variables(first_row);
 
-    let mut output = Vec::with_capacity(rows_for_user.len() - 1);
+    //
+    // Since compute_row_with_previous ensures there will be *at most* a single non-zero contribution
+    // from each user, we can just add all of the outputs together for any given user.
+    // There is no need for any carries since we are always adding zero to the single contribution.
+    let mut output = Replicated::<FV>::ZERO;
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
@@ -297,10 +305,10 @@ where
             .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
-        output.push(capped_attribution_outputs);
+        output += capped_attribution_outputs;
     }
 
-    Ok(output)
+    Ok(Some(output))
 }
 
 ///
@@ -421,6 +429,8 @@ pub mod tests {
                 test_input(345, false, 0b1001_1000_1011_1101_0100_0110_0001_0100), // this source does not receive attribution (capped)
                 test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
                 test_input(345, false, 0b1000_1001_0100_0011_0111_0010_0000_1101), // this source does not receive attribution (capped)
+                /* Fourth User */
+                test_input(456, true, 0b1010_1111_0011_0101_1011_1110_0100_0011), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
             let mut expected: [u128; 32] = [
@@ -434,11 +444,11 @@ pub mod tests {
             ];
             expected.reverse(); // convert to little-endian order
 
-            let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
+            let users_having_n_records = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
             let result: Vec<BA8> = world
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
-                    let h = histogram.as_slice();
+                    let h = users_having_n_records.as_slice();
                     async move {
                         compute_feature_label_dot_product::<BA32, BA8, 32>(ctx, input_rows, h)
                             .await
