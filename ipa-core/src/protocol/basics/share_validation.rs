@@ -40,8 +40,8 @@ where
     // set up context
     let ctx_new = &(ctx.set_total_records(1usize));
     // set up channels
-    let send_channel = &ctx_new.send_channel::<Hash>(ctx.role().peer(Direction::Right));
-    let receive_channel = &ctx_new.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
+    let send_channel = ctx_new.send_channel::<Hash>(ctx.role().peer(Direction::Right));
+    let receive_channel = ctx_new.recv_channel::<Hash>(ctx.role().peer(Direction::Left));
 
     let ((), hash_right) = try_join(
         // send hash
