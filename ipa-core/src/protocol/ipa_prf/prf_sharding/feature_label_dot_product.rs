@@ -7,7 +7,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::{BA16, BA32, BA8}, ArrayAccess, CustomArray, Field, U128Conversions},
+    ff::{boolean::Boolean, boolean_array::{BA16, BA32}, ArrayAccess, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
@@ -230,18 +230,21 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<C, M /*FV, FVS*/, const B: usize>(
-    ctx: C,
-    input_rows: Vec<PrfShardedIpaInputRow<M, BA8>>,
+pub async fn compute_feature_label_dot_product<'ctx, M, TV, HV, const B: usize>(
+    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+    input_rows: Vec<PrfShardedIpaInputRow<M, TV>>,
     histogram: &[usize],
-) -> Result<GenericArray<Replicated<BA16>, M>, Error>
+) -> Result<GenericArray<Replicated<HV>, M>, Error>
 where
-    C: Context,
-    // FV: SharedValue + CustomArray<Element = Boolean>,
-    // FVS: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<BA8>: BooleanArrayMul,
-    Replicated<Boolean>: SecureMul<C>,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     M: ArrayLength,
+    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<TV>: BooleanArrayMul,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = histogram[0];
@@ -250,7 +253,7 @@ where
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        return Ok(GenericArray::generate(|_| Replicated::<BA16>::ZERO));
+        return Ok(GenericArray::generate(|_| Replicated::<HV>::ZERO));
     };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
@@ -276,20 +279,20 @@ where
     let flattened_stream = Box::pin(
         seq_join(ctx.active_work(), stream::iter(chunked_user_results))
             .map_ok(|value| {
-                
                 BitDecomposed::new(
-                    (0..BA8::BITS).map(|bit| {
-                        let mut packed_bits = Replicated::new(BA32::ZERO_ARRAY, BA32::ZERO_ARRAY);
+                    (0..TV::BITS).map(|bit| {
+                        let mut packed_bits = Replicated::new(HV::ZERO_ARRAY, HV::ZERO_ARRAY);
                         for (i, feature) in value.iter().enumerate() {
                             packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
                         }
                         packed_bits
                     })
-                )                
+                )
+//                Vec::transposed_from(value.as_slice()).unwrap_infallible()             
             }),
     );
 
-    let foo = aggregate_values::<BA16, B>(ctx, flattened_stream, num_outputs).await?;
+    let foo = aggregate_values::<HV, B>(ctx, flattened_stream, num_outputs).await?;
 
     Ok(GenericArray::from_iter(foo))
 }
