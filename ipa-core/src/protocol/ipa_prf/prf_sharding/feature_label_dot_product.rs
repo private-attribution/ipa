@@ -26,7 +26,7 @@ use crate::{
     sharding::NotSharded,
 };
 
-pub struct PrfShardedIpaInputRow<M: ArrayLength, FV: SharedValue + CustomArray<Element = Boolean>> {
+pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>, M: ArrayLength> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
     feature_vector: GenericArray<Replicated<FV>, M>,
@@ -54,11 +54,11 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<'ctx, M, FV>(
+    pub async fn compute_row_with_previous<'ctx, FV, M>(
         &mut self,
         ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
         record_id: RecordId,
-        input_row: &PrfShardedIpaInputRow<M, FV>,
+        input_row: &PrfShardedIpaInputRow<FV, M>,
     ) -> Result<GenericArray<Replicated<FV>, M>, Error>
     where
         FV: SharedValue + CustomArray<Element = Boolean>,
@@ -172,11 +172,11 @@ where
 ///
 fn chunk_rows_by_user<FV, IS, M>(
     input_stream: IS,
-    first_row: PrfShardedIpaInputRow<M, FV>,
-) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<M, FV>>>
+    first_row: PrfShardedIpaInputRow<FV, M>,
+) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, M>>>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
-    IS: Stream<Item = PrfShardedIpaInputRow<M, FV>> + Unpin,
+    IS: Stream<Item = PrfShardedIpaInputRow<FV, M>> + Unpin,
     M: ArrayLength,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -229,9 +229,9 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<'ctx, M, TV, HV, const B: usize>(
+pub async fn compute_feature_label_dot_product<'ctx, TV, HV, M, const B: usize>(
     sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
-    input_rows: Vec<PrfShardedIpaInputRow<M, TV>>,
+    input_rows: Vec<PrfShardedIpaInputRow<TV, M>>,
     users_having_n_records: &[usize],
 ) -> Result<GenericArray<Replicated<HV>, M>, Error>
 where
@@ -307,10 +307,10 @@ where
     Ok(GenericArray::from_iter(foo))
 }
 
-async fn evaluate_per_user_attribution_circuit<M, FV>(
+async fn evaluate_per_user_attribution_circuit<FV, M>(
     ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
-    rows_for_user: Vec<PrfShardedIpaInputRow<M, FV>>,
+    rows_for_user: Vec<PrfShardedIpaInputRow<FV, M>>,
 ) -> Result<Option<GenericArray<Replicated<FV>, M>>, Error>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
@@ -348,8 +348,8 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<M, FV>(
-    input_row: &PrfShardedIpaInputRow<M, FV>,
+fn initialize_new_device_attribution_variables<FV, M>(
+    input_row: &PrfShardedIpaInputRow<FV, M>,
 ) -> InputsRequiredFromPrevRow
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
@@ -409,12 +409,12 @@ pub mod tests {
         }
     }
 
-    impl<M, FV> IntoShares<PrfShardedIpaInputRow<M, FV>> for PreShardedAndSortedOPRFTestInput<FV, M>
+    impl<FV, M> IntoShares<PrfShardedIpaInputRow<FV, M>> for PreShardedAndSortedOPRFTestInput<FV, M>
     where
         FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
         M: ArrayLength,
     {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<M, FV>; 3] {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, M>; 3] {
             let PreShardedAndSortedOPRFTestInput {
                 prf_of_match_key,
                 is_trigger_bit,
@@ -594,7 +594,7 @@ pub mod tests {
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<U32, BA8, BA16, 32>(ctx, input_rows, h)
+                        compute_feature_label_dot_product::<BA8, BA16, U32, 32>(ctx, input_rows, h)
                             .await
                             .unwrap()
                     }
