@@ -1,4 +1,3 @@
-use bitvec::{array::BitArray, order::Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U32};
 
@@ -102,32 +101,34 @@ impl DZKPBaseField for Fp61BitPrime {
     ) -> impl Iterator<Item = UVPolynomials<Fp61BitPrime>> {
         x_left
             .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .zip(y_right.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(y_left.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(x_right.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .map(ToOwned::to_owned)
+            .zip(
+                y_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                y_left
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                x_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                prss_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
             .map(|((((a, b), c), d), f)| {
-                // e = ab⊕cd⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
-                let e: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
-                    (BitArray::try_from(a).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(b)
-                            .unwrap())
-                        ^ (BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
-                            .unwrap()
-                            & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
-                                .unwrap())
-                        ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(f)
-                            .unwrap();
                 // precompute ac = a & c
-                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
-                    BitArray::try_from(a).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
-                            .unwrap();
+                let ac = a.clone() & &c;
+                // e = ab⊕cd⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
+                let e = (a.clone() & &b) ^ (c.clone() & &d) ^ &f;
                 // precompute bd = b & d
-                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
-                    BitArray::try_from(b).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
-                            .unwrap();
+                let bd = b.clone() & &d;
                 (
                     // g polynomial
                     a.iter()
@@ -199,21 +200,28 @@ impl DZKPBaseField for Fp61BitPrime {
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         x_right
             .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .zip(y_right.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(prss_right.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(z_right.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .map(ToOwned::to_owned)
+            .zip(
+                y_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                prss_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                z_right
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
             .map(|(((a, c), prss), z)| {
                 // precompute ac = a & c
-                let ac: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
-                    BitArray::try_from(a).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(c)
-                            .unwrap();
+                let ac = a.clone() & &c;
                 // e = ac ⊕ zright ⊕ prssright
                 // as defined in the paper
-                let e: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> = ac
-                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(prss)
-                        .unwrap()
-                    ^ BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(z).unwrap();
+                let e = ac.clone() ^ &prss ^ &z;
                 // g polynomial
                 a.iter()
                     .zip(c.iter())
@@ -258,14 +266,20 @@ impl DZKPBaseField for Fp61BitPrime {
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         y_left
             .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .zip(x_left.chunks(RECURSION_CHUNK_SIZE_BITS))
-            .zip(prss_left.chunks(RECURSION_CHUNK_SIZE_BITS))
+            .map(ToOwned::to_owned)
+            .zip(
+                x_left
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
+            .zip(
+                prss_left
+                    .chunks(RECURSION_CHUNK_SIZE_BITS)
+                    .map(ToOwned::to_owned),
+            )
             .map(|((b, d), f)| {
                 // precompute bd = b & d
-                let bd: BitArray<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0> =
-                    BitArray::try_from(b).unwrap()
-                        & BitArray::<[u8; RECURSION_CHUNK_SIZE_BITS >> 3], Lsb0>::try_from(d)
-                            .unwrap();
+                let bd = b.clone() & &d;
                 // h polynomial
                 b.iter()
                     .zip(d.iter())
