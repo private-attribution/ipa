@@ -869,7 +869,6 @@ macro_rules! impl_aggregation_transpose {
 // Usage: aggregation intermediate. M = number of breakdowns (2^|bk|), N = AGG_CHUNK
 impl_aggregation_transpose!(BA256, BA256, 256, 256, test_aggregation_transpose_256x256);
 impl_aggregation_transpose!(BA32, BA256, 32, 256, test_aggregation_transpose_32x256);
-impl_aggregation_transpose!(BA16, BA32, 16, 32, test_aggregation_transpose_16x32);
 
 #[cfg(all(test, unit_test))]
 mod tests {

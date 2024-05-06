@@ -247,6 +247,7 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    // Get the validator and context to use for Boolean multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
     let ctx = binary_validator.context();
 
@@ -282,7 +283,7 @@ where
                 )
             });
 
-    // Execute all of the async futures (sequentially)
+    // Execute all of the async futures (sequentially), and flatten the result to remove None elements
     let flattened_stream = Box::pin(
         seq_join(ctx.active_work(), stream::iter(chunked_user_results))
             .try_flatten_iters()
@@ -587,7 +588,6 @@ pub mod tests {
 
             let results = world
                 .semi_honest(records.into_iter(), |sh_ctx, input_rows| {
-                    // Get the validator and context to use for Boolean multiplication operations
                     let h = users_having_n_records.as_slice();
                     async move {
                         compute_feature_label_dot_product::<U32, BA8, BA16, 32>(
@@ -596,7 +596,6 @@ pub mod tests {
                         .await
                         .unwrap()
                     }
-                    // 'ctx, M, TV, HV, const B: usize>(
                 })
                 .await;
 
