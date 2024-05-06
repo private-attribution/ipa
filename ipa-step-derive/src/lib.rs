@@ -145,7 +145,7 @@ fn derive_gate_impl(ast: &DeriveInput) -> TokenStream {
         /// the ordering of [`Descriptive`].
         ///
         /// [`Descriptive`]: crate::descriptive::Descriptive
-        #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct #name(::ipa_step::CompactGateIndex);
         impl ::ipa_step::Gate for #name {}
         impl ::std::default::Default for #name {
