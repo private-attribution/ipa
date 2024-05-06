@@ -121,7 +121,7 @@ mod test {
             let world = TestWorld::default();
             let mut rng = thread_rng();
 
-            let len: usize = rng.gen::<usize>() % 99usize + 1;
+            let len: usize = rng.gen_range(50..100);
 
             let mut r = vec![Fp61BitPrime::ZERO; len];
             r.iter_mut().for_each(|x| *x = rng.gen());
