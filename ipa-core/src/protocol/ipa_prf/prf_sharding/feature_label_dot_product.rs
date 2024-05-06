@@ -1,31 +1,26 @@
-use std::{any::type_name_of_val, iter::{self, zip}};
+use std::{any::type_name_of_val, iter::zip};
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use generic_array::{
-    functional::FunctionalSequence, sequence::GenericSequence, ArrayLength, GenericArray,
-};
+use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError},
-    ff::{
-        boolean::Boolean,
-        boolean_array::{BA16, BA32},
-        ArrayAccess, CustomArray, Field, U128Conversions,
-    },
+    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator},
+        context::{
+            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
+        },
         ipa_prf::aggregation::aggregate_values,
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom,
-        Vectorizable,
+        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
+        SharedValue, TransposeFrom,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -125,9 +120,9 @@ impl InputsRequiredFromPrevRow {
         self.ever_encountered_a_trigger_event = ever_encountered_a_trigger_event;
         self.is_saturated = updated_is_saturated;
 
-        Ok(GenericArray::from_iter(
-            capped_attributed_feature_vector.into_iter(),
-        ))
+        Ok(capped_attributed_feature_vector
+            .into_iter()
+            .collect::<GenericArray<_, M>>())
     }
 }
 
@@ -152,18 +147,15 @@ pub(crate) enum Step {
     IsAttributedSourceAndPrevRowNotSaturated,
     #[dynamic(1024)]
     ComputedCappedFeatureVector(usize),
-    #[dynamic(32)]
-    AggregatePass(usize),
-    #[dynamic(64)]
-    AggregateFeatureIndex(usize),
 }
 
-fn set_up_contexts<C>(root_ctx: &C, histogram: &[usize]) -> Vec<C>
+fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>
 where
     C: Context,
 {
-    let mut context_per_row_depth = Vec::with_capacity(histogram.len());
-    for (row_number, num_users_having_that_row_number) in histogram.iter().enumerate() {
+    let mut context_per_row_depth = Vec::with_capacity(users_having_n_records.len());
+    for (row_number, num_users_having_that_row_number) in users_having_n_records.iter().enumerate()
+    {
         if row_number == 0 {
             // no multiplications needed for each user's row 0. No context needed
         } else {
@@ -223,7 +215,7 @@ where
 ///
 /// Due to limitation in our infra, it's necessary to set the total number of records each channel will ever need to process.
 /// The number of records each channel processes is a function of the distribution of number of records per user.
-/// Rather than calculate this histogram within this function (challenging to do while streaming), at present the caller must pass this in.
+/// Rather than calculate this distribution within this function (challenging to do while streaming), at present the caller must pass this in.
 ///
 /// The count at a given index indicates the number of users having at least that many rows of data.
 ///
@@ -232,7 +224,7 @@ where
 ///     - the first having 2 records
 ///     - the second having 4 records
 ///     - the third having 6 records
-///   Then the histogram that should be provided is:
+///   Then the data-structure that should be provided for the `users_having_n_records` is:
 ///     - [3, 3, 2, 2, 1, 1]
 ///
 /// # Errors
@@ -242,7 +234,7 @@ where
 pub async fn compute_feature_label_dot_product<'ctx, M, TV, HV, const B: usize>(
     sh_ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<PrfShardedIpaInputRow<M, TV>>,
-    histogram: &[usize],
+    users_having_n_records: &[usize],
 ) -> Result<GenericArray<Replicated<HV>, M>, Error>
 where
     Boolean: FieldSimd<B>,
@@ -259,8 +251,11 @@ where
     let ctx = binary_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
-    let num_outputs = histogram[0];
-    let ctx_for_row_number = set_up_contexts(&ctx, histogram);
+    // There will be 0 outputs for users with just one row.
+    // There will be 1 output for users with at least 2 rows.
+    // So we just use the number of users having at least 2 rows.
+    let num_outputs = users_having_n_records[1];
+    let ctx_for_row_number = set_up_contexts(&ctx, users_having_n_records);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -290,18 +285,23 @@ where
     // Execute all of the async futures (sequentially)
     let flattened_stream = Box::pin(
         seq_join(ctx.active_work(), stream::iter(chunked_user_results))
-        .map_ok(|value| {
-            println!("value: {:?}, type of: {:?}", value, type_name_of_val(&value));
-            BitDecomposed::new((0..TV::BITS).map(|bit| {
-                let mut packed_bits = Replicated::<Boolean, B>::ZERO;
-                /*
-                for (i, feature) in value.iter().enumerate() {
-                    packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
-                }
-                */
-                packed_bits
-            }))
-        }),
+            .try_flatten_iters()
+            .map_ok(|value| {
+                println!(
+                    "value: {:?}, type of: {:?}",
+                    value,
+                    type_name_of_val(&value)
+                );
+                BitDecomposed::new((0..TV::BITS).map(|bit| {
+                    let mut packed_bits = Replicated::<Boolean, B>::ZERO;
+                    /*
+                    for (i, feature) in value.iter().enumerate() {
+                        packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
+                    }
+                    */
+                    packed_bits
+                }))
+            }),
     );
 
     let foo = aggregate_values::<HV, B>(ctx, flattened_stream, num_outputs).await?;
@@ -313,7 +313,7 @@ async fn evaluate_per_user_attribution_circuit<C, M, FV>(
     ctx_for_row_number: Vec<C>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<M, FV>>,
-) -> Result<GenericArray<Replicated<FV>, M>, Error>
+) -> Result<Option<GenericArray<Replicated<FV>, M>>, Error>
 where
     C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
@@ -321,15 +321,18 @@ where
     Replicated<Boolean>: SecureMul<C>,
     M: ArrayLength,
 {
-    let mut output = GenericArray::<Replicated<FV>, M>::generate(|_| Replicated::<FV>::ZERO);
-
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
-        return Ok(output);
+        return Ok(None);
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs = initialize_new_device_attribution_variables(first_row);
 
+    //
+    // Since compute_row_with_previous ensures there will be *at most* a single non-zero contribution
+    // from each user, we can just add all of the outputs together for any given user.
+    // There is no need for any carries since we are always adding zero to the single contribution.
+    let mut output = GenericArray::<Replicated<FV>, M>::generate(|_| Replicated::<FV>::ZERO);
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
@@ -342,7 +345,7 @@ where
             .collect();
     }
 
-    Ok(output)
+    Ok(Some(output))
 }
 
 ///
@@ -580,17 +583,15 @@ pub mod tests {
                 372, 281, 313, 113, 310, 301, 337, 372, 377, 313, 294, 173, 287, 456, 330,
             ];
 
-            let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
+            let users_having_n_records = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
             let results = world
                 .semi_honest(records.into_iter(), |sh_ctx, input_rows| {
                     // Get the validator and context to use for Boolean multiplication operations
-                    let h = histogram.as_slice();
+                    let h = users_having_n_records.as_slice();
                     async move {
                         compute_feature_label_dot_product::<U32, BA8, BA16, 32>(
-                            sh_ctx,
-                            input_rows,
-                            h,
+                            sh_ctx, input_rows, h,
                         )
                         .await
                         .unwrap()
@@ -602,7 +603,7 @@ pub mod tests {
             let result = [&results[0], &results[1], &results[2]]
                 .reconstruct()
                 .iter()
-                .map(|x| x.as_u128())
+                .map(U128Conversions::as_u128)
                 .collect::<Vec<_>>();
 
             assert_eq!(&result, &expected);

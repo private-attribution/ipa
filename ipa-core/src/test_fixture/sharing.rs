@@ -164,7 +164,6 @@ where
     }
 }
 
-
 impl Reconstruct<()> for [(); 3] {
     fn reconstruct(&self) {}
 }
