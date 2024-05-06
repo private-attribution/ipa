@@ -2,17 +2,18 @@ use std::{collections::HashMap, num::NonZeroU32};
 
 use rand::{thread_rng, Rng};
 
+use crate::protocol::ipa_prf::prf_sharding::GroupingKey;
+#[cfg(feature = "in-memory-infra")]
 use crate::{
     ff::{PrimeField, Serializable},
     helpers::query::IpaQueryConfig,
-    protocol::ipa_prf::{prf_sharding::GroupingKey, OPRFIPAInputRow},
+    protocol::ipa_prf::OPRFIPAInputRow,
     secret_sharing::{
         replicated::{
             malicious::ExtendableField, semi_honest, semi_honest::AdditiveShare as Replicated,
         },
         IntoShares,
     },
-    test_fixture::Reconstruct,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -178,6 +179,7 @@ where
 /// # Panics
 /// If any of the IPA protocol modules panic
 #[allow(clippy::too_many_lines)]
+#[cfg(feature = "in-memory-infra")]
 pub async fn test_oprf_ipa<F>(
     world: &super::TestWorld,
     records: Vec<TestRawDataRecord>,
@@ -195,7 +197,7 @@ pub async fn test_oprf_ipa<F>(
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
-        test_fixture::Runner,
+        test_fixture::{Reconstruct, Runner},
     };
 
     let aws = config.attribution_window_seconds;

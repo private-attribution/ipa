@@ -439,6 +439,7 @@ pub(crate) mod tests {
     };
 
     use futures::stream::{once, poll_immediate};
+    use ipa_step::StepNarrow;
 
     use super::*;
     use crate::{
@@ -448,10 +449,10 @@ pub(crate) mod tests {
             RequestHandler, RoleAssignment, Transport, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::test::TestServer,
-        protocol::step::StepNarrow,
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::Arc,
+        test_fixture::step::TestExecutionStep,
     };
 
     #[tokio::test]
@@ -622,7 +623,7 @@ pub(crate) mod tests {
             client, transport, ..
         } = TestServer::builder().build().await;
         let expected_query_id = QueryId;
-        let expected_step = Gate::default().narrow("test-step");
+        let expected_step = Gate::default().narrow(&TestExecutionStep::Iter(0));
         let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let resp = client
