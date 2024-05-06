@@ -43,7 +43,7 @@ use crate::{
     config::{NetworkConfig, OwnedCertificate, OwnedPrivateKey, ServerConfig, TlsConfig},
     error::BoxError,
     helpers::HelperIdentity,
-    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport},
+    net::{parse_certificate_and_private_key_bytes, Error, HttpTransport, CRYPTO_PROVIDER},
     sync::Arc,
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -290,12 +290,16 @@ async fn rustls_config(
         // configuration errors.
         trusted_certs.add(cert)?;
     }
-    let client_verifier = WebPkiClientVerifier::builder(trusted_certs.into())
-        .allow_unauthenticated()
-        .build()
-        .expect("Error building client verifier, should specify valid Trust Anchors");
-
-    let mut config = rustls::ServerConfig::builder()
+    let client_verifier = WebPkiClientVerifier::builder_with_provider(
+        trusted_certs.into(),
+        Arc::clone(&CRYPTO_PROVIDER),
+    )
+    .allow_unauthenticated()
+    .build()
+    .expect("Error building client verifier, should specify valid Trust Anchors");
+    let mut config = rustls::ServerConfig::builder_with_provider(Arc::clone(&CRYPTO_PROVIDER))
+        .with_safe_default_protocol_versions()
+        .expect("Default crypto provider should be valid")
         .with_client_cert_verifier(client_verifier)
         .with_single_cert(cert, key)?;
 
@@ -576,7 +580,9 @@ mod e2e_tests {
         let authority = format!("localhost:{}", addr.port());
 
         // https client
-        let config = rustls::ClientConfig::builder()
+        let config = rustls::ClientConfig::builder_with_provider(Arc::clone(&CRYPTO_PROVIDER))
+            .with_safe_default_protocol_versions()
+            .expect("Tests server should have working Crypto Provider")
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(NoVerify))
             .with_no_client_auth();

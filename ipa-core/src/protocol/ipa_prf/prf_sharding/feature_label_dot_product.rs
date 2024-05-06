@@ -249,14 +249,14 @@ where
 {
     // Get the validator and context to use for Boolean multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let ctx = binary_validator.context();
+    let binary_m_ctx = binary_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
     // There will be 0 outputs for users with just one row.
     // There will be 1 output for users with at least 2 rows.
     // So we just use the number of users having at least 2 rows.
     let num_outputs = users_having_n_records[1];
-    let ctx_for_row_number = set_up_contexts(&ctx, users_having_n_records);
+    let ctx_for_row_number = set_up_contexts(&binary_m_ctx, users_having_n_records);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
@@ -285,7 +285,7 @@ where
 
     // Execute all of the async futures (sequentially), and flatten the result to remove None elements
     let flattened_stream = Box::pin(
-        seq_join(ctx.active_work(), stream::iter(chunked_user_results))
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
             .try_flatten_iters()
             .map_ok(|value| {
                 println!(
@@ -305,7 +305,7 @@ where
             }),
     );
 
-    let foo = aggregate_values::<HV, B>(ctx, flattened_stream, num_outputs).await?;
+    let foo = aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
     Ok(GenericArray::from_iter(foo))
 }
@@ -572,6 +572,15 @@ pub mod tests {
                         171, 211, 253, 215, 172, 20, 99, 53, 218, 135, 246, 162, 101, 54, 198, 187,
                     ],
                 ), // this source does not receive attribution (capped)
+                /* Fourth User */
+                test_input(
+                    456,
+                    false,
+                    [
+                        71, 91, 224, 64, 48, 64, 203, 248, 203, 228, 227, 48, 18, 28, 12, 111, 178,
+                        110, 33, 0, 69, 22, 243, 192, 53, 1, 40, 52, 151, 88, 94, 242,
+                    ],
+                ), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
             let expected: [u128; 32] = [
