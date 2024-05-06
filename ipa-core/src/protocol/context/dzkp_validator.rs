@@ -165,10 +165,8 @@ impl<'a> Segment<'a> {
         }
     }
 
-    /// This function returns the length of the first entry, i.e. `x_left`
-    ///
-    /// The lengths of the entries might be inconsistent, for asserting that the length is identical
-    /// across entries, call function `assert_len`
+    /// This function returns the length of the segment. More specifically it returns the length of
+    /// the first entry, i.e. `x_left` which is consistent with the length of all other entries.
     #[must_use]
     pub fn len(&self) -> usize {
         self.x_left.len()
