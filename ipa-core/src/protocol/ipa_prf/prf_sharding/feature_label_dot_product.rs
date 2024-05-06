@@ -305,7 +305,7 @@ where
             .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
-        output = output + capped_attribution_outputs;
+        output += capped_attribution_outputs;
     }
 
     Ok(Some(output))
@@ -430,7 +430,7 @@ pub mod tests {
                 test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
                 test_input(345, false, 0b1000_1001_0100_0011_0111_0010_0000_1101), // this source does not receive attribution (capped)
                 /* Fourth User */
-                test_input(456, true, 0b1010_1111_0011_0101_1011_1110_0100_0011), // this source does NOT receive any attribution becuase this user has no trigger events
+                test_input(456, true, 0b1010_1111_0011_0101_1011_1110_0100_0011), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
             let mut expected: [u128; 32] = [
