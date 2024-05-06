@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, iter::zip, ops::Deref};
 
+use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+
 use crate::{
     ff::{Field, PrimeField, U128Conversions},
     secret_sharing::{
@@ -151,6 +153,17 @@ where
             .collect()
     }
 }
+
+impl<T, M> Reconstruct<GenericArray<T, M>> for [&GenericArray<Replicated<T>, M>; 3]
+where
+    M: ArrayLength,
+    T: SharedValue,
+{
+    fn reconstruct(&self) -> GenericArray<T, M> {
+        GenericArray::<T, M>::generate(|i| [&self[0][i], &self[1][i], &self[2][i]].reconstruct())
+    }
+}
+
 
 impl Reconstruct<()> for [(); 3] {
     fn reconstruct(&self) {}

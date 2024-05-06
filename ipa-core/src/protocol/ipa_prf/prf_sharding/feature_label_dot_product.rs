@@ -1,23 +1,31 @@
-use std::iter::{self, zip};
+use std::{any::type_name_of_val, iter::{self, zip}};
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use generic_array::{functional::FunctionalSequence, sequence::GenericSequence, ArrayLength, GenericArray};
+use generic_array::{
+    functional::FunctionalSequence, sequence::GenericSequence, ArrayLength, GenericArray,
+};
 use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError},
-    ff::{boolean::Boolean, boolean_array::{BA16, BA32}, ArrayAccess, CustomArray, Field, U128Conversions},
+    ff::{
+        boolean::Boolean,
+        boolean_array::{BA16, BA32},
+        ArrayAccess, CustomArray, Field, U128Conversions,
+    },
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, UpgradedSemiHonestContext},
+        context::{Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator},
         ipa_prf::aggregation::aggregate_values,
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing}, BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom, Vectorizable
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, SharedValueArray, TransposeFrom,
+        Vectorizable,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -137,6 +145,7 @@ impl From<usize> for UserNthRowStep {
 
 #[derive(Step)]
 pub(crate) enum Step {
+    BinaryValidator,
     EverEncounteredTriggerEvent,
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
@@ -231,7 +240,7 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 pub async fn compute_feature_label_dot_product<'ctx, M, TV, HV, const B: usize>(
-    ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
+    sh_ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<PrfShardedIpaInputRow<M, TV>>,
     histogram: &[usize],
 ) -> Result<GenericArray<Replicated<HV>, M>, Error>
@@ -246,6 +255,9 @@ where
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
+    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
+    let ctx = binary_validator.context();
+
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = histogram[0];
     let ctx_for_row_number = set_up_contexts(&ctx, histogram);
@@ -275,21 +287,21 @@ where
                 )
             });
 
-    // Execute all of the async futures (sequentially), and flatten the result
+    // Execute all of the async futures (sequentially)
     let flattened_stream = Box::pin(
         seq_join(ctx.active_work(), stream::iter(chunked_user_results))
-            .map_ok(|value| {
-                BitDecomposed::new(
-                    (0..TV::BITS).map(|bit| {
-                        let mut packed_bits = Replicated::new(HV::ZERO_ARRAY, HV::ZERO_ARRAY);
-                        for (i, feature) in value.iter().enumerate() {
-                            packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
-                        }
-                        packed_bits
-                    })
-                )
-//                Vec::transposed_from(value.as_slice()).unwrap_infallible()             
-            }),
+        .map_ok(|value| {
+            println!("value: {:?}, type of: {:?}", value, type_name_of_val(&value));
+            BitDecomposed::new((0..TV::BITS).map(|bit| {
+                let mut packed_bits = Replicated::<Boolean, B>::ZERO;
+                /*
+                for (i, feature) in value.iter().enumerate() {
+                    packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
+                }
+                */
+                packed_bits
+            }))
+        }),
     );
 
     let foo = aggregate_values::<HV, B>(ctx, flattened_stream, num_outputs).await?;
@@ -356,7 +368,11 @@ pub mod tests {
     use typenum::U32;
 
     use crate::{
-        ff::{boolean::Boolean, boolean_array::BA8, CustomArray, Field, U128Conversions},
+        ff::{
+            boolean::Boolean,
+            boolean_array::{BA16, BA8},
+            CustomArray, Field, U128Conversions,
+        },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
         },
@@ -567,13 +583,19 @@ pub mod tests {
             let histogram = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
             let results = world
-                .semi_honest(records.into_iter(), |ctx, input_rows| {
+                .semi_honest(records.into_iter(), |sh_ctx, input_rows| {
+                    // Get the validator and context to use for Boolean multiplication operations
                     let h = histogram.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<_, U32>(ctx, input_rows, h)
-                            .await
-                            .unwrap()
+                        compute_feature_label_dot_product::<U32, BA8, BA16, 32>(
+                            sh_ctx,
+                            input_rows,
+                            h,
+                        )
+                        .await
+                        .unwrap()
                     }
+                    // 'ctx, M, TV, HV, const B: usize>(
                 })
                 .await;
 

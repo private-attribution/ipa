@@ -1,3 +1,5 @@
+use generic_array::{ArrayLength, GenericArray};
+
 use crate::{
     rand::{thread_rng, Rng},
     secret_sharing::BitDecomposed,
@@ -71,6 +73,16 @@ where
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [BitDecomposed<T>; 3] {
         vec_shares(self, rng).map(BitDecomposed::new)
+    }
+}
+
+impl<U, T, N> IntoShares<GenericArray<T, N>> for GenericArray<U, N>
+where
+    U: IntoShares<T>,
+    N: ArrayLength,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [GenericArray<T, N>; 3] {
+        vec_shares(self, rng).map(GenericArray::from_iter)
     }
 }
 
