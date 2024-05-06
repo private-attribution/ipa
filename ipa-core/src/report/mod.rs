@@ -19,6 +19,7 @@ use crate::{
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
 };
+mod matchkey;
 
 // TODO(679): This needs to come from configuration.
 static HELPER_ORIGIN: &str = "github.com/private-attribution";
