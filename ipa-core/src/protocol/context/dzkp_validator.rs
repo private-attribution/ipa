@@ -910,10 +910,22 @@ mod tests {
         }
     }
 
+    fn generate_batch(check_resizing: bool, segment_size: usize) -> Batch {
+        if check_resizing {
+            let mut batch = Batch::new(1);
+            batch
+                .inner
+                .insert(Gate::default(), UnverifiedValuesStore::new(1));
+            batch.inner.get_mut(&Gate::default()).unwrap().offset = 4;
+            batch
+        } else {
+            // chunk size is equal to amount of segments which is 1024/segment_size
+            Batch::new(1024 / segment_size)
+        }
+    }
+
     #[test]
     fn batch_convert() {
-        let mut rng = thread_rng();
-
         // test for small and large segments, i.e. 8bit and 512 bit
         for (segment_size, check_resizing) in [
             (8usize, false),
@@ -921,103 +933,124 @@ mod tests {
             (512usize, false),
             (512usize, true),
         ] {
-            let mut batch = if check_resizing {
-                let mut batch = Batch::new(1);
-                batch
-                    .inner
-                    .insert(Gate::default(), UnverifiedValuesStore::new(1));
-                batch.inner.get_mut(&Gate::default()).unwrap().offset = 4;
-                batch
-            } else {
-                // chunk size is equal to amount of segments which is 1024/segment_size
-                Batch::new(1024 / segment_size)
-            };
+            let mut rng = thread_rng();
+
+            // generate batch for the prover
+            let mut batch_prover = generate_batch(check_resizing, segment_size);
+
+            // generate batch for the verifier on the left of the prover
+            let mut batch_left = generate_batch(check_resizing, segment_size);
+
+            // generate batch for the verifier on the right of the prover
+            let mut batch_right = generate_batch(check_resizing, segment_size);
 
             // vec for segments
-            let mut vec_x_left = Vec::<u8>::new();
-            let mut vec_x_right = Vec::<u8>::new();
-            let mut vec_y_left = Vec::<u8>::new();
-            let mut vec_y_right = Vec::<u8>::new();
-            let mut vec_prss_left = Vec::<u8>::new();
-            let mut vec_prss_right = Vec::<u8>::new();
-            let mut vec_z_right = Vec::<u8>::new();
+            let vec_x_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_x_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_y_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_y_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_prss_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_prss_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
 
-            // gen 1024 random values
-            for _i in 0..1024 {
-                // we need to set shares left and right identical since it is a test against a parties own shares
-                let x_left: u8 = rng.gen();
-                let x_right: u8 = x_left;
-                let y_left: u8 = rng.gen();
-                let y_right: u8 = y_left;
-                let prss_left: u8 = rng.gen();
-                let prss_right: u8 = prss_left;
-                // we set this up to be equal to z_right for this local test
-                // local here means that only a single party is involved
-                // and we just test this against this single party
-                let z_right: u8 = (x_left & y_left)
-                    ^ (x_left & y_right)
-                    ^ (x_right & y_left)
-                    ^ prss_left
-                    ^ prss_right;
+            // compute z
+            let vec_z_left = vec_x_left.clone() & vec_y_left.clone()
+                ^ (vec_x_left.clone() & vec_y_right.clone())
+                ^ (vec_x_right.clone() & vec_y_left.clone())
+                ^ vec_prss_left.clone()
+                ^ vec_prss_right.clone();
 
-                // fill segment vec
-                vec_x_left.push(x_left);
-                vec_x_right.push(x_right);
-                vec_y_left.push(y_left);
-                vec_y_right.push(y_right);
-                vec_prss_left.push(prss_left);
-                vec_prss_right.push(prss_right);
-                vec_z_right.push(z_right);
-            }
+            // vector for unchecked elements
+            // i.e. these are used to fill the segments of the verifier and prover that are not part
+            // of this povers proof
+            let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_x = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_y = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_prss = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+            let vec_z = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
 
             // generate and push segments
             for i in 0..1024 / segment_size {
-                // conv to BitVec
-                let x_left =
-                    BitVec::<u8>::from_slice(&vec_x_left[i * segment_size..(i + 1) * segment_size]);
-                let x_right = BitVec::<u8>::from_slice(
-                    &vec_x_right[i * segment_size..(i + 1) * segment_size],
+                // prover
+                // generate segments
+                let segment_prover = Segment::new(
+                    SegmentEntry::new(
+                        &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
                 );
-                let y_left =
-                    BitVec::<u8>::from_slice(&vec_y_left[i * segment_size..(i + 1) * segment_size]);
-                let y_right = BitVec::<u8>::from_slice(
-                    &vec_y_right[i * segment_size..(i + 1) * segment_size],
-                );
-                let prss_left = BitVec::<u8>::from_slice(
-                    &vec_prss_left[i * segment_size..(i + 1) * segment_size],
-                );
-                let prss_right = BitVec::<u8>::from_slice(
-                    &vec_prss_right[i * segment_size..(i + 1) * segment_size],
-                );
-                let z_right = BitVec::<u8>::from_slice(
-                    &vec_z_right[i * segment_size..(i + 1) * segment_size],
-                );
-
-                // define segment
-                let segment = Segment::new(
-                    SegmentEntry::new(&x_left),
-                    SegmentEntry::new(&x_right),
-                    SegmentEntry::new(&y_left),
-                    SegmentEntry::new(&y_right),
-                    SegmentEntry::new(&prss_left),
-                    SegmentEntry::new(&prss_right),
-                    SegmentEntry::new(&z_right),
-                );
-
                 // push segment into batch
-                batch.push(Gate::default(), RecordId::from(i), segment);
+                batch_prover.push(Gate::default(), RecordId::from(i), segment_prover);
+
+                // verifier to the left
+                // generate segments
+                let segment_left = Segment::new(
+                    SegmentEntry::new(&vec_x[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(
+                        &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(&vec_y[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(
+                        &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(&vec_prss[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(
+                        &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(
+                        &vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                );
+                // push segment into batch
+                batch_left.push(Gate::default(), RecordId::from(i), segment_left);
+
+                // verifier to the right
+                // generate segments
+                let segment_right = Segment::new(
+                    SegmentEntry::new(
+                        &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(&vec_x[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(
+                        &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(&vec_y[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(
+                        &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                    ),
+                    SegmentEntry::new(&vec_prss[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                    SegmentEntry::new(&vec_z[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                );
+                // push segment into batch
+                batch_right.push(Gate::default(), RecordId::from(i), segment_right);
             }
 
             // check correctness of batch
-            assert_batch_convert(&batch);
+            assert_batch_convert(&batch_prover, &batch_left, &batch_right);
         }
     }
 
-    fn assert_batch_convert(batch: &Batch) {
-        batch
+    fn assert_batch_convert(batch_prover: &Batch, batch_left: &Batch, batch_right: &Batch) {
+        batch_prover
             .get_field_values_prover::<Fp61BitPrime>()
-            .zip(batch.get_field_values_verifier_left::<Fp61BitPrime>())
-            .zip(batch.get_field_values_verifier_right::<Fp61BitPrime>())
+            .zip(batch_left.get_field_values_verifier_left::<Fp61BitPrime>())
+            .zip(batch_right.get_field_values_verifier_right::<Fp61BitPrime>())
             .for_each(|((prover, verifier_left), verifier_right)| {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);

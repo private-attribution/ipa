@@ -1,8 +1,9 @@
 use bitvec::{array::BitArray, order::Lsb0};
 use generic_array::GenericArray;
-use typenum::U32;
+use typenum::{Unsigned, U32};
 
 use crate::{
+    const_assert, const_assert_eq,
     ff::{Field, Fp61BitPrime, PrimeField},
     protocol::context::dzkp_validator::{BitArray32, SegmentEntry},
 };
@@ -13,8 +14,11 @@ pub type UVPolynomials<F> = (
     GenericArray<F, InitialRecursionFactor>,
 );
 pub type SingleUVPolynomial<F> = GenericArray<F, InitialRecursionFactor>;
+// we only support InitialRecursionFactors of non-zero multiples of 4
+const_assert_eq!(InitialRecursionFactor::USIZE % 4, 0usize);
+const_assert!(InitialRecursionFactor::USIZE != 0usize);
 
-const RECURSION_CHUNK_SIZE_BITS: usize = 8;
+const RECURSION_CHUNK_SIZE_BITS: usize = InitialRecursionFactor::USIZE / 4;
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
