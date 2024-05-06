@@ -364,7 +364,7 @@ impl UnverifiedValuesStore {
     /// insert `segments` for `segments` that divide 256
     ///
     /// ## Panics
-    /// Panics when `length` and `positions` are out of bounds or when some segment entries are `None`.
+    /// Panics when `length` and `positions` are out of bounds.
     fn insert_segment_small(
         &mut self,
         length: usize,
@@ -399,7 +399,7 @@ impl UnverifiedValuesStore {
     /// insert `segments` for `segments` that are multiples of 256
     ///
     /// ## Panics
-    /// Panics when segment is not a multiple of 256 or when some segment entries are empty.
+    /// Panics when segment is not a multiple of 256.
     fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
         let length_in_entries = length >> BIT_ARRAY_SHIFT;
         for i in 0..length_in_entries {
