@@ -54,18 +54,16 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<C, M, FV>(
+    pub async fn compute_row_with_previous<'ctx, M, FV>(
         &mut self,
-        ctx: C,
+        ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<M, FV>,
     ) -> Result<GenericArray<Replicated<FV>, M>, Error>
     where
-        C: Context,
         FV: SharedValue + CustomArray<Element = Boolean>,
         Replicated<FV>: BooleanArrayMul,
         M: ArrayLength,
-        Replicated<Boolean>: SecureMul<C>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -232,7 +230,7 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 pub async fn compute_feature_label_dot_product<'ctx, M, TV, HV, const B: usize>(
-    sh_ctx: SemiHonestContext<'ctx>,
+    sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     input_rows: Vec<PrfShardedIpaInputRow<M, TV>>,
     users_having_n_records: &[usize],
 ) -> Result<GenericArray<Replicated<HV>, M>, Error>
@@ -248,8 +246,7 @@ where
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     // Get the validator and context to use for Boolean multiplication operations
-    let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
-    let binary_m_ctx = binary_validator.context();
+    let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
     // Tricky hacks to work around the limitations of our current infrastructure
     // There will be 0 outputs for users with just one row.
@@ -310,16 +307,14 @@ where
     Ok(GenericArray::from_iter(foo))
 }
 
-async fn evaluate_per_user_attribution_circuit<C, M, FV>(
-    ctx_for_row_number: Vec<C>,
+async fn evaluate_per_user_attribution_circuit<M, FV>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<M, FV>>,
 ) -> Result<Option<GenericArray<Replicated<FV>, M>>, Error>
 where
-    C: Context,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
-    Replicated<Boolean>: SecureMul<C>,
     M: ArrayLength,
 {
     assert!(!rows_for_user.is_empty());
@@ -596,14 +591,12 @@ pub mod tests {
             let users_having_n_records = vec![3, 3, 2, 2, 1, 1, 1, 1];
 
             let results = world
-                .semi_honest(records.into_iter(), |sh_ctx, input_rows| {
+                .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<U32, BA8, BA16, 32>(
-                            sh_ctx, input_rows, h,
-                        )
-                        .await
-                        .unwrap()
+                        compute_feature_label_dot_product::<U32, BA8, BA16, 32>(ctx, input_rows, h)
+                            .await
+                            .unwrap()
                     }
                 })
                 .await;
