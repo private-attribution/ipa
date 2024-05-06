@@ -16,6 +16,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
+mod dzkp_malicious;
 #[cfg(feature = "descriptive-gate")]
 pub(crate) mod malicious;
 mod semi_honest;

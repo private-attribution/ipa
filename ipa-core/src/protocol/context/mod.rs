@@ -18,6 +18,7 @@ pub mod validator;
 use std::{collections::HashMap, iter, num::NonZeroUsize, pin::pin};
 
 use async_trait::async_trait;
+pub use dzkp_malicious::DZKPUpgraded as DZKPUpgradedMaliciousContext;
 use futures::{stream, Stream, StreamExt};
 #[cfg(feature = "descriptive-gate")]
 pub use malicious::{Context as MaliciousContext, Upgraded as UpgradedMaliciousContext};
@@ -38,7 +39,7 @@ use crate::{
     },
     protocol::{
         basics::ZeroPositions,
-        context::dzkp_validator::DZKPValidator,
+        context::dzkp_validator::{DZKPValidator, Segment},
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
         RecordId,
@@ -558,13 +559,17 @@ where
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
 pub trait DZKPContext: Context {
-    /// `is_unverified()` allows to confirm that there are currently no unverified shares,
+    /// `is_verified()` allows to confirm that there are currently no unverified shares,
     /// i.e. shares that might have been manipulated.
     /// when this is the case, it is safe to call functions like `reveal`
     ///
     /// ## Errors
     /// Returns error when context contains unverified values
-    fn is_unverified(&self) -> Result<(), Error>;
+    fn is_verified(&self) -> Result<(), Error>;
+
+    /// This function allows to add segments to a batch. This function is called by `multiply` to add
+    /// values that need to be verified using the DZKP prover and verifiers.
+    fn push(&self, record_id: RecordId, segment: Segment);
 }
 
 #[cfg(all(test, unit_test))]

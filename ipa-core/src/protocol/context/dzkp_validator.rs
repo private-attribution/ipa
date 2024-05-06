@@ -131,7 +131,7 @@ pub struct Segment<'a> {
 
 impl<'a> Segment<'a> {
     #[must_use]
-    pub fn new(
+    pub fn from_entries(
         x_left: SegmentEntry<'a>,
         x_right: SegmentEntry<'a>,
         y_left: SegmentEntry<'a>,
@@ -165,6 +165,8 @@ impl<'a> Segment<'a> {
         }
     }
 
+    /// This function returns the length of the segment. More specifically it returns the length of
+    /// the first entry, i.e. `x_left` which is consistent with the length of all other entries.
     #[must_use]
     pub fn len(&self) -> usize {
         self.x_left.len()
@@ -183,7 +185,7 @@ pub struct SegmentEntry<'a>(&'a BitSliceType);
 
 impl<'a> SegmentEntry<'a> {
     #[must_use]
-    pub fn new(entry: &'a BitSliceType) -> Self {
+    pub fn from_bitslice(entry: &'a BitSliceType) -> Self {
         SegmentEntry(entry)
     }
 
@@ -397,7 +399,7 @@ impl UnverifiedValuesStore {
     /// insert `segments` for `segments` that are multiples of 256
     ///
     /// ## Panics
-    /// Panics when segment is not a multiple of 256
+    /// Panics when segment is not a multiple of 256.
     fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
         let length_in_entries = length >> BIT_ARRAY_SHIFT;
         for i in 0..length_in_entries {
@@ -542,11 +544,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
 
-    /// `is_unverified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    /// `is_verified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_unverified(&self) -> Result<(), Error>;
+    fn is_verified(&self) -> Result<(), Error>;
 
     /// `get_chunk_size` returns the chunk size of the validator
     fn get_chunk_size(&self) -> Option<usize>;
@@ -600,7 +602,7 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
         Ok(())
     }
 
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         Ok(())
     }
 
@@ -643,12 +645,12 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
         // LOCK END
     }
 
-    /// `is_unverified` checks that there are no `UnverifiedValues`.
+    /// `is_verified` checks that there are no `UnverifiedValues`.
     /// This function is called by drop() to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
     /// Errors when there are `UnverifiedValues` left.
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
         } else {
@@ -683,7 +685,7 @@ impl<'a> MaliciousDZKPValidator<'a> {
 #[cfg(feature = "descriptive-gate")]
 impl<'a> Drop for MaliciousDZKPValidator<'a> {
     fn drop(&mut self) {
-        self.is_unverified().unwrap();
+        self.is_verified().unwrap();
     }
 }
 
@@ -765,8 +767,8 @@ mod tests {
                     .try_collect::<Vec<_>>()
                     .await?;
                 // check whether verification was successful
-                v.is_unverified().unwrap();
-                m_ctx.is_unverified().unwrap();
+                v.is_verified().unwrap();
+                m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
 
@@ -798,8 +800,8 @@ mod tests {
                     ))
                     .try_collect::<Vec<_>>()
                     .await?;
-                v.is_unverified().unwrap();
-                m_ctx.is_unverified().unwrap();
+                v.is_verified().unwrap();
+                m_ctx.is_verified().unwrap();
                 Ok::<_, Error>(m_results)
             });
 
@@ -993,14 +995,14 @@ mod tests {
                 );
 
                 // define segment
-                let segment = Segment::new(
-                    SegmentEntry::new(&x_left),
-                    SegmentEntry::new(&x_right),
-                    SegmentEntry::new(&y_left),
-                    SegmentEntry::new(&y_right),
-                    SegmentEntry::new(&prss_left),
-                    SegmentEntry::new(&prss_right),
-                    SegmentEntry::new(&z_right),
+                let segment = Segment::from_entries(
+                    SegmentEntry::from_bitslice(&x_left),
+                    SegmentEntry::from_bitslice(&x_right),
+                    SegmentEntry::from_bitslice(&y_left),
+                    SegmentEntry::from_bitslice(&y_right),
+                    SegmentEntry::from_bitslice(&prss_left),
+                    SegmentEntry::from_bitslice(&prss_right),
+                    SegmentEntry::from_bitslice(&z_right),
                 );
 
                 // push segment into batch

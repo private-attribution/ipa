@@ -13,11 +13,13 @@ use crate::{
     },
     protocol::{
         context::{
-            dzkp_validator::DZKPBatch, prss::InstrumentedIndexedSharedRandomness, Base,
-            Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
+            dzkp_validator::{DZKPBatch, Segment},
+            prss::InstrumentedIndexedSharedRandomness,
+            Base, Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
         },
         prss::Endpoint as PrssEndpoint,
         step::{Gate, Step, StepNarrow},
+        RecordId,
     },
     seq_join::SeqJoin,
     sharding::ShardIndex,
@@ -54,12 +56,16 @@ impl<'a> DZKPUpgraded<'a> {
 
 #[async_trait]
 impl<'a> DZKPContext for DZKPUpgraded<'a> {
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         if self.inner.batch.is_empty() {
             Ok(())
         } else {
             Err(Error::ContextUnsafe(format!("{self:?}")))
         }
+    }
+
+    fn push(&self, record_id: RecordId, segment: Segment) {
+        self.inner.batch.push(self.gate.clone(), record_id, segment);
     }
 }
 
