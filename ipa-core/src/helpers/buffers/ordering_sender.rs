@@ -55,14 +55,11 @@ impl State {
     }
 
     fn save_waker(v: &mut Option<Waker>, cx: &Context<'_>) {
-        // here used to be a check that new waker will wake the same task.
-        // however, the contract for `will_wake` states that it is a best-effort and even if
-        // both wakes wake the same task, `will_wake` may still return `false`.
-        // This is exactly what happened once we started using HTTP/2 - somewhere deep inside hyper
-        // h2 implementation, there is a new waker (with the same vtable) that is used to poll
-        // this stream again. This does not happen when we use HTTP/1.1, but it does not matter for
-        // this code.
-        v.replace(cx.waker().clone());
+        if let Some(waker) = v {
+            waker.clone_from(cx.waker());
+        } else {
+            v.replace(cx.waker().clone());
+        }
     }
 
     fn wake(v: &mut Option<Waker>) {
@@ -182,7 +179,6 @@ impl WaitingShard {
             match self.wakers[j].i.cmp(&i) {
                 Ordering::Greater => (),
                 Ordering::Equal => {
-                    assert!(item.w.will_wake(&self.wakers[j].w));
                     self.wakers[j] = item;
                     return Ok(());
                 }

@@ -169,7 +169,7 @@ where
         let mut result = Vec::with_capacity(scope.len());
         while let Some(item) = scope.next().await {
             // join error is nothing we can do about
-            result.push(item.expect("parallel_join: received JoinError")?)
+            result.push(item.expect("parallel_join: received JoinError")?);
         }
         Ok(result)
     }

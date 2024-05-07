@@ -1,5 +1,10 @@
-use std::{io, io::BufRead};
+use std::{
+    io::{self, BufRead},
+    sync::Arc,
+};
 
+use once_cell::sync::Lazy;
+use rustls::crypto::CryptoProvider;
 use rustls_pki_types::CertificateDer;
 
 use crate::config::{OwnedCertificate, OwnedPrivateKey};
@@ -16,6 +21,10 @@ pub use client::{ClientIdentity, MpcHelperClient};
 pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
+
+/// Provides access to IPAs Crypto Provider (AWS Libcrypto).
+static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
+    Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
 
 /// Reads certificates and a private key from the corresponding readers
 ///

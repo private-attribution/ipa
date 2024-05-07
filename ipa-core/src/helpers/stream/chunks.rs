@@ -4,13 +4,16 @@ use std::{
     mem,
     ops::Deref,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
-use futures::{Stream, TryStream};
+use futures::{stream::FusedStream, Stream, TryStream};
 use pin_project::pin_project;
 
-use crate::error::Error;
+use crate::{
+    error::{Error, LengthError},
+    helpers::MaybeFuture,
+};
 
 /// A chunk of `N` records that may be borrowed or owned.
 ///
@@ -41,33 +44,31 @@ pub enum ChunkType {
     Partial(usize),
 }
 
-impl ChunkType {
-    fn into_chunk<T, const N: usize>(self, data: [T; N]) -> Chunk<T, N> {
-        Chunk {
-            chunk_type: self,
-            data,
-        }
-    }
-}
-
 /// An owned chunk that may be fully or partially valid.
 ///
 /// This type is used for the output data from processing functions.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Chunk<T, const N: usize> {
+pub struct Chunk<K: IntoIterator, const N: usize> {
     chunk_type: ChunkType,
-    data: [T; N],
+    data: K,
 }
 
-impl<T, const N: usize> Chunk<T, N> {
+impl<T, const N: usize> Chunk<[T; N], N> {
     pub fn new(chunk_type: ChunkType, data: [T; N]) -> Self {
         Self { chunk_type, data }
     }
 }
 
-impl<T, const N: usize> IntoIterator for Chunk<T, N> {
-    type Item = T;
-    type IntoIter = Take<<[T; N] as IntoIterator>::IntoIter>;
+impl<K: IntoIterator, const N: usize> Chunk<K, N> {
+    /// Return the raw chunk data, even if only partially valid.
+    pub fn into_raw(self) -> K {
+        self.data
+    }
+}
+
+impl<K: IntoIterator, const N: usize> IntoIterator for Chunk<K, N> {
+    type Item = K::Item;
+    type IntoIter = Take<K::IntoIter>;
 
     fn into_iter(self) -> Self::IntoIter {
         let len = match self.chunk_type {
@@ -78,58 +79,55 @@ impl<T, const N: usize> IntoIterator for Chunk<T, N> {
     }
 }
 
-impl<T, const N: usize> AsRef<[T]> for Chunk<T, N> {
-    fn as_ref(&self) -> &[T] {
-        match self.chunk_type {
-            ChunkType::Full => self.data.as_slice(),
-            ChunkType::Partial(len) => &self.data[..len],
-        }
-    }
-}
-
 /// Future for a chunk of processed data.
 #[pin_project]
-pub struct ChunkFuture<T, Fut, const N: usize>
+pub struct ChunkFuture<Fut, K, const N: usize>
 where
-    Fut: Future<Output = Result<[T; N], Error>>,
+    Fut: Future<Output = Result<K, Error>>,
 {
     #[pin]
     fut: Fut,
     chunk_type: ChunkType,
 }
 
-impl<T, Fut, const N: usize> ChunkFuture<T, Fut, N>
+pub type MaybeChunkFuture<Fut, K, const N: usize> = MaybeFuture<ChunkFuture<Fut, K, N>>;
+
+impl<Fut, K, const N: usize> ChunkFuture<Fut, K, N>
 where
-    Fut: Future<Output = Result<[T; N], Error>>,
+    Fut: Future<Output = Result<K, Error>>,
 {
     fn new(fut: Fut, chunk_type: ChunkType) -> Self {
         Self { fut, chunk_type }
     }
 }
 
-impl<T, Fut, const N: usize> Future for ChunkFuture<T, Fut, N>
+impl<Fut, K, const N: usize> Future for ChunkFuture<Fut, K, N>
 where
-    Fut: Future<Output = Result<[T; N], Error>>,
+    Fut: Future<Output = Result<K, Error>>,
+    K: IntoIterator,
 {
-    type Output = Result<Chunk<T, N>, Error>;
+    type Output = Result<Chunk<K, N>, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         match this.fut.poll(cx) {
-            Poll::Ready(Ok(data)) => Poll::Ready(Ok(this.chunk_type.into_chunk(data))),
+            Poll::Ready(Ok(data)) => Poll::Ready(Ok(Chunk {
+                chunk_type: *this.chunk_type,
+                data,
+            })),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-/// Stream returned by `ProcessChunks::process_chunks`.
+/// Stream returned by `process_slice_by_chunks`.
 //
 // We could avoid pin projection and instead require that `SliceChunkProcessor` (and its fields) be
 // `Unpin`.  Requiring `D: Unpin` is easy, but requiring `F: Unpin` in turn requires a bunch of `C:
 // Unpin` bounds in protocols.
 #[pin_project]
-pub struct SliceChunkProcessor<'a, T, U, F, Fut, D, const N: usize>
+struct SliceChunkProcessor<'a, T, U, F, Fut, D, const N: usize>
 where
     T: Clone + 'a,
     F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
@@ -148,7 +146,7 @@ where
 
     process_fn: F,
 
-    dummy_fn: D,
+    pad_record_fn: D,
 }
 
 impl<'a, T, U, F, Fut, D, const N: usize> SliceChunkProcessor<'a, T, U, F, Fut, D, N>
@@ -158,7 +156,7 @@ where
     Fut: Future<Output = Result<[U; N], Error>> + 'a,
     D: Fn() -> T,
 {
-    fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<U, Fut, N>> {
+    fn next_chunk(self: Pin<&mut Self>) -> Option<ChunkFuture<Fut, [U; N], N>> {
         let this = self.project();
 
         let whole_chunks = this.slice.len() / N;
@@ -176,7 +174,7 @@ where
             let remainder_len = mem::replace(this.remainder_len, 0);
             let mut last_chunk = Vec::with_capacity(N);
             last_chunk.extend_from_slice(&this.slice[N * idx..]);
-            last_chunk.resize_with(N, this.dummy_fn);
+            last_chunk.resize_with(N, this.pad_record_fn);
             let last_chunk = Box::<[T; N]>::try_from(last_chunk).ok().unwrap();
             Some(ChunkFuture::new(
                 (*this.process_fn)(idx, ChunkData::Owned(last_chunk)),
@@ -195,49 +193,221 @@ where
     Fut: Future<Output = Result<[U; N], Error>> + 'a,
     D: Fn() -> T,
 {
-    type Item = ChunkFuture<U, Fut, N>;
+    type Item = ChunkFuture<Fut, [U; N], N>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(self.next_chunk())
     }
 }
 
-/// Trait for processing data by chunks.
-pub trait ProcessChunks<'a, T: Clone, const N: usize> {
-    /// Process data by chunks.
-    ///
-    /// This method returns a stream that will invoke `process_fn` for `N` records at a time,
-    /// returning the resulting processed chunks. If the input length is not a multiple of `N`,
-    /// `dummy_fn` is used to generate records to complete the last chunk.
-    fn process_chunks<U, F, Fut, D>(
-        self,
-        process_fn: F,
-        dummy_fn: D,
-    ) -> SliceChunkProcessor<'a, T, U, F, Fut, D, N>
-    where
-        F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
-        Fut: Future<Output = Result<[U; N], Error>> + 'a,
-        D: Fn() -> T;
+pub fn process_slice_by_chunks<'a, T, U, F, Fut, D, const N: usize>(
+    slice: &'a [T],
+    process_fn: F,
+    pad_record_fn: D,
+) -> impl Stream<Item = ChunkFuture<Fut, [U; N], N>> + 'a
+where
+    T: Clone,
+    U: 'a,
+    F: Fn(usize, ChunkData<'a, T, N>) -> Fut + 'a,
+    Fut: Future<Output = Result<[U; N], Error>> + 'a,
+    D: Fn() -> T + 'a,
+{
+    SliceChunkProcessor {
+        slice,
+        pos: 0,
+        remainder_len: slice.len() % N,
+        process_fn,
+        pad_record_fn,
+    }
 }
 
-impl<'a, T: Clone, const N: usize> ProcessChunks<'a, T, N> for &'a [T] {
-    fn process_chunks<U, F, Fut, D>(
-        self,
-        process_fn: F,
-        dummy_fn: D,
-    ) -> SliceChunkProcessor<'a, T, U, F, Fut, D, N>
-    where
-        F: Fn(usize, ChunkData<'a, T, N>) -> Fut,
-        Fut: Future<Output = Result<[U; N], Error>> + 'a,
-        D: Fn() -> T,
-    {
-        SliceChunkProcessor {
-            slice: self,
-            pos: 0,
-            remainder_len: self.len() % N,
-            process_fn,
-            dummy_fn,
+pub trait ChunkBuffer<const N: usize> {
+    type Item;
+    type Chunk;
+
+    fn push(&mut self, item: Self::Item);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    fn resize_with<F: Fn() -> Self::Item>(&mut self, len: usize, f: F);
+
+    /// Return the collected chunk and clear the buffer.
+    ///
+    /// # Errors
+    /// If the buffer does not have the correct length.
+    fn take(&mut self) -> Result<Self::Chunk, LengthError>;
+}
+
+impl<const N: usize, T> ChunkBuffer<N> for Vec<T> {
+    type Item = T;
+    type Chunk = Box<[T; N]>;
+
+    fn push(&mut self, item: T) {
+        Vec::push(self, item);
+    }
+
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    fn resize_with<F: Fn() -> Self::Item>(&mut self, len: usize, f: F) {
+        Vec::resize_with(self, len, f);
+    }
+
+    fn take(&mut self) -> Result<Self::Chunk, LengthError> {
+        match mem::replace(self, Vec::with_capacity(N)).try_into() {
+            Ok(boxed) => Ok(boxed),
+            Err(vec) => {
+                *self = vec;
+                Err(LengthError {
+                    expected: N,
+                    actual: self.len(),
+                })
+            }
         }
+    }
+}
+
+/// Stream returned by `process_stream_by_chunks`.
+#[pin_project]
+struct StreamChunkProcessor<St, T, B, K, F, Fut, D, const N: usize>
+where
+    St: Stream<Item = Result<T, Error>> + Send,
+    B: ChunkBuffer<N>,
+    K: IntoIterator,
+    F: Fn(usize, B::Chunk) -> Fut,
+    Fut: Future<Output = Result<K, Error>>,
+    D: Fn() -> T,
+{
+    #[pin]
+    stream: St,
+    buffer: B,
+    process_fn: F,
+    pad_record_fn: Option<D>,
+
+    /// Current input position, counted in chunks.
+    pos: usize,
+}
+
+/// An `Option` verified to be `Some`, with an infallible `take()`.
+struct DefinitelySome<'a, T>(&'a mut Option<T>);
+
+impl<'a, T> TryFrom<&'a mut Option<T>> for DefinitelySome<'a, T> {
+    type Error = ();
+
+    fn try_from(value: &'a mut Option<T>) -> Result<Self, Self::Error> {
+        match value {
+            value @ Some(_) => Ok(DefinitelySome(value)),
+            None => Err(()),
+        }
+    }
+}
+
+impl<'a, T> DefinitelySome<'a, T> {
+    fn take(self) -> T {
+        self.0.take().unwrap()
+    }
+}
+
+impl<St, T, B, K, F, Fut, D, const N: usize> Stream
+    for StreamChunkProcessor<St, T, B, K, F, Fut, D, N>
+where
+    St: Stream<Item = Result<T, Error>> + Send,
+    B: ChunkBuffer<N, Item = T>,
+    K: IntoIterator,
+    F: Fn(usize, B::Chunk) -> Fut,
+    Fut: Future<Output = Result<K, Error>>,
+    D: Fn() -> T,
+{
+    type Item = MaybeChunkFuture<Fut, K, N>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.as_mut().project();
+
+        // pad_record_fn serves as our fuse -- it is taken out of the `Option` when we are finished.
+        // In the case where we terminate early due to an error, fusing the inner stream cannot
+        // serve this purpose.
+        let Ok(pad_record_fn) = DefinitelySome::try_from(this.pad_record_fn) else {
+            return Poll::Ready(None);
+        };
+
+        let (chunk_data, chunk_type) = loop {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
+                Some(Ok(item)) => {
+                    this.buffer.push(item);
+                    if this.buffer.len() == N {
+                        break (this.buffer.take(), ChunkType::Full);
+                    }
+                }
+                Some(Err(e)) => {
+                    pad_record_fn.take();
+                    return Poll::Ready(Some(MaybeFuture::value(Err(e))));
+                }
+                None if this.buffer.len() != 0 => {
+                    // Input stream ended, but we still have some items to process.
+                    let remainder_len = this.buffer.len();
+                    this.buffer.resize_with(N, pad_record_fn.take());
+                    break (this.buffer.take(), ChunkType::Partial(remainder_len));
+                }
+                None => {
+                    // Input stream ended at a chunk boundary. Unlike the partial chunk case, we
+                    // return None, so we shouldn't be polled again regardless of pad_record_fn
+                    // signalling, but might as well make this a fused stream since it's easy.
+                    pad_record_fn.take();
+                    return Poll::Ready(None);
+                }
+            }
+        };
+        let idx = *this.pos;
+        *this.pos += 1;
+        Poll::Ready(Some(MaybeFuture::future(ChunkFuture::new(
+            (*this.process_fn)(idx, chunk_data.expect("ensured a full chunk")),
+            chunk_type,
+        ))))
+    }
+}
+
+impl<St, T, B, K, F, Fut, D, const N: usize> FusedStream
+    for StreamChunkProcessor<St, T, B, K, F, Fut, D, N>
+where
+    St: Stream<Item = Result<T, Error>> + Send,
+    B: ChunkBuffer<N, Item = T>,
+    K: IntoIterator,
+    F: Fn(usize, B::Chunk) -> Fut,
+    Fut: Future<Output = Result<K, Error>>,
+    D: Fn() -> T,
+{
+    fn is_terminated(&self) -> bool {
+        self.pad_record_fn.is_none()
+    }
+}
+
+/// Process stream through a function that operates on chunks.
+///
+/// Processes `stream` by collecting chunks of `N` items into `buffer`, then calling `process_fn`
+/// for each chunk. If there is a partial chunk at the end of the stream, `pad_record_fn` is called
+/// repeatedly to fill out the last chunk.
+pub fn process_stream_by_chunks<St, T, B, K, F, Fut, D, const N: usize>(
+    stream: St,
+    buffer: B,
+    process_fn: F,
+    pad_record_fn: D,
+) -> impl FusedStream<Item = MaybeChunkFuture<Fut, K, N>>
+where
+    St: Stream<Item = Result<T, Error>> + Send,
+    B: ChunkBuffer<N, Item = T>,
+    K: IntoIterator,
+    F: Fn(usize, B::Chunk) -> Fut,
+    Fut: Future<Output = Result<K, Error>>,
+    D: Fn() -> T,
+{
+    StreamChunkProcessor {
+        stream,
+        buffer,
+        process_fn,
+        pad_record_fn: Some(pad_record_fn),
+        pos: 0,
     }
 }
 
@@ -250,29 +420,25 @@ pub trait TryFlattenItersExt: TryStream {
     /// Also unlike `TryStream::try_flatten`, the `TryFlattenIters` stream ends the stream
     /// after the first error. This is particularly important when the error is security-
     /// related and may indicate future data is corrupt.
-    fn try_flatten_iters<T, I>(self) -> TryFlattenIters<T, I, Self>
+    fn try_flatten_iters<T, I>(self) -> impl Stream<Item = Result<T, Error>>
     where
         I: IntoIterator<Item = T>,
         Self: Stream<Item = Result<I, Error>> + Sized;
 }
 
 impl<St: TryStream> TryFlattenItersExt for St {
-    fn try_flatten_iters<T, I>(self) -> TryFlattenIters<T, I, Self>
+    fn try_flatten_iters<T, I>(self) -> impl Stream<Item = Result<T, Error>>
     where
         I: IntoIterator<Item = T>,
         Self: Stream<Item = Result<I, Error>> + Sized,
     {
-        TryFlattenIters {
-            stream: self,
-            iter: None,
-            finished: false,
-        }
+        TryFlattenIters::new(self)
     }
 }
 
 /// Stream returned by `TryFlattenIters::try_flatten_iters`.
 #[pin_project]
-pub struct TryFlattenIters<T, I, St>
+struct TryFlattenIters<T, I, St>
 where
     I: IntoIterator<Item = T>,
     St: Stream<Item = Result<I, Error>>,
@@ -281,6 +447,20 @@ where
     stream: St,
     iter: Option<<I as IntoIterator>::IntoIter>,
     finished: bool,
+}
+
+impl<T, I, St> TryFlattenIters<T, I, St>
+where
+    I: IntoIterator<Item = T>,
+    St: Stream<Item = Result<I, Error>>,
+{
+    fn new(stream: St) -> Self {
+        TryFlattenIters {
+            stream,
+            iter: None,
+            finished: false,
+        }
+    }
 }
 
 impl<T, I, St> Stream for TryFlattenIters<T, I, St>
@@ -335,7 +515,7 @@ mod tests {
 
     use super::*;
 
-    impl<T, const N: usize> PartialEq<[T; N]> for Chunk<T, N>
+    impl<T, const N: usize> PartialEq<[T; N]> for Chunk<[T; N], N>
     where
         [T; N]: PartialEq<[T; N]>,
     {
@@ -344,22 +524,15 @@ mod tests {
         }
     }
 
-    impl<T: PartialEq, const N: usize> PartialEq<[T]> for Chunk<T, N> {
-        fn eq(&self, other: &[T]) -> bool {
-            if self.chunk_type == ChunkType::Full && other.len() != N {
-                return false;
-            }
-            self.data[..other.len()] == *other
-        }
-    }
-
     #[tokio::test]
-    async fn process_chunks() {
+    async fn process_slice_chunks() {
         let data = vec![1, 2, 3, 4];
 
-        let mut st = data
-            .as_slice()
-            .process_chunks(|_, chunk| ready(Ok(chunk.map(Neg::neg))), || 0);
+        let mut st = process_slice_by_chunks(
+            data.as_slice(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
 
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-3, -4]);
@@ -368,12 +541,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_chunks_partial() {
+    async fn process_slice_chunks_empty() {
+        let mut st = process_slice_by_chunks(
+            &[],
+            |_, chunk: ChunkData<i32, 2>| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
+
+        assert!(st.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn process_slice_chunks_partial() {
         let data = vec![1, 2, 3];
 
-        let mut st = data
-            .as_slice()
-            .process_chunks(|_, chunk| ready(Ok(chunk.map(Neg::neg))), || 7);
+        let mut st = process_slice_by_chunks(
+            data.as_slice(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 7,
+        );
 
         assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
         assert_eq!(
@@ -385,6 +571,150 @@ mod tests {
         );
         assert!(st.next().await.is_none());
         assert!(st.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn process_stream_chunks() {
+        let data = vec![1, 2, 3, 4];
+
+        let mut st = process_stream_by_chunks(
+            stream::iter(data.into_iter().map(Ok)),
+            Vec::new(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
+
+        assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
+        assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-3, -4]);
+        assert!(st.next().await.is_none());
+        assert!(st.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn process_stream_chunks_empty() {
+        let mut st = process_stream_by_chunks(
+            stream::empty(),
+            Vec::new(),
+            |_, chunk: Box<[i32; 2]>| ready(Ok(chunk.map(Neg::neg))),
+            || 0,
+        );
+
+        assert!(!st.is_terminated());
+        assert!(st.next().await.is_none());
+        assert!(st.is_terminated());
+    }
+
+    #[tokio::test]
+    async fn process_stream_chunks_partial() {
+        let data = vec![1, 2, 3];
+
+        let mut st = process_stream_by_chunks(
+            stream::iter(data.into_iter().map(Ok)),
+            Vec::new(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 7,
+        );
+
+        assert!(!st.is_terminated());
+        assert_eq!(&st.next().await.unwrap().await.unwrap(), &[-1, -2]);
+        assert!(!st.is_terminated());
+        assert_eq!(
+            st.next().await.unwrap().await.unwrap(),
+            Chunk {
+                chunk_type: ChunkType::Partial(1),
+                data: [-3, -7]
+            },
+        );
+        assert!(st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
+        assert!(st.next().await.is_none() && st.is_terminated());
+    }
+
+    #[tokio::test]
+    async fn process_stream_chunks_unfused_whole() {
+        // Test that chunk processing stream is fused when the source ends on a chunk boundary.
+        let mut i = 0;
+        let source = stream::iter(
+            iter::from_fn(Box::new(move || {
+                let res = match i {
+                    0 => Some(0),
+                    1 => Some(1),
+                    2 => None,
+                    _ => panic!("source stream polled after returning None"),
+                };
+                i += 1;
+                res
+            }))
+            .map(Ok),
+        );
+
+        let mut st = process_stream_by_chunks(
+            source,
+            Vec::new(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 7,
+        );
+
+        assert!(!st.is_terminated());
+        let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
+            panic!("expected stream to return a future");
+        };
+        assert_eq!(&fut.await.unwrap(), &[0, -1]);
+
+        assert!(!st.is_terminated()); // Not detected until we poll
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
+
+        // It should still be pending, and it should not try to advance the source iterator again.
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
+    }
+
+    #[tokio::test]
+    async fn process_stream_chunks_unfused_partial() {
+        // Test that chunk processing stream is fused when the source ends with a partial chunk.
+        let mut i = 0;
+        let source = stream::iter(
+            iter::from_fn(Box::new(move || {
+                let res = match i {
+                    0 => Some(0),
+                    1 => Some(1),
+                    2 => Some(2),
+                    3 => None,
+                    _ => panic!("source stream polled after returning None"),
+                };
+                i += 1;
+                res
+            }))
+            .map(Ok),
+        );
+
+        let mut st = process_stream_by_chunks(
+            source,
+            Vec::new(),
+            |_, chunk| ready(Ok(chunk.map(Neg::neg))),
+            || 7,
+        );
+
+        assert!(!st.is_terminated());
+        let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
+            panic!("expected stream to return a future");
+        };
+        assert_eq!(&fut.await.unwrap(), &[0, -1]);
+
+        assert!(!st.is_terminated());
+        let Poll::Ready(fut) = poll_immediate(&mut st).next().await.unwrap() else {
+            panic!("expected stream to return a future");
+        };
+        assert_eq!(
+            &fut.await.unwrap(),
+            &Chunk {
+                chunk_type: ChunkType::Partial(1),
+                data: [-2, -7]
+            },
+        );
+
+        assert!(st.is_terminated());
+        // It should be finished, and it should not try to advance the source iterator again.
+        assert!(poll_immediate(&mut st).next().await.is_none() && st.is_terminated());
     }
 
     #[test]
@@ -432,7 +762,7 @@ mod tests {
 
     #[tokio::test]
     async fn flatten_iters_is_fused() {
-        let mut st = stream::iter([Ok([1, 2]), Ok([3, 4])]).try_flatten_iters();
+        let mut st = TryFlattenIters::new(stream::iter([Ok([1, 2]), Ok([3, 4])]));
         assert!(st.next().await.is_some());
         assert!(st.next().await.is_some());
         assert!(st.next().await.is_some());
@@ -474,7 +804,7 @@ mod tests {
                     0 => Some(0),
                     1 => Some(1),
                     2 => None,
-                    _ => panic!("called after returning None"),
+                    _ => panic!("iterator advanced after returning None"),
                 };
                 i += 1;
                 res
@@ -527,7 +857,7 @@ mod tests {
                     0 => Some(0),
                     1 => Some(1),
                     2 => None,
-                    _ => panic!("called after returning None"),
+                    _ => panic!("iterator advanced after returning None"),
                 };
                 i += 1;
                 res

@@ -17,7 +17,7 @@ use crate::{
         context::{
             Context, MaliciousContext, SemiHonestContext, ShardedSemiHonestContext,
             UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
-            UpgradedMaliciousContext, Validator,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         QueryId,
@@ -327,6 +327,19 @@ pub trait Runner<S: ShardingScheme> {
         H: Fn(Self::SemiHonestContext<'a>, S::Container<A>) -> R + Send + Sync,
         R: Future<Output = O> + Send;
 
+    /// Run with an upgraded semi-honest context.
+    ///
+    /// This mostly functions the same as using `Runner::semi_honest`, but there are a few protocols
+    /// that explicitly require an upgraded context, because of reasons. (TODO: explain)
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
+
     /// Run with a context that can be upgraded to malicious.
     async fn malicious<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
@@ -402,6 +415,22 @@ impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
             .await
     }
 
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(
+        &'a self,
+        _input: I,
+        _helper_fn: H,
+    ) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        unimplemented!()
+    }
+
     async fn malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
     where
         I: IntoShares<A> + Send + 'static,
@@ -453,6 +482,28 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
             self.metrics_handle.span(),
             input.share(),
             helper_fn,
+        )
+        .await
+    }
+
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        ShardWorld::<NotSharded>::run_either(
+            self.contexts(),
+            self.metrics_handle.span(),
+            input.share(),
+            |ctx, share| {
+                let v = ctx.validator();
+                let m_ctx = v.context();
+                helper_fn(m_ctx, share)
+            },
         )
         .await
     }

@@ -39,9 +39,8 @@ mod tests {
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            server::handlers::query::{
-                test_helpers::{assert_req_fails_with, IntoFailingReq},
-                MaybeExtensionExt,
+            server::handlers::query::test_helpers::{
+                assert_req_fails_with, IntoFailingReq, MaybeExtensionExt,
             },
             test::TestServer,
         },

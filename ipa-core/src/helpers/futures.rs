@@ -18,7 +18,9 @@ impl<Fut: Future> Future for MaybeFuture<Fut> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.project() {
             MaybeFutureProj::Future(fut) => fut.poll(cx),
-            MaybeFutureProj::Value(val) => Poll::Ready(val.take().unwrap()),
+            MaybeFutureProj::Value(val) => {
+                Poll::Ready(val.take().expect("future polled again after completion"))
+            }
         }
     }
 }

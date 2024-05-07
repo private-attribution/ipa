@@ -1,16 +1,20 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::try_join;
+#[cfg(feature = "descriptive-gate")]
+use futures::future::try_join3;
+#[cfg(feature = "descriptive-gate")]
 use ipa_macros::Step;
 
+#[cfg(feature = "descriptive-gate")]
+use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
         basics::ZeroPositions,
         context::UpgradedContext,
-        modulus_conversion::BitConversionTriple,
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
     },
@@ -94,6 +98,7 @@ where
     async fn upgrade(self, input: T) -> Result<M, Error>;
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[derive(Step)]
 pub(crate) enum UpgradeTripleStep {
     UpgradeBitTriple0,
@@ -101,6 +106,7 @@ pub(crate) enum UpgradeTripleStep {
     UpgradeBitTriple2,
 }
 
+#[cfg(feature = "descriptive-gate")]
 #[async_trait]
 impl<'a, C, F>
     UpgradeToMalicious<'a, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>

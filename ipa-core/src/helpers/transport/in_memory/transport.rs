@@ -211,7 +211,7 @@ impl<I: TransportIdentity> Transport for Weak<InMemoryTransport<I>> {
 
 /// Convenience struct to support heterogeneous in-memory streams
 pub struct InMemoryStream {
-    /// There is only one reason for this to have dynamic dispatch: tests that use from_iter method.
+    /// There is only one reason for this to have dynamic dispatch: tests that use `from_iter` method.
     inner: Pin<Box<dyn Stream<Item = StreamItem> + Send>>,
 }
 
