@@ -1,7 +1,5 @@
 // DP in MPC
 
-
-
 use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     context::Context,
     prss::SharedRandomness,
@@ -11,18 +9,15 @@ use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
 }};
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 
-// use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
-// use crate::secret_sharing::replicated::malicious::AdditiveShare;
-// crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 
 #[cfg(test)]
 pub async fn my_new_function<C, F, const N: usize>(
     ctx: C,
     a: &Vec<Replicated<F, N>>,
 )-> Result<Vec<Replicated<F, N>>, Error>
-where
-    C: Context,
-    F: Field  + FieldSimd<N>,
+    where
+        C: Context,
+        F: Field  + FieldSimd<N>,
 {
     let role = ctx.role();
     let mut counter : u32 = 0;
@@ -52,7 +47,7 @@ where
     //         &x_y.1,
     //     ).await.unwrap()
     // }).await.reconstruct();
-    // let (sum,carry) = integer_add(ctx, counter, x_shared,y_shared);
+    let (sum,carry) = integer_add(ctx, counter, x_shared,y_shared);
 
 
     Ok(a.to_vec())
@@ -61,13 +56,8 @@ where
 
 #[cfg(all(test, unit_test))]
 mod test {
-    // use std::{
-    //     array,
-    //     iter::{repeat, zip},
-    //     time::Instant,
-    // };
-    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::my_new_function;
 
+    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::my_new_function;
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
         basics::{SecureMul, ZeroPositions},
@@ -79,17 +69,6 @@ mod test {
     use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
     use crate::protocol::ipa_prf::dp_in_mpc;
 
-    // use crate::{error::Error, ff::{Field, boolean_array::BA4}, helpers::Direction, protocol::{
-    //     context::Context,
-    //     prss::SharedRandomness,
-    //     RecordId,
-    // }, protocol, secret_sharing::{
-    //     replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
-    //     Vectorizable,
-    // }};
-    // use crate::secret_sharing::replicated::malicious::AdditiveShare;
-
-    // use crate::protocol::ipa_prf::dp_in_mpc::my_new_function;
     #[tokio::test]
     pub async fn test_new_my_function(){
         let world = TestWorld::default();
