@@ -9,10 +9,13 @@ use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     replicated::semi_honest::AdditiveShare as Replicated, FieldSimd,
     Vectorizable,
 }};
+use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
+
 // use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 // use crate::secret_sharing::replicated::malicious::AdditiveShare;
 // crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 
+#[cfg(test)]
 pub async fn my_new_function<C, F, const N: usize>(
     ctx: C,
     a: &Vec<Replicated<F, N>>,
@@ -63,6 +66,7 @@ mod test {
     //     iter::{repeat, zip},
     //     time::Instant,
     // };
+    use crate::protocol::ipa_prf::dp_in_mpc::dp_in_mpc::my_new_function;
 
     use rand::distributions::{Distribution};
     use crate::{ff::{Field, Fp31, Fp32BitPrime, U128Conversions, boolean_array::BA4}, helpers::TotalRecords, protocol::{
@@ -72,6 +76,8 @@ mod test {
     }, protocol, rand::{thread_rng, Rng}, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated, seq_join::SeqJoin, test_fixture::{Reconstruct, ReconstructArr, Runner, TestWorld}};
     use async_trait::async_trait;
     use crate::secret_sharing::replicated::malicious::AdditiveShare;
+    use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
+    use crate::protocol::ipa_prf::dp_in_mpc;
 
     // use crate::{error::Error, ff::{Field, boolean_array::BA4}, helpers::Direction, protocol::{
     //     context::Context,
@@ -83,7 +89,7 @@ mod test {
     // }};
     // use crate::secret_sharing::replicated::malicious::AdditiveShare;
 
-    use crate::protocol::dp::dp_in_mpc::my_new_function;
+    // use crate::protocol::ipa_prf::dp_in_mpc::my_new_function;
     #[tokio::test]
     pub async fn test_new_my_function(){
         let world = TestWorld::default();
@@ -96,23 +102,24 @@ mod test {
         let result = world.semi_honest(
             a.into_iter(),
             | ctx , a | async move {
-                my_new_function(ctx,&a).await.unwrap()
+                my_new_function(ctx, &a).await.unwrap()
             }).await;
     }
 
-    pub async fn test_integer_add(){
-        let world = TestWorld::default();
-        let counter = 0;
-        let x_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
-        let y_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
-
-        let (sum, carry) = world.semi_honest((x_shared,y_shared),|ctx, x_y|async move {
-            integer_add::<_,_,AdditiveShare<BA4>,AdditiveShare<BA4>,1>(
-                ctx.set_total_records(1),
-                protocol::RecordId(0),
-                &x_y.0,
-                &x_y.1,
-            ).await.unwrap()
-        }).await.reconstruct();
-    }
+    // #[tokio::test]
+    // pub async fn test_integer_add(){
+    //     let world = TestWorld::default();
+    //     let counter = 0;
+    //     let x_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
+    //     let y_shared = world.ctx.prss().generate::<Replicated<BA4>,_>(counter);
+    //
+    //     let (sum, carry) = world.semi_honest((x_shared,y_shared),|ctx, x_y|async move {
+    //         integer_add::<_,_,AdditiveShare<BA4>,AdditiveShare<BA4>,1>(
+    //             ctx.set_total_records(1),
+    //             protocol::RecordId(0),
+    //             &x_y.0,
+    //             &x_y.1,
+    //         ).await.unwrap()
+    //     }).await.reconstruct();
+    // }
 }

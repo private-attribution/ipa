@@ -37,6 +37,8 @@ use crate::{
 mod boolean_ops;
 pub mod prf_eval;
 pub mod prf_sharding;
+pub mod dp_in_mpc;
+
 
 #[cfg(all(test, unit_test))]
 mod malicious_security;
