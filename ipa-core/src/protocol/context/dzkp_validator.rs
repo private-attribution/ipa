@@ -924,17 +924,113 @@ mod tests {
         }
     }
 
+    fn populate_batch(
+        segment_size: usize,
+        batch_prover: &mut Batch,
+        batch_left: &mut Batch,
+        batch_right: &mut Batch,
+    ) {
+        let mut rng = thread_rng();
+
+        // vec for segments
+        let vec_x_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+
+        // compute z
+        let vec_z_left = vec_x_left.clone() & vec_y_left.clone()
+            ^ (vec_x_left.clone() & vec_y_right.clone())
+            ^ (vec_x_right.clone() & vec_y_left.clone())
+            ^ vec_prss_left.clone()
+            ^ vec_prss_right.clone();
+
+        // vector for unchecked elements
+        // i.e. these are used to fill the segments of the verifier and prover that are not part
+        // of this povers proof
+        let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_x_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_y_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_prss_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+        let vec_z_3rd_share = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
+
+        // generate and push segments
+        for i in 0..1024 / segment_size {
+            // prover
+            // generate segments
+            let segment_prover = Segment::new(
+                SegmentEntry::new(&vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(&vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(&vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(&vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(&vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(
+                    &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(&vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+            );
+            // push segment into batch
+            batch_prover.push(Gate::default(), RecordId::from(i), segment_prover);
+
+            // verifier to the left
+            // generate segments
+            let segment_left = Segment::new(
+                SegmentEntry::new(
+                    &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(&vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(
+                    &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(&vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(
+                    &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(&vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(&vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+            );
+            // push segment into batch
+            batch_left.push(Gate::default(), RecordId::from(i), segment_left);
+
+            // verifier to the right
+            // generate segments
+            let segment_right = Segment::new(
+                SegmentEntry::new(&vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(
+                    &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(&vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::new(
+                    &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(
+                    &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(
+                    &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::new(
+                    &vec_z_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+            );
+            // push segment into batch
+            batch_right.push(Gate::default(), RecordId::from(i), segment_right);
+        }
+    }
+
     #[test]
     fn batch_convert() {
         // test for small and large segments, i.e. 8bit and 512 bit
+        // the check_resizing flag when set to true set the offset in a Batch to 4 (rather than 0)
+        // this will trigger a reallocation in the batch when inserting segments with record_id<4
         for (segment_size, check_resizing) in [
             (8usize, false),
             (8usize, true),
             (512usize, false),
             (512usize, true),
         ] {
-            let mut rng = thread_rng();
-
             // generate batch for the prover
             let mut batch_prover = generate_batch(check_resizing, segment_size);
 
@@ -944,102 +1040,13 @@ mod tests {
             // generate batch for the verifier on the right of the prover
             let mut batch_right = generate_batch(check_resizing, segment_size);
 
-            // vec for segments
-            let vec_x_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_x_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_y_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_y_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_prss_left = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_prss_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-
-            // compute z
-            let vec_z_left = vec_x_left.clone() & vec_y_left.clone()
-                ^ (vec_x_left.clone() & vec_y_right.clone())
-                ^ (vec_x_right.clone() & vec_y_left.clone())
-                ^ vec_prss_left.clone()
-                ^ vec_prss_right.clone();
-
-            // vector for unchecked elements
-            // i.e. these are used to fill the segments of the verifier and prover that are not part
-            // of this povers proof
-            let vec_z_right = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_x = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_y = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_prss = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-            let vec_z = (0..1024).map(|_| rng.gen::<u8>()).collect::<BitVec<u8>>();
-
-            // generate and push segments
-            for i in 0..1024 / segment_size {
-                // prover
-                // generate segments
-                let segment_prover = Segment::new(
-                    SegmentEntry::new(
-                        &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                );
-                // push segment into batch
-                batch_prover.push(Gate::default(), RecordId::from(i), segment_prover);
-
-                // verifier to the left
-                // generate segments
-                let segment_left = Segment::new(
-                    SegmentEntry::new(&vec_x[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(
-                        &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(&vec_y[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(
-                        &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(&vec_prss[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(
-                        &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(
-                        &vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                );
-                // push segment into batch
-                batch_left.push(Gate::default(), RecordId::from(i), segment_left);
-
-                // verifier to the right
-                // generate segments
-                let segment_right = Segment::new(
-                    SegmentEntry::new(
-                        &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(&vec_x[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(
-                        &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(&vec_y[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(
-                        &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
-                    ),
-                    SegmentEntry::new(&vec_prss[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                    SegmentEntry::new(&vec_z[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                );
-                // push segment into batch
-                batch_right.push(Gate::default(), RecordId::from(i), segment_right);
-            }
+            // fill the batches with random values
+            populate_batch(
+                segment_size,
+                &mut batch_prover,
+                &mut batch_left,
+                &mut batch_right,
+            );
 
             // check correctness of batch
             assert_batch_convert(&batch_prover, &batch_left, &batch_right);

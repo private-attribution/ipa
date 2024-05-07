@@ -189,7 +189,7 @@ impl DZKPBaseField for Fp61BitPrime {
     // g4=-1/2(1-2e),
     //
     // where
-    // (a,c,e) = (xright, yright, xright * yright ⊕ zright ⊕ prssright)
+    // (a,c,e) = (x_right, y_right, x_right * y_right ⊕ z_right ⊕ prss_right)
     // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
     // he cannot use the simplified formula for e)
     fn convert_verifier_left<'a>(
@@ -258,7 +258,7 @@ impl DZKPBaseField for Fp61BitPrime {
     // h4=1-2f,
     //
     // where
-    // (b,d,f) = (yleft, xleft, prssleft)
+    // (b,d,f) = (y_left, x_left, prss_left)
     fn convert_verifier_right<'a>(
         x_left: &'a BitArray32,
         y_left: &'a BitArray32,
