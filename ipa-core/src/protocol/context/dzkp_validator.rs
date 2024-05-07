@@ -963,58 +963,82 @@ mod tests {
         for i in 0..1024 / segment_size {
             // prover
             // generate segments
-            let segment_prover = Segment::new(
-                SegmentEntry::new(&vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(&vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(&vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(&vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(&vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(
+            let segment_prover = Segment::from_entries(
+                SegmentEntry::from_bitslice(
+                    &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
                     &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(&vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::from_bitslice(
+                    &vec_z_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
             );
             // push segment into batch
             batch_prover.push(Gate::default(), RecordId::from(i), segment_prover);
 
             // verifier to the left
             // generate segments
-            let segment_left = Segment::new(
-                SegmentEntry::new(
+            let segment_left = Segment::from_entries(
+                SegmentEntry::from_bitslice(
                     &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(&vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
+                    &vec_x_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
                     &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(&vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
+                    &vec_y_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
                     &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(&vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(&vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
+                SegmentEntry::from_bitslice(
+                    &vec_prss_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
+                    &vec_z_left[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
             );
             // push segment into batch
             batch_left.push(Gate::default(), RecordId::from(i), segment_left);
 
             // verifier to the right
             // generate segments
-            let segment_right = Segment::new(
-                SegmentEntry::new(&vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(
+            let segment_right = Segment::from_entries(
+                SegmentEntry::from_bitslice(
+                    &vec_x_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
                     &vec_x_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(&vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size]),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
+                    &vec_y_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
+                ),
+                SegmentEntry::from_bitslice(
                     &vec_y_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
                     &vec_prss_right[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
                     &vec_prss_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
-                SegmentEntry::new(
+                SegmentEntry::from_bitslice(
                     &vec_z_3rd_share[i * 8 * segment_size..(i + 1) * 8 * segment_size],
                 ),
             );
