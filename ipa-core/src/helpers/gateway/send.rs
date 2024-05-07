@@ -29,7 +29,8 @@ use crate::{
 pub struct SendingEnd<I: TransportIdentity, M> {
     sender_id: I,
     inner: Arc<GatewaySender<I>>,
-    _phantom: PhantomData<M>,
+    /// This makes this struct [`Send`] even if [`M`] is not [`Sync`].
+    _phantom: PhantomData<fn() -> M>,
 }
 
 /// Sending channels, indexed by identity and gate.
@@ -103,6 +104,14 @@ impl<I: TransportIdentity> GatewaySender<I> {
     pub fn total_records(&self) -> TotalRecords {
         self.total_records
     }
+
+    pub fn is_closed(&self) -> bool {
+        self.ordering_tx.is_closed()
+    }
+
+    pub async fn close(&self, at: RecordId) {
+        self.ordering_tx.close(at.into()).await;
+    }
 }
 
 impl<I: TransportIdentity, M: Message> SendingEnd<I, M> {
@@ -141,6 +150,18 @@ impl<I: TransportIdentity, M: Message> SendingEnd<I, M> {
         );
 
         r
+    }
+
+    /// Closes the sending channel at the specified record. After calling it, it will no longer be
+    /// possible to send data through it, even from another thread that uses a different instance
+    /// of [`Self`].
+    ///
+    /// ## Panics
+    /// This may panic if method is called twice and futures created by it are awaited concurrently.
+    pub async fn close(&self, at: RecordId) {
+        if !self.inner.is_closed() {
+            self.inner.close(at).await;
+        }
     }
 }
 

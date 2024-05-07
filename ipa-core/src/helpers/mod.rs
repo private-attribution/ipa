@@ -70,6 +70,7 @@ use typenum::{Unsigned, U8};
 use x25519_dalek::PublicKey;
 
 use crate::{
+    const_assert,
     ff::Serializable,
     helpers::{
         Direction::{Left, Right},
@@ -232,6 +233,13 @@ pub enum Role {
     H3 = 2,
 }
 
+// Some protocols execute different instructions depending on which helper they're being executed on.
+// These protocols may assume certain ring directions while executed and these checks enforce the
+// canonical order we provide for MPC protocols.
+const_assert!(Role::eq(Role::H1.peer(Direction::Right), Role::H2));
+const_assert!(Role::eq(Role::H2.peer(Direction::Left), Role::H1));
+const_assert!(Role::eq(Role::H3.peer(Direction::Right), Role::H1));
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RoleAssignment {
@@ -258,7 +266,7 @@ impl Role {
 
     /// Returns the role of a peer that is located at the specified direction
     #[must_use]
-    pub fn peer(&self, direction: Direction) -> Role {
+    pub const fn peer(&self, direction: Direction) -> Role {
         match (self, direction) {
             (H1, Left) | (H2, Right) => H3,
             (H1, Right) | (H3, Left) => H2,
@@ -273,6 +281,12 @@ impl Role {
             H2 => Role::H2_STR,
             H3 => Role::H3_STR,
         }
+    }
+
+    /// Need `derive_const` feature to get out of nigntly to get rid of this function.
+    #[must_use]
+    pub const fn eq(self, other: Self) -> bool {
+        matches!((self, other), (H1, H1) | (H2, H2) | (H3, H3))
     }
 }
 
@@ -467,7 +481,7 @@ pub enum TotalRecords {
     Specified(NonZeroUsize),
 
     /// Total number of records is not well-determined. When the record ID is
-    /// counting solved_bits attempts. The total record count for solved_bits
+    /// counting `solved_bits` attempts. The total record count for `solved_bits`
     /// depends on the number of failures.
     ///
     /// The purpose of this is to waive the warning that there is a known

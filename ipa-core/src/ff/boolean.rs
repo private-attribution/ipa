@@ -1,15 +1,15 @@
+use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
 
-use super::Gf32Bit;
 use crate::{
-    ff::{Field, Serializable, U128Conversions},
+    ff::{Field, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
-    protocol::prss::FromRandomU128,
-    secret_sharing::{
-        replicated::malicious::ExtendableField, Block, FieldVectorizable, SharedValue, StdArray,
-        Vectorizable,
+    protocol::{
+        context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
+        prss::FromRandomU128,
     },
+    secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
 impl Block for bool {
@@ -30,12 +30,9 @@ impl Boolean {
     }
 }
 
-impl ExtendableField for Boolean {
-    type ExtendedField = Gf32Bit;
-
-    fn to_extended(&self) -> Self::ExtendedField {
-        Gf32Bit::try_from(self.as_u128()).unwrap()
-    }
+impl PrimeField for Boolean {
+    type PrimeInteger = u8;
+    const PRIME: Self::PrimeInteger = 2;
 }
 
 impl SharedValue for Boolean {
@@ -194,6 +191,16 @@ impl TryFrom<u128> for Boolean {
 impl FromRandomU128 for Boolean {
     fn from_random_u128(src: u128) -> Self {
         Self::truncate_from(src)
+    }
+}
+
+impl DZKPCompatibleField for Boolean {
+    fn as_segment_entry(array: &<Self as Vectorizable<1>>::Array) -> SegmentEntry<'_> {
+        if bool::from(Boolean::from_array(array)) {
+            SegmentEntry::from_bitslice(BitSlice::from_element(&1))
+        } else {
+            SegmentEntry::from_bitslice(BitSlice::from_element(&0))
+        }
     }
 }
 

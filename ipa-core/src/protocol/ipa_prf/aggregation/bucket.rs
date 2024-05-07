@@ -1,16 +1,16 @@
+use std::iter::repeat;
+
 use embed_doc_image::embed_doc_image;
 use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{PrimeField, Serializable},
+    ff::boolean::Boolean,
     protocol::{
-        basics::SecureMul, context::UpgradedContext, ipa_prf::prf_sharding::BinaryTreeDepthStep,
-        RecordId,
+        basics::SecureMul, context::Context, ipa_prf::prf_sharding::BinaryTreeDepthStep,
+        step::BitOpStep, RecordId,
     },
-    secret_sharing::{
-        replicated::malicious::ExtendableField, BitDecomposed, Linear as LinearSecretSharing,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
 #[derive(Step)]
@@ -76,18 +76,18 @@ impl From<MoveToBucketError> for Error {
 ///
 /// ## Errors
 /// If `breakdown_count` does not fit into `BK` bits or greater than or equal to $2^9$
-pub async fn move_single_value_to_bucket<C, S, F>(
+pub async fn move_single_value_to_bucket<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    bd_key: BitDecomposed<S>,
-    value: S,
+    bd_key: BitDecomposed<AdditiveShare<Boolean, N>>,
+    value: BitDecomposed<AdditiveShare<Boolean, N>>,
     breakdown_count: usize,
     robust: bool,
-) -> Result<Vec<S>, Error>
+) -> Result<Vec<BitDecomposed<AdditiveShare<Boolean, N>>>, Error>
 where
-    C: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C>,
-    F: PrimeField + ExtendableField,
+    C: Context,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: SecureMul<C>,
 {
     const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
     let mut step: usize = 1 << bd_key.len();
@@ -119,10 +119,20 @@ where
         let mut futures = Vec::with_capacity(breakdown_count / step);
 
         for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
-            let bit_c = depth_c.narrow(&BucketStep::from(i));
+            let bucket_c = depth_c.narrow(&BucketStep::from(i));
+
+            let index_contribution = row_contribution[tree_index].iter();
 
             if robust || tree_index + span < breakdown_count {
-                futures.push(row_contribution[tree_index].multiply(bit_of_bdkey, bit_c, record_id));
+                futures.push(async move {
+                    let bit_futures = index_contribution
+                        .zip(repeat((bit_of_bdkey, bucket_c.clone())))
+                        .enumerate()
+                        .map(|(i, (a, (b, bucket_c)))| {
+                            a.multiply(b, bucket_c.narrow(&BitOpStep::Bit(i)), record_id)
+                        });
+                    BitDecomposed::try_from(bucket_c.parallel_join(bit_futures).await?)
+                });
             }
         }
         let contributions = ctx.parallel_join(futures).await?;
@@ -131,9 +141,21 @@ where
             let left_index = index * step;
             let right_index = left_index + span;
 
-            row_contribution[left_index] -= &bdbit_contribution;
+            // bdbit_contribution is either zero or equal to row_contribution. So it
+            // is okay to do a carryless "subtraction" here.
+            for (r, b) in row_contribution[left_index]
+                .iter_mut()
+                .zip(bdbit_contribution.iter())
+            {
+                *r -= b;
+            }
             if right_index < breakdown_count {
-                row_contribution[right_index] = bdbit_contribution;
+                for (r, b) in row_contribution[right_index]
+                    .iter_mut()
+                    .zip(bdbit_contribution)
+                {
+                    *r = b;
+                }
             }
         }
         step = span;
@@ -145,34 +167,31 @@ where
 pub mod tests {
     use rand::thread_rng;
 
+    use super::move_single_value_to_bucket;
     use crate::{
-        ff::{Fp32BitPrime, Gf8Bit, Gf9Bit, U128Conversions},
-        protocol::{
-            context::{Context, UpgradableContext, Validator},
-            ipa_prf::prf_sharding::bucket::move_single_value_to_bucket,
-            RecordId,
-        },
+        ff::{boolean::Boolean, boolean_array::BA8, Gf8Bit, Gf9Bit, U128Conversions},
+        protocol::{context::Context, RecordId},
         rand::Rng,
-        secret_sharing::SharedValue,
+        secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
-        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     const MAX_BREAKDOWN_COUNT: usize = 256;
     const VALUE: u32 = 10;
 
-    async fn move_to_bucket(count: usize, breakdown_key: usize, robust: bool) -> Vec<Fp32BitPrime> {
-        let breakdown_key_bits =
-            get_bits::<Fp32BitPrime>(breakdown_key.try_into().unwrap(), Gf8Bit::BITS);
-        let value = Fp32BitPrime::truncate_from(VALUE);
+    async fn move_to_bucket(count: usize, breakdown_key: usize, robust: bool) -> Vec<BA8> {
+        let breakdown_key_bits = BitDecomposed::decompose(Gf8Bit::BITS, |i| {
+            Boolean::from((breakdown_key >> i) & 1 == 1)
+        });
+        let value =
+            BitDecomposed::decompose(Gf8Bit::BITS, |i| Boolean::from((VALUE >> i) & 1 == 1));
 
         TestWorld::default()
             .semi_honest(
                 (breakdown_key_bits, value),
                 |ctx, (breakdown_key_share, value_share)| async move {
-                    let validator = ctx.validator();
-                    let ctx = validator.context();
-                    move_single_value_to_bucket::<_, _, Fp32BitPrime>(
+                    move_single_value_to_bucket::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::from(0),
                         breakdown_key_share,
@@ -186,6 +205,9 @@ pub mod tests {
             )
             .await
             .reconstruct()
+            .into_iter()
+            .map(|val| val.into_iter().collect())
+            .collect()
     }
 
     #[test]
@@ -194,8 +216,8 @@ pub mod tests {
             let mut rng = thread_rng();
             let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
             let breakdown_key = rng.gen_range(0..count);
-            let mut expected = vec![Fp32BitPrime::ZERO; count];
-            expected[breakdown_key] = Fp32BitPrime::truncate_from(VALUE);
+            let mut expected = vec![BA8::ZERO; count];
+            expected[breakdown_key] = BA8::truncate_from(VALUE);
 
             let result = move_to_bucket(count, breakdown_key, false).await;
             assert_eq!(result, expected, "expected value at index {breakdown_key}");
@@ -208,8 +230,8 @@ pub mod tests {
             let mut rng = thread_rng();
             let count = rng.gen_range(1..MAX_BREAKDOWN_COUNT);
             let breakdown_key = rng.gen_range(0..count);
-            let mut expected = vec![Fp32BitPrime::ZERO; count];
-            expected[breakdown_key] = Fp32BitPrime::truncate_from(VALUE);
+            let mut expected = vec![BA8::ZERO; count];
+            expected[breakdown_key] = BA8::truncate_from(VALUE);
 
             let result = move_to_bucket(count, breakdown_key, true).await;
             assert_eq!(result, expected, "expected value at index {breakdown_key}");
@@ -226,8 +248,8 @@ pub mod tests {
             let result = move_to_bucket(count, breakdown_key, false).await;
             assert_eq!(result.len(), count);
             assert_eq!(
-                result.into_iter().sum::<Fp32BitPrime>(),
-                Fp32BitPrime::truncate_from(VALUE)
+                result.into_iter().fold(0, |acc, v| acc + v.as_u128()),
+                u128::from(VALUE)
             );
         });
     }
@@ -241,7 +263,7 @@ pub mod tests {
 
             let result = move_to_bucket(count, breakdown_key, true).await;
             assert_eq!(result.len(), count);
-            assert!(result.into_iter().all(|x| x == Fp32BitPrime::ZERO));
+            assert!(result.into_iter().all(|x| x == BA8::ZERO));
         });
     }
 
@@ -257,16 +279,15 @@ pub mod tests {
     #[should_panic(expected = "Asking for more buckets")]
     fn move_out_of_range_too_many_buckets_steps() {
         run(move || async move {
-            let breakdown_key_bits = get_bits::<Fp32BitPrime>(0, Gf9Bit::BITS);
-            let value = Fp32BitPrime::truncate_from(VALUE);
+            let breakdown_key_bits = BitDecomposed::decompose(Gf9Bit::BITS, |_| Boolean::FALSE);
+            let value =
+                BitDecomposed::decompose(Gf8Bit::BITS, |i| Boolean::from((VALUE >> i) & 1 == 1));
 
             _ = TestWorld::default()
                 .semi_honest(
                     (breakdown_key_bits, value),
                     |ctx, (breakdown_key_share, value_share)| async move {
-                        let validator = ctx.validator();
-                        let ctx = validator.context();
-                        move_single_value_to_bucket::<_, _, Fp32BitPrime>(
+                        move_single_value_to_bucket::<_, 1>(
                             ctx.set_total_records(1),
                             RecordId::from(0),
                             breakdown_key_share,

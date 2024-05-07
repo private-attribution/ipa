@@ -8,7 +8,7 @@ import sys
 # This script collects all the steps that are executed in the oneshot_ipa with
 # all possible configurations.
 
-IPA_ENV = [["RUST_LOG", "ipa_core=DEBUG"]]
+IPA_ENV = [["RUST_LOG", "WARN,ipa_core::test_fixture::metrics=DEBUG"]]
 QUERY_SIZE = 100
 # attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
 ATTRIBUTION_WINDOW = [0, 86400]

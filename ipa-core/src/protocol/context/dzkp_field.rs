@@ -5,6 +5,7 @@ use crate::{
     const_assert, const_assert_eq,
     ff::{Field, Fp61BitPrime, PrimeField},
     protocol::context::dzkp_validator::{BitArray32, SegmentEntry},
+    secret_sharing::{FieldSimd, Vectorizable},
 };
 
 pub type InitialRecursionFactor = U32;
@@ -22,8 +23,8 @@ const RECURSION_CHUNK_SIZE_BITS: usize = InitialRecursionFactor::USIZE / 4;
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
 #[allow(dead_code)]
-pub trait DZKPCompatibleField: Field {
-    fn as_segment_entry(&self) -> SegmentEntry<'_>;
+pub trait DZKPCompatibleField<const N: usize = 1>: FieldSimd<N> {
+    fn as_segment_entry(array: &<Self as Vectorizable<N>>::Array) -> SegmentEntry<'_>;
 }
 
 /// Marker Trait `DZKPBaseField` for fields that can be used as base for DZKP proofs and their verification

@@ -3,6 +3,7 @@ pub mod boolean;
 pub mod context;
 pub mod dp;
 pub mod ipa_prf;
+#[cfg(feature = "descriptive-gate")]
 pub mod modulus_conversion;
 pub mod prss;
 pub mod step;
@@ -13,7 +14,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-pub use basics::BasicProtocols;
+pub use basics::{BasicProtocols, BooleanProtocols};
 use serde::{Deserialize, Serialize};
 
 use crate::{

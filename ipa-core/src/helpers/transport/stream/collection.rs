@@ -81,29 +81,24 @@ impl<I: TransportIdentity, S: Stream> StreamCollection<I, S> {
         let mut streams = self.inner.lock().unwrap();
 
         match streams.entry(key.clone()) {
-            Entry::Occupied(mut entry) => {
-                match entry.get_mut() {
-                    StreamState::Waiting(old_waker) => {
-                        let will_wake = old_waker.will_wake(waker);
-                        drop(streams); // avoid mutex poisoning
-                        assert!(will_wake);
-                        None
-                    }
-                    rs @ StreamState::Ready(_) => {
-                        let StreamState::Ready(stream) =
-                            std::mem::replace(rs, StreamState::Completed)
-                        else {
-                            unreachable!();
-                        };
-
-                        Some(stream)
-                    }
-                    StreamState::Completed => {
-                        drop(streams);
-                        panic!("{key:?} stream has been consumed already")
-                    }
+            Entry::Occupied(mut entry) => match entry.get_mut() {
+                StreamState::Waiting(old_waker) => {
+                    old_waker.clone_from(waker);
+                    None
                 }
-            }
+                rs @ StreamState::Ready(_) => {
+                    let StreamState::Ready(stream) = std::mem::replace(rs, StreamState::Completed)
+                    else {
+                        unreachable!();
+                    };
+
+                    Some(stream)
+                }
+                StreamState::Completed => {
+                    drop(streams);
+                    panic!("{key:?} stream has been consumed already")
+                }
+            },
             Entry::Vacant(entry) => {
                 entry.insert(StreamState::Waiting(waker.clone()));
                 None

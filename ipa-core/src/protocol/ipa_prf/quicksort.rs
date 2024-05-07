@@ -11,11 +11,13 @@ use crate::{
     error::Error,
     ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray},
     protocol::{
-        basics::Reveal, context::Context,
-        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt, RecordId,
+        basics::Reveal,
+        context::{Context, SemiHonestContext},
+        ipa_prf::boolean_ops::comparison_and_subtraction_sequential::compare_gt,
+        RecordId,
     },
     secret_sharing::{replicated::semi_honest::AdditiveShare, SharedValue},
-    seq_join::seq_join,
+    seq_join::{seq_join, SeqJoin},
 };
 
 #[derive(Step)]
@@ -49,15 +51,14 @@ pub(crate) enum Step {
 ///
 /// # Panics
 /// If you provide any invalid ranges, such as 0..0
-pub async fn quicksort_ranges_by_key_insecure<C, K, F, S>(
-    ctx: C,
+pub async fn quicksort_ranges_by_key_insecure<'a, K, F, S>(
+    ctx: SemiHonestContext<'a>,
     list: &mut [S],
     desc: bool,
     get_key: F,
     mut ranges_to_sort: Vec<Range<usize>>,
 ) -> Result<(), Error>
 where
-    C: Context,
     S: Send + Sync,
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,

@@ -56,7 +56,7 @@ where
         Self { u, v }
     }
 
-    pub fn compute_proof<λ: ArrayLength, I, J>(
+    pub fn compute_proof<λ, I, J>(
         u: I,
         v: J,
         lagrange_table: &LagrangeTable<F, λ, <λ as Sub<U1>>::Output>,
@@ -106,7 +106,7 @@ where
         ZeroKnowledgeProof::new(proof)
     }
 
-    pub fn compute_final_proof<λ: ArrayLength, I, J>(
+    pub fn compute_final_proof<λ, I, J>(
         u: I,
         v: J,
         p_0: F,
@@ -154,7 +154,7 @@ where
         ZeroKnowledgeProof::new(proof)
     }
 
-    pub fn gen_challenge_and_recurse<λ: ArrayLength, I, J>(
+    pub fn gen_challenge_and_recurse<λ, I, J>(
         proof_left: &GenericArray<F, TwoNMinusOne<λ>>,
         proof_right: &GenericArray<F, TwoNMinusOne<λ>>,
         u: I,
@@ -182,7 +182,11 @@ where
             "When the output is this small, you should validate the proof with a more straightforward reveal"
         );
 
-        let r: F = hash_to_field(&compute_hash(proof_left), &compute_hash(proof_right));
+        let r: F = hash_to_field(
+            &compute_hash(proof_left),
+            &compute_hash(proof_right),
+            λ::U128,
+        );
         let mut p = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let mut q = GenericArray::<F, λ>::generate(|_| F::ZERO);
         let denominator = CanonicalLagrangeDenominator::<F, λ>::new();
@@ -248,12 +252,12 @@ mod test {
             1, 1, 0, 0, 1, 1,
         ];
         const PROOF_1: [u128; 7] = [0, 30, 29, 30, 5, 28, 13];
-        const PROOF_LEFT_1: [u128; 7] = [1, 4, 10, 15, 12, 15, 29];
+        const PROOF_LEFT_1: [u128; 7] = [0, 11, 24, 8, 0, 4, 3];
         const U_2: [u128; 8] = [0, 0, 26, 0, 7, 18, 24, 13];
         const V_2: [u128; 8] = [10, 21, 30, 28, 15, 21, 3, 3];
 
         const PROOF_2: [u128; 7] = [12, 6, 15, 8, 29, 30, 6];
-        const PROOF_LEFT_2: [u128; 7] = [30, 28, 10, 25, 12, 23, 29];
+        const PROOF_LEFT_2: [u128; 7] = [5, 26, 14, 9, 0, 25, 2];
         const U_3: [u128; 2] = [3, 3];
         const V_3: [u128; 2] = [5, 24];
 

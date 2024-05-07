@@ -38,7 +38,6 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-
     use axum::{http::Request, Extension};
     use hyper::{Body, StatusCode};
 
@@ -55,8 +54,7 @@ mod tests {
             server::{
                 handlers::query::{
                     prepare::handler,
-                    test_helpers::{assert_req_fails_with, IntoFailingReq},
-                    MaybeExtensionExt,
+                    test_helpers::{assert_req_fails_with, IntoFailingReq, MaybeExtensionExt},
                 },
                 ClientIdentity,
             },

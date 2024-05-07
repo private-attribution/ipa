@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use futures_util::{stream::FuturesOrdered, StreamExt};
 use ipa_macros::Step;
-use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng, thread_rng};
+use rand::{distributions::Standard, prelude::Distribution, rngs::StdRng, thread_rng, Rng};
 use rand_core::{RngCore, SeedableRng};
 use tracing::{Instrument, Level, Span};
 
@@ -17,7 +17,7 @@ use crate::{
         context::{
             Context, MaliciousContext, SemiHonestContext, ShardedSemiHonestContext,
             UpgradableContext, UpgradeContext, UpgradeToMalicious, UpgradedContext,
-            UpgradedMaliciousContext, Validator,
+            UpgradedMaliciousContext, UpgradedSemiHonestContext, Validator,
         },
         prss::Endpoint as PrssEndpoint,
         QueryId,
@@ -64,8 +64,17 @@ pub trait RunnerInput<S: ShardingScheme, A: Send>: Send {
     fn share(self) -> [S::Container<A>; 3];
 }
 
+/// Trait that defines how helper inputs are distributed across shards. The simplest implementation
+/// is [`RoundRobin`] and it is used by default. To test protocol correctness, it is a good idea
+/// to use other strategies, namely [`Random`]
+pub trait Distribute {
+    fn distribute<const SHARDS: usize, A>(input: Vec<A>) -> [Vec<A>; SHARDS];
+}
+
 /// This indicates how many shards need to be created in test environment.
-pub struct WithShards<const SHARDS: usize>;
+pub struct WithShards<const SHARDS: usize, D: Distribute = RoundRobin> {
+    _phantom: PhantomData<fn() -> D>,
+}
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -114,7 +123,7 @@ impl ShardingScheme for NotSharded {
     }
 }
 
-impl<const N: usize> ShardingScheme for WithShards<N> {
+impl<const N: usize, D: Distribute> ShardingScheme for WithShards<N, D> {
     /// The easiest way to distribute data across shards is to take a collection with a known size
     /// as input.
     type Container<A> = Vec<A>;
@@ -135,29 +144,13 @@ impl<const N: usize> ShardingScheme for WithShards<N> {
     }
 }
 
-impl<const SHARDS: usize> WithShards<SHARDS> {
-    /// Partitions the input vector into a smaller vectors where each vector holds the input
-    /// for a single shard.
-    ///
-    /// It uses Round-robin strategy to distribute [`A`] across [`SHARDS`]
-    #[must_use]
-    pub fn shard<A>(input: Vec<A>) -> [Vec<A>; SHARDS] {
-        let mut r: [_; SHARDS] = from_fn(|_| Vec::new());
-        for (i, share) in input.into_iter().enumerate() {
-            r[i % SHARDS].push(share);
-        }
-
-        r
-    }
-}
-
 impl Default for TestWorld {
     fn default() -> Self {
         Self::new_with(TestWorldConfig::default())
     }
 }
 
-impl<const SHARDS: usize> TestWorld<WithShards<SHARDS>> {
+impl<const SHARDS: usize, D: Distribute> TestWorld<WithShards<SHARDS, D>> {
     /// For backward compatibility, this method must have a different name than [`non_sharded`] method.
     ///
     /// [`non_sharded`]: TestWorld::<NotSharded>::new_with
@@ -217,7 +210,7 @@ impl TestWorld<NotSharded> {
 
 impl<S: ShardingScheme> Drop for TestWorld<S> {
     fn drop(&mut self) {
-        if tracing::span_enabled!(Level::DEBUG) {
+        if tracing::span_enabled!(Level::DEBUG) || cfg!(feature = "step-trace") {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
@@ -305,10 +298,11 @@ impl<I: IntoShares<A> + Send, A: Send> RunnerInput<NotSharded, A> for I {
     }
 }
 
-impl<const SHARDS: usize, I, A> RunnerInput<WithShards<SHARDS>, A> for I
+impl<const SHARDS: usize, I, A, D> RunnerInput<WithShards<SHARDS, D>, A> for I
 where
     I: IntoShares<Vec<A>> + Send,
     A: Send,
+    D: Distribute,
 {
     fn share(self) -> [Vec<A>; 3] {
         I::share(self)
@@ -331,6 +325,19 @@ pub trait Runner<S: ShardingScheme> {
         A: Send,
         O: Send + Debug,
         H: Fn(Self::SemiHonestContext<'a>, S::Container<A>) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
+
+    /// Run with an upgraded semi-honest context.
+    ///
+    /// This mostly functions the same as using `Runner::semi_honest`, but there are a few protocols
+    /// that explicitly require an upgraded context, because of reasons. (TODO: explain)
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send;
 
     /// Run with a context that can be upgraded to malicious.
@@ -371,11 +378,13 @@ fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3])
 }
 
 #[async_trait]
-impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SHARDS>> {
+impl<const SHARDS: usize, D: Distribute> Runner<WithShards<SHARDS, D>>
+    for TestWorld<WithShards<SHARDS, D>>
+{
     type SemiHonestContext<'ctx> = ShardedSemiHonestContext<'ctx>;
     async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> Vec<[O; 3]>
     where
-        I: RunnerInput<WithShards<SHARDS>, A>,
+        I: RunnerInput<WithShards<SHARDS, D>, A>,
         A: Send,
         O: Send + Debug,
         H: Fn(
@@ -387,7 +396,7 @@ impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SH
         R: Future<Output = O> + Send,
     {
         let shards = self.shards();
-        let [h1, h2, h3] = input.share().map(WithShards::<SHARDS>::shard);
+        let [h1, h2, h3]: [[Vec<A>; SHARDS]; 3] = input.share().map(D::distribute);
 
         // No clippy, you're wrong, it is not redundant, it allows shard_fn to be `Copy`
         #[allow(clippy::redundant_closure)]
@@ -404,6 +413,22 @@ impl<const SHARDS: usize> Runner<WithShards<SHARDS>> for TestWorld<WithShards<SH
             .collect::<FuturesOrdered<_>>()
             .collect::<Vec<_>>()
             .await
+    }
+
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(
+        &'a self,
+        _input: I,
+        _helper_fn: H,
+    ) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        unimplemented!()
     }
 
     async fn malicious<'a, I, A, O, H, R>(&'a self, _input: I, _helper_fn: H) -> [O; 3]
@@ -457,6 +482,28 @@ impl Runner<NotSharded> for TestWorld<NotSharded> {
             self.metrics_handle.span(),
             input.share(),
             helper_fn,
+        )
+        .await
+    }
+
+    async fn upgraded_semi_honest<'a, F, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        F: ExtendableField,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        O: Send + Debug,
+        H: Fn(UpgradedSemiHonestContext<'a, NotSharded, F>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send,
+    {
+        ShardWorld::<NotSharded>::run_either(
+            self.contexts(),
+            self.metrics_handle.span(),
+            input.share(),
+            |ctx, share| {
+                let v = ctx.validator();
+                let m_ctx = v.context();
+                helper_fn(m_ctx, share)
+            },
         )
         .await
     }
@@ -631,6 +678,37 @@ impl<B: ShardBinding> ShardWorld<B> {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
+    }
+}
+
+/// Strategy to distribute shard inputs as evenly as possible across shards using Round-robin
+/// technique.
+pub struct RoundRobin;
+
+impl Distribute for RoundRobin {
+    fn distribute<const SHARDS: usize, A>(input: Vec<A>) -> [Vec<A>; SHARDS] {
+        let mut r: [_; SHARDS] = from_fn(|_| Vec::new());
+        for (i, share) in input.into_iter().enumerate() {
+            r[i % SHARDS].push(share);
+        }
+
+        r
+    }
+}
+
+/// Randomly distributes inputs across shards using the seed provided for randomness.
+pub struct Random<const SEED: u64 = 0>;
+
+impl<const SEED: u64> Distribute for Random<SEED> {
+    fn distribute<const SHARDS: usize, A>(input: Vec<A>) -> [Vec<A>; SHARDS] {
+        let mut r: [_; SHARDS] = from_fn(|_| Vec::new());
+        let mut rng = StdRng::seed_from_u64(SEED);
+        for share in input {
+            let dest = rng.gen_range(0..SHARDS);
+            r[dest].push(share);
+        }
+
+        r
     }
 }
 

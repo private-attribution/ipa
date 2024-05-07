@@ -39,6 +39,22 @@ where
     }
 }
 
+#[cfg(all(test, unit_test))]
+impl<U, T> IntoShares<Result<T, crate::error::Error>> for Result<U, crate::error::Error>
+where
+    U: IntoShares<T>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Result<T, crate::error::Error>; 3] {
+        if let Ok(v) = self {
+            v.share_with(rng).map(Ok)
+        } else {
+            // This is not great, but is sufficient for tests, and it's hard
+            // to do better without `Clone` for the error type.
+            std::array::from_fn(|_| Err(crate::error::Error::Internal))
+        }
+    }
+}
+
 impl<I, U, T> IntoShares<Vec<T>> for I
 where
     I: Iterator<Item = U>,

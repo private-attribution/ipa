@@ -85,7 +85,7 @@ pub struct RunningQuery {
     /// The join handle is only useful for the purpose of aborting the query. Tasks started with
     /// `tokio::spawn` run to completion whether or not anything waits on the handle.
     ///
-    /// We could return the result via the JoinHandle, except that we want to check the status
+    /// We could return the result via the `JoinHandle`, except that we want to check the status
     /// of the task, and shuttle doesn't implement `JoinHandle::is_finished`.
     pub join_handle: JoinHandle<()>,
 }

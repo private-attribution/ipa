@@ -131,6 +131,13 @@ macro_rules! boolean_array_impl_small {
             }
         }
 
+        #[cfg(any(test, unit_test))]
+        impl std::cmp::PartialEq<u128> for $name {
+            fn eq(&self, other: &u128) -> bool {
+                self.as_u128() == *other
+            }
+        }
+
         impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
             fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                 <$name>::from_random_u128(rng.gen::<u128>())
@@ -474,6 +481,20 @@ macro_rules! boolean_array_impl {
                 }
             }
 
+            impl ArrayBuilder for BooleanArrayBuilder<$name> {
+                type Element = Boolean;
+                type Array = $name;
+
+                fn push(&mut self, value: Self::Element) {
+                    self.array.set(self.index, value);
+                    self.index += 1;
+                }
+
+                fn build(self) -> Self::Array {
+                    assert_eq!(self.index, $bits);
+                    self.array
+                }
+            }
             impl SharedValueArray<Boolean> for $name {
                 const ZERO_ARRAY: Self = <$name as SharedValue>::ZERO;
 
@@ -807,22 +828,5 @@ where
             array: T::ZERO,
             index: 0,
         }
-    }
-}
-
-impl<T> ArrayBuilder for BooleanArrayBuilder<T>
-where
-    T: ArrayAccess<Output = Boolean> + Send,
-{
-    type Element = Boolean;
-    type Array = T;
-
-    fn push(&mut self, value: Self::Element) {
-        self.array.set(self.index, value);
-        self.index += 1;
-    }
-
-    fn build(self) -> Self::Array {
-        self.array
     }
 }

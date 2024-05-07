@@ -172,6 +172,8 @@ pub(super) trait MultiplyWork {
     /// Determine the work that is required for the identified role.
     /// Return value is who is sending relative to the given role [self, left, right].
     fn work_for(self, role: Role) -> [bool; 3];
+
+    #[cfg(all(test, unit_test))]
     /// Determines where there are known zeros in the output of a multiplication.
     fn output(self) -> ZeroPositions;
 }
@@ -186,6 +188,7 @@ impl MultiplyWork for MultiplyZeroPositions {
         [need_to_recv, need_to_send, need_random_right]
     }
 
+    #[cfg(all(test, unit_test))]
     fn output(self) -> ZeroPositions {
         ZeroPositions::mul_output(self)
     }

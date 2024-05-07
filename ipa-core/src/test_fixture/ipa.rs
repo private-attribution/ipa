@@ -193,7 +193,10 @@ pub async fn test_oprf_ipa<F>(
     Replicated<F>: Serializable,
 {
     use crate::{
-        ff::boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+        ff::{
+            boolean_array::{BA16, BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+            U128Conversions,
+        },
         protocol::ipa_prf::oprf_ipa,
         test_fixture::Runner,
     };
@@ -205,19 +208,19 @@ pub async fn test_oprf_ipa<F>(
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
                 match config.per_user_credit_cap {
-                    8 => oprf_ipa::<_, BA8, BA3, BA20, BA3, F>(ctx, input_rows, aws)
+                    8 => oprf_ipa::<BA8, BA3, BA16, BA20, BA3, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    16 => oprf_ipa::<_, BA8, BA3, BA20, BA4, F>(ctx, input_rows, aws)
+                    16 => oprf_ipa::<BA8, BA3, BA16, BA20, BA4, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    32 => oprf_ipa::<_, BA8, BA3, BA20, BA5, F>(ctx, input_rows, aws)
+                    32 => oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    64 => oprf_ipa::<_, BA8, BA3, BA20, BA6, F>(ctx, input_rows, aws)
+                    64 => oprf_ipa::<BA8, BA3, BA16, BA20, BA6, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
-                    128 => oprf_ipa::<_, BA8, BA3, BA20, BA7, F>(ctx, input_rows, aws)
+                    128 => oprf_ipa::<BA8, BA3, BA16, BA20, BA7, 256>(ctx, input_rows, aws)
                     .await
                     .unwrap(),
                     _ =>

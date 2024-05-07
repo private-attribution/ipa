@@ -19,7 +19,7 @@ use ipa_core::{
         CsvSerializer, IpaQueryResult, Verbosity,
     },
     config::NetworkConfig,
-    ff::{FieldType, Fp32BitPrime},
+    ff::{boolean_array::BA16, FieldType},
     helpers::query::{IpaQueryConfig, QueryConfig, QuerySize, QueryType},
     hpke::{KeyRegistry, PublicKeyOnly},
     net::MpcHelperClient,
@@ -253,7 +253,7 @@ async fn ipa(
     let mut key_registries = KeyRegistries::default();
     let actual = match query_style {
         IpaQueryStyle::Oprf => {
-            playbook_oprf_ipa::<Fp32BitPrime, _>(
+            playbook_oprf_ipa::<BA16, _>(
                 input_rows,
                 helper_clients,
                 query_id,

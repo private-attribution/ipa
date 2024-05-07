@@ -72,7 +72,7 @@ pub(crate) mod task {
     pub use shuttle::future::{JoinError, JoinHandle};
 }
 
-#[cfg(feature = "shuttle")]
+#[cfg(all(feature = "multi-threading", feature = "shuttle"))]
 pub(crate) mod shim {
     use std::any::Any;
 

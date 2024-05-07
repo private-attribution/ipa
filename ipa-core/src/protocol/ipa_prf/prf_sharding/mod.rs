@@ -1,46 +1,50 @@
 use std::{
+    convert::Infallible,
+    iter::zip,
     num::NonZeroU32,
     ops::{Not, Range},
 };
 
 use futures::{
     future::{try_join, try_join3},
-    stream::{iter as stream_iter, unfold},
-    Stream, StreamExt, TryStreamExt,
+    stream::{self, unfold},
+    Stream, StreamExt,
 };
 use ipa_macros::Step;
 
 use super::boolean_ops::expand_shared_array_in_place;
 use crate::{
-    error::Error,
+    error::{Error, LengthError},
     ff::{
         boolean::Boolean,
         boolean_array::{BA32, BA7},
-        ArrayAccess, CustomArray, Expand, Field, PrimeField, Serializable, U128Conversions,
+        ArrayAccess, CustomArray, Expand, Field, U128Conversions,
     },
-    helpers::Role,
+    helpers::stream::TryFlattenItersExt,
     protocol::{
-        basics::{select, BooleanArrayMul, SecureMul, ShareKnownValue},
+        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{Context, UpgradableContext, UpgradedContext, Validator},
-        ipa_prf::boolean_ops::{
-            addition_sequential::integer_add,
-            comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+        context::{
+            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
         },
-        modulus_conversion::{convert_bits, BitConversionTriple, ToBitConversionTriples},
+        ipa_prf::{
+            aggregation::aggregate_contributions,
+            boolean_ops::{
+                addition_sequential::integer_add,
+                comparison_and_subtraction_sequential::{compare_gt, integer_sub},
+            },
+            AGG_CHUNK,
+        },
         RecordId,
     },
     secret_sharing::{
-        replicated::{
-            malicious::ExtendableField, semi_honest::AdditiveShare as Replicated,
-            ReplicatedSecretSharing,
-        },
-        BitDecomposed, Linear as LinearSecretSharing, SharedValue,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom,
     },
     seq_join::{seq_join, SeqJoin},
+    sharding::NotSharded,
 };
 
-pub mod bucket;
 #[cfg(feature = "descriptive-gate")]
 pub mod feature_label_dot_product;
 
@@ -134,16 +138,13 @@ where
     ///         - `did_trigger_get_attributed` - a secret-shared bit indicating if this row corresponds to a trigger event
     ///           which was attributed. Might be able to reveal this (after a shuffle and the addition of dummies) to minimize
     ///           the amount of processing work that must be done in the Aggregation stage.
-    pub async fn compute_row_with_previous<C>(
+    pub async fn compute_row_with_previous<'a>(
         &mut self,
-        ctx: C,
+        ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
         record_id: RecordId,
         input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
         attribution_window_seconds: Option<NonZeroU32>,
-    ) -> Result<CappedAttributionOutputs<BK, TV>, Error>
-    where
-        C: Context,
-    {
+    ) -> Result<AttributionOutputs<Replicated<BK>, Replicated<TV>>, Error> {
         let is_source_event = input_row.is_trigger_bit.clone().not();
 
         let (
@@ -237,7 +238,7 @@ where
         self.difference_to_cap = difference_to_cap;
         self.source_event_timestamp = source_event_timestamp;
 
-        let outputs_for_aggregation = CappedAttributionOutputs {
+        let outputs_for_aggregation = AttributionOutputs {
             attributed_breakdown_key_bits,
             capped_attributed_trigger_value,
         };
@@ -245,57 +246,10 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct CappedAttributionOutputs<BK: SharedValue, TV: SharedValue> {
-    pub attributed_breakdown_key_bits: Replicated<BK>,
-    pub capped_attributed_trigger_value: Replicated<TV>,
-}
-
-impl<
-        BK: SharedValue + CustomArray<Element = Boolean>,
-        TV: SharedValue + CustomArray<Element = Boolean>,
-    > ToBitConversionTriples for CappedAttributionOutputs<BK, TV>
-{
-    type Residual = ();
-
-    fn bits(&self) -> u32 {
-        BK::BITS + TV::BITS
-    }
-
-    fn triple<F: PrimeField>(&self, role: Role, i: u32) -> BitConversionTriple<Replicated<F>> {
-        assert!(i < self.bits());
-        let i: usize = i.try_into().unwrap();
-        let bk_bits: usize = BK::BITS.try_into().unwrap();
-        if i < bk_bits {
-            BitConversionTriple::new(
-                role,
-                self.attributed_breakdown_key_bits.get(i).unwrap().left() == Boolean::ONE,
-                self.attributed_breakdown_key_bits.get(i).unwrap().right() == Boolean::ONE,
-            )
-        } else {
-            let i = i - bk_bits;
-            BitConversionTriple::new(
-                role,
-                self.capped_attributed_trigger_value.get(i).unwrap().left() == Boolean::ONE,
-                self.capped_attributed_trigger_value.get(i).unwrap().right() == Boolean::ONE,
-            )
-        }
-    }
-
-    fn into_triples<F, I>(
-        self,
-        role: Role,
-        indices: I,
-    ) -> (
-        BitDecomposed<BitConversionTriple<Replicated<F>>>,
-        Self::Residual,
-    )
-    where
-        F: PrimeField,
-        I: IntoIterator<Item = u32>,
-    {
-        (self.triple_range(role, indices), ())
-    }
+#[derive(Clone, Debug)]
+pub struct AttributionOutputs<BK, TV> {
+    pub attributed_breakdown_key_bits: BK,
+    pub capped_attributed_trigger_value: TV,
 }
 
 #[derive(Step)]
@@ -325,7 +279,6 @@ impl From<usize> for BinaryTreeDepthStep {
 #[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
-    PrimeFieldValidator,
     EverEncounteredSourceEvent,
     DidTriggerGetAttributed,
     AttributedBreakdownKey,
@@ -340,8 +293,7 @@ pub(crate) enum Step {
     ComputeDifferenceToCap,
     ComputedCappedAttributedTriggerValueNotSaturatedCase,
     ComputedCappedAttributedTriggerValueJustSaturatedCase,
-    ModulusConvertBreakdownKeyBitsAndTriggerValues,
-    MoveValueToCorrectBreakdown,
+    Aggregate,
 }
 
 pub trait GroupingKey {
@@ -458,126 +410,91 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
-pub async fn attribute_cap_aggregate<C, BK, TV, TS, SS, S, F>(
-    sh_ctx: C,
+pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+    sh_ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
     histogram: &[usize],
-) -> Result<Vec<S>, Error>
+) -> Result<Vec<Replicated<HV>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = Replicated<Boolean>>,
-    C::UpgradedContext<F>: UpgradedContext<F, Share = S>,
-    S: LinearSecretSharing<F> + Serializable + SecureMul<C::UpgradedContext<F>>,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
-    F: PrimeField + ExtendableField,
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<BK>>, Error = LengthError>,
+    BitDecomposed<Replicated<Boolean, AGG_CHUNK>>:
+        for<'a> TransposeFrom<&'a Vec<Replicated<TV>>, Error = LengthError>,
+    Vec<BitDecomposed<Replicated<Boolean, B>>>: for<'a> TransposeFrom<
+        &'a [BitDecomposed<Replicated<Boolean, AGG_CHUNK>>],
+        Error = Infallible,
+    >,
+    Vec<Replicated<HV>>:
+        for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
     // Get the validator and context to use for Boolean multiplication operations
     let binary_validator = sh_ctx.narrow(&Step::BinaryValidator).validator::<Boolean>();
     let binary_m_ctx = binary_validator.context();
-
-    // Get the validator and context to use for `Z_p` operations (modulus conversion)
-    let prime_field_validator = sh_ctx.narrow(&Step::PrimeFieldValidator).validator::<F>();
-    let prime_field_ctx = prime_field_validator.context();
 
     // Tricky hacks to work around the limitations of our current infrastructure
     let num_outputs = input_rows.len() - histogram[0];
     let ctx_for_row_number = set_up_contexts(&binary_m_ctx, histogram);
 
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
-    let mut input_stream = stream_iter(input_rows);
-    let first_row = input_stream.next().await;
-    if first_row.is_none() {
+    let mut input_stream = stream::iter(input_rows);
+    let Some(first_row) = input_stream.next().await else {
         return Ok(vec![]);
-    }
-    let first_row = first_row.unwrap();
+    };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
     let mut collected = rows_chunked_by_user.collect::<Vec<_>>().await;
     collected.sort_by(|a, b| std::cmp::Ord::cmp(&b.len(), &a.len()));
 
-    let per_user_results = collected
-        .into_iter()
-        .enumerate()
-        .map(|(record_id, rows_for_user)| {
-            let num_user_rows = rows_for_user.len();
-            let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
+    let chunked_user_results =
+        collected
+            .into_iter()
+            .enumerate()
+            .map(|(record_id, rows_for_user)| {
+                let num_user_rows = rows_for_user.len();
+                let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-            evaluate_per_user_attribution_circuit::<_, BK, TV, TS, SS>(
-                contexts,
-                RecordId::from(record_id),
-                rows_for_user,
-                attribution_window_seconds,
-            )
-        });
+                evaluate_per_user_attribution_circuit::<BK, TV, TS, SS>(
+                    contexts,
+                    RecordId::from(record_id),
+                    rows_for_user,
+                    attribution_window_seconds,
+                )
+            });
 
     // Execute all of the async futures (sequentially), and flatten the result
-    let flattened_stream = seq_join(sh_ctx.active_work(), stream_iter(per_user_results))
-        .flat_map(|x| stream_iter(x.unwrap()));
+    let flattened_user_results: Vec<_> =
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
+            .try_flatten_iters()
+            .collect()
+            .await;
 
-    // modulus convert breakdown keys and trigger values
-    let converted_bks_and_tvs = convert_bits(
-        prime_field_ctx
-            .narrow(&Step::ModulusConvertBreakdownKeyBitsAndTriggerValues)
-            .set_total_records(num_outputs),
-        flattened_stream,
-        0..(<BK as SharedValue>::BITS + <TV as SharedValue>::BITS),
-    );
-
-    // move each value to the correct bucket
-    let row_contributions_stream = converted_bks_and_tvs
-        .zip(futures::stream::repeat(
-            prime_field_ctx
-                .narrow(&Step::MoveValueToCorrectBreakdown)
-                .set_total_records(num_outputs),
-        ))
-        .enumerate()
-        .map(|(i, (bk_and_tv_bits, ctx))| {
-            let record_id: RecordId = RecordId::from(i);
-            let bk_and_tv_bits = bk_and_tv_bits.unwrap();
-            let (bk_bits, tv_bits) = bk_and_tv_bits.split_at(<BK as SharedValue>::BITS);
-            async move {
-                bucket::move_single_value_to_bucket(
-                    ctx,
-                    record_id,
-                    bk_bits,
-                    BitDecomposed::to_additive_sharing_in_large_field_consuming(tv_bits),
-                    1 << <BK as SharedValue>::BITS,
-                    false,
-                )
-                .await
-            }
-        });
-
-    // aggregate all row level contributions
-    let row_contributions = seq_join(prime_field_ctx.active_work(), row_contributions_stream);
-    row_contributions
-        .try_fold(
-            vec![S::ZERO; 1 << <BK as SharedValue>::BITS],
-            |mut running_sums, row_contribution| async move {
-                for (i, contribution) in row_contribution.iter().enumerate() {
-                    running_sums[i] += contribution;
-                }
-                Ok(running_sums)
-            },
-        )
-        .await
+    aggregate_contributions::<_, _, _, HV, B, AGG_CHUNK>(
+        binary_m_ctx.narrow(&Step::Aggregate),
+        stream::iter(flattened_user_results),
+        num_outputs,
+    )
+    .await
 }
 
-async fn evaluate_per_user_attribution_circuit<C, BK, TV, TS, SS>(
-    ctx_for_row_number: Vec<C>,
+async fn evaluate_per_user_attribution_circuit<BK, TV, TS, SS>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
-) -> Result<Vec<CappedAttributionOutputs<BK, TV>>, Error>
+) -> Result<Vec<AttributionOutputs<Replicated<BK>, Replicated<TV>>>, Error>
 where
-    C: Context,
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -595,16 +512,9 @@ where
         initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
 
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
-    for (i, row) in rows_for_user.iter().skip(1).enumerate() {
-        let ctx_for_this_row_depth = ctx_for_row_number[i].clone(); // no context was created for row 0
-
+    for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
         let capped_attribution_outputs = prev_row_inputs
-            .compute_row_with_previous(
-                ctx_for_this_row_depth,
-                record_id,
-                row,
-                attribution_window_seconds,
-            )
+            .compute_row_with_previous(ctx, record_id, row, attribution_window_seconds)
             .await?;
 
         output.push(capped_attribution_outputs);
@@ -706,8 +616,8 @@ where
 /// multiply it with the bits of the `trigger_value` in order to zero out contributions from unattributed trigger events.
 ///
 #[allow(clippy::too_many_arguments)]
-async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
-    ctx: C,
+async fn zero_out_trigger_value_unless_attributed<'a, TV, TS>(
+    ctx: UpgradedSemiHonestContext<'a, NotSharded, Boolean>,
     record_id: RecordId,
     is_trigger_bit: &Replicated<Boolean>,
     ever_encountered_a_source_event: &Replicated<Boolean>,
@@ -717,7 +627,6 @@ async fn zero_out_trigger_value_unless_attributed<C, TV, TS>(
     source_event_timestamp: &Replicated<TS>,
 ) -> Result<Replicated<TV>, Error>
 where
-    C: Context,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<TV>: BooleanArrayMul,
@@ -772,6 +681,7 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    Replicated<Boolean>: BooleanProtocols<C, Boolean>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
@@ -856,12 +766,12 @@ where
 pub mod tests {
     use std::num::NonZeroU32;
 
-    use super::{CappedAttributionOutputs, PrfShardedIpaInputRow};
+    use super::{AttributionOutputs, PrfShardedIpaInputRow};
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA20, BA3, BA5, BA8},
-            CustomArray, Field, Fp32BitPrime, U128Conversions,
+            boolean_array::{BA16, BA20, BA3, BA5, BA8},
+            CustomArray, Field, U128Conversions,
         },
         protocol::ipa_prf::prf_sharding::attribute_cap_aggregate,
         rand::Rng,
@@ -981,7 +891,7 @@ pub mod tests {
     }
 
     impl<BK, TV> Reconstruct<PreAggregationTestOutputInDecimal>
-        for [&CappedAttributionOutputs<BK, TV>; 3]
+        for [&AttributionOutputs<Replicated<BK>, Replicated<TV>>; 3]
     where
         BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
         TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -1042,21 +952,21 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<
-                        _,
-                        BA5,
-                        BA3,
-                        BA20,
-                        BA5,
-                        Replicated<Fp32BitPrime>,
-                        Fp32BitPrime,
-                    >(ctx, input_rows, None, &histogram)
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
+                        ctx, input_rows, None, &histogram,
+                    )
                     .await
                     .unwrap()
                 })
                 .await
                 .reconstruct();
-            assert_eq!(result, &expected);
+            assert_eq!(
+                result
+                    .iter()
+                    .map(U128Conversions::as_u128)
+                    .collect::<Vec<_>>(),
+                &expected
+            );
         });
     }
 
@@ -1096,15 +1006,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<
-                        _,
-                        BA5,
-                        BA3,
-                        BA20,
-                        BA5,
-                        Replicated<Fp32BitPrime>,
-                        Fp32BitPrime,
-                    >(
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
                         ctx,
                         input_rows,
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
@@ -1115,7 +1017,13 @@ pub mod tests {
                 })
                 .await
                 .reconstruct();
-            assert_eq!(result, &expected);
+            assert_eq!(
+                result
+                    .iter()
+                    .map(U128Conversions::as_u128)
+                    .collect::<Vec<_>>(),
+                &expected
+            );
         });
     }
 
@@ -1189,21 +1097,21 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<
-                        _,
-                        BA8,
-                        BA3,
-                        BA20,
-                        SaturatingSumType,
-                        Replicated<Fp32BitPrime>,
-                        Fp32BitPrime,
-                    >(ctx, input_rows, None, &HISTOGRAM)
+                    attribute_cap_aggregate::<BA8, BA3, BA8, BA20, SaturatingSumType, 256>(
+                        ctx, input_rows, None, &HISTOGRAM,
+                    )
                     .await
                     .unwrap()
                 })
                 .await
                 .reconstruct();
-            assert_eq!(result, &expected);
+            assert_eq!(
+                result
+                    .iter()
+                    .map(U128Conversions::as_u128)
+                    .collect::<Vec<_>>(),
+                &expected
+            );
         });
     }
 }

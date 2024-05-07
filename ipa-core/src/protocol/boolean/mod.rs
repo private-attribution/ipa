@@ -18,6 +18,7 @@ pub mod bitwise_equal;
 pub mod bitwise_less_than_prime;
 #[cfg(feature = "descriptive-gate")]
 pub mod comparison;
+#[cfg(feature = "descriptive-gate")]
 pub mod generate_random_bits;
 pub mod or;
 #[cfg(feature = "descriptive-gate")]

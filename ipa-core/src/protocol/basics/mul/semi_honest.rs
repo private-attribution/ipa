@@ -2,11 +2,15 @@ use async_trait::async_trait;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     helpers::Direction,
     protocol::{
         basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
-        context::Context,
+        context::{
+            dzkp_semi_honest::DZKPUpgraded as SemiHonestDZKPUpgraded,
+            semi_honest::{Context as SemiHonestContext, Upgraded as UpgradedSemiHonestContext},
+            Context,
+        },
         prss::SharedRandomness,
         RecordId,
     },
@@ -14,15 +18,11 @@ use crate::{
         replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, SharedValueArray,
         Vectorizable,
     },
+    sharding,
 };
 
-/// IKHC multiplication protocol
-/// for use with replicated secret sharing over some field F.
-/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
-/// their part, eventually producing 2/3 shares of the product and that is what this function
-/// returns.
-///
+/// This function allows to multiply secret shared values.
+/// This is a wrapper function around the actual MPC multiplication protocol
 ///
 /// The `zeros_at` argument indicates where there are known zeros in the inputs.
 ///
@@ -40,22 +40,52 @@ where
     C: Context,
     F: Field + FieldSimd<N>,
 {
+    // Generate shared randomness using prss
+    // the shared randomness is used to mask the values that are sent during the multiplication procotol
+    let (prss_left, prss_right) = ctx
+        .prss()
+        .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
+
+    multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await
+}
+
+/// IKHC multiplication protocol
+/// for use with replicated secret sharing over some field F.
+/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
+/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
+/// their part, eventually producing 2/3 shares of the product and that is what this function
+/// returns.
+///
+///
+/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+///
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn multiplication_protocol<C, F, const N: usize>(
+    ctx: &C,
+    record_id: RecordId,
+    a: &Replicated<F, N>,
+    b: &Replicated<F, N>,
+    prss_left: &<F as Vectorizable<N>>::Array,
+    prss_right: &<F as Vectorizable<N>>::Array,
+    zeros: MultiplyZeroPositions,
+) -> Result<Replicated<F, N>, Error>
+where
+    C: Context,
+    F: Field + FieldSimd<N>,
+{
     let role = ctx.role();
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
-
-    // Shared randomness used to mask the values that are sent.
-    let (s0, s1) = ctx
-        .prss()
-        .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
     let mut rhs = a.right_arr().clone() * b.right_arr();
 
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
         let right_d =
-            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - &s0;
+            a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
 
         ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
             .send(record_id, &right_d)
@@ -71,7 +101,7 @@ where
     // peer to the right needed to send.  If they send, they subtract randomness,
     // and we need to add to our share to compensate.
     if need_random_right {
-        rhs += s1;
+        rhs += prss_right;
     }
 
     // Sleep until helper on the left sends us their (d_i-1) value.
@@ -85,32 +115,81 @@ where
     }
     // If we send, we subtract randomness, so we need to add to our share.
     if need_to_send {
-        lhs += s0;
+        lhs += prss_left;
     }
 
     Ok(Replicated::new_arr(lhs, rhs))
 }
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
+//
+// TODO: This impl should be removed, and the (relatively few) things that truly need
+// to invoke multiplies on a base context should call the routines directly. However,
+// there are too many places that unnecessarily invoke multiplies on a base context
+// to make that change right now.
 #[async_trait]
-impl<C, F, const N: usize> super::SecureMul<C> for Replicated<F, N>
+impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestContext<'a, B>> for Replicated<F, N>
 where
-    C: Context,
+    B: sharding::ShardBinding,
     F: Field + FieldSimd<N>,
 {
     async fn multiply_sparse<'fut>(
         &self,
         rhs: &Self,
-        ctx: C,
+        ctx: SemiHonestContext<'a, B>,
         record_id: RecordId,
         zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
-        C: 'fut,
+        SemiHonestContext<'a, B>: 'fut,
     {
         multiply(ctx, record_id, self, rhs, zeros_at).await
     }
 }
+
+/// Implement secure multiplication for semi-honest upgraded
+#[async_trait]
+impl<'a, B, F, const N: usize> super::SecureMul<UpgradedSemiHonestContext<'a, B, F>>
+    for Replicated<F, N>
+where
+    B: sharding::ShardBinding,
+    F: PrimeField + FieldSimd<N>,
+{
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: UpgradedSemiHonestContext<'a, B, F>,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+    where
+        UpgradedSemiHonestContext<'a, B, F>: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
+}
+
+/// Implement secure multiplication for semi-honest dzkpupgraded
+#[async_trait]
+impl<'a, B, F, const N: usize> super::SecureMul<SemiHonestDZKPUpgraded<'a, B>> for Replicated<F, N>
+where
+    B: sharding::ShardBinding,
+    F: Field + FieldSimd<N>,
+{
+    async fn multiply_sparse<'fut>(
+        &self,
+        rhs: &Self,
+        ctx: SemiHonestDZKPUpgraded<'a, B>,
+        record_id: RecordId,
+        zeros_at: MultiplyZeroPositions,
+    ) -> Result<Self, Error>
+    where
+        SemiHonestDZKPUpgraded<'a, B>: 'fut,
+    {
+        multiply(ctx, record_id, self, rhs, zeros_at).await
+    }
+}
+
 #[cfg(all(test, unit_test))]
 mod test {
     use std::{

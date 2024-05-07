@@ -7,10 +7,7 @@ use crate::{
         boolean_array::{BA112, BA64},
         ArrayAccess, CustomArray, Expand,
     },
-    protocol::{
-        context::{UpgradableContext, UpgradedContext},
-        ipa_prf::OPRFIPAInputRow,
-    },
+    protocol::{context::Context, ipa_prf::OPRFIPAInputRow},
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
         SharedValue,
@@ -18,6 +15,8 @@ use crate::{
 };
 
 pub mod base;
+#[cfg(feature = "descriptive-gate")]
+mod sharded;
 
 #[tracing::instrument(name = "shuffle_inputs", skip_all)]
 pub async fn shuffle_inputs<C, BK, TV, TS>(
@@ -25,8 +24,7 @@ pub async fn shuffle_inputs<C, BK, TV, TS>(
     input: Vec<OPRFIPAInputRow<BK, TV, TS>>,
 ) -> Result<Vec<OPRFIPAInputRow<BK, TV, TS>>, Error>
 where
-    C: UpgradableContext,
-    C::UpgradedContext<Boolean>: UpgradedContext<Boolean, Share = AdditiveShare<Boolean>>,
+    C: Context,
     BK: SharedValue + CustomArray<Element = Boolean>,
     TV: SharedValue + CustomArray<Element = Boolean>,
     TS: SharedValue + CustomArray<Element = Boolean>,
