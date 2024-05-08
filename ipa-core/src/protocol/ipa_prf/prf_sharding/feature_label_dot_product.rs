@@ -1,4 +1,4 @@
-use std::{any::type_name_of_val, iter::zip};
+use std::{any::type_name_of_val, convert::Infallible, iter::zip};
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -6,8 +6,8 @@ use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use ipa_macros::Step;
 
 use crate::{
-    error::{Error, LengthError},
-    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
+    error::{Error, LengthError, UnwrapInfallible},
+    ff::{boolean::Boolean, ArrayAccess, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
@@ -242,6 +242,8 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<TV>: BooleanArrayMul,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; 32], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -290,15 +292,19 @@ where
                     value,
                     type_name_of_val(&value)
                 );
+                /*
                 BitDecomposed::new((0..TV::BITS).map(|bit| {
                     let mut packed_bits = Replicated::<Boolean, B>::ZERO;
-                    /*
+                    
                     for (i, feature) in value.iter().enumerate() {
                         packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
                     }
-                    */
+                    
                     packed_bits
-                }))
+                }));
+                */
+                let foo: [Replicated<TV>; 32] = value.into_iter().collect::<Vec<_>>().try_into().unwrap();
+                BitDecomposed::transposed_from(&foo).unwrap_infallible()
             }),
     );
 
