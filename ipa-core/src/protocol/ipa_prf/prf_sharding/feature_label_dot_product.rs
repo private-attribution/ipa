@@ -244,7 +244,7 @@ where
     Replicated<TV>: BooleanArrayMul,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     BitDecomposed<Replicated<Boolean, B>>:
-        for<'a> TransposeFrom<&'a [Replicated<TV>; 32], Error = Infallible>,
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
     Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -288,7 +288,7 @@ where
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
             .try_flatten_iters() // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
             .map_ok(|value| {
-                let array_representation: [Replicated<TV>; 32] =
+                let array_representation: [Replicated<TV>; B] =
                     value.into_iter().collect::<Vec<_>>().try_into().unwrap();
                 let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
                 bit_decomposed_output
@@ -333,9 +333,7 @@ where
             .compute_row_with_previous(ctx, record_id, row)
             .await?;
 
-        output = zip(output, capped_attribution_outputs)
-            .map(|(x, y)| x + y)
-            .collect();
+        zip(output.iter_mut(), capped_attribution_outputs).for_each(|(x, y)| *x += y);
     }
 
     Ok(Some(output))
@@ -454,17 +452,14 @@ pub mod tests {
             let world = TestWorld::default();
 
             let mut rng = thread_rng();
-            let attributed_features: [[u8; 32]; 3] = [
-                [rng.gen(); 32],
-                [rng.gen(); 32],
-                [rng.gen(); 32],
-            ];
+            let attributed_features: [[u8; 32]; 3] =
+                [[rng.gen(); 32], [rng.gen(); 32], [rng.gen(); 32]];
 
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, U32>> = vec![
                 /* First User */
                 test_input(123, true, ZERO_FEATURES), // trigger
                 test_input(123, false, attributed_features[0]), // this source DOES receive attribution
-                test_input(123, true, ZERO_FEATURES), // trigger
+                test_input(123, true, ZERO_FEATURES),           // trigger
                 test_input(123, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Second User */
                 test_input(234, true, ZERO_FEATURES), // trigger
@@ -476,18 +471,19 @@ pub mod tests {
                 test_input(345, true, ZERO_FEATURES), // trigger
                 test_input(345, false, attributed_features[2]), // this source DOES receive attribution
                 test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
-                test_input(345, true, ZERO_FEATURES),     // trigger
+                test_input(345, true, ZERO_FEATURES),    // trigger
                 test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Fourth User */
                 test_input(456, false, [rng.gen(); 32]), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
-            let expected: [u128; 32] = attributed_features
-                .into_iter()
-                .fold([0_u128; 32], |mut acc, x| {
-                    zip(acc.iter_mut(), x).for_each(|(a, b)| *a += u128::from(b));
-                    acc
-                });
+            let expected: [u128; 32] =
+                attributed_features
+                    .into_iter()
+                    .fold([0_u128; 32], |mut acc, x| {
+                        zip(acc.iter_mut(), x).for_each(|(a, b)| *a += u128::from(b));
+                        acc
+                    });
 
             let users_having_n_records = vec![4, 3, 2, 2, 1, 1, 1, 1];
 
