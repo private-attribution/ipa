@@ -1,4 +1,7 @@
-use std::{any::type_name_of_val, convert::Infallible, iter::zip};
+use std::{
+    convert::Infallible,
+    iter::{self, zip},
+};
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
@@ -7,14 +10,12 @@ use ipa_macros::Step;
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, ArrayAccess, CustomArray, Field, U128Conversions},
+    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
     helpers::stream::TryFlattenItersExt,
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
-        context::{
-            Context, SemiHonestContext, UpgradableContext, UpgradedSemiHonestContext, Validator,
-        },
+        context::{Context, UpgradedSemiHonestContext},
         ipa_prf::aggregation::aggregate_values,
         RecordId,
     },
@@ -282,35 +283,25 @@ where
                 )
             });
 
-    // Execute all of the async futures (sequentially), and flatten the result to remove None elements
+    // Execute all of the async futures (sequentially), and flatten the result
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
-            .try_flatten_iters()
+            .try_flatten_iters() // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
             .map_ok(|value| {
-                println!(
-                    "value: {:?}, type of: {:?}",
-                    value,
-                    type_name_of_val(&value)
-                );
-                /*
-                BitDecomposed::new((0..TV::BITS).map(|bit| {
-                    let mut packed_bits = Replicated::<Boolean, B>::ZERO;
-                    
-                    for (i, feature) in value.iter().enumerate() {
-                        packed_bits.set(i, feature.get(bit.try_into().unwrap()).unwrap());
-                    }
-                    
-                    packed_bits
-                }));
-                */
-                let foo: [Replicated<TV>; 32] = value.into_iter().collect::<Vec<_>>().try_into().unwrap();
-                BitDecomposed::transposed_from(&foo).unwrap_infallible()
+                let array_representation: [Replicated<TV>; 32] =
+                    value.into_iter().collect::<Vec<_>>().try_into().unwrap();
+                let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
+                bit_decomposed_output
+                    .transpose_from(&array_representation)
+                    .unwrap_infallible();
+                bit_decomposed_output
             }),
     );
 
-    let foo = aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+    let vec_of_shares =
+        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    Ok(GenericArray::from_iter(foo))
+    Ok(GenericArray::from_iter(vec_of_shares))
 }
 
 async fn evaluate_per_user_attribution_circuit<FV, M>(
@@ -369,7 +360,10 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use std::iter::zip;
+
     use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
+    use rand::thread_rng;
     use typenum::U32;
 
     use crate::{
@@ -452,149 +446,50 @@ pub mod tests {
         }
     }
 
+    const ZERO_FEATURES: [u8; 32] = [0; 32];
+
     #[test]
     fn semi_honest() {
         run(|| async move {
             let world = TestWorld::default();
 
+            let mut rng = thread_rng();
+            let attributed_features: [[u8; 32]; 3] = [
+                [rng.gen(); 32],
+                [rng.gen(); 32],
+                [rng.gen(); 32],
+            ];
+
             let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, U32>> = vec![
                 /* First User */
-                test_input(
-                    123,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    123,
-                    false,
-                    [
-                        2, 8, 127, 4, 19, 33, 51, 92, 126, 22, 60, 12, 15, 201, 227, 56, 107, 40,
-                        66, 29, 14, 42, 78, 99, 100, 48, 3, 5, 9, 91, 42, 198,
-                    ],
-                ), // this source DOES receive attribution
-                test_input(
-                    123,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    123,
-                    false,
-                    [
-                        14, 12, 110, 210, 52, 3, 89, 32, 74, 28, 50, 216, 184, 163, 49, 211, 19,
-                        162, 182, 244, 35, 8, 97, 23, 168, 9, 12, 68, 178, 234, 40, 196,
-                    ],
-                ), // this source does not receive attribution (capped)
+                test_input(123, true, ZERO_FEATURES), // trigger
+                test_input(123, false, attributed_features[0]), // this source DOES receive attribution
+                test_input(123, true, ZERO_FEATURES), // trigger
+                test_input(123, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Second User */
-                test_input(
-                    234,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    234,
-                    false,
-                    [
-                        227, 107, 125, 75, 50, 15, 115, 120, 49, 144, 160, 122, 11, 129, 117, 165,
-                        181, 92, 98, 167, 33, 90, 48, 149, 171, 253, 67, 70, 142, 166, 163, 47,
-                    ],
-                ), // this source DOES receive attribution
+                test_input(234, true, ZERO_FEATURES), // trigger
+                test_input(234, false, attributed_features[1]), // this source DOES receive attribution
                 /* Third User */
-                test_input(
-                    345,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    345,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    345,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    345,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    345,
-                    false,
-                    [
-                        107, 205, 128, 36, 178, 207, 60, 220, 201, 97, 152, 28, 38, 53, 186, 254,
-                        222, 240, 117, 117, 66, 178, 175, 89, 101, 76, 243, 219, 22, 30, 251, 85,
-                    ],
-                ), // this source DOES receive attribution
-                test_input(
-                    345,
-                    false,
-                    [
-                        44, 207, 162, 138, 83, 125, 3, 250, 170, 189, 81, 234, 182, 245, 19, 122,
-                        181, 196, 161, 27, 69, 45, 9, 251, 152, 39, 7, 104, 192, 250, 252, 205,
-                    ],
-                ), // this source does not receive attribution (capped)
-                test_input(
-                    345,
-                    true,
-                    [
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                ), // trigger
-                test_input(
-                    345,
-                    false,
-                    [
-                        160, 183, 201, 55, 144, 46, 252, 73, 99, 143, 14, 49, 168, 156, 133, 20,
-                        171, 211, 253, 215, 172, 20, 99, 53, 218, 135, 246, 162, 101, 54, 198, 187,
-                    ],
-                ), // this source does not receive attribution (capped)
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, false, attributed_features[2]), // this source DOES receive attribution
+                test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
+                test_input(345, true, ZERO_FEATURES),     // trigger
+                test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Fourth User */
-                test_input(
-                    456,
-                    false,
-                    [
-                        71, 91, 224, 64, 48, 64, 203, 248, 203, 228, 227, 48, 18, 28, 12, 111, 178,
-                        110, 33, 0, 69, 22, 243, 192, 53, 1, 40, 52, 151, 88, 94, 242,
-                    ],
-                ), // this source does NOT receive any attribution because this user has no trigger events
+                test_input(456, false, [rng.gen(); 32]), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
-            let expected: [u128; 32] = [
-                //      2	8	127	4	19	33	51	92	126	22	60	12	15	201	227	56	107	40	66	29	14	42	78	99	100	48	3	5	9	91	42	198
-                //      227	107	125	75	50	15	115	120	49	144	160	122	11	129	117	165	181	92	98	167	33	90	48	149	171	253	67	70	142	166	163	47
-                // +    107	205	128	36	178	207	60	220	201	97	152	28	38	53	186	254	222	240	117	117	66	178	175	89	101	76	243	219	22	30	251	85
-                // ------------------------------------------------------------------------------------------------------------------------------------
-                //      336	320	380	115	247	255	226	432	376	263	372	162	64	383	530	475	510	372	281	313	113	310	301	337	372	377	313	294	173	287	456	330
-                336, 320, 380, 115, 247, 255, 226, 432, 376, 263, 372, 162, 64, 383, 530, 475, 510,
-                372, 281, 313, 113, 310, 301, 337, 372, 377, 313, 294, 173, 287, 456, 330,
-            ];
+            let expected: [u128; 32] = attributed_features
+                .into_iter()
+                .fold([0_u128; 32], |mut acc, x| {
+                    zip(acc.iter_mut(), x).for_each(|(a, b)| *a += u128::from(b));
+                    acc
+                });
 
-            let users_having_n_records = vec![3, 3, 2, 2, 1, 1, 1, 1];
+            let users_having_n_records = vec![4, 3, 2, 2, 1, 1, 1, 1];
 
             let results = world
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {

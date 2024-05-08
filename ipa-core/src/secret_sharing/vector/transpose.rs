@@ -630,7 +630,6 @@ impl_transpose_shares_bool_to_ba_small!(BA8, 8, 256, test_transpose_shares_bool_
 impl_transpose_shares_bool_to_ba!(BA16, 16, 256, test_transpose_shares_bool_to_ba_16x256);
 impl_transpose_shares_bool_to_ba!(BA16, 16, 32, test_transpose_shares_bool_to_ba_16x32);
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 32, test_transpose_shares_bool_to_ba_8x32);
-impl_transpose_shares_bool_to_ba_small!(BA32, 32, 8, test_transpose_shares_bool_to_ba_32x8);
 
 // Usage: Aggregation output tests
 impl_transpose_shares_bool_to_ba_small!(BA8, 8, 8, test_transpose_shares_bool_to_ba_8x8);
@@ -771,10 +770,12 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
     };
 }
 
-// Usage: Aggregation input. M = AGG_CHUNK, N = BK or TV bits.
+// Usage: IPA aggregation input. M = AGG_CHUNK, N = BK or TV bits.
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);
+
+// Usage: feature_label_dot_product aggregation input. M = number of features, N = BK or TV bits.
 impl_transpose_shares_ba_to_bool_small!(BA8, 32, 8, test_transpose_shares_ba_to_bool_32x8);
 
 // Special transpose used for "aggregation intermediate". See [`aggregate_contributions`] for
