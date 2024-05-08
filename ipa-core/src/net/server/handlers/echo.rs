@@ -1,10 +1,29 @@
-use axum::{routing::get, Json, Router};
+use std::collections::HashMap;
 
-use crate::net::{http_serde, server::Error};
+use axum::{extract::Query, routing::get, Json, Router};
+use hyper::HeaderMap;
+
+use crate::net::{
+    http_serde::{self, echo::Request},
+    server::Error,
+};
 
 #[allow(clippy::unused_async)] // needs to be async for axum handler
-async fn handler(req: http_serde::echo::Request) -> Result<Json<http_serde::echo::Request>, Error> {
-    Ok(Json(req))
+async fn handler(
+    Query(query_params): Query<HashMap<String, String>>,
+    hyper_headers: HeaderMap,
+) -> Result<Json<http_serde::echo::Request>, Error> {
+    let headers = hyper_headers
+        .iter()
+        .filter_map(|(name, value)| match value.to_str() {
+            Ok(header_value) => Some((name.to_string(), header_value.to_string())),
+            Err(_) => None,
+        })
+        .collect();
+    Ok(Json(Request {
+        query_params,
+        headers,
+    }))
 }
 
 pub fn router() -> Router {
@@ -13,19 +32,32 @@ pub fn router() -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use std::collections::HashMap;
+    use hyper::{Body, Request, StatusCode};
+    use serde_json::{json, Value};
+    use tower::ServiceExt;
 
     use super::*;
 
     #[tokio::test]
     async fn happy_case() {
-        let req = http_serde::echo::Request::new(
-            HashMap::from([(String::from("foo"), String::from("bar"))]),
-            HashMap::from([(String::from("echo"), String::from("v"))]),
-        );
-        let Json(resp) = handler(req.clone())
+        // No transport in this handler, hence no need for a `TestServer`.
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .uri("/echo?echo=v")
+                    .header("foo", "bar")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
-            .expect("Failed to handle request");
-        assert_eq!(req, resp);
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body,
+            json!({"query_params": {"echo": "v"}, "headers": {"foo": "bar"}})
+        );
     }
 }

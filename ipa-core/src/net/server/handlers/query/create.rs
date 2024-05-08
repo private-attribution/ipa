@@ -3,7 +3,10 @@ use hyper::StatusCode;
 
 use crate::{
     helpers::{ApiError, BodyStream, Transport},
-    net::{http_serde, Error, HttpTransport},
+    net::{
+        http_serde::{self, query::QueryConfigQueryParams},
+        Error, HttpTransport,
+    },
     query::NewQueryError,
     sync::Arc,
 };
@@ -12,13 +15,10 @@ use crate::{
 /// to the [`HttpTransport`].
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    req: http_serde::query::create::Request,
+    QueryConfigQueryParams(query_config): QueryConfigQueryParams,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
     let transport = Transport::clone_ref(&*transport);
-    match transport
-        .dispatch(req.query_config, BodyStream::empty())
-        .await
-    {
+    match transport.dispatch(query_config, BodyStream::empty()).await {
         Ok(resp) => Ok(Json(resp.try_into()?)),
         Err(err @ ApiError::NewQuery(NewQueryError::State { .. })) => {
             Err(Error::application(StatusCode::CONFLICT, err))
@@ -37,7 +37,6 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::num::NonZeroU32;
 
-    use axum::http::Request;
     use hyper::{
         http::uri::{Authority, Scheme},
         Body, StatusCode,
@@ -48,50 +47,39 @@ mod tests {
         helpers::{
             make_owned_handler,
             query::{IpaQueryConfig, PrepareQuery, QueryConfig, QueryType},
-            routing::{Addr, RouteId},
-            HelperIdentity, HelperResponse, Role, RoleAssignment,
+            routing::RouteId,
+            HelperResponse, Role, RoleAssignment,
         },
         net::{
             http_serde,
-            server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
-            test::TestServer,
+            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
         },
         protocol::QueryId,
     };
 
     async fn create_test(expected_query_config: QueryConfig) {
-        let test_server = TestServer::builder()
-            .with_request_handler(make_owned_handler(
-                move |addr: Addr<HelperIdentity>, _| async move {
-                    let RouteId::ReceiveQuery = addr.route else {
-                        panic!("unexpected call");
-                    };
-
-                    let query_config = addr.into().unwrap();
-                    assert_eq!(query_config, expected_query_config);
-                    Ok(HelperResponse::from(PrepareQuery {
-                        query_id: QueryId,
-                        config: query_config,
-                        roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
-                    }))
-                },
-            ))
-            .build()
-            .await;
-        let req = http_serde::query::create::Request::new(expected_query_config);
-        let req = req
+        let req = http_serde::query::create::Request::new(expected_query_config)
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        let resp = test_server.server.handle_req(req).await;
+        let handler = make_owned_handler(
+            // Do we need these moves? In particular the first one?
+            move |addr, _| async move {
+                let RouteId::ReceiveQuery = addr.route else {
+                    panic!("unexpected call");
+                };
 
-        let status = resp.status();
-        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        let response_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-
-        assert_eq!(StatusCode::OK, status, "Request failed: {}", &response_str);
-
+                let query_config = addr.into().unwrap();
+                assert_eq!(query_config, expected_query_config);
+                Ok(HelperResponse::from(PrepareQuery {
+                    query_id: QueryId,
+                    config: query_config,
+                    roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+                }))
+            },
+        );
+        let resp = assert_success_with(req, handler).await;
         let http_serde::query::create::ResponseBody { query_id } =
-            serde_json::from_slice(&body_bytes).unwrap();
+            serde_json::from_slice(&resp).unwrap();
         assert_eq!(QueryId, query_id);
     }
 
@@ -140,14 +128,13 @@ mod tests {
         query_type_params: String,
     }
 
-    impl IntoFailingReq for OverrideReq {
-        fn into_req(self, port: u16) -> hyper::Request<hyper::Body> {
+    impl From<OverrideReq> for hyper::Request<Body> {
+        fn from(val: OverrideReq) -> Self {
             let uri = format!(
-                "http://localhost:{p}{path}?size=1&field_type={f}&{qt}",
-                p = port,
+                "http://localhost{path}?size=1&field_type={f}&{qt}",
                 path = http_serde::query::BASE_AXUM_PATH,
-                f = self.field_type,
-                qt = self.query_type_params
+                f = val.field_type,
+                qt = val.query_type_params
             );
             hyper::Request::post(uri)
                 .body(hyper::Body::empty())
@@ -160,13 +147,13 @@ mod tests {
         query_type: String,
     }
 
-    impl IntoFailingReq for OverrideMulReq {
-        fn into_req(self, port: u16) -> Request<Body> {
+    impl From<OverrideMulReq> for hyper::Request<Body> {
+        fn from(val: OverrideMulReq) -> Self {
             OverrideReq {
-                field_type: self.field_type,
-                query_type_params: format!("query_type={}", self.query_type),
+                field_type: val.field_type,
+                query_type_params: format!("query_type={}", val.query_type),
             }
-            .into_req(port)
+            .into()
         }
     }
 
@@ -185,7 +172,7 @@ mod tests {
             field_type: "not-a-field-type".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -194,7 +181,7 @@ mod tests {
             query_type: "malformed_mul".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     struct OverrideIPAReq {
@@ -206,23 +193,20 @@ mod tests {
         num_multi_bits: String,
     }
 
-    impl IntoFailingReq for OverrideIPAReq {
-        fn into_req(self, port: u16) -> Request<Body> {
+    impl From<OverrideIPAReq> for hyper::Request<Body> {
+        fn from(val: OverrideIPAReq) -> Self {
             let mut query = format!(
                 "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
-                self.query_type,
-                self.per_user_credit_cap,
-                self.max_breakdown_key,
-                self.num_multi_bits
+                val.query_type, val.per_user_credit_cap, val.max_breakdown_key, val.num_multi_bits
             );
-            if let Some(window) = self.attribution_window_seconds {
+            if let Some(window) = val.attribution_window_seconds {
                 query.push_str(&format!("&attribution_window_seconds={window}"));
             }
             OverrideReq {
-                field_type: self.field_type,
+                field_type: val.field_type,
                 query_type_params: query,
             }
-            .into_req(port)
+            .into()
         }
     }
 
@@ -245,7 +229,7 @@ mod tests {
             field_type: "invalid_field".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -254,7 +238,7 @@ mod tests {
             query_type: "not_ipa".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -263,7 +247,7 @@ mod tests {
             per_user_credit_cap: "-1".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -272,7 +256,7 @@ mod tests {
             max_breakdown_key: "-1".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -281,7 +265,7 @@ mod tests {
             attribution_window_seconds: Some("-1".to_string()),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -290,6 +274,6 @@ mod tests {
             num_multi_bits: "-1".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

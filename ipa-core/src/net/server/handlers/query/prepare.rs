@@ -1,9 +1,17 @@
-use axum::{response::IntoResponse, routing::post, Extension, Router};
+use axum::{extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{BodyStream, Transport},
-    net::{http_serde, server::ClientIdentity, Error, HttpTransport},
+    helpers::{query::PrepareQuery, BodyStream, Transport},
+    net::{
+        http_serde::{
+            self,
+            query::{prepare::RequestBody, QueryConfigQueryParams},
+        },
+        server::ClientIdentity,
+        Error, HttpTransport,
+    },
+    protocol::QueryId,
     query::PrepareQueryError,
     sync::Arc,
 };
@@ -13,11 +21,18 @@ use crate::{
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     _: Extension<ClientIdentity>, // require that client is an authenticated helper
-    req: http_serde::query::prepare::Request,
+    Path(query_id): Path<QueryId>,
+    QueryConfigQueryParams(config): QueryConfigQueryParams,
+    Json(RequestBody { roles }): Json<RequestBody>,
 ) -> Result<(), Error> {
+    let data = PrepareQuery {
+        query_id,
+        config,
+        roles,
+    };
     let transport = Transport::clone_ref(&*transport);
     let _ = transport
-        .dispatch(req.data, BodyStream::empty())
+        .dispatch(data, BodyStream::empty())
         .await
         .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -38,104 +53,98 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-    use axum::{http::Request, Extension};
-    use hyper::{Body, StatusCode};
+    use hyper::{header::CONTENT_TYPE, Body, StatusCode};
+    use serde::Serialize;
 
     use crate::{
         ff::FieldType,
         helpers::{
             make_owned_handler,
             query::{PrepareQuery, QueryConfig, QueryType::TestMultiply},
-            routing::{Addr, RouteId},
-            BodyStream, HelperIdentity, HelperResponse, RoleAssignment,
+            routing::RouteId,
+            HelperIdentity, HelperResponse, RoleAssignment,
         },
         net::{
             http_serde,
             server::{
-                handlers::query::{
-                    prepare::handler,
-                    test_helpers::{assert_req_fails_with, IntoFailingReq, MaybeExtensionExt},
+                handlers::query::test_helpers::{
+                    assert_fails_with, assert_success_with, MaybeExtensionExt,
                 },
                 ClientIdentity,
             },
-            test::TestServer,
         },
         protocol::QueryId,
     };
 
     #[tokio::test]
     async fn prepare_test() {
-        let req = http_serde::query::prepare::Request::new(PrepareQuery {
-            query_id: QueryId,
-            config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
-            roles: RoleAssignment::new(HelperIdentity::make_three()),
+        let req = OverrideReq::default();
+        let handler = make_owned_handler(move |addr, _| async move {
+            let RouteId::PrepareQuery = addr.route else {
+                panic!("unexpected call");
+            };
+            let expected_prepare_query = PrepareQuery {
+                query_id: QueryId,
+                config: QueryConfig::new(TestMultiply, FieldType::Fp31, 1).unwrap(),
+                roles: RoleAssignment::new(HelperIdentity::make_three()),
+            };
+            let actual_prepare_query = addr.into::<PrepareQuery>().unwrap();
+            assert_eq!(actual_prepare_query, expected_prepare_query);
+            Ok(HelperResponse::ok())
         });
-        let expected_prepare_query = req.data.clone();
-        let test_server = TestServer::builder()
-            .with_request_handler(make_owned_handler(
-                move |addr: Addr<HelperIdentity>, _: BodyStream| {
-                    let expected_prepare_query = expected_prepare_query.clone();
-                    async move {
-                        let RouteId::PrepareQuery = addr.route else {
-                            panic!("unexpected call");
-                        };
-
-                        let actual_prepare_query = addr.into::<PrepareQuery>().unwrap();
-                        assert_eq!(actual_prepare_query, expected_prepare_query);
-                        Ok(HelperResponse::ok())
-                    }
-                },
-            ))
-            .build()
-            .await;
-
-        handler(
-            Extension(test_server.transport),
-            Extension(ClientIdentity(HelperIdentity::TWO)),
-            req.clone(),
-        )
-        .await
-        .unwrap();
+        assert_success_with(req.into(), handler).await;
     }
 
     // since we tested `QueryType` with `create`, skip it here
+    // More lenient version of Request, specifically so to test failure scenarios
     struct OverrideReq {
         client_id: Option<ClientIdentity>,
         query_id: String,
         field_type: String,
         size: Option<i32>,
-        roles: Vec<String>,
+        roles: OverrideReqRoles,
     }
 
-    impl IntoFailingReq for OverrideReq {
-        fn into_req(self, port: u16) -> Request<Body> {
-            let uri = format!(
-                "http://localhost:{port}{path}/{query_id}?{size}field_type={ft}&query_type=test-multiply",
-                size = self.size.map_or(String::new(), |v| format!("size={v}&")),
-                path = http_serde::query::BASE_AXUM_PATH,
-                query_id = self.query_id,
-                ft = self.field_type
-            );
-            let body = serde_json::to_vec(&self.roles).unwrap();
-            hyper::Request::post(uri)
-                .maybe_extension(self.client_id)
-                .body(hyper::Body::from(body))
-                .unwrap()
-        }
+    #[derive(Serialize)]
+    struct OverrideReqBody {
+        roles: OverrideReqRoles,
+    }
+
+    #[derive(Serialize)]
+    struct OverrideReqRoles {
+        helper_roles: Vec<i8>,
     }
 
     impl Default for OverrideReq {
         fn default() -> Self {
-            let roles = HelperIdentity::make_three()
-                .map(|id| serde_json::to_string(&id).unwrap())
-                .to_vec();
             Self {
                 client_id: Some(ClientIdentity(HelperIdentity::TWO)),
                 query_id: QueryId.as_ref().to_string(),
                 field_type: format!("{:?}", FieldType::Fp31),
                 size: Some(1),
-                roles,
+                roles: OverrideReqRoles {
+                    helper_roles: vec![1, 2, 3],
+                },
             }
+        }
+    }
+
+    impl From<OverrideReq> for hyper::Request<Body> {
+        fn from(val: OverrideReq) -> Self {
+            let uri = format!(
+                "http://localhost{path}/{query_id}?{size}field_type={ft}&query_type=test-multiply",
+                size = val.size.map_or(String::new(), |v| format!("size={v}&")),
+                path = http_serde::query::BASE_AXUM_PATH,
+                query_id = val.query_id,
+                ft = val.field_type
+            );
+            let body = OverrideReqBody { roles: val.roles };
+            let body = serde_json::to_string(&body).unwrap();
+            hyper::Request::post(uri)
+                .header(CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .maybe_extension(val.client_id)
+                .body(hyper::Body::from(body))
+                .unwrap()
         }
     }
 
@@ -145,7 +154,7 @@ mod tests {
             query_id: "not-a-query-id".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::BAD_REQUEST).await;
     }
 
     #[tokio::test]
@@ -154,25 +163,29 @@ mod tests {
             field_type: "not-a-field-type".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
     async fn wrong_num_roles() {
         let req = OverrideReq {
-            roles: vec!["1".into(), "2".into()],
+            roles: OverrideReqRoles {
+                helper_roles: vec![1, 2],
+            },
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::BAD_REQUEST).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
     async fn invalid_role() {
         let req = OverrideReq {
-            roles: vec!["1".into(), "2".into(), "not-a-role".into()],
+            roles: OverrideReqRoles {
+                helper_roles: vec![-1, 2, 3],
+            },
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::BAD_REQUEST).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -181,7 +194,7 @@ mod tests {
             client_id: None,
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNAUTHORIZED).await;
+        assert_fails_with(req.into(), StatusCode::UNAUTHORIZED).await;
     }
 
     #[tokio::test]
@@ -190,26 +203,24 @@ mod tests {
             size: None,
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
-    async fn query_size_invalid() {
-        assert_req_fails_with(
-            OverrideReq {
-                size: Some(0),
-                ..Default::default()
-            },
-            StatusCode::UNPROCESSABLE_ENTITY,
-        )
-        .await;
-        assert_req_fails_with(
-            OverrideReq {
-                size: Some(-1),
-                ..Default::default()
-            },
-            StatusCode::UNPROCESSABLE_ENTITY,
-        )
-        .await;
+    async fn query_size_zero() {
+        let req = OverrideReq {
+            size: Some(0),
+            ..Default::default()
+        };
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn query_size_negative() {
+        let req = OverrideReq {
+            size: Some(-1),
+            ..Default::default()
+        };
+        assert_fails_with(req.into(), StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

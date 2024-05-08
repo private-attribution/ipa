@@ -100,13 +100,14 @@ impl<B, S: Service<Request<B>, Response = Response>> Service<Request<B>>
 
 #[cfg(all(test, unit_test))]
 pub mod test_helpers {
-    use std::any::Any;
+    use std::{any::Any, sync::Arc};
 
-    use futures_util::future::poll_immediate;
-    use hyper::{http::request, service::Service, StatusCode};
-    use tower::ServiceExt;
+    use hyper::{http::request, StatusCode};
 
-    use crate::net::test::TestServer;
+    use crate::{
+        helpers::{HelperIdentity, RequestHandler},
+        net::test::TestServer,
+    };
 
     /// Helper trait for optionally adding an extension to a request.
     pub trait MaybeExtensionExt {
@@ -123,24 +124,34 @@ pub mod test_helpers {
         }
     }
 
-    /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
-    /// axum routing. Pair with `assert_req_fails_with` to detect specific [`StatusCode`] failures.
-    pub trait IntoFailingReq {
-        fn into_req(self, port: u16) -> hyper::Request<hyper::Body>;
-    }
-
-    /// Intended to be used for a request that will fail during axum routing. When passed a known
-    /// bad request via `IntoFailingReq`, get a response from the server, and compare its
-    /// [`StatusCode`] with what is expected.
-    pub async fn assert_req_fails_with<I: IntoFailingReq>(req: I, expected_status: StatusCode) {
-        let TestServer { server, .. } = TestServer::default().await;
-
-        let mut router = server.router();
-        let ready = poll_immediate(router.ready()).await.unwrap().unwrap();
-        let resp = poll_immediate(ready.call(req.into_req(0)))
-            .await
-            .unwrap()
-            .unwrap();
+    // Intended to be used for a request that will fail Starts a [`TestServer`] and gets response
+    // from the server, and compare its [`StatusCode`] with what is expected.
+    pub async fn assert_fails_with(req: hyper::Request<hyper::Body>, expected_status: StatusCode) {
+        // let handler = make_owned_handler(|_addr, _| async {Ok(HelperResponse::ok())});
+        //let test_server = TestServer::default().await;
+        let test_server = TestServer::builder()
+            //    .with_request_handler(handler)
+            .build()
+            .await;
+        let resp = test_server.server.handle_req(req).await;
         assert_eq!(resp.status(), expected_status);
     }
+
+    pub async fn assert_success_with(
+        req: hyper::Request<hyper::Body>,
+        handler: Arc<dyn RequestHandler<Identity = HelperIdentity>>,
+    ) -> Vec<u8> {
+        let test_server = TestServer::builder()
+            .with_request_handler(handler)
+            .build()
+            .await;
+        let resp = test_server.server.handle_req(req).await;
+        let status = resp.status();
+        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        assert_eq!(StatusCode::OK, status,);
+        body_bytes.to_vec()
+    }
+
+    // TODO: refactor shared stuff
+    // setup a handler. TestServerExt
 }
