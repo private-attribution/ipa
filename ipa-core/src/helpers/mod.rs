@@ -1,3 +1,8 @@
+//! IPA infrastructure
+//!
+//! `infra` would be a more appropriate name for this module. Although some generic utilities are
+//! here for historial reasons, the `utils` module is a better place for them.
+
 use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
@@ -592,11 +597,7 @@ mod tests {
 
         #[test]
         fn basic() {
-            let identities = (1..=3)
-                .map(HelperIdentity::from)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let identities = HelperIdentity::make_three();
             let assignment = RoleAssignment::new(identities);
 
             assert_eq!(Role::H1, assignment.role(HelperIdentity::from(1)));
