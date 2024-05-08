@@ -157,7 +157,7 @@ where
         .narrow(&Step::MoveToBucket)
         .set_total_records(TotalRecords::Indeterminate);
     // move each value to the correct bucket
-    let row_contributions_stream = process_stream_by_chunks(
+    let row_contribution_chunk_stream = process_stream_by_chunks(
         contributions_stream,
         AttributionOutputs {
             attributed_breakdown_key_bits: vec![],
@@ -182,13 +182,19 @@ where
             attributed_breakdown_key_bits: Replicated::ZERO,
             capped_attributed_trigger_value: Replicated::ZERO,
         },
-    )
-    .then(|fut| async move { fut.await.map(Chunk::into_raw) });
+    );
 
     let aggregation_input = Box::pin(
-        row_contributions_stream
+        row_contribution_chunk_stream
+            // The final chunk from the previous stage is padded with zero-credit records. Rather
+            // than transpose out of vectorized form, flatten the chunked stream, discard the
+            // trailing records, and transpose again for final aggregation, we instead call into_raw
+            // to get the padded record chunk and transpose directly to the form we need for the
+            // final stage. Including the zero-credit padding records does not affect the final
+            // output.
+            .then(|fut| async move { fut.await.map(Chunk::into_raw) })
             .map_ok(|chunk| {
-                // Aggregation intermediate transpose
+                // This is the aggregation intermediate transpose, see the function comment.
                 Vec::transposed_from(chunk.as_slice()).unwrap_infallible()
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
@@ -197,6 +203,10 @@ where
     aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
 }
 
+/// A vector of histogram contributions for each output bucket.
+///
+/// Aggregation is vectorized over histogram buckets, so bit 0 for every histogram bucket is stored
+/// contiguously, followed by bit 1 for each histogram bucket, etc.
 pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>>, Error>;
 
 /// Aggregate output contributions
@@ -209,7 +219,12 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 /// features.
 ///
 /// `OV` is the output value type, which is called `HV` (histogram value) in the attribution
-/// protocol.
+/// protocol. If the aggregated contributions for a bucket overflow the `OV` type, this
+/// implementation saturates at the maximum value the type can represent. It is recommended
+/// that clients select a query configuration that avoids the possibility of overflow.
+///
+/// It might be possible to save some cost by using naive wrapping arithmetic. Another
+/// possibility would be to combine all carries into a single "overflow detected" bit.
 pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,

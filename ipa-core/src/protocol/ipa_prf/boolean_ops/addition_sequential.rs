@@ -176,9 +176,9 @@ mod test {
             U128Conversions,
         },
         protocol::{
-            self,
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            RecordId,
         },
         rand::thread_rng,
         secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed},
@@ -206,7 +206,7 @@ mod test {
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -243,27 +243,23 @@ mod test {
 
             let expected = if x + y > z { z - 1 } else { (x + y) % z };
 
-            let result_bits = world
+            let result = world
                 .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
                     integer_sat_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
                     .await
                     .unwrap()
                 })
-                .await;
-
-            let result_refs: [&BitDecomposed<_>; 3] =
-                result_bits.iter().collect::<Vec<_>>().try_into().unwrap();
-
-            let result = result_refs
+                .await
                 .reconstruct()
                 .into_iter()
                 .enumerate()
                 .fold(0, |acc, (i, b)| acc + b.as_u128() * (1 << i));
+
             assert_eq!((x, y, z, result), (x, y, z, expected));
         });
     }
@@ -287,7 +283,7 @@ mod test {
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA32>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -308,7 +304,7 @@ mod test {
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA32>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
