@@ -1,3 +1,8 @@
+//! IPA infrastructure
+//!
+//! `infra` would be a more appropriate name for this module. Although some generic utilities are
+//! here for historial reasons, the `utils` module is a better place for them.
+
 use std::{
     convert::Infallible,
     fmt::{Debug, Display, Formatter},
@@ -553,18 +558,6 @@ impl From<usize> for TotalRecords {
             None => TotalRecords::Unspecified,
         }
     }
-}
-
-pub fn zip3<T, U>(a: [T; 3], b: [U; 3]) -> [(T, U); 3] {
-    let [a0, a1, a2] = a;
-    let [b0, b1, b2] = b;
-    [(a0, b0), (a1, b1), (a2, b2)]
-}
-
-pub fn zip3_ref<'t, 'u, T, U>(a: &'t [T; 3], b: &'u [U; 3]) -> [(&'t T, &'u U); 3] {
-    let [a0, a1, a2] = a.each_ref();
-    let [b0, b1, b2] = b.each_ref();
-    [(a0, b0), (a1, b1), (a2, b2)]
 }
 
 #[cfg(all(test, unit_test))]

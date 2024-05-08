@@ -10,7 +10,7 @@ use tracing::{Instrument, Level, Span};
 
 use crate::{
     helpers::{
-        zip3_ref, Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
+        Gateway, GatewayConfig, HelperIdentity, InMemoryMpcNetwork, InMemoryShardNetwork,
         InMemoryTransport, Role, RoleAssignment, Transport,
     },
     protocol::{
@@ -32,6 +32,7 @@ use crate::{
     test_fixture::{
         logging, make_participants, metrics::MetricsHandle, sharing::ValidateMalicious, Reconstruct,
     },
+    utils::array::zip3_ref,
 };
 
 // This is used by the metrics tests in `protocol::context`. It otherwise would/should not be pub.

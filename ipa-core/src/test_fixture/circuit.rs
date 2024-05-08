@@ -6,7 +6,7 @@ use rand::distributions::{Distribution, Standard};
 
 use crate::{
     ff::{Field, U128Conversions},
-    helpers::{zip3, GatewayConfig, TotalRecords},
+    helpers::{GatewayConfig, TotalRecords},
     protocol::{
         basics::SecureMul,
         context::{Context, SemiHonestContext},
@@ -16,6 +16,7 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, FieldSimd, IntoShares},
     seq_join::seq_join,
     test_fixture::{ReconstructArr, TestWorld, TestWorldConfig},
+    utils::array::zip3,
 };
 
 pub struct Inputs<F: Field + FieldSimd<N>, const N: usize> {

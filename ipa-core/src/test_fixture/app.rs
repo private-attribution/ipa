@@ -7,12 +7,13 @@ use crate::{
     ff::Serializable,
     helpers::{
         query::{QueryConfig, QueryInput},
-        zip3, ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
+        ApiError, InMemoryMpcNetwork, InMemoryShardNetwork, Transport,
     },
     protocol::QueryId,
     query::QueryStatus,
     secret_sharing::IntoShares,
     test_fixture::try_join3_array,
+    utils::array::zip3,
     AppSetup, HelperApp,
 };
 
