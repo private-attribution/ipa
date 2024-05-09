@@ -8,7 +8,7 @@ use generic_array::{ArrayLength, GenericArray};
 use typenum::Unsigned;
 
 use crate::{
-    ff::{ArrayAccess, ArrayAccessRef, ArrayBuild, ArrayBuilder, Expand, Field, Serializable},
+    ff::{ArrayAccess, ArrayAccessRef, Expand, Field, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, FieldSimd, Linear as LinearSecretSharing,
         SecretSharing, SharedValue, SharedValueArray, Vectorizable,
@@ -492,55 +492,6 @@ impl<S: SharedValue + Vectorizable<N>, const N: usize> Iterator for UnpackIter<S
             (None, None) => None,
             (Some(left), Some(right)) => Some(AdditiveShare::new(left, right)),
             _ => unreachable!("unequal left/right length in vectorized AdditiveShare"),
-        }
-    }
-}
-
-pub struct AdditiveShareArrayBuilder<B>
-where
-    B: ArrayBuilder,
-    B::Array: SharedValue,
-    B::Element: SharedValue,
-{
-    left_builder: B,
-    right_builder: B,
-}
-
-impl<B> ArrayBuilder for AdditiveShareArrayBuilder<B>
-where
-    B: ArrayBuilder,
-    B::Array: SharedValue,
-    B::Element: SharedValue,
-{
-    type Element = AdditiveShare<B::Element>;
-    type Array = AdditiveShare<B::Array>;
-
-    fn push(&mut self, value: Self::Element) {
-        self.left_builder.push(value.left());
-        self.right_builder.push(value.right());
-    }
-
-    fn build(self) -> Self::Array {
-        let Self {
-            left_builder,
-            right_builder,
-        } = self;
-        AdditiveShare::new(left_builder.build(), right_builder.build())
-    }
-}
-
-impl<A> ArrayBuild for AdditiveShare<A>
-where
-    A: SharedValue + ArrayBuild,
-    <A as ArrayBuild>::Input: SharedValue,
-{
-    type Input = AdditiveShare<<A as ArrayBuild>::Input>;
-    type Builder = AdditiveShareArrayBuilder<<A as ArrayBuild>::Builder>;
-
-    fn builder() -> Self::Builder {
-        AdditiveShareArrayBuilder {
-            left_builder: A::builder(),
-            right_builder: A::builder(),
         }
     }
 }

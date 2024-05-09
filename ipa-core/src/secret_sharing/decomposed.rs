@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
+    ff::{boolean::Boolean, ArrayAccessRef, PrimeField},
     protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing, LinearRefOps,
@@ -166,33 +166,6 @@ impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
 
 pub struct BitDecomposedBuilder<S> {
     bits: Vec<S>,
-}
-
-impl<S: Send> ArrayBuild for BitDecomposed<S> {
-    type Input = S;
-    type Builder = BitDecomposedBuilder<S>;
-
-    fn builder() -> Self::Builder {
-        BitDecomposedBuilder { bits: Vec::new() }
-    }
-}
-
-impl<S: Send> ArrayBuilder for BitDecomposedBuilder<S> {
-    type Element = S;
-    type Array = BitDecomposed<S>;
-
-    fn with_capacity(mut self, capacity: usize) -> Self {
-        self.bits.reserve(capacity);
-        self
-    }
-
-    fn push(&mut self, value: S) {
-        self.bits.push(value);
-    }
-
-    fn build(self) -> Self::Array {
-        BitDecomposed::new(self.bits)
-    }
 }
 
 impl<S> Deref for BitDecomposed<S> {

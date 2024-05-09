@@ -136,7 +136,6 @@ pub trait CustomArray
 where
     Self: ArrayAccess<Output = Self::Element>
         + Expand<Input = Self::Element>
-        + ArrayBuild<Input = Self::Element>,
 {
     type Element;
 }
@@ -146,28 +145,6 @@ impl<S> CustomArray for S
 where
     S: ArrayAccess
         + Expand<Input = <S as ArrayAccess>::Output>
-        + ArrayBuild<Input = <S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
-}
-
-pub trait ArrayBuild {
-    type Input;
-    type Builder: ArrayBuilder<Element = Self::Input, Array = Self>;
-
-    fn builder() -> Self::Builder;
-}
-
-pub trait ArrayBuilder: Send + Sized {
-    type Element;
-    type Array;
-
-    #[must_use]
-    fn with_capacity(self, _capacity: usize) -> Self {
-        self
-    }
-
-    fn push(&mut self, value: Self::Element);
-
-    fn build(self) -> Self::Array;
 }
