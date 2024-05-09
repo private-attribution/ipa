@@ -1,8 +1,13 @@
+use std::iter::zip;
+
 use crate::{
     error::Error,
-    ff::Field,
-    protocol::{basics::SecureMul, context::Context, RecordId},
-    secret_sharing::Linear as LinearSecretSharing,
+    ff::{boolean::Boolean, Field},
+    protocol::{basics::SecureMul, context::Context, step::BitOpStep, RecordId},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd,
+        Linear as LinearSecretSharing,
+    },
 };
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
@@ -18,6 +23,43 @@ pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
 ) -> Result<S, Error> {
     let ab = a.multiply(b, ctx, record_id).await?;
     Ok(-ab + a + b)
+}
+
+/// Matrix bitwise OR for use with vectors of bit-decomposed values
+///
+/// ## Errors
+/// Propagates errors from the multiplication protocol.
+/// ## Panics
+/// Panics if the bit-decomposed arguments do not have the same length.
+//
+// Supplying an iterator saves constructing a complete copy of the argument
+// in memory when it is a uniform constant.
+pub async fn bool_or<'a, C, BI, const N: usize>(
+    ctx: C,
+    record_id: RecordId,
+    a: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    b: BI,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
+where
+    C: Context,
+    BI: IntoIterator,
+    <BI as IntoIterator>::IntoIter: ExactSizeIterator<Item = &'a AdditiveShare<Boolean, N>> + Send,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: SecureMul<C>,
+{
+    let b = b.into_iter();
+    assert_eq!(a.len(), b.len());
+
+    BitDecomposed::try_from(
+        ctx.parallel_join(zip(a.iter(), b).enumerate().map(|(i, (a, b))| {
+            let ctx = ctx.narrow(&BitOpStep::Bit(i));
+            async move {
+                let ab = a.multiply(b, ctx, record_id).await?;
+                Ok::<_, Error>(-ab + a + b)
+            }
+        }))
+        .await?,
+    )
 }
 
 #[cfg(all(test, unit_test))]
