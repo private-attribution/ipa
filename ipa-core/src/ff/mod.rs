@@ -118,8 +118,6 @@ pub trait ArrayAccessRef {
     fn set(&mut self, index: usize, e: Self::Ref<'_>);
 
     fn iter(&self) -> Self::Iter<'_>;
-
-    fn make_ref(src: &Self::Element) -> Self::Ref<'_>;
 }
 
 pub trait Expand {

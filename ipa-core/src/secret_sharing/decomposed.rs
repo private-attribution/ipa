@@ -205,10 +205,6 @@ impl<S: Clone + Send + Sync> ArrayAccessRef for BitDecomposed<S> {
     fn iter(&self) -> Self::Iter<'_> {
         self.bits.iter()
     }
-
-    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
-        src
-    }
 }
 
 #[cfg(all(test, unit_test))]
@@ -276,33 +272,6 @@ mod tests {
                 prop_assert_eq!(v, &val.bits[i]);
                 prop_assert_eq!(iter.len(), val.len() - 1 - i);
             }
-        }
-
-        #[test]
-        fn arrayaccess_make_ref(val in any::<u8>()) {
-            prop_assert_eq!(<BitDecomposed<u8> as ArrayAccessRef>::make_ref(&val), &val);
-        }
-    }
-
-    #[test]
-    fn arraybuild() {
-        let mut b = BitDecomposed::<u8>::builder();
-        b.push(1);
-        b.push(2);
-        b.push(3);
-        assert_eq!(
-            b.build(),
-            BitDecomposed {
-                bits: vec![1, 2, 3]
-            }
-        );
-    }
-
-    proptest! {
-        #[test]
-        fn arraybuild_with_capacity(capacity in 0..MAX_TEST_SIZE) {
-            let b = BitDecomposed::<u8>::builder().with_capacity(capacity);
-            prop_assert!(b.bits.capacity() >= capacity);
         }
     }
 }

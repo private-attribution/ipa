@@ -412,10 +412,6 @@ where
     fn iter(&self) -> Self::Iter<'_> {
         ArrayAccess::iter(self)
     }
-
-    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
-        src.clone()
-    }
 }
 
 impl<S, A, T> Expand for AdditiveShare<S>
