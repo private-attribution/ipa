@@ -12,8 +12,8 @@ use crate::{
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 
+pub mod and;
 pub mod bitwise_equal;
-
 #[cfg(feature = "descriptive-gate")]
 pub mod bitwise_less_than_prime;
 #[cfg(feature = "descriptive-gate")]

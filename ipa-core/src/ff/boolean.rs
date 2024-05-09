@@ -1,10 +1,14 @@
+use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
 
 use crate::{
     ff::{Field, PrimeField, Serializable, U128Conversions},
     impl_shared_value_common,
-    protocol::prss::FromRandomU128,
+    protocol::{
+        context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
+        prss::FromRandomU128,
+    },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
 
@@ -187,6 +191,16 @@ impl TryFrom<u128> for Boolean {
 impl FromRandomU128 for Boolean {
     fn from_random_u128(src: u128) -> Self {
         Self::truncate_from(src)
+    }
+}
+
+impl DZKPCompatibleField for Boolean {
+    fn as_segment_entry(array: &<Self as Vectorizable<1>>::Array) -> SegmentEntry<'_> {
+        if bool::from(Boolean::from_array(array)) {
+            SegmentEntry::from_bitslice(BitSlice::from_element(&1))
+        } else {
+            SegmentEntry::from_bitslice(BitSlice::from_element(&0))
+        }
     }
 }
 

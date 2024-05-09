@@ -57,6 +57,9 @@ pub const PRF_CHUNK: usize = 64;
 /// Vectorization dimension for aggregation.
 pub const AGG_CHUNK: usize = 256;
 
+/// Vectorization dimension for sort.
+pub const SORT_CHUNK: usize = 256;
+
 #[derive(Step)]
 pub(crate) enum Step {
     ConvertFp25519,

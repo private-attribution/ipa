@@ -202,8 +202,20 @@ pub async fn test_oprf_ipa<F>(
     };
 
     let aws = config.attribution_window_seconds;
-    let result: Vec<_> = world
-        .semi_honest(
+    let result: Vec<_> = if config.per_user_credit_cap == 256 {
+        // Note that many parameters are different in this case, not just the credit cap.
+        // This config is needed for collect_steps coverage.
+        world.semi_honest(
+            records.into_iter(),
+            |ctx, input_rows: Vec<OPRFIPAInputRow<BA5, BA8, BA20>>| async move {
+                oprf_ipa::<BA5, BA8, BA16, BA20, BA8, 32>(ctx, input_rows, aws)
+                    .await
+                    .unwrap()
+            },
+        )
+    } else {
+        // In these configurations, the credit cap is the only parameter that changes.
+        world.semi_honest(
             records.into_iter(),
             |ctx, input_rows: Vec<OPRFIPAInputRow<BA8, BA3, BA20>>| async move {
 
@@ -231,8 +243,9 @@ pub async fn test_oprf_ipa<F>(
                 }
             },
         )
-        .await
-        .reconstruct();
+    }
+    .await
+    .reconstruct();
 
     let mut result = result
         .into_iter()

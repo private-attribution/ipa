@@ -9,4 +9,7 @@ fn main() {
         unit_test: { all(not(feature = "shuttle"), not(feature = "compact-gate"), feature = "in-memory-infra") },
         web_test: { all(not(feature = "shuttle"), not(feature = "compact-gate"), feature = "real-world-infra") },
     }
+    println!("cargo::rustc-check-cfg=cfg(unit_test)");
+    println!("cargo::rustc-check-cfg=cfg(web_test)");
+    println!("cargo::rustc-check-cfg=cfg(coverage)");
 }

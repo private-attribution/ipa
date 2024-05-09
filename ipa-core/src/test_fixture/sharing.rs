@@ -74,7 +74,7 @@ impl<V: SharedValue> Reconstruct<V> for [&Replicated<V>; 3] {
 
 impl<V: SharedValue> Reconstruct<V> for [Replicated<V>; 3] {
     fn reconstruct(&self) -> V {
-        [&self[0], &self[1], &self[2]].reconstruct()
+        self.each_ref().reconstruct()
     }
 }
 
@@ -119,16 +119,7 @@ where
     for<'v> [&'v [I]; 3]: Reconstruct<Vec<T>>,
 {
     fn reconstruct(&self) -> Vec<T> {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
-where
-    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
-{
-    fn reconstruct(&self) -> BitDecomposed<T> {
-        BitDecomposed::new(self.map(Deref::deref).reconstruct())
+        self.each_ref().reconstruct()
     }
 }
 
@@ -138,6 +129,24 @@ where
 {
     fn reconstruct(&self) -> Vec<T> {
         self.map(Deref::deref).reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<BitDecomposed<T>> for [BitDecomposed<I>; 3]
+where
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+{
+    fn reconstruct(&self) -> BitDecomposed<T> {
+        self.each_ref().reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<BitDecomposed<T>> for [&BitDecomposed<I>; 3]
+where
+    for<'i> [&'i [I]; 3]: Reconstruct<Vec<T>>,
+{
+    fn reconstruct(&self) -> BitDecomposed<T> {
+        BitDecomposed::new(self.map(Deref::deref).reconstruct())
     }
 }
 

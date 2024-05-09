@@ -57,15 +57,7 @@ impl InMemoryMpcNetwork {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn transports(&self) -> [InMemoryTransport<HelperIdentity>; 3] {
-        let transports: [InMemoryTransport<_>; 3] = self
-            .transports
-            .iter()
-            .map(Arc::downgrade)
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| "What is dead may never die")
-            .unwrap();
-        transports
+        self.transports.each_ref().map(Arc::downgrade)
     }
 
     /// Reset all transports to the clear state.

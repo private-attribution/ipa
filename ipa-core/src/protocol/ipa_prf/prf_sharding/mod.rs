@@ -246,6 +246,13 @@ where
     }
 }
 
+/// Container for a record output from the attribution stage.
+///
+/// Attribution output consists of a series of pairs of an attributed trigger value and the
+/// breakdown to which that trigger value should be credited.
+///
+/// The `aggregation` module also uses this type to hold chunks of attribution output records by
+/// specifying vectorized types for `BK` and `TV`.
 #[derive(Clone, Debug)]
 pub struct AttributionOutputs<BK, TV> {
     pub attributed_breakdown_key_bits: BK,

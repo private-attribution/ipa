@@ -322,12 +322,7 @@ mod tests {
         let world = TestWorld::default();
         let sh_ctx = world.malicious_contexts();
         let v = sh_ctx.map(UpgradableContext::validator);
-        let m_ctx: [_; 3] = v
-            .iter()
-            .map(|v| v.context().set_total_records(1))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
 
         let record_id = RecordId::from(0);
         let input: TestField = rng.gen();
@@ -362,12 +357,7 @@ mod tests {
         for &excluded in Role::all() {
             let sh_ctx = world.malicious_contexts();
             let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx: [_; 3] = v
-                .iter()
-                .map(|v| v.context().set_total_records(1))
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
 
             let record_id = RecordId::from(0);
             let input: TestField = rng.gen();
@@ -407,12 +397,7 @@ mod tests {
             let world = TestWorld::default();
             let sh_ctx = world.malicious_contexts();
             let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx: [_; 3] = v
-                .iter()
-                .map(|v| v.context().set_total_records(1))
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let m_ctx = v.each_ref().map(|v| v.context().set_total_records(1));
 
             let record_id = RecordId::from(0);
             let input: Fp31 = rng.gen();
@@ -446,12 +431,7 @@ mod tests {
             let world = TestWorld::default();
             let sh_ctx = world.malicious_contexts();
             let v = sh_ctx.map(UpgradableContext::validator);
-            let m_ctx: [_; 3] = v
-                .iter()
-                .map(|v| v.context().set_total_records(1))
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+            let m_ctx: [_; 3] = v.each_ref().map(|v| v.context().set_total_records(1));
 
             let record_id = RecordId::from(0);
             let input: Fp31 = rng.gen();
