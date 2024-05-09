@@ -7,7 +7,13 @@ use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     replicated::semi_honest::AdditiveShare as Replicated, FieldSimd,
     Vectorizable,
 }};
+use crate::ff::boolean::Boolean;
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
+use crate::protocol::prss::PrssIndex;
+use crate::secret_sharing::BitDecomposed;
+// use crate::secret_sharing::replicated::malicious::AdditiveShare;
+// use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use crate::protocol::RecordId;
 
 
 #[cfg(test)]
@@ -33,21 +39,24 @@ pub async fn my_new_function<C, F, const N: usize>(
         .prss()
         .generate::<Replicated<F>,_>(counter);
 
+
+    //  Generate Bernoulli's with PRSS as BitDecomposed type
+    let BITS:  usize = 100;
+    // Calls to PRSS which are not working
+    let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
+    // let ss_bits : Vec<BitDecomposed<Replicated<Boolean>>> = ctx.prss().generate_with(counter,BITS);
+    // let share = ctx
+    //     .prss()
+    //     .generate::<Vec<Replicated<Boolean>>,_>(counter);
+
+
     // let share = ctx
     //     .prss()
     //     .generate::<Replicated<F,N>,_>(counter);
     let x_shared = ctx.prss().generate::<Replicated<BA4>,_>(counter);
     let y_shared = ctx.prss().generate::<Replicated<BA4>,_>(counter);
 
-    // let (sum, carry) = world.semi_honest((x_shared,y_shared),|ctx, x_y|async move {
-    //     integer_add::<_,_,AdditiveShare<BA4>,AdditiveShare<BA4>,1>(
-    //         ctx.set_total_records(1),
-    //         protocol::RecordId(0),
-    //         &x_y.0,
-    //         &x_y.1,
-    //     ).await.unwrap()
-    // }).await.reconstruct();
-    let (sum,carry) = integer_add(ctx, counter, x_shared,y_shared);
+    // let (sum,carry) = integer_add(ctx, counter, x_shared,y_shared);
 
 
     Ok(a.to_vec())
