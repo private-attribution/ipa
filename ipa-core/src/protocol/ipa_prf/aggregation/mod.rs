@@ -267,7 +267,7 @@ where
                             if a.len() < usize::try_from(OV::BITS).unwrap() {
                                 // If we have enough output bits, add and keep the carry.
                                 let (mut sum, carry) =
-                                    integer_add::<_, _, _, _, B>(ctx, record_id, &a, &b).await?;
+                                    integer_add::<_, B>(ctx, record_id, &a, &b).await?;
                                 sum.push(carry);
                                 Ok(sum)
                             } else {

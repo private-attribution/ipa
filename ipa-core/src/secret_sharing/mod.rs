@@ -23,7 +23,7 @@ use rand::{
 };
 pub use scheme::{Bitwise, Linear, LinearRefOps, SecretSharing};
 pub use vector::{
-    BoolVectorLookup, BoolVectorTrait, FieldArray, FieldSimd, FieldVectorizable, SharedValueArray,
+    FieldArray, FieldSimd, FieldVectorizable, SharedValueArray,
     StdArray, TransposeFrom, Vectorizable,
 };
 

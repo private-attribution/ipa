@@ -109,15 +109,24 @@ impl<S> BitDecomposed<S> {
 
 impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
+        assert!(new_len <= Self::MAX);
         self.bits.resize(new_len, value);
     }
 
     pub fn push(&mut self, value: S) {
+        assert!(self.len() < Self::MAX);
         self.bits.push(value);
     }
 
     pub fn truncate(&mut self, len: usize) {
         self.bits.truncate(len);
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        assert!(capacity <= Self::MAX);
+        Self {
+            bits: Vec::with_capacity(capacity),
+        }
     }
 }
 

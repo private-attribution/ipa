@@ -11,18 +11,18 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    ff::{boolean::Boolean, ArrayAccessRef, Field},
     protocol::{
         basics::{BooleanProtocols, SecureMul, ShareKnownValue},
         context::Context,
         step::BitOpStep,
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
+    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 #[cfg(all(test, unit_test))]
 use crate::{
-    ff::{boolean::Boolean, CustomArray},
+    ff::CustomArray,
     protocol::{
         basics::{select, BooleanArrayMul},
         context::SemiHonestContext,
@@ -36,21 +36,18 @@ use crate::{
 /// # Errors
 /// Propagates errors from multiply
 #[cfg(all(test, unit_test))]
-pub async fn compare_geq<C, F, XS, YS>(
+pub async fn compare_geq<C>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-) -> Result<AdditiveShare<F>, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean>>,
+    y: &BitDecomposed<AdditiveShare<Boolean>>,
+) -> Result<AdditiveShare<Boolean>, Error>
 where
     C: Context,
-    F: Field,
-    XS: ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F>>,
-    AdditiveShare<F>: BooleanProtocols<C, F>,
+    AdditiveShare<Boolean>: BooleanProtocols<C, Boolean>,
 {
     // we need to initialize carry to 1 for x>=y,
-    let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
+    let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
     // We don't care about the subtraction, we just want the carry
     subtraction_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok(carry)
@@ -61,21 +58,19 @@ where
 /// Outputs x>y for length(x) >= log2(y).
 /// # Errors
 /// propagates errors from multiply
-pub async fn compare_gt<C, F, XS, YS, const N: usize>(
+pub async fn compare_gt<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-) -> Result<AdditiveShare<F, N>, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
 {
     // we need to initialize carry to 0 for x>y
-    let mut carry = AdditiveShare::<F, N>::ZERO;
+    let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     subtraction_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok(carry)
 }
@@ -86,21 +81,18 @@ where
 /// length(x) bits of y.
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_sub<C, F, XS, YS>(
+pub async fn integer_sub<C>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-) -> Result<XS, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean>>,
+    y: &BitDecomposed<AdditiveShare<Boolean>>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean>>, Error>
 where
     C: Context,
-    F: Field,
-    XS: ArrayAccessRef<Element = AdditiveShare<F>> + ArrayBuild<Input = AdditiveShare<F>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F>>,
-    AdditiveShare<F>: BooleanProtocols<C, F>,
+    AdditiveShare<Boolean>: BooleanProtocols<C, Boolean>,
 {
     // we need to initialize carry to 1 for a subtraction
-    let mut carry = AdditiveShare::<F>::share_known_value(&ctx, F::ONE);
+    let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
     subtraction_circuit(ctx, record_id, x, y, &mut carry).await
 }
 
@@ -126,9 +118,13 @@ where
         Select,
     }
 
+    let x = BitDecomposed::new(x.iter());
+    let y = BitDecomposed::new(y.iter());
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
-    let result =
-        subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, x, y, &mut carry).await?;
+    let result = subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, &x, &y, &mut carry)
+        .await?
+        .into_iter()
+        .collect();
 
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
@@ -149,27 +145,25 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn subtraction_circuit<C, F, XS, YS, const N: usize>(
+async fn subtraction_circuit<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<XS, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
 {
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = XS::builder().with_capacity(x.len());
+    let mut result = Vec::with_capacity(x.len());
 
     for (i, (xb, yb)) in x
-        .zip(y.chain(repeat(YS::make_ref(&AdditiveShare::<F, N>::ZERO))))
+        .zip(y.chain(repeat(&AdditiveShare::<Boolean, N>::ZERO)))
         .enumerate()
     {
         result.push(
@@ -184,7 +178,7 @@ where
         );
     }
 
-    Ok(result.build())
+    result.try_into()
 }
 
 /// This improved one-bit subtractor that only requires a single multiplication was taken from:

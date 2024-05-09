@@ -1,4 +1,4 @@
-use std::{array, convert::Infallible, num::NonZeroU32, ops::Add};
+use std::{array, convert::Infallible, iter, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
@@ -9,7 +9,7 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, ArrayBuild, ArrayBuilder,
+        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519,
         CustomArray, Serializable, U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
@@ -35,7 +35,6 @@ use crate::{
     },
     seq_join::seq_join,
     sharding::NotSharded,
-    BoolVector,
 };
 
 mod aggregation;
@@ -48,8 +47,10 @@ mod malicious_security;
 mod quicksort;
 mod shuffle;
 
+/// Match key type
+pub type MatchKey = BA64;
 /// Match key size
-pub const MK_BITS: usize = 64;
+pub const MK_BITS: usize = BA64::BITS as usize;
 
 /// Vectorization dimension for PRF
 pub const PRF_CHUNK: usize = 64;
@@ -72,7 +73,7 @@ pub(crate) enum Step {
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
-    pub match_key: Replicated<BA64>,
+    pub match_key: Replicated<MatchKey>,
     pub is_trigger: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
@@ -106,7 +107,7 @@ where
     type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MatchKey> as Serializable>::Size::USIZE;
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
@@ -132,13 +133,13 @@ where
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MatchKey> as Serializable>::Size::USIZE;
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
         let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
 
-        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+        let match_key = Replicated::<MatchKey>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
             .unwrap_infallible();
         let timestamp =
             Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
@@ -271,20 +272,14 @@ where
 
                 async move {
                     let record_id = RecordId::from(idx);
-                    let input_match_keys: &dyn Fn(usize) -> Replicated<BA64> =
+                    let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
                         &|i| records[i].match_key.clone();
-                    let mut match_keys_builder = <BoolVector!(64, PRF_CHUNK)>::builder();
-                    for _ in 0..MK_BITS {
-                        match_keys_builder.push(Replicated::<Boolean, PRF_CHUNK>::ZERO);
-                    }
-                    let mut match_keys = match_keys_builder.build();
+                    let mut match_keys = BitDecomposed::new(iter::empty());
                     match_keys
                         .transpose_from(input_match_keys)
                         .unwrap_infallible();
                     let curve_pts = convert_to_fp25519::<
                         _,
-                        BoolVector!(64, PRF_CHUNK),
-                        BoolVector!(256, PRF_CHUNK),
                         PRF_CHUNK,
                     >(convert_ctx, record_id, match_keys)
                     .await?;
@@ -314,7 +309,7 @@ where
                 }
             },
             || OPRFIPAInputRow {
-                match_key: Replicated::<BA64>::ZERO,
+                match_key: Replicated::<MatchKey>::ZERO,
                 is_trigger: Replicated::<Boolean>::ZERO,
                 breakdown_key: Replicated::<BK>::ZERO,
                 trigger_value: Replicated::<TV>::ZERO,

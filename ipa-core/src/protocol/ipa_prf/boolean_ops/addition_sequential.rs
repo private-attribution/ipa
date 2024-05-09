@@ -4,7 +4,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    ff::{boolean::Boolean, ArrayAccessRef, Field},
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
@@ -25,20 +25,18 @@ use crate::{
 ///
 /// # Errors
 /// propagates errors from multiply
-pub async fn integer_add<C, F, XS, YS, const N: usize>(
+pub async fn integer_add<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-) -> Result<(XS, AdditiveShare<F, N>), Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+) -> Result<(BitDecomposed<AdditiveShare<Boolean, N>>, AdditiveShare<Boolean, N>), Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
 {
-    let mut carry = AdditiveShare::<F, N>::ZERO;
+    let mut carry = AdditiveShare::ZERO;
     let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
     Ok((sum, carry))
 }
@@ -88,26 +86,24 @@ where
 /// propagates errors from multiply
 ///
 ///
-async fn addition_circuit<C, F, XS, YS, const N: usize>(
+async fn addition_circuit<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &XS,
-    y: &YS,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<XS, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    XS: ArrayAccessRef<Element = AdditiveShare<F, N>> + ArrayBuild<Input = AdditiveShare<F, N>>,
-    YS: ArrayAccessRef<Element = AdditiveShare<F, N>>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
 {
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = XS::builder().with_capacity(x.len());
+    let mut result = Vec::with_capacity(x.len());
     for (i, (xb, yb)) in x
-        .zip(y.chain(repeat(YS::make_ref(&AdditiveShare::<F, N>::ZERO))))
+        .zip(y.chain(repeat(&AdditiveShare::ZERO)))
         .enumerate()
     {
         result.push(
@@ -122,7 +118,7 @@ where
         );
     }
 
-    Ok(result.build())
+    result.try_into()
 }
 
 ///
@@ -181,7 +177,7 @@ mod test {
             RecordId,
         },
         rand::thread_rng,
-        secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed},
+        secret_sharing::BitDecomposed,
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -204,7 +200,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
@@ -281,7 +277,7 @@ mod test {
 
             let (result, carry) = world
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA32>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
@@ -302,7 +298,7 @@ mod test {
             let expected_carry = (x + y) >> 32 & 1;
             let (result, carry) = world
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
-                    integer_add::<_, _, AdditiveShare<BA32>, AdditiveShare<BA64>, 1>(
+                    integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
                         &x_y.0,
