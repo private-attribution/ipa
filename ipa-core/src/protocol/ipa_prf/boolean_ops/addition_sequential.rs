@@ -30,7 +30,13 @@ pub async fn integer_add<C, const N: usize>(
     record_id: RecordId,
     x: &BitDecomposed<AdditiveShare<Boolean, N>>,
     y: &BitDecomposed<AdditiveShare<Boolean, N>>,
-) -> Result<(BitDecomposed<AdditiveShare<Boolean, N>>, AdditiveShare<Boolean, N>), Error>
+) -> Result<
+    (
+        BitDecomposed<AdditiveShare<Boolean, N>>,
+        AdditiveShare<Boolean, N>,
+    ),
+    Error,
+>
 where
     C: Context,
     Boolean: FieldSimd<N>,
@@ -102,14 +108,8 @@ where
     let y = y.iter();
 
     let mut result = BitDecomposed::with_capacity(x.len());
-    for (i, (xb, yb)) in x
-        .zip(y.chain(repeat(&AdditiveShare::ZERO)))
-        .enumerate()
-    {
-        result.push(
-            bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry)
-                .await?,
-        );
+    for (i, (xb, yb)) in x.zip(y.chain(repeat(&AdditiveShare::ZERO))).enumerate() {
+        result.push(bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
@@ -161,7 +161,8 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA32, BA64}, ArrayAccess, U128Conversions
+            boolean_array::{BA32, BA64},
+            ArrayAccess, U128Conversions,
         },
         protocol::{
             context::Context,

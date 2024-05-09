@@ -9,8 +9,8 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519,
-        CustomArray, Serializable, U128Conversions,
+        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, CustomArray, Serializable,
+        U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
     protocol::{
@@ -139,8 +139,9 @@ where
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
         let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
 
-        let match_key = Replicated::<MatchKey>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
-            .unwrap_infallible();
+        let match_key =
+            Replicated::<MatchKey>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+                .unwrap_infallible();
         let timestamp =
             Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
                 .map_err(|e| Error::ParseError(e.into()))?;
@@ -277,11 +278,9 @@ where
                     match_keys
                         .transpose_from(input_match_keys)
                         .unwrap_infallible();
-                    let curve_pts = convert_to_fp25519::<
-                        _,
-                        PRF_CHUNK,
-                    >(convert_ctx, record_id, match_keys)
-                    .await?;
+                    let curve_pts =
+                        convert_to_fp25519::<_, PRF_CHUNK>(convert_ctx, record_id, match_keys)
+                            .await?;
 
                     let prf_of_match_keys =
                         eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, &prf_key, curve_pts)

@@ -94,8 +94,7 @@ impl<BK: SharedValue, TS: SharedValue, TV: SharedValue> GroupingKey
     }
 }
 
-struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedValue>
-{
+struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     ever_encountered_a_source_event: Replicated<Boolean>,
     attributed_breakdown_key_bits: Replicated<BK>,
     saturating_sum: BitDecomposed<Replicated<Boolean>>,
@@ -209,9 +208,13 @@ where
             integer_sub(
                 ctx.narrow(&Step::ComputeDifferenceToCap),
                 record_id,
-                &BitDecomposed::new(repeat_n(Replicated::ZERO, usize::try_from(TV::BITS).unwrap())),
+                &BitDecomposed::new(repeat_n(
+                    Replicated::ZERO,
+                    usize::try_from(TV::BITS).unwrap(),
+                )),
                 &updated_sum,
-            ).map(|res| res.map(BitDecomposed::collect_bits)),
+            )
+            .map(|res| res.map(BitDecomposed::collect_bits)),
         )
         .await?;
 
@@ -1105,9 +1108,14 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA8, BA3, BA8, BA20, {SaturatingSumType::BITS as usize}, 256>(
-                        ctx, input_rows, None, &HISTOGRAM,
-                    )
+                    attribute_cap_aggregate::<
+                        BA8,
+                        BA3,
+                        BA8,
+                        BA20,
+                        { SaturatingSumType::BITS as usize },
+                        256,
+                    >(ctx, input_rows, None, &HISTOGRAM)
                     .await
                     .unwrap()
                 })

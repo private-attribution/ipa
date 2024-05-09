@@ -113,9 +113,10 @@ impl<S> BitDecomposed<S> {
 
 impl BitDecomposed<Boolean> {
     pub fn as_u128(self: &BitDecomposed<Boolean>) -> u128 {
-        self.bits.iter().enumerate().fold(0, |acc, (i, b)| {
-            acc + (b.as_u128() << i)
-        })
+        self.bits
+            .iter()
+            .enumerate()
+            .fold(0, |acc, (i, b)| acc + (b.as_u128() << i))
     }
 }
 

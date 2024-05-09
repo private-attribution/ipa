@@ -17,7 +17,8 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
-        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing}, BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable
+        replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, SharedValueArray, TransposeFrom, Vectorizable,
     },
 };
 
@@ -153,8 +154,7 @@ where
     // addition x+rs, where rs=r+s might cause carry
     // this is not a problem since bit 255 of rs is set to 0
     let (sh_y, _) =
-        integer_add::<_, N>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, &x)
-            .await?;
+        integer_add::<_, N>(ctx.narrow(&Step::IntegerAddMaskToX), record_id, &sh_rs, &x).await?;
 
     // this leaks information, but with negligible probability
     let mut y = (ctx.role() != Role::H3).then(|| Vec::with_capacity(N));
@@ -212,7 +212,10 @@ where
 fn gen_sh_r_and_sh_s<C, const BITS: usize, const N: usize>(
     ctx: &C,
     record_id: RecordId,
-) -> (BitDecomposed<AdditiveShare<Boolean, N>>, BitDecomposed<AdditiveShare<Boolean, N>>)
+) -> (
+    BitDecomposed<AdditiveShare<Boolean, N>>,
+    BitDecomposed<AdditiveShare<Boolean, N>>,
+)
 where
     C: Context,
     Boolean: FieldSimd<N>,
@@ -355,10 +358,10 @@ mod tests {
         Boolean: FieldSimd<CHUNK>,
         AdditiveShare<Boolean, CHUNK>:
             for<'a> BooleanProtocols<SemiHonestContext<'a>, Boolean, CHUNK>,
-        BitDecomposed<AdditiveShare<Boolean, CHUNK>>:
-            for<'a> TransposeFrom<&'a [AdditiveShare<BA64>; CHUNK], Error = Infallible>
+        BitDecomposed<AdditiveShare<Boolean, CHUNK>>: for<'a> TransposeFrom<&'a [AdditiveShare<BA64>; CHUNK], Error = Infallible>
             + FromPrss<usize>,
-        Vec<AdditiveShare<BA256>>: for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, CHUNK>>>,
+        Vec<AdditiveShare<BA256>>:
+            for<'a> TransposeFrom<&'a BitDecomposed<AdditiveShare<Boolean, CHUNK>>>,
         Vec<BA256>: for<'a> TransposeFrom<
             &'a [<Boolean as Vectorizable<CHUNK>>::Array; 256],
             Error = Infallible,

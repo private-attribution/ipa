@@ -23,7 +23,9 @@ use generic_array::{ArrayLength, GenericArray};
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, Fp61BitPrime, PrimeField};
 
-use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128, secret_sharing::BitDecomposed};
+use crate::{
+    error::UnwrapInfallible, protocol::prss::FromRandomU128, secret_sharing::BitDecomposed,
+};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -136,8 +138,7 @@ pub trait Expand {
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
 where
-    Self: ArrayAccess<Output = Self::Element>
-        + Expand<Input = Self::Element>
+    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
 {
     type Element;
 }
@@ -145,8 +146,7 @@ where
 /// impl Custom Array for all compatible structs
 impl<S> CustomArray for S
 where
-    S: ArrayAccess
-        + Expand<Input = <S as ArrayAccess>::Output>
+    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
 }

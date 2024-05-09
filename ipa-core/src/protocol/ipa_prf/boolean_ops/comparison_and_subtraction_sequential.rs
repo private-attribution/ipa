@@ -121,9 +121,15 @@ where
     }
 
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
-    let result = subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, &x.to_bits(), &y.to_bits(), &mut carry)
-        .await?
-        .collect_bits();
+    let result = subtraction_circuit(
+        ctx.narrow(&Step::Subtract),
+        record_id,
+        &x.to_bits(),
+        &y.to_bits(),
+        &mut carry,
+    )
+    .await?
+    .collect_bits();
 
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
@@ -165,10 +171,8 @@ where
         .zip(y.chain(repeat(&AdditiveShare::<Boolean, N>::ZERO)))
         .enumerate()
     {
-        result.push(
-            bit_subtractor(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry)
-                .await?,
-        );
+        result
+            .push(bit_subtractor(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry).await?);
     }
     Ok(result)
 }
@@ -223,11 +227,18 @@ mod test {
 
     use crate::{
         ff::{
-            boolean::Boolean, boolean_array::{BA3, BA32, BA5, BA64}, ArrayAccess, Expand, Field, U128Conversions
+            boolean::Boolean,
+            boolean_array::{BA3, BA32, BA5, BA64},
+            ArrayAccess, Expand, Field, U128Conversions,
         },
-        protocol::{self, context::Context, ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
+        protocol::{
+            self,
+            context::Context,
+            ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
-            }, RecordId},
+            },
+            RecordId,
+        },
         rand::thread_rng,
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
