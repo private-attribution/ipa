@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, iter::repeat};
+use std::iter::repeat;
 
 use ipa_macros::Step;
 
@@ -101,24 +101,17 @@ where
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = Vec::with_capacity(x.len());
+    let mut result = BitDecomposed::with_capacity(x.len());
     for (i, (xb, yb)) in x
         .zip(y.chain(repeat(&AdditiveShare::ZERO)))
         .enumerate()
     {
         result.push(
-            bit_adder(
-                ctx.narrow(&BitOpStep::from(i)),
-                record_id,
-                xb.borrow(),
-                yb.borrow(),
-                carry,
-            )
-            .await?,
+            bit_adder(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry)
+                .await?,
         );
     }
-
-    result.try_into()
+    Ok(result)
 }
 
 ///
@@ -168,8 +161,7 @@ mod test {
 
     use crate::{
         ff::{
-            boolean_array::{BA32, BA64},
-            U128Conversions,
+            boolean_array::{BA32, BA64}, ArrayAccess, U128Conversions
         },
         protocol::{
             context::Context,
@@ -203,8 +195,8 @@ mod test {
                     integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
-                        &x_y.0,
-                        &x_y.1,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()
@@ -280,8 +272,8 @@ mod test {
                     integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
-                        &x_y.0,
-                        &x_y.1,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()
@@ -301,8 +293,8 @@ mod test {
                     integer_add::<_, 1>(
                         ctx.set_total_records(1),
                         RecordId::FIRST,
-                        &x_y.0,
-                        &x_y.1,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()

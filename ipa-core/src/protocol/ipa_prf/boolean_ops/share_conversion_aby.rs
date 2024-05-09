@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, convert::Infallible, ops::Neg};
+use std::{convert::Infallible, ops::Neg};
 
 use ipa_macros::Step;
 
@@ -163,7 +163,7 @@ where
             ctx.narrow(&Step::RevealY(i)),
             record_id,
             Role::H3,
-            sh_y.get(i).unwrap().borrow(),
+            sh_y.get(i).unwrap(),
         )
         .await?;
         match (&mut y, y_bit) {
@@ -239,7 +239,7 @@ where
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
                 ));
                 sh_s.push(AdditiveShare::new_arr(
-                    r.get(i).unwrap().borrow().left_arr().clone(),
+                    r.get(i).unwrap().left_arr().clone(),
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
                 ));
             }
@@ -248,7 +248,7 @@ where
             for i in 0..BITS {
                 sh_r.push(AdditiveShare::new_arr(
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
-                    r.get(i).unwrap().borrow().right_arr().clone(),
+                    r.get(i).unwrap().right_arr().clone(),
                 ));
                 sh_s.push(AdditiveShare::new_arr(
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
@@ -259,12 +259,12 @@ where
         Role::H3 => {
             for i in 0..BITS {
                 sh_r.push(AdditiveShare::new_arr(
-                    r.get(i).unwrap().borrow().left_arr().clone(),
+                    r.get(i).unwrap().left_arr().clone(),
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
                 ));
                 sh_s.push(AdditiveShare::new_arr(
                     <Boolean as Vectorizable<N>>::Array::ZERO_ARRAY,
-                    r.get(i).unwrap().borrow().right_arr().clone(),
+                    r.get(i).unwrap().right_arr().clone(),
                 ));
             }
         }

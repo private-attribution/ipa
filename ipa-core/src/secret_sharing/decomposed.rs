@@ -62,6 +62,10 @@ impl<S> BitDecomposed<S> {
         self.bits.is_empty()
     }
 
+    pub fn collect_bits<T: FromIterator<S>>(self) -> T {
+        self.into_iter().collect()
+    }
+
     /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
     /// each element is (should be) a share of 1 or 0. This function iterates
     /// over the shares of bits and computes `Σ(2^i * b_i)`.
@@ -107,6 +111,14 @@ impl<S> BitDecomposed<S> {
     }
 }
 
+impl BitDecomposed<Boolean> {
+    pub fn as_u128(self: &BitDecomposed<Boolean>) -> u128 {
+        self.bits.iter().enumerate().fold(0, |acc, (i, b)| {
+            acc + (b.as_u128() << i)
+        })
+    }
+}
+
 impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
         assert!(new_len <= Self::MAX);
@@ -126,6 +138,15 @@ impl<S: Clone> BitDecomposed<S> {
         assert!(capacity <= Self::MAX);
         Self {
             bits: Vec::with_capacity(capacity),
+        }
+    }
+}
+
+impl<S: SharedValue> BitDecomposed<S> {
+    pub fn zero(len: usize) -> Self {
+        assert!(len <= Self::MAX);
+        Self {
+            bits: vec![S::ZERO; len],
         }
     }
 }
@@ -162,10 +183,6 @@ impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
             Err(Error::Internal)
         }
     }
-}
-
-pub struct BitDecomposedBuilder<S> {
-    bits: Vec<S>,
 }
 
 impl<S> Deref for BitDecomposed<S> {

@@ -23,7 +23,7 @@ use generic_array::{ArrayLength, GenericArray};
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, Fp61BitPrime, PrimeField};
 
-use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128};
+use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128, secret_sharing::BitDecomposed};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -102,6 +102,10 @@ pub trait ArrayAccess {
     fn set(&mut self, index: usize, e: Self::Output);
 
     fn iter(&self) -> Self::Iter<'_>;
+
+    fn to_bits(&self) -> BitDecomposed<Self::Output> {
+        BitDecomposed::new(self.iter())
+    }
 }
 
 pub trait ArrayAccessRef {

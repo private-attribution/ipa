@@ -4,7 +4,7 @@
 //! the bit-width of the first (x) operand, then the excess bits of y must be zero. This condition
 //! is abbreviated below as `length(x) >= log2(y)`.
 
-use std::{borrow::Borrow, iter::repeat};
+use std::iter::repeat;
 
 #[cfg(all(test, unit_test))]
 use ipa_macros::Step;
@@ -112,19 +112,18 @@ where
     S: SharedValue + CustomArray<Element = Boolean>,
     AdditiveShare<S>: BooleanArrayMul,
 {
+    use crate::ff::ArrayAccess;
+
     #[derive(Step)]
     enum Step {
         Subtract,
         Select,
     }
 
-    let x = BitDecomposed::new(x.iter());
-    let y = BitDecomposed::new(y.iter());
     let mut carry = !AdditiveShare::<Boolean>::ZERO;
-    let result = subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, &x, &y, &mut carry)
+    let result = subtraction_circuit(ctx.narrow(&Step::Subtract), record_id, &x.to_bits(), &y.to_bits(), &mut carry)
         .await?
-        .into_iter()
-        .collect();
+        .collect_bits();
 
     // carry computes carry=(x>=y)
     // if carry==0 then {zero} else {result}
@@ -160,25 +159,18 @@ where
     let x = x.iter();
     let y = y.iter();
 
-    let mut result = Vec::with_capacity(x.len());
+    let mut result = BitDecomposed::with_capacity(x.len());
 
     for (i, (xb, yb)) in x
         .zip(y.chain(repeat(&AdditiveShare::<Boolean, N>::ZERO)))
         .enumerate()
     {
         result.push(
-            bit_subtractor(
-                ctx.narrow(&BitOpStep::from(i)),
-                record_id,
-                xb.borrow(),
-                yb.borrow(),
-                carry,
-            )
-            .await?,
+            bit_subtractor(ctx.narrow(&BitOpStep::from(i)), record_id, xb, yb, carry)
+                .await?,
         );
     }
-
-    result.try_into()
+    Ok(result)
 }
 
 /// This improved one-bit subtractor that only requires a single multiplication was taken from:
@@ -231,18 +223,11 @@ mod test {
 
     use crate::{
         ff::{
-            boolean::Boolean,
-            boolean_array::{BA3, BA32, BA5, BA64},
-            Expand, Field, U128Conversions,
+            boolean::Boolean, boolean_array::{BA3, BA32, BA5, BA64}, ArrayAccess, Expand, Field, U128Conversions
         },
-        protocol,
-        protocol::{
-            context::Context,
-            ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
+        protocol::{self, context::Context, ipa_prf::boolean_ops::comparison_and_subtraction_sequential::{
                 compare_geq, compare_gt, integer_sat_sub, integer_sub,
-            },
-            RecordId,
-        },
+            }, RecordId},
         rand::thread_rng,
         secret_sharing::{
             replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
@@ -304,8 +289,8 @@ mod test {
                     compare_geq(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y[0],
-                        &x_y[1],
+                        &x_y[0].to_bits(),
+                        &x_y[1].to_bits(),
                     )
                     .await
                     .unwrap()
@@ -320,8 +305,8 @@ mod test {
                     compare_geq(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y[0],
-                        &x_y[0],
+                        &x_y[0].to_bits(),
+                        &x_y[0].to_bits(),
                     )
                     .await
                     .unwrap()
@@ -348,11 +333,11 @@ mod test {
 
             let result = world
                 .semi_honest(records.clone().into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
+                    compare_gt::<_, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y[0],
-                        &x_y[1],
+                        &x_y[0].to_bits(),
+                        &x_y[1].to_bits(),
                     )
                     .await
                     .unwrap()
@@ -365,11 +350,11 @@ mod test {
             // check that x is not greater than itself
             let result2 = world
                 .semi_honest(records.into_iter(), |ctx, x_y| async move {
-                    compare_gt::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
+                    compare_gt::<_, 1>(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y[0],
-                        &x_y[0],
+                        &x_y[0].to_bits(),
+                        &x_y[0].to_bits(),
                     )
                     .await
                     .unwrap()
@@ -410,7 +395,7 @@ mod test {
                         ctx.active_work(),
                         stream_iter(x.into_iter().zip(repeat((ctx, y))).enumerate().map(
                             |(i, (x, (ctx, y)))| async move {
-                                compare_gt(ctx, RecordId::from(i), &x, &y).await
+                                compare_gt(ctx, RecordId::from(i), &x.to_bits(), &y.to_bits()).await
                             },
                         )),
                     )
@@ -533,8 +518,8 @@ mod test {
                     integer_sub(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y[0],
-                        &x_y[1],
+                        &x_y[0].to_bits(),
+                        &x_y[1].to_bits(),
                     )
                     .await
                     .unwrap()
@@ -591,8 +576,8 @@ mod test {
                     integer_sub(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y.0,
-                        &x_y.1,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()
@@ -623,8 +608,8 @@ mod test {
                     integer_sub(
                         ctx.set_total_records(1),
                         protocol::RecordId(0),
-                        &x_y.0,
-                        &x_y.1,
+                        &x_y.0.to_bits(),
+                        &x_y.1.to_bits(),
                     )
                     .await
                     .unwrap()

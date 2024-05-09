@@ -188,7 +188,7 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
     ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
@@ -198,7 +198,6 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
@@ -232,7 +231,7 @@ where
     )
     .await?;
 
-    attribute_cap_aggregate::<_, _, _, _, SS, B>(
+    attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
         ctx,
         prfd_inputs,
         attribution_window_seconds,
@@ -326,7 +325,7 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA5, BA8},
+            boolean_array::{BA16, BA20, BA3, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -367,7 +366,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -412,7 +411,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
