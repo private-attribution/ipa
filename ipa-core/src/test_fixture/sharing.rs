@@ -163,13 +163,16 @@ where
     }
 }
 
-impl<T, M> Reconstruct<GenericArray<T, M>> for [&GenericArray<Replicated<T>, M>; 3]
+impl<T, const N: usize> Reconstruct<[T; N]> for [[Replicated<T>; N]; 3]
 where
-    M: ArrayLength,
     T: SharedValue,
 {
-    fn reconstruct(&self) -> GenericArray<T, M> {
-        GenericArray::<T, M>::generate(|i| [&self[0][i], &self[1][i], &self[2][i]].reconstruct())
+    fn reconstruct(&self) -> [T; N] {
+        zip(zip(self[0], self[1]), self[2])
+            .map(|((x0, x1), x2)| [x0, x1, x2].reconstruct())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }
 

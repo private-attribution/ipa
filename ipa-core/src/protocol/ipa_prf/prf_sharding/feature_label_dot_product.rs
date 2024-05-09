@@ -7,31 +7,31 @@ use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use generic_array::{sequence::GenericSequence, ArrayLength, ConstArrayLength, GenericArray};
 use ipa_macros::Step;
-use typenum::{Const, ToUInt};
+use typenum::{Bit, Const, ToUInt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
-    helpers::stream::TryFlattenItersExt,
+    ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
+    helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::or::or,
+        boolean::{and::bool_and, or::or},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::aggregation::aggregate_values,
         RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom,
+        SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
 
-pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>, M: ArrayLength> {
+pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>, const B: usize> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
-    feature_vector: GenericArray<Replicated<FV>, M>,
+    feature_vector: [Replicated<FV>; B],
 }
 
 struct InputsRequiredFromPrevRow {
@@ -56,16 +56,21 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<'ctx, FV, M>(
+    pub async fn compute_row_with_previous<'ctx, FV, const B: usize>(
         &mut self,
         ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
         record_id: RecordId,
-        input_row: &PrfShardedIpaInputRow<FV, M>,
-    ) -> Result<GenericArray<Replicated<FV>, M>, Error>
+        input_row: &PrfShardedIpaInputRow<FV, B>,
+    ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
     where
+        Boolean: FieldSimd<B>,
+        Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
+            + Expand<Input = Replicated<Boolean>>,
+        Const<B>: ToUInt,
+        <Const<B> as ToUInt>::Output: ArrayLength,
         FV: SharedValue + CustomArray<Element = Boolean>,
-        Replicated<FV>: BooleanArrayMul,
-        M: ArrayLength,
+        BitDecomposed<Replicated<Boolean, B>>:
+            for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -100,29 +105,23 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let feature_contexts = (0..).map(|i| ctx.narrow(&Step::ComputedCappedFeatureVector(i)));
-        let capped_label_ref = &capped_label;
-        let capped_attributed_feature_vector = ctx
-            .parallel_join(zip(feature_contexts, &input_row.feature_vector).map(
-                |(c, feature)| async move {
-                    select(
-                        c,
-                        record_id,
-                        capped_label_ref,
-                        feature,
-                        &Replicated::<FV>::ZERO,
-                    )
-                    .await
-                },
-            ))
-            .await?;
+        let condition: Replicated<Boolean, B> = Replicated::<Boolean, B>::expand(&capped_label);
+        let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
+        bit_decomposed_output
+            .transpose_from(&input_row.feature_vector)
+            .unwrap_infallible();
+        let capped_attributed_feature_vector = bool_and(
+            ctx,
+            record_id,
+            &bit_decomposed_output,
+            repeat_n(&condition, input_row.feature_vector.len()),
+        )
+        .await;
 
         self.ever_encountered_a_trigger_event = ever_encountered_a_trigger_event;
         self.is_saturated = updated_is_saturated;
 
-        Ok(capped_attributed_feature_vector
-            .into_iter()
-            .collect::<GenericArray<_, M>>())
+        capped_attributed_feature_vector
     }
 }
 
@@ -172,14 +171,13 @@ where
 /// Takes an input stream of `PrfShardedIpaInputRecordRow` which is assumed to have all records with a given PRF adjacent
 /// and converts it into a stream of vectors of `PrfShardedIpaInputRecordRow` having the same PRF.
 ///
-fn chunk_rows_by_user<FV, IS, M>(
+fn chunk_rows_by_user<FV, IS, const B: usize>(
     input_stream: IS,
-    first_row: PrfShardedIpaInputRow<FV, M>,
-) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, M>>>
+    first_row: PrfShardedIpaInputRow<FV, B>,
+) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, B>>>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
-    IS: Stream<Item = PrfShardedIpaInputRow<FV, M>> + Unpin,
-    M: ArrayLength,
+    IS: Stream<Item = PrfShardedIpaInputRow<FV, B>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
         let (mut s, last_row) = state?;
@@ -233,13 +231,13 @@ where
 /// Propagates errors from multiplications
 pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
     sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
-    input_rows: Vec<PrfShardedIpaInputRow<TV, ConstArrayLength<B>>>,
+    input_rows: Vec<PrfShardedIpaInputRow<TV, B>>,
     users_having_n_records: &[usize],
-) -> Result<GenericArray<Replicated<HV>, ConstArrayLength<B>>, Error>
+) -> Result<[Replicated<HV>; B], Error>
 where
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+    Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
+        + Expand<Input = Replicated<Boolean>>,
     Const<B>: ToUInt,
     <Const<B> as ToUInt>::Output: ArrayLength,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
@@ -263,7 +261,7 @@ where
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        return Ok(GenericArray::generate(|_| Replicated::<HV>::ZERO));
+        return Ok([Replicated::<HV>::ZERO; B]);
     };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
@@ -289,30 +287,30 @@ where
     let flattened_stream = Box::pin(
         seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
             .try_flatten_iters() // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
-            .map_ok(|value| {
-                let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
-                bit_decomposed_output
-                    .transpose_from(value.as_ref())
-                    .unwrap_infallible();
-                bit_decomposed_output
-            }),
+            .map_ok(|value| value),
     );
 
     let vec_of_shares =
         aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
 
-    Ok(GenericArray::from_iter(vec_of_shares))
+    Ok(vec_of_shares.try_into().unwrap())
 }
 
-async fn evaluate_per_user_attribution_circuit<FV, M>(
-    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
+async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
     record_id: RecordId,
-    rows_for_user: Vec<PrfShardedIpaInputRow<FV, M>>,
-) -> Result<Option<GenericArray<Replicated<FV>, M>>, Error>
+    rows_for_user: Vec<PrfShardedIpaInputRow<FV, B>>,
+) -> Result<Option<BitDecomposed<Replicated<Boolean, B>>>, Error>
 where
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
+        + Expand<Input = Replicated<Boolean>>,
+    Const<B>: ToUInt,
+    <Const<B> as ToUInt>::Output: ArrayLength,
     FV: SharedValue + CustomArray<Element = Boolean>,
     Replicated<FV>: BooleanArrayMul,
-    M: ArrayLength,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -325,12 +323,12 @@ where
     // Since compute_row_with_previous ensures there will be *at most* a single non-zero contribution
     // from each user, we can just add all of the outputs together for any given user.
     // There is no need for any carries since we are always adding zero to the single contribution.
-    let mut output = GenericArray::<Replicated<FV>, M>::generate(|_| Replicated::<FV>::ZERO);
+    let mut output = BitDecomposed::new(iter::repeat(Replicated::<Boolean, B>::ZERO).take(B));
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
         let capped_attribution_outputs = prev_row_inputs
-            .compute_row_with_previous(ctx, record_id, row)
+            .compute_row_with_previous::<FV, B>(ctx, record_id, row)
             .await?;
 
         zip(output.iter_mut(), capped_attribution_outputs).for_each(|(x, y)| *x += y);
@@ -343,12 +341,11 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<FV, M>(
-    input_row: &PrfShardedIpaInputRow<FV, M>,
+fn initialize_new_device_attribution_variables<FV, const B: usize>(
+    input_row: &PrfShardedIpaInputRow<FV, B>,
 ) -> InputsRequiredFromPrevRow
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
-    M: ArrayLength,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -381,17 +378,17 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>, M: ArrayLength> {
+    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>, const B: usize> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
-        feature_vector: GenericArray<FV, M>,
+        feature_vector: [FV; B],
     }
 
     fn test_input(
         prf_of_match_key: u64,
         is_trigger: bool,
         feature_vector: [u8; 32],
-    ) -> PreShardedAndSortedOPRFTestInput<BA8, U32> {
+    ) -> PreShardedAndSortedOPRFTestInput<BA8, 32> {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
@@ -401,18 +398,19 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            feature_vector: GenericArray::<_, U32>::generate(|i| {
-                BA8::truncate_from(feature_vector[i])
-            }),
+            feature_vector: feature_vector
+                .map(|x| BA8::truncate_from(x))
+                .try_into()
+                .unwrap(),
         }
     }
 
-    impl<FV, M> IntoShares<PrfShardedIpaInputRow<FV, M>> for PreShardedAndSortedOPRFTestInput<FV, M>
+    impl<FV, const B: usize> IntoShares<PrfShardedIpaInputRow<FV, B>>
+        for PreShardedAndSortedOPRFTestInput<FV, B>
     where
         FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
-        M: ArrayLength,
     {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, M>; 3] {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, B>; 3] {
             let PreShardedAndSortedOPRFTestInput {
                 prf_of_match_key,
                 is_trigger_bit,
@@ -455,7 +453,7 @@ pub mod tests {
             let attributed_features: [[u8; 32]; 3] =
                 [[rng.gen(); 32], [rng.gen(); 32], [rng.gen(); 32]];
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, U32>> = vec![
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, 32>> = vec![
                 /* First User */
                 test_input(123, true, ZERO_FEATURES), // trigger
                 test_input(123, false, attributed_features[0]), // this source DOES receive attribution
@@ -487,7 +485,7 @@ pub mod tests {
 
             let users_having_n_records = vec![4, 3, 2, 2, 1, 1, 1, 1];
 
-            let results = world
+            let result = world
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
@@ -496,9 +494,7 @@ pub mod tests {
                             .unwrap()
                     }
                 })
-                .await;
-
-            let result = [&results[0], &results[1], &results[2]]
+                .await
                 .reconstruct()
                 .iter()
                 .map(U128Conversions::as_u128)

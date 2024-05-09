@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use generic_array::{ArrayLength, GenericArray};
 
 use crate::{
@@ -76,13 +78,13 @@ where
     }
 }
 
-impl<U, T, N> IntoShares<GenericArray<T, N>> for GenericArray<U, N>
+impl<U, T, const N: usize> IntoShares<[T; N]> for [U; N]
 where
     U: IntoShares<T>,
-    N: ArrayLength,
+    T: Debug,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [GenericArray<T, N>; 3] {
-        vec_shares(self, rng).map(GenericArray::from_iter)
+    fn share_with<R: Rng>(self, rng: &mut R) -> [[T; N]; 3] {
+        vec_shares(self, rng).map(|x| x.try_into().unwrap())
     }
 }
 
