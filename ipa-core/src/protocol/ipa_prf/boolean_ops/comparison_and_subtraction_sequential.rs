@@ -77,7 +77,7 @@ where
 
 /// non-saturated unsigned integer subtraction
 /// subtracts y from x, Output has same length as x (carries and indices of y too large for x are ignored).
-/// When y>x, it computes `(x+"XS::MaxValue"+1)-y`, considering only the least-significant
+/// When y>x, it computes `(x+2^|x|)-y`, considering only the least-significant
 /// length(x) bits of y.
 /// # Errors
 /// propagates errors from multiply

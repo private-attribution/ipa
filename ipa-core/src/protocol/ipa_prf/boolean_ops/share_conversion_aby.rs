@@ -94,12 +94,6 @@ pub(crate) enum Step {
 /// However, these terms are only non-zero when all `rs_{k}` terms are non-zero
 /// this happens with probability `1/(2^(256-m))` which is negligible for a sufficiently small `m`
 ///
-/// The implementation uses two type parameters to support vectorization. The type `XS` holds match
-/// keys. In the unvectorized case, `XS` is `AdditiveShare<BA64>`. In the vectorized case, `XS` is
-/// `BitDecomposed<AdditiveShare<BA{N}>>`. The type `YS` holds bitwise Fp25519 intermediates. In the
-/// unvectorized case, `YS` is `AdditiveShare<BA256>`. In the vectorized case, `YS` is
-/// `BitDecomposed<AdditiveShare<BA{n}>>`.
-///
 /// # Errors
 /// Propagates Errors from Integer Subtraction and Partial Reveal
 pub async fn convert_to_fp25519<C, const N: usize>(
@@ -121,7 +115,7 @@ where
     // not vary with vectorization. Where the type `BA256` appears literally in the source of this
     // function, it is referring to this constant. (It is also possible for `BA256` to be used to
     // hold width-256 vectorizations, but when it serves that purpose, it does not appear literally
-    // in the source of this function -- it is behind the XS and YS parameters.)
+    // in the source of this function -- it is behind the N parameter.)
     const BITS: usize = 256;
 
     // Ensure that the probability of leaking information is less than 1/(2^128).
