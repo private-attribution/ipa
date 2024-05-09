@@ -773,7 +773,7 @@ macro_rules! impl_transpose_shares_ba_to_bool_small {
     };
 }
 
-// Usage: IPA aggregation input. M = AGG_CHUNK, N = BK or TV bits.
+// Usage: Aggregation input. M = AGG_CHUNK, N = BK or TV bits.
 impl_transpose_shares_ba_to_bool_small!(BA8, 256, 8, test_transpose_shares_ba_to_bool_256x8);
 impl_transpose_shares_ba_to_bool_small!(BA5, 256, 5, test_transpose_shares_ba_to_bool_256x5);
 impl_transpose_shares_ba_to_bool_small!(BA3, 256, 3, test_transpose_shares_ba_to_bool_256x3);

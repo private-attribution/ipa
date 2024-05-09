@@ -166,7 +166,7 @@ where
     T: SharedValue,
 {
     fn reconstruct(&self) -> [T; N] {
-        zip(zip(self[0], self[1]), self[2])
+        zip(zip(&self[0], &self[1]), &self[2])
             .map(|((x0, x1), x2)| [x0, x1, x2].reconstruct())
             .collect::<Vec<_>>()
             .try_into()

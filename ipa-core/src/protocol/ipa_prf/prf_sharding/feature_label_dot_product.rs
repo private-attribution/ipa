@@ -3,7 +3,7 @@ use std::{
     iter::{self, zip},
 };
 
-use futures::{stream, TryStreamExt};
+use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 use ipa_macros::Step;
 
@@ -12,7 +12,11 @@ use crate::{
     ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
-        basics::{SecureMul, ShareKnownValue}, boolean::{and::bool_and, or::or}, context::{Context, UpgradedSemiHonestContext}, ipa_prf::aggregation::aggregate_values, BooleanProtocols, RecordId
+        basics::{SecureMul, ShareKnownValue},
+        boolean::{and::bool_and, or::or},
+        context::{Context, UpgradedSemiHonestContext},
+        ipa_prf::aggregation::aggregate_values,
+        BooleanProtocols, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
@@ -272,9 +276,7 @@ where
 
     // Execute all of the async futures (sequentially), and flatten the result
     let flattened_stream = Box::pin(
-        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
-            .try_flatten_iters() // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
-            .map_ok(|value| value),
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(), // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
     );
 
     let vec_of_shares =
