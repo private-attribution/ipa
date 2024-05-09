@@ -7,7 +7,7 @@ use crate::{
         server::{ClientIdentity, Error},
         HttpTransport,
     },
-    protocol::{step::Descriptive, QueryId},
+    protocol::{step::Gate, QueryId},
     sync::Arc,
 };
 
@@ -15,7 +15,7 @@ use crate::{
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     from: Extension<ClientIdentity>,
-    Path((query_id, gate)): Path<(QueryId, Descriptive)>,
+    Path((query_id, gate)): Path<(QueryId, Gate)>,
     body: BodyStream,
 ) -> Result<(), Error> {
     let transport = Transport::clone_ref(&*transport);
