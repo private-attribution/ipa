@@ -5,16 +5,16 @@ use std::{
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use generic_array::{sequence::GenericSequence, ArrayLength, ConstArrayLength, GenericArray};
+use generic_array::ArrayLength;
 use ipa_macros::Step;
-use typenum::{Bit, Const, ToUInt};
+use typenum::{Const, ToUInt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
-        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
+        basics::{BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::{and::bool_and, or::or},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::aggregation::aggregate_values,
@@ -22,7 +22,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom, Vectorizable,
+        SharedValue, TransposeFrom,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -144,8 +144,6 @@ pub(crate) enum Step {
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
     IsAttributedSourceAndPrevRowNotSaturated,
-    #[dynamic(1024)]
-    ComputedCappedFeatureVector(usize),
 }
 
 fn set_up_contexts<C>(root_ctx: &C, users_having_n_records: &[usize]) -> Vec<C>
@@ -357,9 +355,7 @@ where
 pub mod tests {
     use std::iter::zip;
 
-    use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
     use rand::thread_rng;
-    use typenum::U32;
 
     use crate::{
         ff::{
