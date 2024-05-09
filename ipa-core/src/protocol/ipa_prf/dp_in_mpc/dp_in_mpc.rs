@@ -3,11 +3,12 @@
 use crate::{error::Error, ff::{Field, boolean_array::BA4}, protocol::{
     context::Context,
     prss::SharedRandomness,
-},  secret_sharing::{
+}, protocol, secret_sharing::{
     replicated::semi_honest::AdditiveShare as Replicated, FieldSimd,
     Vectorizable,
 }};
 use crate::ff::boolean::Boolean;
+use crate::ff::boolean_array::BA8;
 use crate::protocol::ipa_prf::boolean_ops::addition_sequential::integer_add;
 use crate::protocol::prss::PrssIndex;
 use crate::secret_sharing::BitDecomposed;
@@ -17,37 +18,44 @@ use crate::protocol::RecordId;
 
 
 #[cfg(test)]
-pub async fn my_new_function<C, F, const N: usize>(
+pub async fn my_new_function<C, F>(
     ctx: C,
-    a: &Vec<Replicated<F, N>>,
-)-> Result<Vec<Replicated<F, N>>, Error>
+    a: &Vec<Replicated<F>>,
+)-> Result<Vec<Replicated<F>>, Error>
     where
         C: Context,
-        F: Field  + FieldSimd<N>,
+        F: Field,
+        // crate::secret_sharing::replicated::semi_honest::additive_share::AdditiveShare<crate::ff::boolean::Boolean>: crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
+        Replicated<Boolean> : crate::protocol::basics::BooleanProtocols<C, crate::ff::boolean::Boolean>
 {
     let role = ctx.role();
     let mut counter : u32 = 0;
-    let (l,r) = ctx
-        .prss()
-        .generate::<(<F as Vectorizable<N>>::Array,_),_>(counter);
-    counter += 1;
+    // let (l,r) = ctx
+    //     .prss()
+    //     .generate::<(<F as Vectorizable<N>>::Array,_),_>(counter);
+    // counter += 1;
     let (left,right) = ctx
         .prss()
         .generate::<(u128,u128),_>(counter);
 
-    let share = ctx
-        .prss()
-        .generate::<Replicated<F>,_>(counter);
+    // let share = ctx
+    //     .prss()
+    //     .generate::<Replicated<F>,_>(counter);
 
 
     //  Generate Bernoulli's with PRSS as BitDecomposed type
     let BITS:  usize = 100;
     // Calls to PRSS which are not working
+    // let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
+
     let ss_bits : BitDecomposed<Replicated<Boolean>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS ); // like Andy's example https://github.com/andyleiserson/ipa/commit/a5093b51b6338b701f9d90274eee81f88bc14b99
-    // let ss_bits : Vec<BitDecomposed<Replicated<Boolean>>> = ctx.prss().generate_with(counter,BITS);
+
+
+    // let ss_bits : Vec<BitDecomposed<Replicated<Boolean>>> = ctx.prss().generate_with(RecordId::from(0_u32),BITS);
     // let share = ctx
     //     .prss()
     //     .generate::<Vec<Replicated<Boolean>>,_>(counter);
+    let (sum, carry) = integer_add::<_,Boolean,Replicated<Boolean>,_,_>(ctx,protocol::RecordId(counter), ss_bits[0], ss_bits[1]);
 
 
     // let share = ctx

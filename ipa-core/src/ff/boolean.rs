@@ -1,3 +1,4 @@
+use std::iter::Once;
 use bitvec::prelude::BitSlice;
 use generic_array::GenericArray;
 use typenum::U1;
@@ -11,6 +12,7 @@ use crate::{
     },
     secret_sharing::{Block, FieldVectorizable, SharedValue, StdArray, Vectorizable},
 };
+use crate::ff::ArrayAccess;
 
 impl Block for bool {
     type Size = U1;
@@ -27,6 +29,28 @@ impl Boolean {
     #[must_use]
     pub fn as_u128(&self) -> u128 {
         u128::from(bool::from(*self))
+    }
+}
+
+impl ArrayAccess for Boolean {
+    type Output = Boolean;
+    type Iter<'a> = Once<Boolean>;
+
+    fn get(&self, index: usize) -> Option<Self::Output> {
+        if index < 1 {
+            Some(*self)
+        } else {
+            None
+        }
+    }
+
+    fn set(&mut self, index: usize, e: Self::Output) {
+        debug_assert!(index < 1);
+        *self = e;
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        std::iter::once(*self)
     }
 }
 
