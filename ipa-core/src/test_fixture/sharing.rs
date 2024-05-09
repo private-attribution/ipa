@@ -1,7 +1,5 @@
 use std::{borrow::Borrow, iter::zip, ops::Deref};
 
-use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
-
 use crate::{
     ff::{Field, PrimeField, U128Conversions},
     secret_sharing::{

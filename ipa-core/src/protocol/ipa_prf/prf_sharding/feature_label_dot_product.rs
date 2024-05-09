@@ -5,20 +5,14 @@ use std::{
 
 use futures::{stream, TryStreamExt};
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
-use generic_array::ArrayLength;
 use ipa_macros::Step;
-use typenum::{Const, ToUInt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
-        basics::{BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::{and::bool_and, or::or},
-        context::{Context, UpgradedSemiHonestContext},
-        ipa_prf::aggregation::aggregate_values,
-        RecordId,
+        basics::{SecureMul, ShareKnownValue}, boolean::{and::bool_and, or::or}, context::{Context, UpgradedSemiHonestContext}, ipa_prf::aggregation::aggregate_values, BooleanProtocols, RecordId
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
@@ -28,7 +22,7 @@ use crate::{
     sharding::NotSharded,
 };
 
-pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>, const B: usize> {
+pub struct PrfShardedIpaInputRow<FV: SharedValue, const B: usize> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
     feature_vector: [Replicated<FV>; B],
@@ -66,9 +60,7 @@ impl InputsRequiredFromPrevRow {
         Boolean: FieldSimd<B>,
         Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
             + Expand<Input = Replicated<Boolean>>,
-        Const<B>: ToUInt,
-        <Const<B> as ToUInt>::Output: ArrayLength,
-        FV: SharedValue + CustomArray<Element = Boolean>,
+        FV: SharedValue,
         BitDecomposed<Replicated<Boolean, B>>:
             for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
     {
@@ -174,7 +166,7 @@ fn chunk_rows_by_user<FV, IS, const B: usize>(
     first_row: PrfShardedIpaInputRow<FV, B>,
 ) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, B>>>
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
+    FV: SharedValue,
     IS: Stream<Item = PrfShardedIpaInputRow<FV, B>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
@@ -236,10 +228,7 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
         + Expand<Input = Replicated<Boolean>>,
-    Const<B>: ToUInt,
-    <Const<B> as ToUInt>::Output: ArrayLength,
-    TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<TV>: BooleanArrayMul,
+    TV: SharedValue,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
@@ -303,10 +292,7 @@ where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
         + Expand<Input = Replicated<Boolean>>,
-    Const<B>: ToUInt,
-    <Const<B> as ToUInt>::Output: ArrayLength,
-    FV: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<FV>: BooleanArrayMul,
+    FV: SharedValue,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
 {
@@ -343,7 +329,7 @@ fn initialize_new_device_attribution_variables<FV, const B: usize>(
     input_row: &PrfShardedIpaInputRow<FV, B>,
 ) -> InputsRequiredFromPrevRow
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
+    FV: SharedValue,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -361,7 +347,7 @@ pub mod tests {
         ff::{
             boolean::Boolean,
             boolean_array::{BA16, BA8},
-            CustomArray, Field, U128Conversions,
+            Field, U128Conversions,
         },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
@@ -374,7 +360,7 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>, const B: usize> {
+    struct PreShardedAndSortedOPRFTestInput<FV, const B: usize> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
         feature_vector: [FV; B],
@@ -404,7 +390,7 @@ pub mod tests {
     impl<FV, const B: usize> IntoShares<PrfShardedIpaInputRow<FV, B>>
         for PreShardedAndSortedOPRFTestInput<FV, B>
     where
-        FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
+        FV: SharedValue + IntoShares<Replicated<FV>>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, B>; 3] {
             let PreShardedAndSortedOPRFTestInput {

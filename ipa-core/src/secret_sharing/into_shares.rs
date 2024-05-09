@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 
-use generic_array::{ArrayLength, GenericArray};
-
 use crate::{
     rand::{thread_rng, Rng},
     secret_sharing::BitDecomposed,
