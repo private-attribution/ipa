@@ -6,9 +6,9 @@ use std::{
 use generic_array::{sequence::GenericSequence, ArrayLength, GenericArray};
 use typenum::{Diff, Sum, U1};
 
-use super::hashing::{compute_hash, hash_to_field};
 use crate::{
     ff::PrimeField,
+    helpers::hashing::{compute_hash, hash_to_field},
     protocol::ipa_prf::malicious_security::lagrange::{
         CanonicalLagrangeDenominator, LagrangeTable,
     },
