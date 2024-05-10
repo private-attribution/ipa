@@ -559,12 +559,12 @@ where
 
 /// trait for contexts that allow MPC multiplications that are protected against a malicious helper by using a DZKP
 pub trait DZKPContext: Context {
-    /// `is_verified()` allows to confirm that there are currently no unverified shares,
+    /// `is_verified()` allows to confirm that there are currently no unverified multiplications,
     /// i.e. shares that might have been manipulated.
     /// when this is the case, it is safe to call functions like `reveal`
     ///
     /// ## Errors
-    /// Returns error when context contains unverified values
+    /// Returns error when context contains unverified multiplications
     fn is_verified(&self) -> Result<(), Error>;
 
     /// This function allows to add segments to a batch. This function is called by `multiply` to add

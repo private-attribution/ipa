@@ -104,7 +104,7 @@ impl MultiplicationInputsBlock {
         Ok(())
     }
 
-    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the prover.
     #[cfg(all(test, unit_test))]
     fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
@@ -117,7 +117,7 @@ impl MultiplicationInputsBlock {
         )
     }
 
-    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the left.
     #[cfg(all(test, unit_test))]
     fn convert_verifier_left<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
@@ -129,7 +129,7 @@ impl MultiplicationInputsBlock {
         )
     }
 
-    /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
+    /// `Convert` allows to convert `MultiplicationInputs` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the right.
     #[cfg(all(test, unit_test))]
     fn convert_verifier_right<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
@@ -137,7 +137,7 @@ impl MultiplicationInputsBlock {
     }
 }
 
-/// `Segment` is a variable size set or subset of `UnverifiedValues` using a `BitSlice`
+/// `Segment` is a variable size set or subset of `MultiplicationInputs` using a `BitSlice`
 /// For efficiency reasons we constrain the segments size in bits to be a divisor of 256
 /// when less than 256 or a multiple of 256 when more than 256.
 /// Therefore, segments eventually need to be filled with `0` to be a multiple of 256
@@ -266,7 +266,7 @@ impl MultiplicationInputsBatch {
     /// It sets `last_record` and `first_record` to the record that follows `last_record`.
     fn increment_record_ids(&mut self) {
         // measure the amount of records stored using metrics
-        // currently, UnverifiedValueStore does not store the Gate information, maybe we should store it here
+        // currently, MultiplicationInputsBatch does not store the Gate information, maybe we should store it here
         // such that we can add it to the metrics counter
         metrics::increment_counter!(DZKP_BATCH_INCREMENTS,
             ALLOCATED_AMOUNT => self.max_multiplications.to_string(),
@@ -361,7 +361,7 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// `get_field_values_prover` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// `get_field_values_prover` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the prover of the DZKPs
     #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
@@ -372,7 +372,7 @@ impl MultiplicationInputsBatch {
             .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_left` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// `get_field_values_verifier_left` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the verifier of the DZKPs on the left side of the prover
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_left<DF: DZKPBaseField>(
@@ -383,7 +383,7 @@ impl MultiplicationInputsBatch {
             .flat_map(MultiplicationInputsBlock::convert_verifier_left::<DF>)
     }
 
-    /// `get_field_values_verifier_right` converts a `UnverifiedValuesStore` into an iterator over `field`
+    /// `get_field_values_verifier_right` converts a `MultiplicationInputsBatch` into an iterator over `field`
     /// values used by the verifier of the DZKPs on the right side of the prover
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_right<DF: DZKPBaseField>(
@@ -395,7 +395,7 @@ impl MultiplicationInputsBatch {
     }
 }
 
-/// `Batch` collects a batch of `UnverifiedValuesStore` in a hashmap.
+/// `Batch` collects a batch of `MultiplicationInputsBatch` in a hashmap.
 /// The size of the batch is limited due to the memory costs and verifier specific constraints.
 ///
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
@@ -430,18 +430,17 @@ impl Batch {
 
     /// This function should only be called by `validate`!
     ///
-    /// Updates all `UnverifiedValueStores` in hashmap by incrementing the offset to next chunk
-    /// and deallocating `vec`.
+    /// Updates all `MultiplicationInputsBatch` in hashmap by incrementing the record ids to next chunk
     ///
     /// ## Panics
-    /// Panics when `UnverifiedValuesStore` panics, i.e. when `segment_size` is `None`
-    fn update(&mut self) {
+    /// Panics when `MultiplicationInputsBatch` panics, i.e. when `segment_size` is `None`
+    fn increment_records_ids(&mut self) {
         self.inner
             .values_mut()
             .for_each(MultiplicationInputsBatch::increment_record_ids);
     }
 
-    /// `get_field_values_prover` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// `get_field_values_prover` converts a `Batch` into an iterator over field values
     /// which is used by the prover of the DZKP
     #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
@@ -452,7 +451,7 @@ impl Batch {
             .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
     }
 
-    /// `get_field_values_verifier_left` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// `get_field_values_verifier_left` converts a `Batch` into an iterator over field values
     /// which is used by the verifier of the DZKP on the left side of the prover
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_left<DF: DZKPBaseField>(
@@ -463,7 +462,7 @@ impl Batch {
             .flat_map(MultiplicationInputsBatch::get_field_values_verifier_left::<DF>)
     }
 
-    /// `get_field_values_verifier_right` converts a `Batch` into an iterator over `UnverifiedFieldValues`
+    /// `get_field_values_verifier_right` converts a `Batch` into an iterator over field values
     /// which is used by the verifier of the DZKP on the right side of the prover
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_right<DF: DZKPBaseField>(
@@ -529,10 +528,11 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Is generic over `DZKPBaseFields`. Please specify a sufficiently large field for the current `DZKPBatch`.
     async fn validate<DF: DZKPBaseField>(&self) -> Result<(), Error>;
 
-    /// `is_verified` checks that there are no remaining `UnverifiedValues` within the associated `DZKPBatch`
+    /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified
+    /// within the associated `DZKPBatch`
     ///
     /// ## Errors
-    /// Errors when there are `UnverifiedValues` left.
+    /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error>;
 
     /// `validated_seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
@@ -614,20 +614,19 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             Ok(())
         } else {
             // todo: generate proofs and validate them using `batch_list`
-            // use get_values to get iterator over `UnverifiedFieldValues`
-            //batch.get_unverified_field_values::<DF>()
+            // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
-            batch.update();
+            batch.increment_records_ids();
             Ok(())
         }
         // LOCK END
     }
 
-    /// `is_verified` checks that there are no `UnverifiedValues`.
+    /// `is_verified` checks that there are no `MultiplicationInputs` that have not been verified.
     /// This function is called by drop() to ensure that the validator is safe to be dropped.
     ///
     /// ## Errors
-    /// Errors when there are `UnverifiedValues` left.
+    /// Errors when there are `MultiplicationInputs` that have not been verified.
     fn is_verified(&self) -> Result<(), Error> {
         if self.batch_ref.lock().unwrap().is_empty() {
             Ok(())
