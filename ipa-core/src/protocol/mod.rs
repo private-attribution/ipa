@@ -3,8 +3,6 @@ pub mod boolean;
 pub mod context;
 pub mod dp;
 pub mod ipa_prf;
-#[cfg(feature = "descriptive-gate")]
-pub mod modulus_conversion;
 pub mod prss;
 pub mod step;
 

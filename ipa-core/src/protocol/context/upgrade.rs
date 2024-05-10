@@ -2,13 +2,7 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::try_join;
-#[cfg(feature = "descriptive-gate")]
-use futures::future::try_join3;
-#[cfg(feature = "descriptive-gate")]
-use ipa_macros::Step;
 
-#[cfg(feature = "descriptive-gate")]
-use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::{
     error::Error,
     ff::Field,
@@ -96,44 +90,6 @@ where
     T: Send,
 {
     async fn upgrade(self, input: T) -> Result<M, Error>;
-}
-
-#[cfg(feature = "descriptive-gate")]
-#[derive(Step)]
-pub(crate) enum UpgradeTripleStep {
-    UpgradeBitTriple0,
-    UpgradeBitTriple1,
-    UpgradeBitTriple2,
-}
-
-#[cfg(feature = "descriptive-gate")]
-#[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<'a, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>
-    for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: BitConversionTriple<Replicated<F>>,
-    ) -> Result<BitConversionTriple<C::Share>, Error> {
-        let [v0, v1, v2] = input.0;
-        let (t0, t1, t2) = try_join3(
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple0)
-                .upgrade_one(self.record_binding, v0, ZeroPositions::Pvzz),
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple1)
-                .upgrade_one(self.record_binding, v1, ZeroPositions::Pzvz),
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple2)
-                .upgrade_one(self.record_binding, v2, ZeroPositions::Pzzv),
-        )
-        .await?;
-        Ok(BitConversionTriple([t0, t1, t2]))
-    }
 }
 
 #[async_trait]

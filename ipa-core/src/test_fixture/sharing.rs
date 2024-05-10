@@ -165,27 +165,6 @@ impl Reconstruct<()> for [(); 3] {
     fn reconstruct(&self) {}
 }
 
-#[cfg(feature = "descriptive-gate")]
-impl<F, S> Reconstruct<F> for [crate::protocol::boolean::RandomBitsShare<F, S>; 3]
-where
-    F: Field + U128Conversions,
-    S: crate::secret_sharing::SecretSharing<F>,
-    for<'a> [&'a S; 3]: Reconstruct<F>,
-{
-    fn reconstruct(&self) -> F {
-        let bits = zip(
-            self[0].b_b.iter(),
-            zip(self[1].b_b.iter(), self[2].b_b.iter()),
-        )
-        .enumerate()
-        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::try_from(1 << i).unwrap())
-        .fold(F::ZERO, |a, b| a + b);
-        let value = [&self[0].b_p, &self[1].b_p, &self[2].b_p].reconstruct();
-        assert_eq!(bits, value);
-        value
-    }
-}
-
 pub trait ValidateMalicious<F: ExtendableField> {
     fn validate(&self, r: F::ExtendedField);
 }
