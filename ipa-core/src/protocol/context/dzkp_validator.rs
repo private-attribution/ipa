@@ -1,6 +1,7 @@
 #[cfg(feature = "descriptive-gate")]
 use std::sync::Arc;
 use std::{
+    cmp,
     collections::HashMap,
     fmt::Debug,
     sync::{Mutex, Weak},
@@ -28,7 +29,7 @@ use crate::{
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
-    telemetry::metrics::DZKP_BATCH_UPDATE,
+    telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
 
 // constants for metrics::increment_counter!
@@ -42,7 +43,8 @@ type BitSliceType = BitSlice<u8, Lsb0>;
 
 const BIT_ARRAY_SHIFT: usize = 8;
 
-/// `UnverifiedValues` are intermediate values that occur during a multiplication.
+/// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
+/// that occur duringa multiplication.
 /// These values need to be verified since there might have been malicious behavior.
 /// For a multiplication, let `(x1, x2), (x2, x3), (x3,x1)`, `(y1, y2), (y2, y3), (y3,y1)` be the shares of `x` and `y`
 /// and let the goal of the multiplication be to compute `x*y`.
@@ -50,7 +52,7 @@ const BIT_ARRAY_SHIFT: usize = 8;
 /// `z(i+1)` is the result of the multiplication received from the helper on the right.
 /// We do not need to store `zi` since it can be computed from the other stored values.
 #[derive(Clone, Debug)]
-struct UnverifiedValues {
+struct MultiplicationInputsBlock {
     x_left: Array256Bit,
     x_right: Array256Bit,
     y_left: Array256Bit,
@@ -60,9 +62,9 @@ struct UnverifiedValues {
     z_right: Array256Bit,
 }
 
-impl Default for UnverifiedValues {
+impl Default for MultiplicationInputsBlock {
     fn default() -> Self {
-        UnverifiedValues {
+        MultiplicationInputsBlock {
             x_left: BitArray::ZERO,
             x_right: BitArray::ZERO,
             y_left: BitArray::ZERO,
@@ -74,11 +76,13 @@ impl Default for UnverifiedValues {
     }
 }
 
-impl UnverifiedValues {
-    /// new from bitslices
+impl MultiplicationInputsBlock {
+    /// set using bitslices
     /// ## Errors
-    /// Errors when length of slices is not 256
-    fn new(
+    /// Errors when length of slices is not 256 bit
+    #[allow(clippy::too_many_arguments)]
+    fn set(
+        &mut self,
         x_left: &BitSliceType,
         x_right: &BitSliceType,
         y_left: &BitSliceType,
@@ -86,16 +90,16 @@ impl UnverifiedValues {
         prss_left: &BitSliceType,
         prss_right: &BitSliceType,
         z_right: &BitSliceType,
-    ) -> Result<Self, BoxError> {
-        Ok(Self {
-            x_left: BitArray::try_from(x_left)?,
-            x_right: BitArray::try_from(x_right)?,
-            y_left: BitArray::try_from(y_left)?,
-            y_right: BitArray::try_from(y_right)?,
-            prss_left: BitArray::try_from(prss_left)?,
-            prss_right: BitArray::try_from(prss_right)?,
-            z_right: BitArray::try_from(z_right)?,
-        })
+    ) -> Result<(), BoxError> {
+        self.x_left = BitArray::try_from(x_left)?;
+        self.x_right = BitArray::try_from(x_right)?;
+        self.y_left = BitArray::try_from(y_left)?;
+        self.y_right = BitArray::try_from(y_right)?;
+        self.prss_left = BitArray::try_from(prss_left)?;
+        self.prss_right = BitArray::try_from(prss_right)?;
+        self.z_right = BitArray::try_from(z_right)?;
+
+        Ok(())
     }
 
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
@@ -201,63 +205,58 @@ impl<'a> SegmentEntry<'a> {
     }
 }
 
-/// `UnverifiedValuesStore` stores a vector of `UnverifiedValues` together with an `offset`.
-/// `first_record_of_batch` is the first `RecordId` for the current batch.
-/// `last_record_of_batch` keeps track of the highest record that has been added to the batch.
-/// `multiplication_amount` is the maximum amount of multiplications performed within a single batch.
+/// `MultiplicationInputsBatch` stores a batch of multiplication inputs in a vector of `MultiplicationInputsBlock`.
+/// `first_record` is the first `RecordId` for the current batch.
+/// `last_record` keeps track of the highest record that has been added to the batch.
+/// `max_multiplications` is the maximum amount of multiplications performed within a this batch.
 /// It is used to determine the vector length during the allocation.
 /// If there are more multiplications, it will cause a panic!
-/// `multiplication_bit_size` is an option and set to `Some` once we receive the first segment and thus know the size.
+/// `multiplication_bit_size` is the bit size of a single multiplication. The size will be consistent
+/// across all multiplications of a gate.
 /// `is_empty` keeps track of whether any value has been added
-///
-/// `vec` is a `Vec<Option>` such that we can initialize the whole vector with `None` and access any
-/// location out of order. This is important since we do not now the order in which different records
-/// are added to the `UnverifiedValueStore`.
-/// It is not to keep track whether all relevant records have been added. The verification will fail
-/// when a helper party forgets to include one of the records. We could add a check separate from the proof
-/// such that this does not count as malicious behavior.
 #[derive(Clone, Debug)]
-struct UnverifiedValuesStore {
-    first_record_of_batch: RecordId,
-    last_record_of_batch: RecordId,
-    multiplication_amount: usize,
+struct MultiplicationInputsBatch {
+    first_record: RecordId,
+    last_record: RecordId,
+    max_multiplications: usize,
     multiplication_bit_size: usize,
     is_empty: bool,
-    vec: Vec<UnverifiedValues>,
+    vec: Vec<MultiplicationInputsBlock>,
 }
 
-impl UnverifiedValuesStore {
+impl MultiplicationInputsBatch {
     /// Creates a new store.
-    /// `first_record_id_of_batch` and `last_record_of_batch` is initialized to `0`.
-    /// The size of the allocated vector is `(amount_of_multiplications * multiplication_bit_size + 255) / 256`
-    fn new(amount_of_multiplications: usize, multiplication_bit_size: usize) -> Self {
+    /// `first_record` and `last_record` is initialized to `0`.
+    /// The size of the allocated vector is `(max_multiplications * multiplication_bit_size + 255) / 256`
+    fn new(max_multiplications: usize, multiplication_bit_size: usize) -> Self {
         Self {
-            first_record_of_batch: RecordId::FIRST,
-            last_record_of_batch: RecordId::FIRST,
-            multiplication_amount: amount_of_multiplications,
+            first_record: RecordId::FIRST,
+            last_record: RecordId::FIRST,
+            max_multiplications,
             multiplication_bit_size,
             is_empty: false,
             vec: vec![
-                UnverifiedValues::default();
-                (amount_of_multiplications * multiplication_bit_size + 255) >> BIT_ARRAY_SHIFT
+                MultiplicationInputsBlock::default();
+                (max_multiplications * multiplication_bit_size + 255) >> BIT_ARRAY_SHIFT
             ],
         }
     }
 
-    /// `update` updates the current store to the next chunk of records.
-    /// It sets `last_record_of_batch` and `first_record_of_batch` to the record that follows `last_record_of_batch`.
-    fn update(&mut self) {
+    /// `increment_batch` increments the current batch to the next set of records.
+    /// it maintains all the allocated memory and increments the `RecordIds` as follows:
+    /// It sets `last_record` and `first_record` to the record that follows `last_record`.
+    fn increment_record_ids(&mut self) {
         // measure the amount of records stored using metrics
         // currently, UnverifiedValueStore does not store the Gate information, maybe we should store it here
         // such that we can add it to the metrics counter
-        metrics::increment_counter!(DZKP_BATCH_UPDATE,
-            ALLOCATED_AMOUNT => self.multiplication_amount.to_string(),
-            ACTUAL_AMOUNT => (usize::from(self.last_record_of_batch)-usize::from(self.first_record_of_batch)+1usize).to_string(),
+        metrics::increment_counter!(DZKP_BATCH_INCREMENTS,
+            ALLOCATED_AMOUNT => self.max_multiplications.to_string(),
+            ACTUAL_AMOUNT => (usize::from(self.last_record)-usize::from(self.first_record)+1usize).to_string(),
             UNIT_SIZE => self.multiplication_bit_size.to_string(),
         );
 
-        self.last_record_of_batch += 1;
-        self.first_record_of_batch = self.last_record_of_batch;
+        self.last_record += 1;
+        self.first_record = self.last_record;
 
         // set it to empty
         self.is_empty = true;
@@ -268,63 +267,55 @@ impl UnverifiedValuesStore {
         self.is_empty
     }
 
-    /// `insert_segment` allows to include a new segment in `UnverifiedValuesStore`
+    /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`
     ///
     /// ## Panics
     /// Panics when segments have different lengths across records, the `record_id` is less than
-    /// `first_record_of_batch` or when `record_id` is more than `first_record_of_batch + multiplication_amount`,
+    /// `first_record` or when `record_id` is more than `first_record + max_multiplications`,
     /// i.e. not enough space has been allocated.
     fn insert_segment(&mut self, record_id: RecordId, segment: Segment) {
         // check segment size
         debug_assert_eq!(segment.len(), self.multiplication_bit_size);
 
         // update last record
-        if self.last_record_of_batch < record_id {
-            self.last_record_of_batch = record_id;
-        }
+        self.last_record = cmp::max(self.last_record, record_id);
 
-        // panics when record_id is less than first_record_of_batch
-        let position_raw = usize::from(record_id) - usize::from(self.first_record_of_batch);
-        let length = segment.len();
-        let position_vec = (length * position_raw) >> BIT_ARRAY_SHIFT;
+        // panics when record_id is less than first_record
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
 
         // panics when record_id is too large to fit in, i.e. when it is out of bounds
-        if 256 % length == 0 {
-            self.insert_segment_small(length, position_raw, position_vec, segment);
+        if 256 % segment.len() == 0 {
+            self.insert_segment_small(id_within_batch, block_id, segment);
         } else {
-            self.insert_segment_large(length, position_vec, &segment);
+            self.insert_segment_large(block_id, &segment);
         }
     }
 
     /// insert `segments` for `segments` that divide 256
     ///
     /// ## Panics
-    /// Panics when `length` and `positions` are out of bounds.
-    fn insert_segment_small(
-        &mut self,
-        length: usize,
-        position_raw: usize,
-        position_vec: usize,
-        segment: Segment,
-    ) {
+    /// Panics when `bit_length` and `block_id` are out of bounds.
+    fn insert_segment_small(&mut self, id_within_batch: usize, block_id: usize, segment: Segment) {
         // segments are small, pack one or more in each entry of `vec`
-        let position_bit_array = (length * position_raw) % 256;
+        let position_within_block_start = (segment.len() * id_within_batch) % 256;
+        let position_within_block_end = position_within_block_start + segment.len();
 
-        let unverified_values = &mut self.vec[position_vec];
+        let block = &mut self.vec[block_id];
 
         // copy segment value into entry
         for (segment_value, array_value) in [
-            (segment.x_left, &mut unverified_values.x_left),
-            (segment.x_right, &mut unverified_values.x_right),
-            (segment.y_left, &mut unverified_values.y_left),
-            (segment.y_right, &mut unverified_values.y_right),
-            (segment.prss_left, &mut unverified_values.prss_left),
-            (segment.prss_right, &mut unverified_values.prss_right),
-            (segment.z_right, &mut unverified_values.z_right),
+            (segment.x_left, &mut block.x_left),
+            (segment.x_right, &mut block.x_right),
+            (segment.y_left, &mut block.y_left),
+            (segment.y_right, &mut block.y_right),
+            (segment.prss_left, &mut block.prss_left),
+            (segment.prss_right, &mut block.prss_right),
+            (segment.z_right, &mut block.z_right),
         ] {
             // panics when out of bounds
             let values_in_array = array_value
-                .get_mut(position_bit_array..position_bit_array + length)
+                .get_mut(position_within_block_start..position_within_block_end)
                 .unwrap();
             values_in_array.clone_from_bitslice(segment_value.0);
         }
@@ -334,10 +325,11 @@ impl UnverifiedValuesStore {
     ///
     /// ## Panics
     /// Panics when segment is not a multiple of 256 or is out of bounds.
-    fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
-        let length_in_entries = length >> BIT_ARRAY_SHIFT;
-        for i in 0..length_in_entries {
-            self.vec[position_vec + i] = UnverifiedValues::new(
+    fn insert_segment_large(&mut self, block_id: usize, segment: &Segment) {
+        let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
+        for i in 0..length_in_blocks {
+            MultiplicationInputsBlock::set(
+                &mut self.vec[block_id + i],
                 &segment.x_left.0[256 * i..256 * (i + 1)],
                 &segment.x_right.0[256 * i..256 * (i + 1)],
                 &segment.y_left.0[256 * i..256 * (i + 1)],
@@ -356,7 +348,9 @@ impl UnverifiedValuesStore {
     fn get_unverified_field_values<DF: DZKPBaseField>(
         &self,
     ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
-        self.vec.iter().map(UnverifiedValues::convert::<DF>)
+        self.vec
+            .iter()
+            .map(MultiplicationInputsBlock::convert::<DF>)
     }
 }
 
@@ -367,19 +361,19 @@ impl UnverifiedValuesStore {
 #[derive(Clone, Debug)]
 struct Batch {
     multiplication_amount: usize,
-    inner: HashMap<Gate, UnverifiedValuesStore>,
+    inner: HashMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
     fn new(multiplication_amount: usize) -> Self {
         Self {
             multiplication_amount,
-            inner: HashMap::<Gate, UnverifiedValuesStore>::new(),
+            inner: HashMap::<Gate, MultiplicationInputsBatch>::new(),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.inner.is_empty() || self.inner.values().all(UnverifiedValuesStore::is_empty)
+        self.inner.is_empty() || self.inner.values().all(MultiplicationInputsBatch::is_empty)
     }
 
     fn push(&mut self, gate: Gate, record_id: RecordId, segment: Segment) {
@@ -388,7 +382,7 @@ impl Batch {
         self.inner
             .entry(gate)
             .or_insert_with(|| {
-                UnverifiedValuesStore::new(self.multiplication_amount, segment.len())
+                MultiplicationInputsBatch::new(self.multiplication_amount, segment.len())
             })
             .insert_segment(record_id, segment);
     }
@@ -403,7 +397,7 @@ impl Batch {
     fn update(&mut self) {
         self.inner
             .values_mut()
-            .for_each(UnverifiedValuesStore::update);
+            .for_each(MultiplicationInputsBatch::increment_record_ids);
     }
 
     /// `get_unverified_field_value` converts a `Batch` into an iterator over `UnverifiedFieldValues`
@@ -414,7 +408,7 @@ impl Batch {
     ) -> impl Iterator<Item = DF::UnverifiedFieldValues> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_unverified_field_values::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_unverified_field_values::<DF>)
     }
 }
 
@@ -954,8 +948,7 @@ mod tests {
                 .inner
                 .values()
                 .map(|x| x.multiplication_bit_size
-                    * (usize::from(x.last_record_of_batch) - usize::from(x.first_record_of_batch)
-                        + 1usize))
+                    * (usize::from(x.last_record) - usize::from(x.first_record) + 1usize))
                 .sum::<usize>()
         );
 

@@ -17,7 +17,7 @@ pub mod metrics {
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
     pub const STEP_NARROWED: &str = "step.narrowed";
-    pub const DZKP_BATCH_UPDATE: &str = "batch.realloc.front";
+    pub const DZKP_BATCH_INCREMENTS: &str = "batch.realloc.front";
 
     #[cfg(feature = "web-app")]
     pub mod web {
@@ -108,7 +108,7 @@ pub mod metrics {
         );
 
         describe_counter!(
-            DZKP_BATCH_UPDATE,
+            DZKP_BATCH_INCREMENTS,
             Unit::Count,
             "Number of DZKP Batch updates, i.e. verifications"
         );
