@@ -119,7 +119,7 @@ pub trait UpgradableContext: Context {
     type DZKPUpgradedContext: DZKPContext;
     type DZKPValidator: DZKPValidator<Self>;
 
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator;
+    fn dzkp_validator(self, max_multiplications_per_gate: usize) -> Self::DZKPValidator;
 }
 
 /// Upgrades all use this step to distinguish protocol steps from the step that is used to upgrade inputs.

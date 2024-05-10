@@ -401,14 +401,14 @@ impl MultiplicationInputsBatch {
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
 #[derive(Clone, Debug)]
 struct Batch {
-    multiplication_amount: usize,
+    max_multiplications_per_gate: usize,
     inner: HashMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
-    fn new(multiplication_amount: usize) -> Self {
+    fn new(max_multiplications_per_gate: usize) -> Self {
         Self {
-            multiplication_amount,
+            max_multiplications_per_gate,
             inner: HashMap::<Gate, MultiplicationInputsBatch>::new(),
         }
     }
@@ -423,7 +423,7 @@ impl Batch {
         self.inner
             .entry(gate)
             .or_insert_with(|| {
-                MultiplicationInputsBatch::new(self.multiplication_amount, segment.len())
+                MultiplicationInputsBatch::new(self.max_multiplications_per_gate, segment.len())
             })
             .insert_segment(record_id, segment);
     }
@@ -434,7 +434,7 @@ impl Batch {
     ///
     /// ## Panics
     /// Panics when `MultiplicationInputsBatch` panics, i.e. when `segment_size` is `None`
-    fn increment_records_ids(&mut self) {
+    fn increment_record_ids(&mut self) {
         self.inner
             .values_mut()
             .for_each(MultiplicationInputsBatch::increment_record_ids);
@@ -616,7 +616,7 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             // todo: generate proofs and validate them using `batch_list`
             // use get_values to get iterator over field elements for dzkp
             // update which empties batch_list and increments offsets to next chunk
-            batch.increment_records_ids();
+            batch.increment_record_ids();
             Ok(())
         }
         // LOCK END
@@ -639,8 +639,8 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
 #[cfg(feature = "descriptive-gate")]
 impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>, multiplication_amount: usize) -> Self {
-        let list = Batch::new(multiplication_amount);
+    pub fn new(ctx: MaliciousContext<'a>, max_multiplications_per_gate: usize) -> Self {
+        let list = Batch::new(max_multiplications_per_gate);
         let batch_list = Arc::new(Mutex::new(list));
         let dzkp_batch = DZKPBatch {
             inner: Arc::downgrade(&batch_list),
@@ -693,7 +693,7 @@ mod tests {
     async fn complex_circuit_dzkp(
         count: usize,
         chunk_size: usize,
-        multiplication_amount: usize,
+        max_multiplications_per_gate: usize,
     ) -> Result<(), Error> {
         let world = TestWorld::default();
 
@@ -720,7 +720,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(multiplication_amount);
+                let v = ctx.dzkp_validator(max_multiplications_per_gate);
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
@@ -757,7 +757,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(chunk_size);
+                let v = ctx.dzkp_validator(max_multiplications_per_gate);
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
