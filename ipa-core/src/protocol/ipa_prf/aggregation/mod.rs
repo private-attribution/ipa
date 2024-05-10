@@ -138,7 +138,7 @@ where
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<N> + FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     BitDecomposed<Replicated<Boolean, N>>:
@@ -235,7 +235,7 @@ where
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {

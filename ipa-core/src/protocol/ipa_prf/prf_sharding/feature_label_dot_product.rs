@@ -224,7 +224,7 @@ where
     Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
     Replicated<FV>: BooleanArrayMul,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
