@@ -23,7 +23,9 @@ use generic_array::{ArrayLength, GenericArray};
 pub use prime_field::Fp31;
 pub use prime_field::{Fp32BitPrime, Fp61BitPrime, PrimeField};
 
-use crate::{error::UnwrapInfallible, protocol::prss::FromRandomU128};
+use crate::{
+    error::UnwrapInfallible, protocol::prss::FromRandomU128, secret_sharing::BitDecomposed,
+};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -102,6 +104,10 @@ pub trait ArrayAccess {
     fn set(&mut self, index: usize, e: Self::Output);
 
     fn iter(&self) -> Self::Iter<'_>;
+
+    fn to_bits(&self) -> BitDecomposed<Self::Output> {
+        BitDecomposed::new(self.iter())
+    }
 }
 
 pub trait ArrayAccessRef {
@@ -118,8 +124,6 @@ pub trait ArrayAccessRef {
     fn set(&mut self, index: usize, e: Self::Ref<'_>);
 
     fn iter(&self) -> Self::Iter<'_>;
-
-    fn make_ref(src: &Self::Element) -> Self::Ref<'_>;
 }
 
 pub trait Expand {
@@ -134,9 +138,7 @@ pub trait Expand {
 /// supports `FromIterator` to collect an iterator of elements back into the original type
 pub trait CustomArray
 where
-    Self: ArrayAccess<Output = Self::Element>
-        + Expand<Input = Self::Element>
-        + ArrayBuild<Input = Self::Element>,
+    Self: ArrayAccess<Output = Self::Element> + Expand<Input = Self::Element>,
 {
     type Element;
 }
@@ -144,30 +146,7 @@ where
 /// impl Custom Array for all compatible structs
 impl<S> CustomArray for S
 where
-    S: ArrayAccess
-        + Expand<Input = <S as ArrayAccess>::Output>
-        + ArrayBuild<Input = <S as ArrayAccess>::Output>,
+    S: ArrayAccess + Expand<Input = <S as ArrayAccess>::Output>,
 {
     type Element = <S as ArrayAccess>::Output;
-}
-
-pub trait ArrayBuild {
-    type Input;
-    type Builder: ArrayBuilder<Element = Self::Input, Array = Self>;
-
-    fn builder() -> Self::Builder;
-}
-
-pub trait ArrayBuilder: Send + Sized {
-    type Element;
-    type Array;
-
-    #[must_use]
-    fn with_capacity(self, _capacity: usize) -> Self {
-        self
-    }
-
-    fn push(&mut self, value: Self::Element);
-
-    fn build(self) -> Self::Array;
 }
