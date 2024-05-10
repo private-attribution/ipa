@@ -1,4 +1,4 @@
-use std::{array, convert::Infallible, num::NonZeroU32, ops::Add};
+use std::{array, convert::Infallible, iter, num::NonZeroU32, ops::Add};
 
 use futures_util::TryStreamExt;
 use generic_array::{ArrayLength, GenericArray};
@@ -9,8 +9,8 @@ use self::{quicksort::quicksort_ranges_by_key_insecure, shuffle::shuffle_inputs}
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
     ff::{
-        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, ArrayBuild, ArrayBuilder,
-        CustomArray, Serializable, U128Conversions,
+        boolean::Boolean, boolean_array::BA64, ec_prime_field::Fp25519, CustomArray, Serializable,
+        U128Conversions,
     },
     helpers::stream::{process_slice_by_chunks, ChunkData, TryFlattenItersExt},
     protocol::{
@@ -35,7 +35,6 @@ use crate::{
     },
     seq_join::seq_join,
     sharding::NotSharded,
-    BoolVector,
 };
 
 mod aggregation;
@@ -48,8 +47,10 @@ mod malicious_security;
 mod quicksort;
 mod shuffle;
 
+/// Match key type
+pub type MatchKey = BA64;
 /// Match key size
-pub const MK_BITS: usize = 64;
+pub const MK_BITS: usize = BA64::BITS as usize;
 
 /// Vectorization dimension for PRF
 pub const PRF_CHUNK: usize = 64;
@@ -72,7 +73,7 @@ pub(crate) enum Step {
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct OPRFIPAInputRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
-    pub match_key: Replicated<BA64>,
+    pub match_key: Replicated<MatchKey>,
     pub is_trigger: Replicated<Boolean>,
     pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<TV>,
@@ -106,7 +107,7 @@ where
     type DeserializationError = Error;
 
     fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MatchKey> as Serializable>::Size::USIZE;
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
@@ -132,14 +133,15 @@ where
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Result<Self, Self::DeserializationError> {
-        let mk_sz = <Replicated<BA64> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MatchKey> as Serializable>::Size::USIZE;
         let ts_sz = <Replicated<TS> as Serializable>::Size::USIZE;
         let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let tv_sz = <Replicated<TV> as Serializable>::Size::USIZE;
         let it_sz = <Replicated<Boolean> as Serializable>::Size::USIZE;
 
-        let match_key = Replicated::<BA64>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
-            .unwrap_infallible();
+        let match_key =
+            Replicated::<MatchKey>::deserialize(GenericArray::from_slice(&buf[..mk_sz]))
+                .unwrap_infallible();
         let timestamp =
             Replicated::<TS>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + ts_sz]))
                 .map_err(|e| Error::ParseError(e.into()))?;
@@ -187,7 +189,7 @@ where
 /// Propagates errors from config issues or while running the protocol
 /// # Panics
 /// Propagates errors from config issues or while running the protocol
-pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+pub async fn oprf_ipa<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
     ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<OPRFIPAInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
@@ -197,7 +199,6 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
@@ -231,7 +232,7 @@ where
     )
     .await?;
 
-    attribute_cap_aggregate::<_, _, _, _, SS, B>(
+    attribute_cap_aggregate::<_, _, _, _, SS_BITS, B>(
         ctx,
         prfd_inputs,
         attribution_window_seconds,
@@ -271,23 +272,15 @@ where
 
                 async move {
                     let record_id = RecordId::from(idx);
-                    let input_match_keys: &dyn Fn(usize) -> Replicated<BA64> =
+                    let input_match_keys: &dyn Fn(usize) -> Replicated<MatchKey> =
                         &|i| records[i].match_key.clone();
-                    let mut match_keys_builder = <BoolVector!(64, PRF_CHUNK)>::builder();
-                    for _ in 0..MK_BITS {
-                        match_keys_builder.push(Replicated::<Boolean, PRF_CHUNK>::ZERO);
-                    }
-                    let mut match_keys = match_keys_builder.build();
+                    let mut match_keys = BitDecomposed::new(iter::empty());
                     match_keys
                         .transpose_from(input_match_keys)
                         .unwrap_infallible();
-                    let curve_pts = convert_to_fp25519::<
-                        _,
-                        BoolVector!(64, PRF_CHUNK),
-                        BoolVector!(256, PRF_CHUNK),
-                        PRF_CHUNK,
-                    >(convert_ctx, record_id, match_keys)
-                    .await?;
+                    let curve_pts =
+                        convert_to_fp25519::<_, PRF_CHUNK>(convert_ctx, record_id, match_keys)
+                            .await?;
 
                     let prf_of_match_keys =
                         eval_dy_prf::<_, PRF_CHUNK>(eval_ctx, record_id, &prf_key, curve_pts)
@@ -314,7 +307,7 @@ where
                 }
             },
             || OPRFIPAInputRow {
-                match_key: Replicated::<BA64>::ZERO,
+                match_key: Replicated::<MatchKey>::ZERO,
                 is_trigger: Replicated::<Boolean>::ZERO,
                 breakdown_key: Replicated::<BK>::ZERO,
                 trigger_value: Replicated::<TV>::ZERO,
@@ -331,7 +324,7 @@ where
 pub mod tests {
     use crate::{
         ff::{
-            boolean_array::{BA16, BA20, BA3, BA5, BA8},
+            boolean_array::{BA16, BA20, BA3, BA8},
             U128Conversions,
         },
         protocol::ipa_prf::oprf_ipa,
@@ -372,7 +365,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })
@@ -417,7 +410,7 @@ pub mod tests {
 
             let mut result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    oprf_ipa::<BA8, BA3, BA16, BA20, BA5, 256>(ctx, input_rows, None)
+                    oprf_ipa::<BA8, BA3, BA16, BA20, 5, 256>(ctx, input_rows, None)
                         .await
                         .unwrap()
                 })

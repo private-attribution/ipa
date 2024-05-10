@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, ArrayBuild, ArrayBuilder, PrimeField},
+    ff::{boolean::Boolean, ArrayAccessRef, PrimeField},
     protocol::prss::{FromPrss, FromRandom, PrssIndex, SharedRandomness},
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, Linear as LinearSecretSharing, LinearRefOps,
@@ -62,6 +62,10 @@ impl<S> BitDecomposed<S> {
         self.bits.is_empty()
     }
 
+    pub fn collect_bits<T: FromIterator<S>>(self) -> T {
+        self.into_iter().collect()
+    }
+
     /// The inner vector of this type is a list any field type (e.g. Z2, Zp) and
     /// each element is (should be) a share of 1 or 0. This function iterates
     /// over the shares of bits and computes `Σ(2^i * b_i)`.
@@ -107,17 +111,44 @@ impl<S> BitDecomposed<S> {
     }
 }
 
+impl BitDecomposed<Boolean> {
+    pub fn as_u128(self: &BitDecomposed<Boolean>) -> u128 {
+        self.bits
+            .iter()
+            .enumerate()
+            .fold(0, |acc, (i, b)| acc + (b.as_u128() << i))
+    }
+}
+
 impl<S: Clone> BitDecomposed<S> {
     pub fn resize(&mut self, new_len: usize, value: S) {
+        assert!(new_len <= Self::MAX);
         self.bits.resize(new_len, value);
     }
 
     pub fn push(&mut self, value: S) {
+        assert!(self.len() < Self::MAX);
         self.bits.push(value);
     }
 
     pub fn truncate(&mut self, len: usize) {
         self.bits.truncate(len);
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        assert!(capacity <= Self::MAX);
+        Self {
+            bits: Vec::with_capacity(capacity),
+        }
+    }
+}
+
+impl<S: SharedValue> BitDecomposed<S> {
+    pub fn zero(len: usize) -> Self {
+        assert!(len <= Self::MAX);
+        Self {
+            bits: vec![S::ZERO; len],
+        }
     }
 }
 
@@ -152,37 +183,6 @@ impl<S> TryFrom<Vec<S>> for BitDecomposed<S> {
         } else {
             Err(Error::Internal)
         }
-    }
-}
-
-pub struct BitDecomposedBuilder<S> {
-    bits: Vec<S>,
-}
-
-impl<S: Send> ArrayBuild for BitDecomposed<S> {
-    type Input = S;
-    type Builder = BitDecomposedBuilder<S>;
-
-    fn builder() -> Self::Builder {
-        BitDecomposedBuilder { bits: Vec::new() }
-    }
-}
-
-impl<S: Send> ArrayBuilder for BitDecomposedBuilder<S> {
-    type Element = S;
-    type Array = BitDecomposed<S>;
-
-    fn with_capacity(mut self, capacity: usize) -> Self {
-        self.bits.reserve(capacity);
-        self
-    }
-
-    fn push(&mut self, value: S) {
-        self.bits.push(value);
-    }
-
-    fn build(self) -> Self::Array {
-        BitDecomposed::new(self.bits)
     }
 }
 
@@ -222,10 +222,6 @@ impl<S: Clone + Send + Sync> ArrayAccessRef for BitDecomposed<S> {
 
     fn iter(&self) -> Self::Iter<'_> {
         self.bits.iter()
-    }
-
-    fn make_ref(src: &Self::Element) -> Self::Ref<'_> {
-        src
     }
 }
 
@@ -294,33 +290,6 @@ mod tests {
                 prop_assert_eq!(v, &val.bits[i]);
                 prop_assert_eq!(iter.len(), val.len() - 1 - i);
             }
-        }
-
-        #[test]
-        fn arrayaccess_make_ref(val in any::<u8>()) {
-            prop_assert_eq!(<BitDecomposed<u8> as ArrayAccessRef>::make_ref(&val), &val);
-        }
-    }
-
-    #[test]
-    fn arraybuild() {
-        let mut b = BitDecomposed::<u8>::builder();
-        b.push(1);
-        b.push(2);
-        b.push(3);
-        assert_eq!(
-            b.build(),
-            BitDecomposed {
-                bits: vec![1, 2, 3]
-            }
-        );
-    }
-
-    proptest! {
-        #[test]
-        fn arraybuild_with_capacity(capacity in 0..MAX_TEST_SIZE) {
-            let b = BitDecomposed::<u8>::builder().with_capacity(capacity);
-            prop_assert!(b.bits.capacity() >= capacity);
         }
     }
 }
