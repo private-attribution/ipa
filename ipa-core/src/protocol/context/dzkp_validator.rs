@@ -1,9 +1,9 @@
 #[cfg(feature = "descriptive-gate")]
 use std::sync::Arc;
 use std::{
+    cmp,
     collections::HashMap,
     fmt::Debug,
-    iter::repeat,
     sync::{Mutex, Weak},
 };
 
@@ -31,20 +31,22 @@ use crate::{
     },
     seq_join::{seq_join, SeqJoin},
     sharding::ShardBinding,
-    telemetry::metrics::{DZKP_BATCH_REALLOCATION_BACK, DZKP_BATCH_REALLOCATION_FRONT},
+    telemetry::metrics::DZKP_BATCH_INCREMENTS,
 };
 
 // constants for metrics::increment_counter!
-const RECORD: &str = "record";
-const OFFSET: &str = "offset";
+const ALLOCATED_AMOUNT: &str = "allocated amount of multiplications";
+const ACTUAL_AMOUNT: &str = "actual amount of multiplications";
+const UNIT_SIZE: &str = "bit size of a multiplication";
 
-pub type BitArray32 = BitArray<[u8; 32], Lsb0>;
+pub type Array256Bit = BitArray<[u8; 32], Lsb0>;
 
 type BitSliceType = BitSlice<u8, Lsb0>;
 
 const BIT_ARRAY_SHIFT: usize = 8;
 
-/// `UnverifiedValues` are intermediate values that occur during a multiplication.
+/// `MultiplicationInputsBlock` is a block of fixed size of intermediate values
+/// that occur duringa multiplication.
 /// These values need to be verified since there might have been malicious behavior.
 /// For a multiplication, let `(x1, x2), (x2, x3), (x3,x1)`, `(y1, y2), (y2, y3), (y3,y1)` be the shares of `x` and `y`
 /// and let the goal of the multiplication be to compute `x*y`.
@@ -52,19 +54,19 @@ const BIT_ARRAY_SHIFT: usize = 8;
 /// `z(i+1)` is the result of the multiplication received from the helper on the right.
 /// We do not need to store `zi` since it can be computed from the other stored values.
 #[derive(Clone, Debug)]
-struct UnverifiedValues {
-    x_left: BitArray32,
-    x_right: BitArray32,
-    y_left: BitArray32,
-    y_right: BitArray32,
-    prss_left: BitArray32,
-    prss_right: BitArray32,
-    z_right: BitArray32,
+struct MultiplicationInputsBlock {
+    x_left: Array256Bit,
+    x_right: Array256Bit,
+    y_left: Array256Bit,
+    y_right: Array256Bit,
+    prss_left: Array256Bit,
+    prss_right: Array256Bit,
+    z_right: Array256Bit,
 }
 
-impl Default for UnverifiedValues {
+impl Default for MultiplicationInputsBlock {
     fn default() -> Self {
-        UnverifiedValues {
+        MultiplicationInputsBlock {
             x_left: BitArray::ZERO,
             x_right: BitArray::ZERO,
             y_left: BitArray::ZERO,
@@ -76,11 +78,13 @@ impl Default for UnverifiedValues {
     }
 }
 
-impl UnverifiedValues {
-    /// new from bitslices
+impl MultiplicationInputsBlock {
+    /// set using bitslices
     /// ## Errors
-    /// Errors when length of slices is not 256
-    fn new(
+    /// Errors when length of slices is not 256 bit
+    #[allow(clippy::too_many_arguments)]
+    fn set(
+        &mut self,
         x_left: &BitSliceType,
         x_right: &BitSliceType,
         y_left: &BitSliceType,
@@ -88,16 +92,16 @@ impl UnverifiedValues {
         prss_left: &BitSliceType,
         prss_right: &BitSliceType,
         z_right: &BitSliceType,
-    ) -> Result<Self, BoxError> {
-        Ok(Self {
-            x_left: BitArray::try_from(x_left)?,
-            x_right: BitArray::try_from(x_right)?,
-            y_left: BitArray::try_from(y_left)?,
-            y_right: BitArray::try_from(y_right)?,
-            prss_left: BitArray::try_from(prss_left)?,
-            prss_right: BitArray::try_from(prss_right)?,
-            z_right: BitArray::try_from(z_right)?,
-        })
+    ) -> Result<(), BoxError> {
+        self.x_left = BitArray::try_from(x_left)?;
+        self.x_right = BitArray::try_from(x_right)?;
+        self.y_left = BitArray::try_from(y_left)?;
+        self.y_right = BitArray::try_from(y_right)?;
+        self.prss_left = BitArray::try_from(prss_left)?;
+        self.prss_right = BitArray::try_from(prss_right)?;
+        self.z_right = BitArray::try_from(z_right)?;
+
+        Ok(())
     }
 
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
@@ -188,7 +192,7 @@ impl<'a> Segment<'a> {
         }
     }
 
-    /// This function returns the length of the segment. More specifically it returns the length of
+    /// This function returns the length of the segment in bits. More specifically it returns the length of
     /// the first entry, i.e. `x_left` which is consistent with the length of all other entries.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -212,6 +216,7 @@ impl<'a> SegmentEntry<'a> {
         SegmentEntry(entry)
     }
 
+    /// This function returns the size in bits.
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
@@ -223,197 +228,117 @@ impl<'a> SegmentEntry<'a> {
     }
 }
 
-/// `UnverifiedValuesStore` stores a vector of `UnverifiedValues` together with an `offset`.
-/// `offset` is the minimum `RecordId` for the current batch.
-/// `chunk_size` is the amount of records within a single batch. It is used to estimate the vector length
-/// during the allocation.
-/// `segment_size` is an option and set to `Some` once we receive the first segment and thus know the size.
-///
-/// `vec` is a `Vec<Option>` such that we can initialize the whole vector with `None` and access any
-/// location out of order. This is important since we do not now the order in which different records
-/// are added to the `UnverifiedValueStore`.
-/// It is not to keep track whether all relevant records have been added. The verification will fail
-/// when a helper party forgets to include one of the records. We could add a check separate from the proof
-/// such that this does not count as malicious behavior.
+/// `MultiplicationInputsBatch` stores a batch of multiplication inputs in a vector of `MultiplicationInputsBlock`.
+/// `first_record` is the first `RecordId` for the current batch.
+/// `last_record` keeps track of the highest record that has been added to the batch.
+/// `max_multiplications` is the maximum amount of multiplications performed within a this batch.
+/// It is used to determine the vector length during the allocation.
+/// If there are more multiplications, it will cause a panic!
+/// `multiplication_bit_size` is the bit size of a single multiplication. The size will be consistent
+/// across all multiplications of a gate.
+/// `is_empty` keeps track of whether any value has been added
 #[derive(Clone, Debug)]
-struct UnverifiedValuesStore {
-    offset: i64,
-    chunk_size: usize,
-    segment_size: Option<usize>,
-    vec: Vec<Option<UnverifiedValues>>,
+struct MultiplicationInputsBatch {
+    first_record: RecordId,
+    last_record: RecordId,
+    max_multiplications: usize,
+    multiplication_bit_size: usize,
+    is_empty: bool,
+    vec: Vec<MultiplicationInputsBlock>,
 }
 
-impl UnverifiedValuesStore {
-    /// Creates a new store for given `chunk_size`. `offset` is initialized to `0`.
-    /// Lazy allocation of the vector. It is allocated once the first segment is added.
-    /// `segment_size` is set to `None` since it may not be known yet
-    fn new(chunk_size: usize) -> Self {
+impl MultiplicationInputsBatch {
+    /// Creates a new store.
+    /// `first_record` and `last_record` is initialized to `0`.
+    /// The size of the allocated vector is `(max_multiplications * multiplication_bit_size + 255) / 256`
+    fn new(max_multiplications: usize, multiplication_bit_size: usize) -> Self {
         Self {
-            offset: 0,
-            chunk_size,
-            segment_size: None,
-            vec: Vec::<Option<UnverifiedValues>>::new(),
+            first_record: RecordId::FIRST,
+            last_record: RecordId::FIRST,
+            max_multiplications,
+            multiplication_bit_size,
+            is_empty: false,
+            vec: vec![
+                MultiplicationInputsBlock::default();
+                (max_multiplications * multiplication_bit_size + 255) >> BIT_ARRAY_SHIFT
+            ],
         }
     }
 
-    /// `update` updates the current store to the next offset which is the previous offset plus `vec.actual_len()`.
-    /// It deallocates `vec`. `chunk_size` remains the same.
-    /// `update` does nothing when `self` is empty, i.e. `vec` is empty.
-    ///
-    /// ## Panics
-    /// Panics when `segment_size` is `None`
-    fn update(&mut self) {
-        if !self.is_unallocated() {
-            // compute how many records have been added
-            // since `actual_length` is imprecise (i.e. rounded up) for segments smaller than 256,
-            // subtract `1` to make sure that offset is set sufficiently small
-            self.offset += i64::try_from(
-                ((self.actual_len() - 1) << BIT_ARRAY_SHIFT) / self.segment_size.unwrap(),
-            )
-            .unwrap();
-            self.vec = Vec::<Option<UnverifiedValues>>::new();
-        }
+    /// `increment_batch` increments the current batch to the next set of records.
+    /// it maintains all the allocated memory and increments the `RecordIds` as follows:
+    /// It sets `last_record` and `first_record` to the record that follows `last_record`.
+    fn increment_record_ids(&mut self) {
+        // measure the amount of records stored using metrics
+        // currently, UnverifiedValueStore does not store the Gate information, maybe we should store it here
+        // such that we can add it to the metrics counter
+        metrics::increment_counter!(DZKP_BATCH_INCREMENTS,
+            ALLOCATED_AMOUNT => self.max_multiplications.to_string(),
+            ACTUAL_AMOUNT => (usize::from(self.last_record)-usize::from(self.first_record)+1usize).to_string(),
+            UNIT_SIZE => self.multiplication_bit_size.to_string(),
+        );
+
+        self.last_record += 1;
+        self.first_record = self.last_record;
+
+        // set it to empty
+        self.is_empty = true;
     }
 
-    /// `actual_len` computes the index of the last actual element plus `1`
-    fn actual_len(&self) -> usize {
-        self.vec
-            .iter()
-            .rposition(Option::is_some)
-            .map_or(0, |pos| pos + 1)
-    }
-
-    /// `is_empty` returns `true` when no segment has been added
+    /// returns whether the store is empty
     fn is_empty(&self) -> bool {
-        self.vec.iter().all(Option::is_none)
+        self.is_empty
     }
 
-    /// `is_unallocated` returns `true` when the associated vector has not been allocated
-    fn is_unallocated(&self) -> bool {
-        self.vec.is_empty()
-    }
-
-    fn initialize_segment_size(&mut self, segment_size: usize) {
-        self.segment_size = Some(segment_size);
-    }
-
-    /// `allocate_vec` allocates `vec`. The length is determined by the amount
-    /// of records, i.e. `chunk_size` and the size of a record, i.e. `segment_size`.
-    /// ## Panics
-    /// Panics when `segment_size` is `None`.
-    fn allocate_vec(&mut self) {
-        // add 255 to round up
-        self.vec =
-            vec![None; (self.chunk_size * self.segment_size.unwrap() + 255) >> BIT_ARRAY_SHIFT];
-    }
-
-    /// `reset_offset` reallocates vector such that a smaller `RecordId` than `offset` can be stored
-    /// `new_offset` will be the new `offset` and the store and store elements with `RecordId` `new_offset` and larger
-    /// when `new_offset` is larger that the current `offset`, the function does nothing
+    /// `insert_segment` allows to include a new segment in `MultiplicationInputsBatch`
     ///
     /// ## Panics
-    /// When casting between usize and i64 fails.
-    fn reset_offset(&mut self, new_offset: i64, segment_length: usize) {
-        if new_offset < self.offset {
-            // metrics to count reallocations, disable-metrics flag will disable it globally
-            // right now, I don't pass the gate/step information which would be useful
-            // it would require to change the function signature and potentially clone gate even when feature is not enabled
-            metrics::increment_counter!(DZKP_BATCH_REALLOCATION_FRONT, RECORD => new_offset.to_string(), OFFSET => self.offset.to_string());
-
-            let mut new_offset = new_offset;
-            // if segment_length is less than 256, redefine new offset such that we don't need to rearrange the existing segments
-            if 256 % segment_length == 0 {
-                // distance between new_offset and old offset is rounded up to a multiple of 256
-                new_offset =
-                    ((self.offset - new_offset + 255) >> BIT_ARRAY_SHIFT) << BIT_ARRAY_SHIFT;
-            }
-            let extension_length = ((self.offset - new_offset) >> BIT_ARRAY_SHIFT)
-                * (i64::try_from(segment_length).unwrap());
-            // use existing vec and add enough space in front
-            self.vec.splice(
-                0..0,
-                repeat(None).take(usize::try_from(extension_length.abs()).unwrap()),
-            );
-            self.offset = new_offset;
-        }
-    }
-
-    /// `insert_segment` allows to include a new segment in `UnverifiedValuesStore`
-    ///
-    /// ## Panics
-    /// Panics when segments have different lengths across records
+    /// Panics when segments have different lengths across records, the `record_id` is less than
+    /// `first_record` or when `record_id` is more than `first_record + max_multiplications`,
+    /// i.e. not enough space has been allocated.
     fn insert_segment(&mut self, record_id: RecordId, segment: Segment) {
-        // initialize `segment_size` when necessary
-        if self.segment_size.is_none() {
-            self.initialize_segment_size(segment.len());
-        }
         // check segment size
-        debug_assert_eq!(segment.len(), self.segment_size.unwrap());
-        // allocate if vec is not allocated yet
-        if self.is_unallocated() {
-            self.allocate_vec();
-        }
-        // check offset
-        if i64::from(record_id) < self.offset {
-            // recover from wrong offset, expensive
-            // call to reset_offset is measured using metrics
-            self.reset_offset(i64::from(record_id), segment.len());
-        }
-        let position_raw = usize::try_from((i64::from(record_id) - self.offset).abs()).unwrap();
-        let length = segment.len();
-        let position_vec = (length * position_raw) >> BIT_ARRAY_SHIFT;
-        // check size of store
-        if self.vec.len() < position_vec + (length >> BIT_ARRAY_SHIFT) {
-            // recover from wrong size
-            // increase size of store to twice the size + position of end of the segment to be included
-            // expensive, ideally use initialize with correct length
-            self.vec.resize(
-                self.vec.len() + position_vec + (length >> BIT_ARRAY_SHIFT),
-                None,
-            );
-            // metrics to count reallocations, disable-metrics flag will disable it globally
-            // right now, I don't pass the gate/step information which would be useful
-            // it would require to change the function signature and potentially clone gate even when feature is not enabled
-            metrics::increment_counter!(DZKP_BATCH_REALLOCATION_BACK, RECORD => record_id.to_string(), OFFSET => self.offset.to_string());
-        }
+        debug_assert_eq!(segment.len(), self.multiplication_bit_size);
 
-        if 256 % length == 0 {
-            self.insert_segment_small(length, position_raw, position_vec, segment);
+        // update last record
+        self.last_record = cmp::max(self.last_record, record_id);
+
+        // panics when record_id is less than first_record
+        let id_within_batch = usize::from(record_id) - usize::from(self.first_record);
+        let block_id = (segment.len() * id_within_batch) >> BIT_ARRAY_SHIFT;
+
+        // panics when record_id is too large to fit in, i.e. when it is out of bounds
+        if 256 % segment.len() == 0 {
+            self.insert_segment_small(id_within_batch, block_id, segment);
         } else {
-            self.insert_segment_large(length, position_vec, &segment);
+            self.insert_segment_large(block_id, &segment);
         }
     }
 
     /// insert `segments` for `segments` that divide 256
     ///
     /// ## Panics
-    /// Panics when `length` and `positions` are out of bounds.
-    fn insert_segment_small(
-        &mut self,
-        length: usize,
-        position_raw: usize,
-        position_vec: usize,
-        segment: Segment,
-    ) {
+    /// Panics when `bit_length` and `block_id` are out of bounds.
+    fn insert_segment_small(&mut self, id_within_batch: usize, block_id: usize, segment: Segment) {
         // segments are small, pack one or more in each entry of `vec`
-        let position_bit_array = (length * position_raw) % 256;
+        let position_within_block_start = (segment.len() * id_within_batch) % 256;
+        let position_within_block_end = position_within_block_start + segment.len();
 
-        // get entry
-        let entry = self.vec[position_vec].get_or_insert_with(UnverifiedValues::default);
+        let block = &mut self.vec[block_id];
 
         // copy segment value into entry
         for (segment_value, array_value) in [
-            (segment.x_left, &mut entry.x_left),
-            (segment.x_right, &mut entry.x_right),
-            (segment.y_left, &mut entry.y_left),
-            (segment.y_right, &mut entry.y_right),
-            (segment.prss_left, &mut entry.prss_left),
-            (segment.prss_right, &mut entry.prss_right),
-            (segment.z_right, &mut entry.z_right),
+            (segment.x_left, &mut block.x_left),
+            (segment.x_right, &mut block.x_right),
+            (segment.y_left, &mut block.y_left),
+            (segment.y_right, &mut block.y_right),
+            (segment.prss_left, &mut block.prss_left),
+            (segment.prss_right, &mut block.prss_right),
+            (segment.z_right, &mut block.z_right),
         ] {
-            // unwrap safe since index are guaranteed to be within bounds
+            // panics when out of bounds
             let values_in_array = array_value
-                .get_mut(position_bit_array..position_bit_array + length)
+                .get_mut(position_within_block_start..position_within_block_end)
                 .unwrap();
             values_in_array.clone_from_bitslice(segment_value.0);
         }
@@ -422,25 +347,21 @@ impl UnverifiedValuesStore {
     /// insert `segments` for `segments` that are multiples of 256
     ///
     /// ## Panics
-    /// Panics when segment is not a multiple of 256.
-    fn insert_segment_large(&mut self, length: usize, position_vec: usize, segment: &Segment) {
-        let length_in_entries = length >> BIT_ARRAY_SHIFT;
-        for i in 0..length_in_entries {
-            let entry_option = &mut self.vec[position_vec + i];
-            // make sure we don't overwrite values
-            debug_assert!(entry_option.is_none());
-            *entry_option = Some(
-                UnverifiedValues::new(
-                    &segment.x_left.0[256 * i..256 * (i + 1)],
-                    &segment.x_right.0[256 * i..256 * (i + 1)],
-                    &segment.y_left.0[256 * i..256 * (i + 1)],
-                    &segment.y_right.0[256 * i..256 * (i + 1)],
-                    &segment.prss_left.0[256 * i..256 * (i + 1)],
-                    &segment.prss_right.0[256 * i..256 * (i + 1)],
-                    &segment.z_right.0[256 * i..256 * (i + 1)],
-                )
-                .unwrap(),
-            );
+    /// Panics when segment is not a multiple of 256 or is out of bounds.
+    fn insert_segment_large(&mut self, block_id: usize, segment: &Segment) {
+        let length_in_blocks = segment.len() >> BIT_ARRAY_SHIFT;
+        for i in 0..length_in_blocks {
+            MultiplicationInputsBlock::set(
+                &mut self.vec[block_id + i],
+                &segment.x_left.0[256 * i..256 * (i + 1)],
+                &segment.x_right.0[256 * i..256 * (i + 1)],
+                &segment.y_left.0[256 * i..256 * (i + 1)],
+                &segment.y_right.0[256 * i..256 * (i + 1)],
+                &segment.prss_left.0[256 * i..256 * (i + 1)],
+                &segment.prss_right.0[256 * i..256 * (i + 1)],
+                &segment.z_right.0[256 * i..256 * (i + 1)],
+            )
+            .unwrap();
         }
     }
 
@@ -452,8 +373,7 @@ impl UnverifiedValuesStore {
     ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.vec
             .iter()
-            .flatten()
-            .flat_map(UnverifiedValues::convert_prover::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
     }
 
     /// `get_field_values_verifier_left` converts a `UnverifiedValuesStore` into an iterator over `field`
@@ -464,8 +384,7 @@ impl UnverifiedValuesStore {
     ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
         self.vec
             .iter()
-            .flatten()
-            .flat_map(UnverifiedValues::convert_verifier_left::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_verifier_left::<DF>)
     }
 
     /// `get_field_values_verifier_right` converts a `UnverifiedValuesStore` into an iterator over `field`
@@ -476,8 +395,7 @@ impl UnverifiedValuesStore {
     ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
         self.vec
             .iter()
-            .flatten()
-            .flat_map(UnverifiedValues::convert_verifier_right::<DF>)
+            .flat_map(MultiplicationInputsBlock::convert_verifier_right::<DF>)
     }
 }
 
@@ -487,20 +405,20 @@ impl UnverifiedValuesStore {
 /// Corresponds to `AccumulatorState` of the MAC based malicious validator.
 #[derive(Clone, Debug)]
 struct Batch {
-    chunk_size: usize,
-    inner: HashMap<Gate, UnverifiedValuesStore>,
+    multiplication_amount: usize,
+    inner: HashMap<Gate, MultiplicationInputsBatch>,
 }
 
 impl Batch {
-    fn new(chunk_size: usize) -> Self {
+    fn new(multiplication_amount: usize) -> Self {
         Self {
-            chunk_size,
-            inner: HashMap::<Gate, UnverifiedValuesStore>::new(),
+            multiplication_amount,
+            inner: HashMap::<Gate, MultiplicationInputsBatch>::new(),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.inner.is_empty() || self.inner.values().all(UnverifiedValuesStore::is_empty)
+        self.inner.is_empty() || self.inner.values().all(MultiplicationInputsBatch::is_empty)
     }
 
     fn push(&mut self, gate: Gate, record_id: RecordId, segment: Segment) {
@@ -508,7 +426,9 @@ impl Batch {
         // insert segment
         self.inner
             .entry(gate)
-            .or_insert_with(|| UnverifiedValuesStore::new(self.chunk_size))
+            .or_insert_with(|| {
+                MultiplicationInputsBatch::new(self.multiplication_amount, segment.len())
+            })
             .insert_segment(record_id, segment);
     }
 
@@ -522,7 +442,7 @@ impl Batch {
     fn update(&mut self) {
         self.inner
             .values_mut()
-            .for_each(UnverifiedValuesStore::update);
+            .for_each(MultiplicationInputsBatch::increment_record_ids);
     }
 
     /// `get_field_values_prover` converts a `Batch` into an iterator over `UnverifiedFieldValues`
@@ -533,7 +453,7 @@ impl Batch {
     ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_field_values_prover::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
     }
 
     /// `get_field_values_verifier_left` converts a `Batch` into an iterator over `UnverifiedFieldValues`
@@ -544,7 +464,7 @@ impl Batch {
     ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_field_values_verifier_left::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_left::<DF>)
     }
 
     /// `get_field_values_verifier_right` converts a `Batch` into an iterator over `UnverifiedFieldValues`
@@ -555,7 +475,7 @@ impl Batch {
     ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
         self.inner
             .values()
-            .flat_map(UnverifiedValuesStore::get_field_values_verifier_right::<DF>)
+            .flat_map(MultiplicationInputsBatch::get_field_values_verifier_right::<DF>)
     }
 }
 
@@ -619,16 +539,14 @@ pub trait DZKPValidator<B: UpgradableContext> {
     /// Errors when there are `UnverifiedValues` left.
     fn is_verified(&self) -> Result<(), Error>;
 
-    /// `get_chunk_size` returns the chunk size of the validator
-    fn get_chunk_size(&self) -> Option<usize>;
-
-    /// `seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
-    /// the `chunk_size` is defined within `validator`. Each `chunk` is a vector that is independently
+    /// `validated_seq_join` in this trait is a validated version of `seq_join`. It splits the input stream into `chunks` where
+    /// the `chunk_size` is specified as part of the input. Each `chunk` is a vector that is independently
     /// verified using `validator.validate()`, which uses DZKPs. Once the validation fails,
-    /// the output stream will return that the stream is done.
+    /// the output stream will return an error.
     ///
-    fn seq_join<'st, S, F, O, DF>(
+    fn validated_seq_join<'st, S, F, O, DF>(
         &'st self,
+        chunk_size: usize,
         source: S,
     ) -> impl Stream<Item = Result<O, Error>> + 'st
     where
@@ -639,7 +557,6 @@ pub trait DZKPValidator<B: UpgradableContext> {
     {
         // chunk_size is undefined in the semi-honest setting, set it to 10, ideally it would be 1
         // but there is some overhead
-        let chunk_size = self.get_chunk_size().unwrap_or(10usize);
         seq_join::<'st, S, F, O>(self.context().active_work(), source)
             .chunks(chunk_size)
             .then(move |chunk| self.validate::<DF>().map_ok(|()| chunk))
@@ -673,10 +590,6 @@ impl<'a, B: ShardBinding> DZKPValidator<SemiHonestContext<'a, B>>
 
     fn is_verified(&self) -> Result<(), Error> {
         Ok(())
-    }
-
-    fn get_chunk_size(&self) -> Option<usize> {
-        None
     }
 }
 
@@ -726,17 +639,13 @@ impl<'a> DZKPValidator<MaliciousContext<'a>> for MaliciousDZKPValidator<'a> {
             Err(Error::ContextUnsafe(format!("{:?}", self.protocol_ctx)))
         }
     }
-
-    fn get_chunk_size(&self) -> Option<usize> {
-        Some(self.batch_ref.lock().unwrap().chunk_size)
-    }
 }
 
 #[cfg(feature = "descriptive-gate")]
 impl<'a> MaliciousDZKPValidator<'a> {
     #[must_use]
-    pub fn new(ctx: MaliciousContext<'a>, chunk_size: usize) -> Self {
-        let list = Batch::new(chunk_size);
+    pub fn new(ctx: MaliciousContext<'a>, multiplication_amount: usize) -> Self {
+        let list = Batch::new(multiplication_amount);
         let batch_list = Arc::new(Mutex::new(list));
         let dzkp_batch = DZKPBatch {
             inner: Arc::downgrade(&batch_list),
@@ -770,13 +679,11 @@ mod tests {
 
     use crate::{
         error::Error,
-        ff::{Fp31, Fp61BitPrime},
+        ff::Fp61BitPrime,
         protocol::{
             basics::SecureMul,
             context::{
-                dzkp_validator::{
-                    Batch, DZKPValidator, Segment, SegmentEntry, Step, UnverifiedValuesStore,
-                },
+                dzkp_validator::{Batch, DZKPValidator, Segment, SegmentEntry, Step},
                 Context, DZKPContext, UpgradableContext,
             },
             step::Gate,
@@ -788,23 +695,29 @@ mod tests {
 
     /// test for testing `validated_seq_join`
     /// similar to `complex_circuit` in `validator.rs`
-    async fn complex_circuit_dzkp(count: usize, chunk_size: usize) -> Result<(), Error> {
+    async fn complex_circuit_dzkp(
+        count: usize,
+        chunk_size: usize,
+        multiplication_amount: usize,
+    ) -> Result<(), Error> {
         let world = TestWorld::default();
 
         let mut rng = thread_rng();
 
-        let mut original_inputs = Vec::with_capacity(count);
-        for _ in 0..count {
-            let x = rng.gen::<Fp31>();
-            original_inputs.push(x);
-        }
-        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+        let original_inputs = (0..count)
+            .map(|_| rng.gen::<Fp61BitPrime>())
+            .collect::<Vec<_>>();
+
+        let shared_inputs: Vec<[Replicated<Fp61BitPrime>; 3]> = original_inputs
             .iter()
             .map(|x| x.share_with(&mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
+        let h1_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<Replicated<Fp61BitPrime>> =
+            shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         // todo(DM): change to malicious once we can run the dzkps
         let futures = world
@@ -812,25 +725,28 @@ mod tests {
             .into_iter()
             .zip([h1_shares.clone(), h2_shares.clone(), h3_shares.clone()])
             .map(|(ctx, input_shares)| async move {
-                let v = ctx.dzkp_validator(chunk_size);
+                let v = ctx.dzkp_validator(multiplication_amount);
                 // test whether narrow works
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .seq_join::<_, _, _, Fp61BitPrime>(iter(
-                        zip(
-                            repeat(m_ctx.set_total_records(count - 1)).enumerate(),
-                            zip(input_shares.iter(), input_shares.iter().skip(1)),
-                        )
-                        .map(
-                            |((i, ctx), (a_malicious, b_malicious))| async move {
-                                a_malicious
-                                    .multiply(b_malicious, ctx, RecordId::from(i))
-                                    .await
-                                    .unwrap()
-                            },
+                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                        chunk_size,
+                        iter(
+                            zip(
+                                repeat(m_ctx.set_total_records(count - 1)).enumerate(),
+                                zip(input_shares.iter(), input_shares.iter().skip(1)),
+                            )
+                            .map(
+                                |((i, ctx), (a_malicious, b_malicious))| async move {
+                                    a_malicious
+                                        .multiply(b_malicious, ctx, RecordId::from(i))
+                                        .await
+                                        .unwrap()
+                                },
+                            ),
                         ),
-                    ))
+                    )
                     .try_collect::<Vec<_>>()
                     .await?;
                 // check whether verification was successful
@@ -851,20 +767,23 @@ mod tests {
                 let m_ctx = v.context().narrow(&Step::DZKPMaliciousProtocol);
 
                 let m_results = v
-                    .seq_join::<_, _, _, Fp61BitPrime>(iter(
-                        zip(
-                            repeat(m_ctx.set_total_records(count - 1)).enumerate(),
-                            zip(input_shares.iter(), input_shares.iter().skip(1)),
-                        )
-                        .map(
-                            |((i, ctx), (a_malicious, b_malicious))| async move {
-                                a_malicious
-                                    .multiply(b_malicious, ctx, RecordId::from(i))
-                                    .await
-                                    .unwrap()
-                            },
+                    .validated_seq_join::<_, _, _, Fp61BitPrime>(
+                        chunk_size,
+                        iter(
+                            zip(
+                                repeat(m_ctx.set_total_records(count - 1)).enumerate(),
+                                zip(input_shares.iter(), input_shares.iter().skip(1)),
+                            )
+                            .map(
+                                |((i, ctx), (a_malicious, b_malicious))| async move {
+                                    a_malicious
+                                        .multiply(b_malicious, ctx, RecordId::from(i))
+                                        .await
+                                        .unwrap()
+                                },
+                            ),
                         ),
-                    ))
+                    )
                     .try_collect::<Vec<_>>()
                     .await?;
                 v.is_verified().unwrap();
@@ -898,32 +817,18 @@ mod tests {
     }
 
     prop_compose! {
-        fn arb_count_and_chunk()((log_count, log_chunk_size) in select(&[(5,5),(7,5),(5,7)])) -> (usize, usize) {
-            (1usize<<log_count, 1usize<<log_chunk_size)
+        fn arb_count_and_chunk()((log_count, log_chunk_size, log_multiplication_amount) in select(&[(5,5,5),(7,5,5),(5,7,8)])) -> (usize, usize, usize) {
+            (1usize<<log_count, 1usize<<log_chunk_size, 1usize<<log_multiplication_amount)
         }
     }
 
     proptest! {
         #[test]
-        fn test_complex_circuit_dzkp((count, chunk_size) in arb_count_and_chunk()){
+        fn test_complex_circuit_dzkp((count, chunk_size, multiplication_amount) in arb_count_and_chunk()){
             let future = async {
-            let _ = complex_circuit_dzkp(count, chunk_size).await;
+            let _ = complex_circuit_dzkp(count, chunk_size, multiplication_amount).await;
         };
         tokio::runtime::Runtime::new().unwrap().block_on(future);
-        }
-    }
-
-    fn generate_batch(check_resizing: bool, segment_size: usize) -> Batch {
-        if check_resizing {
-            let mut batch = Batch::new(1);
-            batch
-                .inner
-                .insert(Gate::default(), UnverifiedValuesStore::new(1));
-            batch.inner.get_mut(&Gate::default()).unwrap().offset = 4;
-            batch
-        } else {
-            // chunk size is equal to amount of segments which is 1024/segment_size
-            Batch::new(1024 / segment_size)
         }
     }
 
@@ -1050,22 +955,15 @@ mod tests {
     #[test]
     fn batch_convert() {
         // test for small and large segments, i.e. 8bit and 512 bit
-        // the check_resizing flag when set to true set the offset in a Batch to 4 (rather than 0)
-        // this will trigger a reallocation in the batch when inserting segments with record_id<4
-        for (segment_size, check_resizing) in [
-            (8usize, false),
-            (8usize, true),
-            (512usize, false),
-            (512usize, true),
-        ] {
+        for segment_size in [8usize, 512usize] {
             // generate batch for the prover
-            let mut batch_prover = generate_batch(check_resizing, segment_size);
+            let mut batch_prover = Batch::new(1024 / segment_size);
 
             // generate batch for the verifier on the left of the prover
-            let mut batch_left = generate_batch(check_resizing, segment_size);
+            let mut batch_left = Batch::new(1024 / segment_size);
 
             // generate batch for the verifier on the right of the prover
-            let mut batch_right = generate_batch(check_resizing, segment_size);
+            let mut batch_right = Batch::new(1024 / segment_size);
 
             // fill the batches with random values
             populate_batch(

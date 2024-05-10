@@ -6,6 +6,7 @@ pub(crate) mod mul;
 mod reshare;
 mod reveal;
 mod share_known_value;
+pub mod share_validation;
 pub mod sum_of_product;
 
 use std::ops::Not;

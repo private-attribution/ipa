@@ -112,37 +112,29 @@ async fn run(args: Args) -> Result<(), Error> {
         q = args.query_size
     );
     let rng = StdRng::seed_from_u64(seed);
-    let (user_count, min_events_per_user, max_events_per_user, query_size) =
-        if cfg!(feature = "step-trace") {
-            // For the steps collection, compact gate requires a single user with the same number
-            // of dynamic steps as defined for `UserNthRowStep::Row`.
-            (
-                NonZeroU64::new(1).unwrap(),
-                NonZeroU32::new(64).unwrap(),
-                NonZeroU32::new(64).unwrap(),
-                64,
-            )
-        } else {
-            (
-                EventGeneratorConfig::default().user_count,
-                EventGeneratorConfig::default().min_events_per_user,
-                NonZeroU32::new(args.records_per_user).unwrap(),
-                args.query_size,
-            )
-        };
-    let raw_data = EventGenerator::with_config(
-        rng,
+    let event_gen_config = if cfg!(feature = "step-trace") {
+        // For the steps collection, compact gate requires:
+        // * At least one user with the same number of dynamic steps as defined for `UserNthRowStep::Row`.
+        // * Enough records to exercise the saturating addition case in aggregation.
         EventGeneratorConfig {
-            user_count,
+            user_count: NonZeroU64::new(5).unwrap(),
             max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
             max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
-            min_events_per_user,
-            max_events_per_user,
+            min_events_per_user: NonZeroU32::new(64).unwrap(),
+            max_events_per_user: NonZeroU32::new(64).unwrap(),
             ..Default::default()
-        },
-    )
-    .take(query_size)
-    .collect::<Vec<_>>();
+        }
+    } else {
+        EventGeneratorConfig {
+            max_trigger_value: NonZeroU32::try_from(args.max_trigger_value).unwrap(),
+            max_breakdown_key: NonZeroU32::try_from(args.breakdown_keys).unwrap(),
+            max_events_per_user: NonZeroU32::try_from(args.records_per_user).unwrap(),
+            ..Default::default()
+        }
+    };
+    let raw_data = EventGenerator::with_config(rng, event_gen_config)
+        .take(args.query_size)
+        .collect::<Vec<_>>();
 
     let order = CappingOrder::CapMostRecentFirst;
 

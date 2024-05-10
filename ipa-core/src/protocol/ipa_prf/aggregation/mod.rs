@@ -18,7 +18,8 @@ use crate::{
         basics::{BooleanArrayMul, BooleanProtocols},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
-            boolean_ops::addition_sequential::integer_add, prf_sharding::AttributionOutputs,
+            boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            prf_sharding::AttributionOutputs,
         },
         RecordId,
     },
@@ -156,7 +157,7 @@ where
         .narrow(&Step::MoveToBucket)
         .set_total_records(TotalRecords::Indeterminate);
     // move each value to the correct bucket
-    let row_contributions_stream = process_stream_by_chunks(
+    let row_contribution_chunk_stream = process_stream_by_chunks(
         contributions_stream,
         AttributionOutputs {
             attributed_breakdown_key_bits: vec![],
@@ -181,13 +182,19 @@ where
             attributed_breakdown_key_bits: Replicated::ZERO,
             capped_attributed_trigger_value: Replicated::ZERO,
         },
-    )
-    .then(|fut| async move { fut.await.map(Chunk::into_raw) });
+    );
 
     let aggregation_input = Box::pin(
-        row_contributions_stream
+        row_contribution_chunk_stream
+            // The final chunk from the previous stage is padded with zero-credit records. Rather
+            // than transpose out of vectorized form, flatten the chunked stream, discard the
+            // trailing records, and transpose again for final aggregation, we instead call into_raw
+            // to get the padded record chunk and transpose directly to the form we need for the
+            // final stage. Including the zero-credit padding records does not affect the final
+            // output.
+            .then(|fut| async move { fut.await.map(Chunk::into_raw) })
             .map_ok(|chunk| {
-                // Aggregation intermediate transpose
+                // This is the aggregation intermediate transpose, see the function comment.
                 Vec::transposed_from(chunk.as_slice()).unwrap_infallible()
             })
             .try_flatten_iters::<BitDecomposed<_>, Vec<_>>(),
@@ -196,6 +203,10 @@ where
     aggregate_values::<_, B>(ctx, aggregation_input, num_chunks * N).await
 }
 
+/// A vector of histogram contributions for each output bucket.
+///
+/// Aggregation is vectorized over histogram buckets, so bit 0 for every histogram bucket is stored
+/// contiguously, followed by bit 1 for each histogram bucket, etc.
 pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>>, Error>;
 
 /// Aggregate output contributions
@@ -208,7 +219,12 @@ pub type AggResult<const B: usize> = Result<BitDecomposed<Replicated<Boolean, B>
 /// features.
 ///
 /// `OV` is the output value type, which is called `HV` (histogram value) in the attribution
-/// protocol.
+/// protocol. If the aggregated contributions for a bucket overflow the `OV` type, this
+/// implementation saturates at the maximum value the type can represent. It is recommended
+/// that clients select a query configuration that avoids the possibility of overflow.
+///
+/// It might be possible to save some cost by using naive wrapping arithmetic. Another
+/// possibility would be to combine all carries into a single "overflow detected" bit.
 pub async fn aggregate_values<'ctx, 'fut, OV, const B: usize>(
     ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
     mut aggregated_stream: Pin<Box<dyn Stream<Item = AggResult<B>> + Send + 'fut>>,
@@ -247,13 +263,16 @@ where
                             assert_eq!(chunk_pair.len(), 2);
                             let b = chunk_pair.pop().unwrap();
                             let a = chunk_pair.pop().unwrap();
-                            let (mut sum, carry) =
-                                integer_add::<_, _, _, _, B>(ctx, RecordId::from(i), &a, &b)
-                                    .await?;
+                            let record_id = RecordId::from(i);
                             if a.len() < usize::try_from(OV::BITS).unwrap() {
+                                // If we have enough output bits, add and keep the carry.
+                                let (mut sum, carry) =
+                                    integer_add::<_, B>(ctx, record_id, &a, &b).await?;
                                 sum.push(carry);
+                                Ok(sum)
+                            } else {
+                                integer_sat_add::<_, B>(ctx, record_id, &a, &b).await
                             }
-                            Ok(sum)
                         }
                     }
                 }
@@ -262,11 +281,16 @@ where
         depth += 1;
     }
 
-    let mut result: Vec<_> = aggregated_stream.try_collect().await?;
-    assert!(result.len() <= 1);
-    let mut result = result
-        .pop()
+    let mut result = aggregated_stream
+        .try_next()
+        .await?
         .unwrap_or_else(|| BitDecomposed::new(iter::empty()));
+    assert!(
+        aggregated_stream.next().await.is_none(),
+        "aggregation should not produce multiple outputs"
+    );
+    // If there were less than 2^(|ov| - |tv|) inputs, then we didn't add enough carries to produce
+    // a full-length output, so pad the output now.
     result.resize(
         usize::try_from(OV::BITS).unwrap(),
         Replicated::<Boolean, B>::ZERO,
@@ -277,7 +301,7 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
-    use std::{array, iter::repeat_with};
+    use std::{array, cmp::min, iter::repeat_with};
 
     use futures::{stream, StreamExt};
     use proptest::prelude::*;
@@ -285,10 +309,11 @@ pub mod tests {
 
     use super::aggregate_values;
     use crate::{
+        const_assert,
         error::Error,
         ff::{boolean::Boolean, boolean_array::BA8, U128Conversions},
         helpers::Role,
-        secret_sharing::BitDecomposed,
+        secret_sharing::{BitDecomposed, SharedValue},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -401,6 +426,33 @@ pub mod tests {
     }
 
     #[test]
+    fn aggregate_saturating() {
+        // Test that aggregation uses saturating addition
+        run(|| async move {
+            let inputs = vec![
+                Ok(input_row(7, &[0x7f, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
+                Ok(input_row(7, &[0x7f, 0x40, 0x7f, 1, 0, 0, 0, 0])),
+                Ok(input_row(7, &[1, 0x40, 0x7f, 0x7f, 0, 0, 0, 0])),
+                Ok(input_row(7, &[0, 0x40, 0x7f, 1, 0, 0, 0, 0])),
+            ];
+
+            let result = TestWorld::default()
+                .upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                    let num_rows = inputs.len();
+                    aggregate_values::<BA8, 8>(ctx, stream::iter(inputs).boxed(), num_rows)
+                })
+                .await
+                .map(Result::unwrap)
+                .reconstruct();
+
+            assert_eq!(
+                result,
+                [0xff_u32, 0xff, 0xff, 0xff, 0, 0, 0, 0].map(BA8::truncate_from)
+            );
+        });
+    }
+
+    #[test]
     fn aggregate_empty() {
         run(|| async move {
             let result = TestWorld::default()
@@ -438,9 +490,10 @@ pub mod tests {
     }
 
     // Any of the supported aggregation configs can be used here (search for "aggregation output" in
-    // transpose.rs), but just doing this small config to keep CI runtime within reason.
+    // transpose.rs). This small config keeps CI runtime within reason, however, it does not exercise
+    // saturated addition at the output.
     const PROP_MAX_INPUT_LEN: usize = 10;
-    const PROP_MAX_TV_BITS: usize = 3;
+    const PROP_MAX_TV_BITS: usize = 3; // Limit: (1 << TV_BITS) must fit in u32
     const PROP_BUCKETS: usize = 8;
     type PropHistogramValue = BA8;
 
@@ -449,12 +502,17 @@ pub mod tests {
     #[allow(dead_code)]
     #[derive(Debug)]
     struct AggregatePropTestInputs {
-        inputs: Vec<Result<BitDecomposed<[Boolean; PROP_BUCKETS]>, Error>>,
+        inputs: Vec<[u32; PROP_BUCKETS]>,
         expected: Vec<PropHistogramValue>,
         seed: u64,
         len: usize,
         tv_bits: usize,
     }
+
+    const_assert!(
+        PropHistogramValue::BITS < 64,
+        "(1 << PropHistogramValue::BITS) must fit in u64"
+    );
 
     prop_compose! {
         fn arb_aggregate_values_inputs(max_len: usize)
@@ -465,13 +523,13 @@ pub mod tests {
                                       )
         -> AggregatePropTestInputs {
             let mut rng = StdRng::seed_from_u64(seed);
-            let mut expected = vec![0u32; PROP_BUCKETS];
+            let mut expected = vec![0u64; PROP_BUCKETS];
             let inputs = repeat_with(|| {
                 let row: [u32; PROP_BUCKETS] = array::from_fn(|_| rng.gen_range(0..1 << tv_bits));
                 for (exp, val) in expected.iter_mut().zip(row) {
-                    *exp += val;
+                    *exp = min(*exp + u64::from(val), (1 << PropHistogramValue::BITS) - 1);
                 }
-                Ok(input_row(tv_bits, &row))
+                row
             })
             .take(len)
             .collect();
@@ -496,9 +554,13 @@ pub mod tests {
                 let AggregatePropTestInputs {
                     inputs,
                     expected,
+                    tv_bits,
                     ..
                 } = input_struct;
-                let result = TestWorld::default().upgraded_semi_honest(inputs.into_iter(), |ctx, inputs| {
+                let inputs = inputs.into_iter().map(move |row| {
+                    Ok(input_row(tv_bits, &row))
+                });
+                let result = TestWorld::default().upgraded_semi_honest(inputs, |ctx, inputs| {
                     let num_rows = inputs.len();
                     aggregate_values::<PropHistogramValue, PROP_BUCKETS>(
                         ctx,

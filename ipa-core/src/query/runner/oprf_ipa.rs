@@ -7,7 +7,7 @@ use crate::{
     error::{Error, LengthError},
     ff::{
         boolean::Boolean,
-        boolean_array::{BA20, BA3, BA4, BA5, BA6, BA7, BA8},
+        boolean_array::{BA20, BA3, BA8},
         CustomArray, Field, Serializable, U128Conversions,
     },
     helpers::{
@@ -111,11 +111,11 @@ where
 
         let aws = config.attribution_window_seconds;
         match config.per_user_credit_cap {
-            8 => oprf_ipa::<BA8, BA3, HV, BA20, BA3, 256>(ctx, input, aws).await,
-            16 => oprf_ipa::<BA8, BA3, HV, BA20, BA4, 256>(ctx, input, aws).await,
-            32 => oprf_ipa::<BA8, BA3, HV, BA20, BA5, 256>(ctx, input, aws).await,
-            64 => oprf_ipa::<BA8, BA3, HV, BA20, BA6, 256>(ctx, input, aws).await,
-            128 => oprf_ipa::<BA8, BA3, HV, BA20, BA7, 256>(ctx, input, aws).await,
+            8 => oprf_ipa::<BA8, BA3, HV, BA20, 3, 256>(ctx, input, aws).await,
+            16 => oprf_ipa::<BA8, BA3, HV, BA20, 4, 256>(ctx, input, aws).await,
+            32 => oprf_ipa::<BA8, BA3, HV, BA20, 5, 256>(ctx, input, aws).await,
+            64 => oprf_ipa::<BA8, BA3, HV, BA20, 6, 256>(ctx, input, aws).await,
+            128 => oprf_ipa::<BA8, BA3, HV, BA20, 7, 256>(ctx, input, aws).await,
             _ => panic!(
                 "Invalid value specified for per-user cap: {:?}. Must be one of 8, 16, 32, 64, or 128.",
                 config.per_user_credit_cap

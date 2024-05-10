@@ -4,7 +4,7 @@ use typenum::{Unsigned, U32};
 use crate::{
     const_assert, const_assert_eq,
     ff::{Field, Fp61BitPrime, PrimeField},
-    protocol::context::dzkp_validator::{BitArray32, SegmentEntry},
+    protocol::context::dzkp_validator::{Array256Bit, SegmentEntry},
     secret_sharing::{FieldSimd, Vectorizable},
 };
 
@@ -37,28 +37,28 @@ pub trait DZKPBaseField: PrimeField {
     /// Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements.
     /// This function is called by the prover.
     fn convert_prover<'a>(
-        x_left: &'a BitArray32,
-        x_right: &'a BitArray32,
-        y_left: &'a BitArray32,
-        y_right: &'a BitArray32,
-        prss_right: &'a BitArray32,
+        x_left: &'a Array256Bit,
+        x_right: &'a Array256Bit,
+        y_left: &'a Array256Bit,
+        y_right: &'a Array256Bit,
+        prss_right: &'a Array256Bit,
     ) -> impl Iterator<Item = UVPolynomials<Self>>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
     fn convert_verifier_left<'a>(
-        x_right: &'a BitArray32,
-        y_right: &'a BitArray32,
-        prss_right: &'a BitArray32,
-        z_right: &'a BitArray32,
+        x_right: &'a Array256Bit,
+        y_right: &'a Array256Bit,
+        prss_right: &'a Array256Bit,
+        z_right: &'a Array256Bit,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
     fn convert_verifier_right<'a>(
-        x_left: &'a BitArray32,
-        y_left: &'a BitArray32,
-        prss_left: &'a BitArray32,
+        x_left: &'a Array256Bit,
+        y_left: &'a Array256Bit,
+        prss_left: &'a Array256Bit,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>>;
 }
 
@@ -94,11 +94,11 @@ impl DZKPBaseField for Fp61BitPrime {
     // therefore e = ab⊕cd⊕ f must hold. (alternatively, you can also see this by substituting z_left,
     // i.e. z_left = x_left · y_left ⊕ x_left · y_right ⊕ x_right · y_left ⊕ prss_left ⊕ prss_right
     fn convert_prover<'a>(
-        x_left: &'a BitArray32,
-        x_right: &'a BitArray32,
-        y_left: &'a BitArray32,
-        y_right: &'a BitArray32,
-        prss_right: &'a BitArray32,
+        x_left: &'a Array256Bit,
+        x_right: &'a Array256Bit,
+        y_left: &'a Array256Bit,
+        y_right: &'a Array256Bit,
+        prss_right: &'a Array256Bit,
     ) -> impl Iterator<Item = UVPolynomials<Fp61BitPrime>> {
         x_left
             .chunks(RECURSION_CHUNK_SIZE_BITS)
@@ -194,10 +194,10 @@ impl DZKPBaseField for Fp61BitPrime {
     // here e is defined as in the paper (since the the verifier does not have access to b,d,f,
     // he cannot use the simplified formula for e)
     fn convert_verifier_left<'a>(
-        x_right: &'a BitArray32,
-        y_right: &'a BitArray32,
-        prss_right: &'a BitArray32,
-        z_right: &'a BitArray32,
+        x_right: &'a Array256Bit,
+        y_right: &'a Array256Bit,
+        prss_right: &'a Array256Bit,
+        z_right: &'a Array256Bit,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         x_right
             .chunks(RECURSION_CHUNK_SIZE_BITS)
@@ -261,9 +261,9 @@ impl DZKPBaseField for Fp61BitPrime {
     // where
     // (b,d,f) = (y_left, x_left, prss_left)
     fn convert_verifier_right<'a>(
-        x_left: &'a BitArray32,
-        y_left: &'a BitArray32,
-        prss_left: &'a BitArray32,
+        x_left: &'a Array256Bit,
+        y_left: &'a Array256Bit,
+        prss_left: &'a Array256Bit,
     ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
         y_left
             .chunks(RECURSION_CHUNK_SIZE_BITS)
