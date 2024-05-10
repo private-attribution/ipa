@@ -127,12 +127,7 @@ pub mod test_helpers {
     // Intended to be used for a request that will fail Starts a [`TestServer`] and gets response
     // from the server, and compare its [`StatusCode`] with what is expected.
     pub async fn assert_fails_with(req: hyper::Request<hyper::Body>, expected_status: StatusCode) {
-        // let handler = make_owned_handler(|_addr, _| async {Ok(HelperResponse::ok())});
-        //let test_server = TestServer::default().await;
-        let test_server = TestServer::builder()
-            //    .with_request_handler(handler)
-            .build()
-            .await;
+        let test_server = TestServer::builder().build().await;
         let resp = test_server.server.handle_req(req).await;
         assert_eq!(resp.status(), expected_status);
     }
@@ -148,10 +143,7 @@ pub mod test_helpers {
         let resp = test_server.server.handle_req(req).await;
         let status = resp.status();
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        assert_eq!(StatusCode::OK, status,);
+        assert_eq!(StatusCode::OK, status);
         body_bytes.to_vec()
     }
-
-    // TODO: refactor shared stuff
-    // setup a handler. TestServerExt
 }

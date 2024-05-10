@@ -15,9 +15,11 @@ async fn handler(
 ) -> Result<Json<http_serde::echo::Request>, Error> {
     let headers = hyper_headers
         .iter()
-        .filter_map(|(name, value)| match value.to_str() {
-            Ok(header_value) => Some((name.to_string(), header_value.to_string())),
-            Err(_) => None,
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|header_value| (name.to_string(), header_value.to_string()))
         })
         .collect();
     Ok(Json(Request {

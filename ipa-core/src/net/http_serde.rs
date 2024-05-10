@@ -234,7 +234,7 @@ pub mod query {
             helpers::{query::PrepareQuery, RoleAssignment},
             net::{
                 http_serde::query::{QueryConfigQueryParams, BASE_AXUM_PATH},
-                Error,
+                Error, APPLICATION_JSON,
             },
         };
 
@@ -267,7 +267,7 @@ pub mod query {
                 };
                 let body = hyper::Body::from(serde_json::to_string(&body)?);
                 Ok(hyper::Request::post(uri)
-                    .header(CONTENT_TYPE, "application/json")
+                    .header(CONTENT_TYPE, APPLICATION_JSON)
                     .body(body)?)
             }
         }
@@ -286,7 +286,7 @@ pub mod query {
 
         use crate::{
             helpers::query::QueryInput,
-            net::{http_serde::query::BASE_AXUM_PATH, Error},
+            net::{http_serde::query::BASE_AXUM_PATH, Error, APPLICATION_OCTET_STREAM},
         };
 
         #[derive(Debug)]
@@ -316,7 +316,7 @@ pub mod query {
                     .build()?;
                 let body = Body::wrap_stream(self.query_input.input_stream);
                 Ok(hyper::Request::post(uri)
-                    .header(CONTENT_TYPE, "application/octet-stream")
+                    .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM)
                     .body(body)?)
             }
         }

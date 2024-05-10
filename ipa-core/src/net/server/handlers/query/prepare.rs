@@ -72,6 +72,7 @@ mod tests {
                 },
                 ClientIdentity,
             },
+            APPLICATION_JSON,
         },
         protocol::QueryId,
     };
@@ -141,7 +142,7 @@ mod tests {
             let body = OverrideReqBody { roles: val.roles };
             let body = serde_json::to_string(&body).unwrap();
             hyper::Request::post(uri)
-                .header(CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .header(CONTENT_TYPE, APPLICATION_JSON)
                 .maybe_extension(val.client_id)
                 .body(hyper::Body::from(body))
                 .unwrap()

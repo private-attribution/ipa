@@ -61,22 +61,19 @@ mod tests {
         let req = http_serde::query::create::Request::new(expected_query_config)
             .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        let handler = make_owned_handler(
-            // Do we need these moves? In particular the first one?
-            move |addr, _| async move {
-                let RouteId::ReceiveQuery = addr.route else {
-                    panic!("unexpected call");
-                };
+        let handler = make_owned_handler(move |addr, _| async move {
+            let RouteId::ReceiveQuery = addr.route else {
+                panic!("unexpected call");
+            };
 
-                let query_config = addr.into().unwrap();
-                assert_eq!(query_config, expected_query_config);
-                Ok(HelperResponse::from(PrepareQuery {
-                    query_id: QueryId,
-                    config: query_config,
-                    roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
-                }))
-            },
-        );
+            let query_config = addr.into().unwrap();
+            assert_eq!(query_config, expected_query_config);
+            Ok(HelperResponse::from(PrepareQuery {
+                query_id: QueryId,
+                config: query_config,
+                roles: RoleAssignment::try_from([Role::H1, Role::H2, Role::H3]).unwrap(),
+            }))
+        });
         let resp = assert_success_with(req, handler).await;
         let http_serde::query::create::ResponseBody { query_id } =
             serde_json::from_slice(&resp).unwrap();
