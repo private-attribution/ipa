@@ -387,10 +387,7 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            feature_vector: feature_vector
-                .map(|x| BA8::truncate_from(x))
-                .try_into()
-                .unwrap(),
+            feature_vector: feature_vector.map(BA8::truncate_from),
         }
     }
 
