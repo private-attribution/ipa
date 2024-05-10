@@ -13,7 +13,7 @@ use futures::{Future, Stream};
 use futures_util::{StreamExt, TryFutureExt};
 
 #[cfg(all(test, unit_test))]
-use crate::protocol::context::dzkp_field::{SingleUVPolynomial, UVPolynomials};
+use crate::protocol::context::dzkp_field::{UVSingleBlock, UVTupleBlock};
 #[cfg(feature = "descriptive-gate")]
 use crate::protocol::context::{
     dzkp_malicious::DZKPUpgraded as MaliciousDZKPUpgraded, Context, MaliciousContext,
@@ -107,7 +107,7 @@ impl MultiplicationInputsBlock {
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
     /// This is the convert function called by the prover.
     #[cfg(all(test, unit_test))]
-    fn convert_prover<DF: DZKPBaseField>(&self) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
+    fn convert_prover<DF: DZKPBaseField>(&self) -> Vec<UVTupleBlock<DF>> {
         DF::convert_prover(
             &self.x_left,
             &self.x_right,
@@ -120,9 +120,7 @@ impl MultiplicationInputsBlock {
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the left.
     #[cfg(all(test, unit_test))]
-    fn convert_verifier_left<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    fn convert_verifier_left<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
         DF::convert_verifier_left(
             &self.x_right,
             &self.y_right,
@@ -134,9 +132,7 @@ impl MultiplicationInputsBlock {
     /// `Convert` allows to convert `UnverifiedValues` into a format compatible with DZKPs
     /// This is the convert function called by the verifier on the right.
     #[cfg(all(test, unit_test))]
-    fn convert_verifier_right<DF: DZKPBaseField>(
-        &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    fn convert_verifier_right<DF: DZKPBaseField>(&self) -> Vec<UVSingleBlock<DF>> {
         DF::convert_verifier_right(&self.x_left, &self.y_left, &self.prss_left)
     }
 }
@@ -265,7 +261,7 @@ impl MultiplicationInputsBatch {
         }
     }
 
-    /// `increment_batch` increments the current batch to the next set of records.
+    /// `increment_record_ids` increments the current batch to the next set of records.
     /// it maintains all the allocated memory and increments the `RecordIds` as follows:
     /// It sets `last_record` and `first_record` to the record that follows `last_record`.
     fn increment_record_ids(&mut self) {
@@ -370,7 +366,7 @@ impl MultiplicationInputsBatch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.vec
             .iter()
             .flat_map(MultiplicationInputsBlock::convert_prover::<DF>)
@@ -381,7 +377,7 @@ impl MultiplicationInputsBatch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_left<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
         self.vec
             .iter()
             .flat_map(MultiplicationInputsBlock::convert_verifier_left::<DF>)
@@ -392,7 +388,7 @@ impl MultiplicationInputsBatch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_right<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
         self.vec
             .iter()
             .flat_map(MultiplicationInputsBlock::convert_verifier_right::<DF>)
@@ -450,7 +446,7 @@ impl Batch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_prover<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = UVPolynomials<DF>> + '_ {
+    ) -> impl Iterator<Item = UVTupleBlock<DF>> + '_ {
         self.inner
             .values()
             .flat_map(MultiplicationInputsBatch::get_field_values_prover::<DF>)
@@ -461,7 +457,7 @@ impl Batch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_left<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
         self.inner
             .values()
             .flat_map(MultiplicationInputsBatch::get_field_values_verifier_left::<DF>)
@@ -472,7 +468,7 @@ impl Batch {
     #[cfg(all(test, unit_test))]
     fn get_field_values_verifier_right<DF: DZKPBaseField>(
         &self,
-    ) -> impl Iterator<Item = SingleUVPolynomial<DF>> + '_ {
+    ) -> impl Iterator<Item = UVSingleBlock<DF>> + '_ {
         self.inner
             .values()
             .flat_map(MultiplicationInputsBatch::get_field_values_verifier_right::<DF>)

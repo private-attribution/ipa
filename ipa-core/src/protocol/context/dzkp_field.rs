@@ -1,24 +1,19 @@
+use bitvec::{order::Lsb0, view::BitView};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U32};
+use typenum::U32;
 
 use crate::{
-    const_assert, const_assert_eq,
     ff::{Field, Fp61BitPrime, PrimeField},
     protocol::context::dzkp_validator::{Array256Bit, SegmentEntry},
     secret_sharing::{FieldSimd, Vectorizable},
 };
 
-pub type InitialRecursionFactor = U32;
-pub type UVPolynomials<F> = (
-    GenericArray<F, InitialRecursionFactor>,
-    GenericArray<F, InitialRecursionFactor>,
-);
-pub type SingleUVPolynomial<F> = GenericArray<F, InitialRecursionFactor>;
-// we only support InitialRecursionFactors of non-zero multiples of 4
-const_assert_eq!(InitialRecursionFactor::USIZE % 4, 0usize);
-const_assert!(InitialRecursionFactor::USIZE != 0usize);
-
-const RECURSION_CHUNK_SIZE_BITS: usize = InitialRecursionFactor::USIZE / 4;
+// BlockSize is fixed to 32
+pub type BlockSize = U32;
+// UVTupleBlock is a block of interleaved U and V values
+pub type UVTupleBlock<F> = (GenericArray<F, BlockSize>, GenericArray<F, BlockSize>);
+// UVSingleBlock is either a block of U or a block of V values
+pub type UVSingleBlock<F> = GenericArray<F, BlockSize>;
 
 /// Trait for fields compatible with DZKPs
 /// Field needs to support conversion to `SegmentEntry`, i.e. `to_segment_entry` which is required by DZKPs
@@ -42,7 +37,7 @@ pub trait DZKPBaseField: PrimeField {
         y_left: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
-    ) -> impl Iterator<Item = UVPolynomials<Self>>;
+    ) -> Vec<UVTupleBlock<Self>>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the left of the prover.
     /// The verifier on the left uses its right shares, since they are consistent with the prover's left shares.
@@ -51,7 +46,7 @@ pub trait DZKPBaseField: PrimeField {
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
         z_right: &'a Array256Bit,
-    ) -> impl Iterator<Item = SingleUVPolynomial<Self>>;
+    ) -> Vec<UVSingleBlock<Self>>;
 
     /// This is similar to `convert_prover` except that it is called by the verifier to the right of the prover.
     /// The verifier on the right uses its left shares, since they are consistent with the prover's right shares.
@@ -59,7 +54,7 @@ pub trait DZKPBaseField: PrimeField {
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
-    ) -> impl Iterator<Item = SingleUVPolynomial<Self>>;
+    ) -> Vec<UVSingleBlock<Self>>;
 }
 
 impl DZKPBaseField for Fp61BitPrime {
@@ -99,43 +94,32 @@ impl DZKPBaseField for Fp61BitPrime {
         y_left: &'a Array256Bit,
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
-    ) -> impl Iterator<Item = UVPolynomials<Fp61BitPrime>> {
+    ) -> Vec<UVTupleBlock<Fp61BitPrime>> {
+        // precompute ac = a & c = x_left & y_left
+        let ac = *x_left & y_left;
+        // e = ab⊕cd⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
+        let e = (*x_left & y_right) ^ (*y_left & x_right) ^ prss_right;
+        // precompute bd = b & d = y_right & x_right
+        let bd = *y_right & x_right;
+
         x_left
-            .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .map(ToOwned::to_owned)
-            .zip(
-                y_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                y_left
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                x_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                prss_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .map(|((((a, b), c), d), f)| {
-                // precompute ac = a & c
-                let ac = a.clone() & &c;
-                // e = ab⊕cd⊕ f = x_left * y_right ⊕ y_left * x_right ⊕ prss_right
-                let e = (a.clone() & &b) ^ (c.clone() & &d) ^ &f;
-                // precompute bd = b & d
-                let bd = b.clone() & &d;
+            .data
+            .iter()
+            .zip(y_right.data.iter())
+            .zip(y_left.data.iter())
+            .zip(x_right.data.iter())
+            .zip(prss_right.data.iter())
+            .zip(ac.data.iter())
+            .zip(e.data.iter())
+            .zip(bd.data.iter())
+            .map(|(((((((a, b), c), d), f), ac), e), bd)| {
                 (
                     // g polynomial
-                    a.iter()
-                        .zip(c.iter())
-                        .zip(e.iter())
-                        .zip(ac.iter())
+                    a.view_bits::<Lsb0>()
+                        .iter()
+                        .zip(c.view_bits::<Lsb0>().iter())
+                        .zip(e.view_bits::<Lsb0>().iter())
+                        .zip(ac.view_bits::<Lsb0>().iter())
                         .flat_map(|(((a, c), e), ac)| {
                             let one_minus_two_e = Fp61BitPrime::ONE
                                 + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*e);
@@ -152,12 +136,13 @@ impl DZKPBaseField for Fp61BitPrime {
                                 Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
                             ]
                         })
-                        .collect::<GenericArray<Fp61BitPrime, InitialRecursionFactor>>(),
+                        .collect::<GenericArray<Fp61BitPrime, BlockSize>>(),
                     // h polynomial
-                    b.iter()
-                        .zip(d.iter())
-                        .zip(f.iter())
-                        .zip(bd.iter())
+                    b.view_bits::<Lsb0>()
+                        .iter()
+                        .zip(d.view_bits::<Lsb0>().iter())
+                        .zip(f.view_bits::<Lsb0>().iter())
+                        .zip(bd.view_bits::<Lsb0>().iter())
                         .flat_map(|(((b, d), f), bd)| {
                             let one_minus_two_f = Fp61BitPrime::ONE
                                 + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*f);
@@ -172,9 +157,10 @@ impl DZKPBaseField for Fp61BitPrime {
                                 one_minus_two_f,
                             ]
                         })
-                        .collect::<GenericArray<Fp61BitPrime, InitialRecursionFactor>>(),
+                        .collect::<GenericArray<Fp61BitPrime, BlockSize>>(),
                 )
             })
+            .collect::<Vec<_>>()
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -198,36 +184,25 @@ impl DZKPBaseField for Fp61BitPrime {
         y_right: &'a Array256Bit,
         prss_right: &'a Array256Bit,
         z_right: &'a Array256Bit,
-    ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
+    ) -> Vec<UVSingleBlock<Self>> {
+        // precompute ac = a & c = x_right & y_right
+        let ac = *x_right & y_right;
+        // e = ac ⊕ zright ⊕ prssright
+        // as defined in the paper
+        let e = ac ^ prss_right ^ z_right;
         x_right
-            .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .map(ToOwned::to_owned)
-            .zip(
-                y_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                prss_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                z_right
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .map(|(((a, c), prss), z)| {
-                // precompute ac = a & c
-                let ac = a.clone() & &c;
-                // e = ac ⊕ zright ⊕ prssright
-                // as defined in the paper
-                let e = ac.clone() ^ &prss ^ &z;
+            .data
+            .iter()
+            .zip(y_right.data.iter())
+            .zip(ac.data.iter())
+            .zip(e.data.iter())
+            .map(|(((a, c), ac), e)| {
                 // g polynomial
-                a.iter()
-                    .zip(c.iter())
-                    .zip(e.iter())
-                    .zip(ac.iter())
+                a.view_bits::<Lsb0>()
+                    .iter()
+                    .zip(c.view_bits::<Lsb0>().iter())
+                    .zip(e.view_bits::<Lsb0>().iter())
+                    .zip(ac.view_bits::<Lsb0>().iter())
                     .flat_map(|(((a, c), e), ac)| {
                         let one_minus_two_e = Fp61BitPrime::ONE
                             + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*e);
@@ -242,8 +217,9 @@ impl DZKPBaseField for Fp61BitPrime {
                             Fp61BitPrime::MINUS_ONE_HALF * one_minus_two_e,
                         ]
                     })
-                    .collect::<GenericArray<Fp61BitPrime, InitialRecursionFactor>>()
+                    .collect::<GenericArray<Fp61BitPrime, BlockSize>>()
             })
+            .collect::<Vec<_>>()
     }
 
     // Convert allows to convert individual bits from multiplication gates into dzkp compatible field elements
@@ -264,28 +240,22 @@ impl DZKPBaseField for Fp61BitPrime {
         x_left: &'a Array256Bit,
         y_left: &'a Array256Bit,
         prss_left: &'a Array256Bit,
-    ) -> impl Iterator<Item = SingleUVPolynomial<Self>> {
+    ) -> Vec<UVSingleBlock<Self>> {
+        // precompute bd = b & d = y_left & x_left
+        let bd = *y_left & x_left;
         y_left
-            .chunks(RECURSION_CHUNK_SIZE_BITS)
-            .map(ToOwned::to_owned)
-            .zip(
-                x_left
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .zip(
-                prss_left
-                    .chunks(RECURSION_CHUNK_SIZE_BITS)
-                    .map(ToOwned::to_owned),
-            )
-            .map(|((b, d), f)| {
-                // precompute bd = b & d
-                let bd = b.clone() & &d;
+            .data
+            .iter()
+            .zip(x_left.data.iter())
+            .zip(prss_left.data.iter())
+            .zip(bd.data.iter())
+            .map(|(((b, d), f), bd)| {
                 // h polynomial
-                b.iter()
-                    .zip(d.iter())
-                    .zip(f.iter())
-                    .zip(bd.iter())
+                b.view_bits::<Lsb0>()
+                    .iter()
+                    .zip(d.view_bits::<Lsb0>().iter())
+                    .zip(f.view_bits::<Lsb0>().iter())
+                    .zip(bd.view_bits::<Lsb0>().iter())
                     .flat_map(|(((b, d), f), bd)| {
                         let one_minus_two_f = Fp61BitPrime::ONE
                             + Fp61BitPrime::MINUS_TWO * Fp61BitPrime::from_bit(*f);
@@ -300,8 +270,9 @@ impl DZKPBaseField for Fp61BitPrime {
                             one_minus_two_f,
                         ]
                     })
-                    .collect::<GenericArray<Fp61BitPrime, InitialRecursionFactor>>()
+                    .collect::<GenericArray<Fp61BitPrime, BlockSize>>()
             })
+            .collect::<Vec<_>>()
     }
 }
 
@@ -313,7 +284,7 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp61BitPrime, U128Conversions},
-        protocol::context::dzkp_field::{DZKPBaseField, SingleUVPolynomial, UVPolynomials},
+        protocol::context::dzkp_field::{DZKPBaseField, UVSingleBlock, UVTupleBlock},
         secret_sharing::SharedValue,
     };
 
@@ -380,16 +351,18 @@ mod tests {
     }
     fn assert_convert<P, L, R>(prover: P, verifier_left: L, verifier_right: R)
     where
-        P: Iterator<Item = UVPolynomials<Fp61BitPrime>>,
-        L: Iterator<Item = SingleUVPolynomial<Fp61BitPrime>>,
-        R: Iterator<Item = SingleUVPolynomial<Fp61BitPrime>>,
+        P: IntoIterator<Item = UVTupleBlock<Fp61BitPrime>>,
+        L: IntoIterator<Item = UVSingleBlock<Fp61BitPrime>>,
+        R: IntoIterator<Item = UVSingleBlock<Fp61BitPrime>>,
     {
-        prover.zip(verifier_left).zip(verifier_right).for_each(
-            |((prover, verifier_left), verifier_right)| {
+        prover
+            .into_iter()
+            .zip(verifier_left)
+            .zip(verifier_right)
+            .for_each(|((prover, verifier_left), verifier_right)| {
                 assert_eq!(prover.0, verifier_left);
                 assert_eq!(prover.1, verifier_right);
-            },
-        );
+            });
     }
 
     #[test]
@@ -453,9 +426,7 @@ mod tests {
             &array_y_left,
             &array_y_right,
             &array_prss_right,
-        )
-        .next()
-        .unwrap();
+        )[0];
 
         // compute expected
         // (a,b,c,d,f) = (x_left, y_right, y_left, x_right, prss_right)
