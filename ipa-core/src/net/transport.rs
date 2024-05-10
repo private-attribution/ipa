@@ -132,7 +132,7 @@ impl HttpTransport {
         let r = self
             .handler
             .as_ref()
-            .expect("Handler is set")
+            .expect("A Handler should be set by now")
             .handle(Addr::from_route(None, req), body);
 
         if let RouteId::CompleteQuery = route_id {

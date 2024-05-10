@@ -3,8 +3,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use axum::extract::{BodyStream, FromRequest, RequestParts};
-use bytes::Bytes;
+#[cfg(feature = "real-world-infra")]
+use axum::RequestExt;
+use axum::{
+    extract::{BodyStream, FromRequest},
+    http::Request,
+};
 use futures::{Stream, TryStreamExt};
 use hyper::Body;
 use pin_project::pin_project;
@@ -13,6 +17,8 @@ use crate::error::BoxError;
 
 type AxumInner = futures::stream::MapErr<BodyStream, fn(axum::Error) -> crate::error::BoxError>;
 
+/// This struct is a simple wrapper so that both in-memory-infra and real-world-infra have a
+/// unified interface for streams consumed by transport layer.
 #[pin_project]
 pub struct WrappedAxumBodyStream(#[pin] AxumInner);
 
@@ -32,7 +38,7 @@ impl WrappedAxumBodyStream {
 
     #[must_use]
     pub fn empty() -> Self {
-        Self::from_body(Bytes::new())
+        Self::from_body(Body::empty())
     }
 }
 
@@ -61,12 +67,10 @@ impl WrappedAxumBodyStream {
         // `BodyStream` never blocks, and it's not clear why it would need to, so it seems safe to
         // resolve the future with `now_or_never`.
         Self::new_internal(
-            futures::FutureExt::now_or_never(BodyStream::from_request(&mut RequestParts::new(
-                hyper::Request::builder()
-                    .uri("/ignored")
-                    .body(body.into())
-                    .unwrap(),
-            )))
+            futures::FutureExt::now_or_never(BodyStream::from_request(
+                Request::builder().body(body.into()).unwrap(),
+                &(),
+            ))
             .unwrap()
             .unwrap(),
         )
@@ -75,12 +79,14 @@ impl WrappedAxumBodyStream {
 
 #[cfg(feature = "real-world-infra")]
 #[async_trait::async_trait]
-impl<B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static>
-    FromRequest<B> for WrappedAxumBodyStream
+impl<
+        S: Send + Sync,
+        B: hyper::body::HttpBody<Data = bytes::Bytes, Error = hyper::Error> + Send + 'static,
+    > FromRequest<S, B> for WrappedAxumBodyStream
 {
-    type Rejection = <BodyStream as FromRequest<B>>::Rejection;
+    type Rejection = <BodyStream as FromRequest<S, B>>::Rejection;
 
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        Ok(Self::new_internal(req.extract::<BodyStream>().await?))
+    async fn from_request(req: hyper::Request<B>, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self::new_internal(req.extract::<BodyStream, _>().await?))
     }
 }
