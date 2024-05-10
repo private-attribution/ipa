@@ -7,7 +7,6 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::ZeroPositions,
         context::UpgradedContext,
         step::{BitOpStep, Gate, Step, StepNarrow},
         NoRecord, RecordBinding, RecordId,
@@ -158,9 +157,7 @@ where
     F: ExtendableField,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<C::Share, Error> {
-        self.ctx
-            .upgrade_one(self.record_binding, input, ZeroPositions::Pvvv)
-            .await
+        self.ctx.upgrade_one(self.record_binding, input).await
     }
 }
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
@@ -207,13 +204,7 @@ where
 // that's not currently required.
 #[cfg(all(test, feature = "descriptive-gate"))]
 impl<'a, C: UpgradedContext<F>, F: ExtendableField> UpgradeContext<'a, C, F, NoRecord> {
-    pub(super) async fn upgrade_sparse(
-        self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<C::Share, Error> {
-        self.ctx
-            .upgrade_one(RecordId::from(0u32), input, zeros_at)
-            .await
+    pub(super) async fn upgrade_sparse(self, input: Replicated<F>) -> Result<C::Share, Error> {
+        self.ctx.upgrade_one(RecordId::from(0u32), input).await
     }
 }

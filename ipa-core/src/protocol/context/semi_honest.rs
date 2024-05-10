@@ -14,7 +14,7 @@ use crate::{
         TotalRecords,
     },
     protocol::{
-        basics::{ShareKnownValue, ZeroPositions},
+        basics::ShareKnownValue,
         context::{
             dzkp_semi_honest::DZKPUpgraded, dzkp_validator::SemiHonestDZKPValidator,
             validator::SemiHonest as Validator, Base, InstrumentedIndexedSharedRandomness,
@@ -268,17 +268,12 @@ impl<'a, B: ShardBinding, F: ExtendableField> UpgradedContext<F> for Upgraded<'a
         &self,
         _record_id: RecordId,
         x: Replicated<F>,
-        _zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error> {
         Ok(x)
     }
 
     #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        _zeros_at: ZeroPositions,
-    ) -> Result<Self::Share, Error> {
+    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<Self::Share, Error> {
         Ok(input)
     }
 }
