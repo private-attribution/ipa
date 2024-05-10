@@ -19,8 +19,8 @@ use crate::{
         BooleanProtocols, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, BitDecomposed, FieldSimd,
-        SharedValue, TransposeFrom,
+        replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
@@ -62,8 +62,8 @@ impl InputsRequiredFromPrevRow {
     ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
     where
         Boolean: FieldSimd<B>,
-        Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
-            + Expand<Input = Replicated<Boolean>>,
+        Replicated<Boolean, B>:
+            BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
         FV: SharedValue,
         BitDecomposed<Replicated<Boolean, B>>:
             for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
@@ -101,7 +101,10 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let condition: Replicated<Boolean, B> = Replicated::<Boolean, B>::expand(&capped_label);
+        let condition = Replicated::new_arr(
+            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
+            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.right()),
+        );
         let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
         bit_decomposed_output
             .transpose_from(&input_row.feature_vector)
@@ -110,7 +113,7 @@ impl InputsRequiredFromPrevRow {
             ctx,
             record_id,
             &bit_decomposed_output,
-            repeat_n(&condition, input_row.feature_vector.len()),
+            repeat_n(&condition, FV::BITS.try_into().unwrap()),
         )
         .await;
 
@@ -230,8 +233,8 @@ pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
 ) -> Result<[Replicated<HV>; B], Error>
 where
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
-        + Expand<Input = Replicated<Boolean>>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     TV: SharedValue,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     BitDecomposed<Replicated<Boolean, B>>:
@@ -275,8 +278,9 @@ where
             });
 
     // Execute all of the async futures (sequentially), and flatten the result
+    // The call to `try_flatten_iters` only serves to eliminate the "Option" wrapping, and filter out `None` elements
     let flattened_stream = Box::pin(
-        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(), // This only serves to eliminate the "Option" wrapping, and filter out `None` elements
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
 
     let vec_of_shares =
@@ -292,8 +296,8 @@ async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
 ) -> Result<Option<BitDecomposed<Replicated<Boolean, B>>>, Error>
 where
     Boolean: FieldSimd<B>,
-    Replicated<Boolean, B>: BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>
-        + Expand<Input = Replicated<Boolean>>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
     FV: SharedValue,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
@@ -309,7 +313,8 @@ where
     // Since compute_row_with_previous ensures there will be *at most* a single non-zero contribution
     // from each user, we can just add all of the outputs together for any given user.
     // There is no need for any carries since we are always adding zero to the single contribution.
-    let mut output = BitDecomposed::new(iter::repeat(Replicated::<Boolean, B>::ZERO).take(B));
+    let mut output = BitDecomposed::new(repeat_n(Replicated::ZERO, FV::BITS.try_into().unwrap()));
+
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
