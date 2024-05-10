@@ -9,14 +9,8 @@ import sys
 # all possible configurations.
 
 IPA_ENV = [["RUST_LOG", "WARN,ipa_core::test_fixture::metrics=DEBUG"]]
-QUERY_SIZE = 100
-# attribution_window_seconds = 0 runs an optimized protocol, so 0 and anything larger
-ATTRIBUTION_WINDOW = [0, 86400]
 ROOT_STEP_PREFIX = "protocol/ipa_core::test_fixture::world::TestExecutionStep::iter0"
-BREAKDOWN_KEYS = 256
-USER_CAP = [8, 16, 32, 64, 128]
 SECURITY_MODEL = "semi-honest"
-TRIGGER_VALUES = [6, 7]
 
 # TODO(taikiy): #771 allows us to remove this synthetic step generation code
 
@@ -142,25 +136,12 @@ def extract_intermediate_steps(steps):
 
 def ipa_steps(base_args):
     output = set()
-    for c in USER_CAP:
-        for w in ATTRIBUTION_WINDOW:
-            for tv in TRIGGER_VALUES:
-                args = base_args + [
-                    "-n",
-                    str(QUERY_SIZE),
-                    "-c",
-                    str(c),
-                    "-w",
-                    str(w),
-                    "-b",
-                    str(BREAKDOWN_KEYS),
-                    "-m",
-                    SECURITY_MODEL,
-                    "-t",
-                    str(tv),
-                ]
-            print(" ".join(args), file=sys.stderr)
-            output.update(collect_steps(args))
+    args = base_args + ["-n", "100", "-c", "8", "-w", "0", "-b", "256", "-m", SECURITY_MODEL, "-t", "7"]
+    print(" ".join(args), file=sys.stderr)
+    output.update(collect_steps(args))
+    args = base_args + ["-n", "320", "-c", "256", "-w", "86400", "-b", "32", "-m", SECURITY_MODEL, "-t", "255"]
+    print(" ".join(args), file=sys.stderr)
+    output.update(collect_steps(args))
     return output
 
 
@@ -184,9 +165,7 @@ if __name__ == "__main__":
         "oneshot_ipa",
         "--no-default-features",
         f'--features={" ".join(features)}',
-        "--",
-        "--num-multi-bits",
-        "3",
+        '--',
     ]
 
     steps = set()

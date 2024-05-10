@@ -11,15 +11,15 @@ use crate::{
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 
+pub mod and;
 pub mod bitwise_equal;
-pub mod step;
-
 pub mod bitwise_less_than_prime;
 pub mod comparison;
 pub mod generate_random_bits;
 pub mod or;
 pub mod random_bits_generator;
 pub mod solved_bits;
+pub mod step;
 mod xor;
 
 pub use comparison::greater_than_constant;

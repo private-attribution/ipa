@@ -266,7 +266,10 @@ mod tests {
     use crate::{
         ff::{boolean_array::BA3, Fp31, Fp32BitPrime, Gf2, U128Conversions},
         helpers::{Direction, GatewayConfig, MpcMessage, Role, SendingEnd},
-        protocol::{context::Context, RecordId},
+        protocol::{
+            context::{Context, ShardedContext},
+            RecordId,
+        },
         secret_sharing::replicated::semi_honest::AdditiveShare,
         sharding::ShardConfiguration,
         test_executor::run,

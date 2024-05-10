@@ -146,11 +146,8 @@ impl TestConfigBuilder {
         let ports = self.ports.unwrap_or_else(|| {
             let socks = array::from_fn(|_| TcpListener::bind("localhost:0").unwrap());
             let ports = socks
-                .iter()
-                .map(|sock| sock.local_addr().unwrap().port())
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+                .each_ref()
+                .map(|sock| sock.local_addr().unwrap().port());
             sockets = Some(socks);
             ports
         });

@@ -22,7 +22,6 @@ use std::fmt::Debug;
 pub use app::TestApp;
 pub use event_gen::{Config as EventGeneratorConfig, EventGenerator};
 use futures::TryFuture;
-use ipa_step::{Step, StepNarrow};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 use rand_core::{CryptoRng, RngCore};
 pub use sharing::{get_bits, into_bits, Reconstruct, ReconstructArr};
@@ -34,31 +33,11 @@ pub use world::{
 
 use crate::{
     ff::{Field, U128Conversions},
-    protocol::{context::Context, prss::Endpoint as PrssEndpoint, Gate},
+    protocol::prss::Endpoint as PrssEndpoint,
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
     },
 };
-
-/// Narrows a set of contexts all at once.
-/// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`
-///
-/// # Panics
-/// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
-#[must_use]
-pub fn narrow_contexts<C: Context, S: Step>(contexts: &[C; 3], step: &S) -> [C; 3]
-where
-    Gate: StepNarrow<S>,
-{
-    // This really wants <[_; N]>::each_ref()
-    contexts
-        .iter()
-        .map(|c| c.narrow(step))
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| "infallible conversion failed")
-        .unwrap()
-}
 
 /// Generate three participants.
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...

@@ -44,11 +44,8 @@ fn keygen_confgen() {
 
     let sockets: [_; 3] = array::from_fn(|_| TcpListener::bind("127.0.0.1:0").unwrap());
     let ports: [u16; 3] = sockets
-        .iter()
-        .map(|sock| sock.local_addr().unwrap().port())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+        .each_ref()
+        .map(|sock| sock.local_addr().unwrap().port());
 
     // closure that generates the client config file (network.toml)
     let exec_conf_gen = |overwrite| {

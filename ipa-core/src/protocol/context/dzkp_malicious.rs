@@ -8,20 +8,17 @@ use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
-    helpers::{
-        ChannelId, Gateway, Message, MpcMessage, MpcReceivingEnd, Role, SendingEnd,
-        ShardReceivingEnd, TotalRecords,
-    },
+    helpers::{ChannelId, Gateway, MpcMessage, MpcReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         context::{
-            dzkp_validator::DZKPBatch, prss::InstrumentedIndexedSharedRandomness, Base,
-            Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
+            dzkp_validator::{DZKPBatch, Segment},
+            prss::InstrumentedIndexedSharedRandomness,
+            Base, Context as ContextTrait, DZKPContext, InstrumentedSequentialSharedRandomness,
         },
         prss::Endpoint as PrssEndpoint,
-        Gate,
+        Gate, RecordId,
     },
     seq_join::SeqJoin,
-    sharding::ShardIndex,
     sync::Arc,
 };
 
@@ -55,12 +52,16 @@ impl<'a> DZKPUpgraded<'a> {
 
 #[async_trait]
 impl<'a> DZKPContext for DZKPUpgraded<'a> {
-    fn is_unverified(&self) -> Result<(), Error> {
+    fn is_verified(&self) -> Result<(), Error> {
         if self.inner.batch.is_empty() {
             Ok(())
         } else {
             Err(Error::ContextUnsafe(format!("{self:?}")))
         }
+    }
+
+    fn push(&self, record_id: RecordId, segment: Segment) {
+        self.inner.batch.push(self.gate.clone(), record_id, segment);
     }
 }
 
@@ -121,23 +122,10 @@ impl<'a> super::Context for DZKPUpgraded<'a> {
             .get_mpc_sender(&ChannelId::new(role, self.gate.clone()), self.total_records)
     }
 
-    fn shard_send_channel<M: Message>(&self, dest_shard: ShardIndex) -> SendingEnd<ShardIndex, M> {
-        self.inner.gateway.get_shard_sender(
-            &ChannelId::new(dest_shard, self.gate.clone()),
-            self.total_records,
-        )
-    }
-
     fn recv_channel<M: MpcMessage>(&self, role: Role) -> MpcReceivingEnd<M> {
         self.inner
             .gateway
             .get_mpc_receiver(&ChannelId::new(role, self.gate.clone()))
-    }
-
-    fn shard_recv_channel<M: Message>(&self, origin: ShardIndex) -> ShardReceivingEnd<M> {
-        self.inner
-            .gateway
-            .get_shard_receiver(&ChannelId::new(origin, self.gate.clone()))
     }
 }
 

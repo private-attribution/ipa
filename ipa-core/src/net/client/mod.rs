@@ -160,11 +160,8 @@ impl MpcHelperClient {
     #[allow(clippy::missing_panics_doc)]
     pub fn from_conf(conf: &NetworkConfig, identity: &ClientIdentity) -> [MpcHelperClient; 3] {
         conf.peers()
-            .iter()
+            .each_ref()
             .map(|peer_conf| Self::new(&conf.client, peer_conf.clone(), identity.clone_with_key()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
     }
 
     /// Create a new client with the given configuration

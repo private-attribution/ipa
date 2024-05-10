@@ -2,23 +2,16 @@ use std::{borrow::Borrow, iter::repeat};
 
 use crate::{
     error::Error,
-    ff::{ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    ff::{boolean::Boolean, ArrayAccessRef, ArrayBuild, ArrayBuilder, Field},
+    helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
-        boolean::step::BitOpStep,
-        context::Context,
+        boolean::{or::bool_or, step::BitOpStep},
+        context::{Context, UpgradedSemiHonestContext},
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare, FieldSimd},
-};
-#[cfg(all(test, unit_test))]
-use crate::{
-    ff::{boolean::Boolean, CustomArray},
-    protocol::{
-        basics::{select, BooleanArrayMul},
-        context::SemiHonestContext,
-    },
-    secret_sharing::SharedValue,
+    secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
+    sharding::ShardBinding,
 };
 
 /// Non-saturated unsigned integer addition
@@ -52,29 +45,29 @@ where
 /// adds y to x, Output has same length as x (we dont seem to need support for different length)
 /// # Errors
 /// propagates errors from multiply
-#[cfg(all(test, unit_test))]
-pub async fn integer_sat_add<S>(
-    ctx: SemiHonestContext<'_>,
+pub async fn integer_sat_add<'a, SH, const N: usize>(
+    ctx: UpgradedSemiHonestContext<'a, SH, Boolean>,
     record_id: RecordId,
-    x: &AdditiveShare<S>,
-    y: &AdditiveShare<S>,
-) -> Result<AdditiveShare<S>, Error>
+    x: &BitDecomposed<AdditiveShare<Boolean, N>>,
+    y: &BitDecomposed<AdditiveShare<Boolean, N>>,
+) -> Result<BitDecomposed<AdditiveShare<Boolean, N>>, Error>
 where
-    S: SharedValue + CustomArray<Element = Boolean>,
-    AdditiveShare<S>: BooleanArrayMul + std::ops::Not<Output = AdditiveShare<S>>,
+    SH: ShardBinding,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>:
+        BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, Boolean, N>,
 {
     use super::step::SaturatedAdditionStep as Step;
 
-    let mut carry = AdditiveShare::<Boolean>::ZERO;
+    let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result = addition_circuit(ctx.narrow(&Step::Add), record_id, x, y, &mut carry).await?;
 
     // if carry==1 then {all ones} else {result}
-    select(
+    bool_or(
         ctx.narrow(&Step::Select),
         record_id,
-        &carry,
-        &!AdditiveShare::<S>::ZERO,
         &result,
+        repeat_n(&carry, x.len()),
     )
     .await
 }
@@ -174,13 +167,13 @@ mod test {
             boolean_array::{BA32, BA64},
             U128Conversions,
         },
-        protocol,
         protocol::{
             context::Context,
             ipa_prf::boolean_ops::addition_sequential::{integer_add, integer_sat_add},
+            RecordId,
         },
         rand::thread_rng,
-        secret_sharing::replicated::semi_honest::AdditiveShare,
+        secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed},
         test_executor::run,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -205,7 +198,7 @@ mod test {
                 .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -224,23 +217,29 @@ mod test {
     #[test]
     fn semi_honest_sat_add() {
         run(|| async move {
+            const BITS: usize = 64;
+            type BA = BA64;
+
             let world = TestWorld::default();
 
             let mut rng = thread_rng();
 
-            let x_ba64 = rng.gen::<BA64>();
-            let y_ba64 = rng.gen::<BA64>();
-            let x = x_ba64.as_u128();
-            let y = y_ba64.as_u128();
-            let z = 1_u128 << 64;
+            let x_ba = rng.gen::<BA>();
+            let y_ba = rng.gen::<BA>();
+            let x = x_ba.as_u128();
+            let y = y_ba.as_u128();
+            let z = 1_u128 << BITS;
+
+            let x_bits = BitDecomposed::new(x_ba);
+            let y_bits = BitDecomposed::new(y_ba);
 
             let expected = if x + y > z { z - 1 } else { (x + y) % z };
 
             let result = world
-                .semi_honest((x_ba64, y_ba64), |ctx, x_y| async move {
-                    integer_sat_add::<_>(
+                .upgraded_semi_honest((x_bits, y_bits), |ctx, x_y| async move {
+                    integer_sat_add::<_, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -249,7 +248,10 @@ mod test {
                 })
                 .await
                 .reconstruct()
-                .as_u128();
+                .into_iter()
+                .enumerate()
+                .fold(0, |acc, (i, b)| acc + b.as_u128() * (1 << i));
+
             assert_eq!((x, y, z, result), (x, y, z, expected));
         });
     }
@@ -273,7 +275,7 @@ mod test {
                 .semi_honest((x_ba64, y_ba32), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA64>, AdditiveShare<BA32>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )
@@ -294,7 +296,7 @@ mod test {
                 .semi_honest((y_ba32, x_ba64), |ctx, x_y| async move {
                     integer_add::<_, _, AdditiveShare<BA32>, AdditiveShare<BA64>, 1>(
                         ctx.set_total_records(1),
-                        protocol::RecordId(0),
+                        RecordId::FIRST,
                         &x_y.0,
                         &x_y.1,
                     )

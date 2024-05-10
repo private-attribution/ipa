@@ -1,13 +1,12 @@
-use std::iter::repeat;
-
 use embed_doc_image::embed_doc_image;
 
 use crate::{
     error::Error,
     ff::boolean::Boolean,
+    helpers::repeat_n,
     protocol::{
         basics::SecureMul,
-        boolean::step::BitOpStep,
+        boolean::and::bool_and,
         context::Context,
         ipa_prf::prf_sharding::step::{BinaryTreeDepthStep, BucketStep},
         RecordId,
@@ -93,26 +92,25 @@ where
         }
 
         let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
-        let mut futures = Vec::with_capacity(breakdown_count / step);
 
-        for (i, tree_index) in (0..breakdown_count).step_by(step).enumerate() {
-            let bucket_c = depth_c.narrow(&BucketStep::from(i));
+        let contributions = ctx
+            .parallel_join((0..breakdown_count).step_by(step).enumerate().filter_map(
+                |(i, tree_index)| {
+                    let bucket_c = depth_c.narrow(&BucketStep::from(i));
 
-            let index_contribution = row_contribution[tree_index].iter();
+                    let index_contribution = &row_contribution[tree_index];
 
-            if robust || tree_index + span < breakdown_count {
-                futures.push(async move {
-                    let bit_futures = index_contribution
-                        .zip(repeat((bit_of_bdkey, bucket_c.clone())))
-                        .enumerate()
-                        .map(|(i, (a, (b, bucket_c)))| {
-                            a.multiply(b, bucket_c.narrow(&BitOpStep::Bit(i)), record_id)
-                        });
-                    BitDecomposed::try_from(bucket_c.parallel_join(bit_futures).await?)
-                });
-            }
-        }
-        let contributions = ctx.parallel_join(futures).await?;
+                    (robust || tree_index + span < breakdown_count).then(|| {
+                        bool_and(
+                            bucket_c,
+                            record_id,
+                            index_contribution,
+                            repeat_n(bit_of_bdkey, index_contribution.len()),
+                        )
+                    })
+                },
+            ))
+            .await?;
 
         for (index, bdbit_contribution) in contributions.into_iter().enumerate() {
             let left_index = index * step;

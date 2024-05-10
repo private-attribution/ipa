@@ -31,6 +31,7 @@ mod app;
 mod seq_join;
 mod serde;
 mod sharding;
+mod utils;
 
 pub use app::{HelperApp, Setup as AppSetup};
 

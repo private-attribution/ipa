@@ -57,14 +57,9 @@ pub const PRF_CHUNK: usize = 64;
 /// Vectorization dimension for aggregation.
 pub const AGG_CHUNK: usize = 256;
 
-// #[derive(Step)]
-// pub(crate) enum Step {
-//     ConvertFp25519,
-//     EvalPrf,
-//     ConvertInputRowsToPrf,
-//     Shuffle,
-//     SortByTimestamp,
-// }
+/// Vectorization dimension for sort.
+pub const SORT_CHUNK: usize = 256;
+
 use step::IpaPrfStep as Step;
 
 #[derive(Clone, Debug)]
