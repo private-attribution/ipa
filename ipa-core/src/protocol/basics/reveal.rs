@@ -223,9 +223,12 @@ mod tests {
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::malicious::{
-                AdditiveShare as MaliciousReplicated, ExtendableField,
-                ThisCodeIsAuthorizedToDowngradeFromMalicious,
+            replicated::{
+                malicious::{
+                    AdditiveShare as MaliciousReplicated, ExtendableField,
+                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                },
+                semi_honest::AdditiveShare,
             },
             IntoShares, SharedValue,
         },
@@ -299,12 +302,15 @@ mod tests {
 
         let input = rng.gen::<TestField>();
         let results = world
-            .semi_honest(input, |ctx, share| async move {
-                share
-                    .reveal(ctx.set_total_records(1), RecordId::from(0))
-                    .await
-                    .unwrap()
-            })
+            .semi_honest(
+                input,
+                |ctx, share: AdditiveShare<Fp32BitPrime, 32>| async move {
+                    share
+                        .reveal(ctx.set_total_records(1), RecordId::from(0))
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
 
         assert_eq!(input, results[0]);
