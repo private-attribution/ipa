@@ -22,6 +22,9 @@ pub use error::Error;
 pub use server::{MpcHelperServer, TracingSpanMaker};
 pub use transport::{HttpShardTransport, HttpTransport};
 
+pub const APPLICATION_JSON: &str = "application/json";
+pub const APPLICATION_OCTET_STREAM: &str = "application/octet-stream";
+
 /// Provides access to IPAs Crypto Provider (AWS Libcrypto).
 static CRYPTO_PROVIDER: Lazy<Arc<CryptoProvider>> =
     Lazy::new(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));

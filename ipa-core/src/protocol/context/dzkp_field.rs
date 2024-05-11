@@ -1,6 +1,6 @@
 use crate::{
     ff::Field,
-    protocol::context::dzkp_validator::{BitArray32, SegmentEntry},
+    protocol::context::dzkp_validator::{Array256Bit, SegmentEntry},
     secret_sharing::{FieldSimd, Vectorizable},
 };
 
@@ -16,13 +16,13 @@ pub trait DZKPCompatibleField<const N: usize = 1>: FieldSimd<N> {
 pub trait DZKPBaseField: Field {
     type UnverifiedFieldValues;
     fn convert(
-        x_left: &BitArray32,
-        x_right: &BitArray32,
-        y_left: &BitArray32,
-        y_right: &BitArray32,
-        prss_left: &BitArray32,
-        prss_right: &BitArray32,
-        z_right: &BitArray32,
+        x_left: &Array256Bit,
+        x_right: &Array256Bit,
+        y_left: &Array256Bit,
+        y_right: &Array256Bit,
+        prss_left: &Array256Bit,
+        prss_right: &Array256Bit,
+        z_right: &Array256Bit,
     ) -> Self::UnverifiedFieldValues;
 }
 

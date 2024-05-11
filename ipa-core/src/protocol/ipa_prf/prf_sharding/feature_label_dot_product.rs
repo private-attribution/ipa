@@ -63,7 +63,7 @@ impl InputsRequiredFromPrevRow {
     where
         Boolean: FieldSimd<B>,
         Replicated<Boolean, B>:
-            BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+            BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
         FV: SharedValue,
         BitDecomposed<Replicated<Boolean, B>>:
             for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
@@ -234,7 +234,7 @@ pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
 where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     TV: SharedValue,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     BitDecomposed<Replicated<Boolean, B>>:
@@ -297,7 +297,7 @@ async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
 where
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     FV: SharedValue,
     BitDecomposed<Replicated<Boolean, B>>:
         for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
