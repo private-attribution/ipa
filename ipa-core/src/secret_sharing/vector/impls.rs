@@ -7,7 +7,10 @@ use crate::{
         ec_prime_field::Fp25519,
         Fp32BitPrime,
     },
-    protocol::ipa_prf::PRF_CHUNK,
+    protocol::{
+        context::{dzkp_field::DZKPCompatibleField, dzkp_validator::SegmentEntry},
+        ipa_prf::PRF_CHUNK,
+    },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare, FieldSimd, FieldVectorizable,
         ReplicatedSecretSharing, Vectorizable,
@@ -29,6 +32,12 @@ macro_rules! boolean_vector {
         }
 
         impl FieldSimd<$dim> for Boolean {}
+
+        impl DZKPCompatibleField<$dim> for Boolean {
+            fn as_segment_entry(array: &<Self as Vectorizable<$dim>>::Array) -> SegmentEntry<'_> {
+                SegmentEntry::from_bitslice(array.as_bitslice())
+            }
+        }
 
         impl From<AdditiveShare<$vec>> for AdditiveShare<Boolean, $dim> {
             fn from(value: AdditiveShare<$vec>) -> Self {
