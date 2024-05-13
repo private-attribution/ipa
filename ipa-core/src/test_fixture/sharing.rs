@@ -161,6 +161,19 @@ where
     }
 }
 
+impl<T, const N: usize> Reconstruct<[T; N]> for [[Replicated<T>; N]; 3]
+where
+    T: SharedValue,
+{
+    fn reconstruct(&self) -> [T; N] {
+        zip(zip(&self[0], &self[1]), &self[2])
+            .map(|((x0, x1), x2)| [x0, x1, x2].reconstruct())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+}
+
 impl Reconstruct<()> for [(); 3] {
     fn reconstruct(&self) {}
 }

@@ -432,7 +432,7 @@ where
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
@@ -687,7 +687,7 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<Boolean>: BooleanProtocols<C, Boolean>,
+    Replicated<Boolean>: BooleanProtocols<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(

@@ -44,7 +44,7 @@ pub async fn compare_geq<C>(
 ) -> Result<AdditiveShare<Boolean>, Error>
 where
     C: Context,
-    AdditiveShare<Boolean>: BooleanProtocols<C, Boolean>,
+    AdditiveShare<Boolean>: BooleanProtocols<C>,
 {
     // we need to initialize carry to 1 for x>=y,
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
@@ -67,7 +67,7 @@ pub async fn compare_gt<C, const N: usize>(
 where
     C: Context,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     // we need to initialize carry to 0 for x>y
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
@@ -89,7 +89,7 @@ pub async fn integer_sub<C>(
 ) -> Result<BitDecomposed<AdditiveShare<Boolean>>, Error>
 where
     C: Context,
-    AdditiveShare<Boolean>: BooleanProtocols<C, Boolean>,
+    AdditiveShare<Boolean>: BooleanProtocols<C>,
 {
     // we need to initialize carry to 1 for a subtraction
     let mut carry = AdditiveShare::<Boolean>::share_known_value(&ctx, Boolean::ONE);
@@ -160,7 +160,7 @@ async fn subtraction_circuit<C, const N: usize>(
 where
     C: Context,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -191,17 +191,17 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn bit_subtractor<C, F, const N: usize>(
+async fn bit_subtractor<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<F, N>,
-    y: &AdditiveShare<F, N>,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<AdditiveShare<F, N>, Error>
+    x: &AdditiveShare<Boolean, N>,
+    y: &AdditiveShare<Boolean, N>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let output = x + !(y + &*carry);
 

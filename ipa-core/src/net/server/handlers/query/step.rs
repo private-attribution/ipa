@@ -1,4 +1,4 @@
-use axum::{routing::post, Extension, Router};
+use axum::{extract::Path, routing::post, Extension, Router};
 
 use crate::{
     helpers::{BodyStream, Transport},
@@ -7,6 +7,7 @@ use crate::{
         server::{ClientIdentity, Error},
         HttpTransport,
     },
+    protocol::{step::Gate, QueryId},
     sync::Arc,
 };
 
@@ -14,10 +15,11 @@ use crate::{
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
     from: Extension<ClientIdentity>,
-    req: http_serde::query::step::Request<BodyStream>,
+    Path((query_id, gate)): Path<(QueryId, Gate)>,
+    body: BodyStream,
 ) -> Result<(), Error> {
     let transport = Transport::clone_ref(&*transport);
-    transport.receive_stream(req.query_id, req.gate, **from, req.body);
+    transport.receive_stream(query_id, gate, **from, body);
     Ok(())
 }
 
@@ -31,7 +33,6 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 mod tests {
     use std::task::Poll;
 
-    use axum::http::Request;
     use futures::{stream::poll_immediate, StreamExt};
     use hyper::{Body, StatusCode};
 
@@ -39,9 +40,7 @@ mod tests {
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            server::handlers::query::test_helpers::{
-                assert_req_fails_with, IntoFailingReq, MaybeExtensionExt,
-            },
+            server::handlers::query::test_helpers::{assert_fails_with, MaybeExtensionExt},
             test::TestServer,
         },
         protocol::{
@@ -54,22 +53,19 @@ mod tests {
 
     #[tokio::test]
     async fn step() {
-        let TestServer { transport, .. } = TestServer::builder().build().await;
+        let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
+        let req: OverrideReq = OverrideReq {
+            payload: payload.clone(),
+            client_id: Some(ClientIdentity(HelperIdentity::TWO)),
+            ..Default::default()
+        };
+        let test_server = TestServer::builder().build().await;
 
         let step = Gate::default().narrow("test");
-        let payload = vec![213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
-        let req =
-            http_serde::query::step::Request::new(QueryId, step.clone(), payload.clone().into());
 
-        handler(
-            Extension(Arc::clone(&transport)),
-            Extension(ClientIdentity(HelperIdentity::TWO)),
-            req,
-        )
-        .await
-        .unwrap();
+        test_server.server.handle_req(req.into()).await;
 
-        let mut stream = Arc::clone(&transport)
+        let mut stream = Arc::clone(&test_server.transport)
             .receive(HelperIdentity::TWO, (QueryId, step))
             .into_bytes_stream();
 
@@ -86,18 +82,17 @@ mod tests {
         payload: Vec<u8>,
     }
 
-    impl IntoFailingReq for OverrideReq {
-        fn into_req(self, port: u16) -> Request<Body> {
+    impl From<OverrideReq> for hyper::Request<Body> {
+        fn from(val: OverrideReq) -> Self {
             let uri = format!(
-                "http://localhost:{}{}/{}/step/{}",
-                port,
+                "http://localhost{}/{}/step/{}",
                 http_serde::query::BASE_AXUM_PATH,
-                self.query_id,
-                self.gate.as_ref()
+                val.query_id,
+                val.gate.as_ref()
             );
             hyper::Request::post(uri)
-                .maybe_extension(self.client_id)
-                .body(hyper::Body::from(self.payload))
+                .maybe_extension(val.client_id)
+                .body(hyper::Body::from(val.payload))
                 .unwrap()
         }
     }
@@ -119,7 +114,7 @@ mod tests {
             query_id: "not-a-query-id".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::BAD_REQUEST).await;
     }
 
     #[tokio::test]
@@ -128,6 +123,6 @@ mod tests {
             client_id: None,
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNAUTHORIZED).await;
+        assert_fails_with(req.into(), StatusCode::UNAUTHORIZED).await;
     }
 }

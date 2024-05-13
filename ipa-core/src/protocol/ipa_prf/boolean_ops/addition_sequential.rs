@@ -4,7 +4,7 @@ use ipa_macros::Step;
 
 use crate::{
     error::Error,
-    ff::{boolean::Boolean, ArrayAccessRef, Field},
+    ff::{boolean::Boolean, ArrayAccessRef},
     helpers::repeat_n,
     protocol::{
         basics::{BooleanProtocols, SecureMul},
@@ -40,7 +40,7 @@ pub async fn integer_add<C, const N: usize>(
 where
     C: Context,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let mut carry = AdditiveShare::ZERO;
     let sum = addition_circuit(ctx, record_id, x, y, &mut carry).await?;
@@ -67,8 +67,7 @@ pub async fn integer_sat_add<'a, SH, const N: usize>(
 where
     SH: ShardBinding,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>:
-        BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<UpgradedSemiHonestContext<'a, SH, Boolean>, N>,
 {
     let mut carry = AdditiveShare::<Boolean, N>::ZERO;
     let result =
@@ -102,7 +101,7 @@ async fn addition_circuit<C, const N: usize>(
 where
     C: Context,
     Boolean: FieldSimd<N>,
-    AdditiveShare<Boolean, N>: BooleanProtocols<C, Boolean, N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let x = x.iter();
     let y = y.iter();
@@ -133,17 +132,17 @@ where
 ///
 /// # Errors
 /// propagates errors from multiply
-async fn bit_adder<C, F, const N: usize>(
+async fn bit_adder<C, const N: usize>(
     ctx: C,
     record_id: RecordId,
-    x: &AdditiveShare<F, N>,
-    y: &AdditiveShare<F, N>,
-    carry: &mut AdditiveShare<F, N>,
-) -> Result<AdditiveShare<F, N>, Error>
+    x: &AdditiveShare<Boolean, N>,
+    y: &AdditiveShare<Boolean, N>,
+    carry: &mut AdditiveShare<Boolean, N>,
+) -> Result<AdditiveShare<Boolean, N>, Error>
 where
     C: Context,
-    F: Field + FieldSimd<N>,
-    AdditiveShare<F, N>: BooleanProtocols<C, F, N>,
+    Boolean: FieldSimd<N>,
+    AdditiveShare<Boolean, N>: BooleanProtocols<C, N>,
 {
     let output = x + y + &*carry;
 
