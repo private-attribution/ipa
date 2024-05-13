@@ -73,8 +73,6 @@ where
 {
     let role = ctx.role();
 
-    let mut rhs = a.right_arr().clone() * b.right_arr();
-
     // Compute the value (d_i) we want to send to the right helper (i+1).
     let right_d =
         a.left_arr().clone() * b.right_arr() + a.right_arr().clone() * b.left_arr() - prss_left;
@@ -82,19 +80,15 @@ where
     ctx.send_channel::<<F as Vectorizable<N>>::Array>(role.peer(Direction::Right))
         .send(record_id, &right_d)
         .await?;
-    rhs += right_d;
 
-    rhs += prss_right;
+    let rhs = a.right_arr().clone() * b.right_arr() + right_d + prss_right;
 
     // Sleep until helper on the left sends us their (d_i-1) value.
-    let mut lhs = a.left_arr().clone() * b.left_arr();
     let left_d: <F as Vectorizable<N>>::Array = ctx
         .recv_channel(role.peer(Direction::Left))
         .receive(record_id)
         .await?;
-    lhs += left_d;
-
-    lhs += prss_left;
+    let lhs = a.left_arr().clone() * b.left_arr() + left_d + prss_left;
 
     Ok(Replicated::new_arr(lhs, rhs))
 }
