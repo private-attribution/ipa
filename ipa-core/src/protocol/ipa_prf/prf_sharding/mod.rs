@@ -274,18 +274,6 @@ impl From<usize> for UserNthRowStep {
 }
 
 #[derive(Step)]
-pub enum BinaryTreeDepthStep {
-    #[dynamic(64)]
-    Depth(usize),
-}
-
-impl From<usize> for BinaryTreeDepthStep {
-    fn from(v: usize) -> Self {
-        Self::Depth(v)
-    }
-}
-
-#[derive(Step)]
 pub(crate) enum Step {
     BinaryValidator,
     EverEncounteredSourceEvent,
