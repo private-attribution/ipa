@@ -54,7 +54,7 @@ pub(crate) enum Step {
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn multiply<F>(
+pub async fn multiply_ab_and_rab_and_accumulate_macs<F>(
     ctx: UpgradedMaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
@@ -113,7 +113,7 @@ where
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
 impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for MaliciousReplicated<F> {
-    async fn multiply_sparse<'fut>(
+    async fn multiply<'fut>(
         &self,
         rhs: &Self,
         ctx: UpgradedMaliciousContext<'a, F>,
@@ -122,7 +122,7 @@ impl<'a, F: ExtendableField> SecureMul<UpgradedMaliciousContext<'a, F>> for Mali
     where
         UpgradedMaliciousContext<'a, F>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs).await
+        multiply_ab_and_rab_and_accumulate_macs(ctx, record_id, self, rhs).await
     }
 }
 
