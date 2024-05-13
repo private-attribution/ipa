@@ -5,13 +5,15 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::repeat_n,
-    protocol::{basics::SecureMul, boolean::and::bool_and, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::and::bool_and_9_bit, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
+const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
+
 #[derive(Step)]
 pub enum BucketStep {
-    #[dynamic(512)]
+    #[dynamic(512)] // should be equal to MAX_BREAKDOWNS
     Bit(usize),
 }
 
@@ -85,7 +87,6 @@ where
     Boolean: FieldSimd<N>,
     AdditiveShare<Boolean, N>: SecureMul<C>,
 {
-    const MAX_BREAKDOWNS: usize = 512; // constrained by the compact step ability to generate dynamic steps
     let mut step: usize = 1 << bd_key.len();
 
     if breakdown_count > step {
@@ -128,7 +129,7 @@ where
                     let index_contribution = &row_contribution[tree_index];
 
                     (robust || tree_index + span < breakdown_count).then(|| {
-                        bool_and(
+                        bool_and_9_bit(
                             bucket_c,
                             record_id,
                             index_contribution,
