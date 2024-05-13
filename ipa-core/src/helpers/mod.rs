@@ -15,6 +15,7 @@ mod buffers;
 mod error;
 mod futures;
 mod gateway;
+pub mod hashing;
 pub(crate) mod prss_protocol;
 pub mod stream;
 mod transport;

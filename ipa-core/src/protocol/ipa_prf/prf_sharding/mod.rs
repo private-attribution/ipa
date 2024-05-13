@@ -8,7 +8,7 @@ use std::{
 use futures::{
     future::{try_join, try_join3},
     stream::{self, unfold},
-    Stream, StreamExt,
+    FutureExt, Stream, StreamExt,
 };
 
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
         boolean_array::{BA32, BA7},
         ArrayAccess, CustomArray, Expand, Field, U128Conversions,
     },
-    helpers::stream::TryFlattenItersExt,
+    helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
         boolean::or::or,
@@ -98,22 +98,20 @@ impl<BK: SharedValue, TS: SharedValue, TV: SharedValue> GroupingKey
     }
 }
 
-struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedValue, SS: SharedValue>
-{
+struct InputsRequiredFromPrevRow<BK: SharedValue, TV: SharedValue, TS: SharedValue> {
     ever_encountered_a_source_event: Replicated<Boolean>,
     attributed_breakdown_key_bits: Replicated<BK>,
-    saturating_sum: Replicated<SS>,
+    saturating_sum: BitDecomposed<Replicated<Boolean>>,
     is_saturated: Replicated<Boolean>,
     difference_to_cap: Replicated<TV>,
     source_event_timestamp: Replicated<TS>,
 }
 
-impl<BK, TV, TS, SS> InputsRequiredFromPrevRow<BK, TV, TS, SS>
+impl<BK, TV, TS> InputsRequiredFromPrevRow<BK, TV, TS>
 where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
@@ -196,7 +194,7 @@ where
             ctx.narrow(&PerRowStep::ComputeSaturatingSum),
             record_id,
             &self.saturating_sum,
-            &attributed_trigger_value,
+            &attributed_trigger_value.to_bits(),
         )
         .await?;
 
@@ -214,9 +212,13 @@ where
             integer_sub(
                 ctx.narrow(&PerRowStep::ComputeDifferenceToCap),
                 record_id,
-                &Replicated::<TV>::ZERO,
+                &BitDecomposed::new(repeat_n(
+                    Replicated::ZERO,
+                    usize::try_from(TV::BITS).unwrap(),
+                )),
                 &updated_sum,
-            ),
+            )
+            .map(|res| res.map(BitDecomposed::collect_bits)),
         )
         .await?;
 
@@ -377,7 +379,7 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[tracing::instrument(name = "attribute_cap_aggregate", skip_all)]
-pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, SS, const B: usize>(
+pub async fn attribute_cap_aggregate<'ctx, BK, TV, HV, TS, const SS_BITS: usize, const B: usize>(
     sh_ctx: SemiHonestContext<'ctx>,
     input_rows: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
     attribution_window_seconds: Option<NonZeroU32>,
@@ -388,10 +390,9 @@ where
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
@@ -432,7 +433,7 @@ where
                 let num_user_rows = rows_for_user.len();
                 let contexts = ctx_for_row_number[..num_user_rows - 1].to_owned();
 
-                evaluate_per_user_attribution_circuit::<BK, TV, TS, SS>(
+                evaluate_per_user_attribution_circuit::<BK, TV, TS, SS_BITS>(
                     contexts,
                     RecordId::from(record_id),
                     rows_for_user,
@@ -455,7 +456,7 @@ where
     .await
 }
 
-async fn evaluate_per_user_attribution_circuit<BK, TV, TS, SS>(
+async fn evaluate_per_user_attribution_circuit<BK, TV, TS, const SS_BITS: usize>(
     ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
     record_id: RecordId,
     rows_for_user: Vec<PrfShardedIpaInputRow<BK, TV, TS>>,
@@ -465,7 +466,6 @@ where
     BK: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    SS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TS>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
@@ -476,7 +476,7 @@ where
     }
     let first_row = &rows_for_user[0];
     let mut prev_row_inputs =
-        initialize_new_device_attribution_variables::<BK, TV, TS, SS>(first_row);
+        initialize_new_device_attribution_variables::<BK, TV, TS, SS_BITS>(first_row);
 
     let mut output = Vec::with_capacity(rows_for_user.len() - 1);
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
@@ -493,19 +493,18 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<BK, TV, TS, SS>(
+fn initialize_new_device_attribution_variables<BK, TV, TS, const SS_BITS: usize>(
     input_row: &PrfShardedIpaInputRow<BK, TV, TS>,
-) -> InputsRequiredFromPrevRow<BK, TV, TS, SS>
+) -> InputsRequiredFromPrevRow<BK, TV, TS>
 where
     BK: SharedValue,
     TV: SharedValue,
     TS: SharedValue,
-    SS: SharedValue,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_source_event: input_row.is_trigger_bit.clone().not(),
         attributed_breakdown_key_bits: input_row.breakdown_key.clone(),
-        saturating_sum: Replicated::<SS>::ZERO,
+        saturating_sum: BitDecomposed::new(repeat_n(Replicated::ZERO, SS_BITS)),
         is_saturated: Replicated::<Boolean>::ZERO,
         // This is incorrect in the case that the CAP is less than the maximum value of "trigger value" for a single row
         // Not a problem if you assume that's an invalid input
@@ -648,24 +647,29 @@ async fn is_trigger_event_within_attribution_window<C, TS>(
 where
     C: Context,
     TS: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Replicated<Boolean>: BooleanProtocols<C, Boolean>,
+    Replicated<Boolean>: BooleanProtocols<C>,
 {
     if let Some(attribution_window_seconds) = attribution_window_seconds {
         let time_delta_bits = integer_sub(
             ctx.narrow(&WindowStep::ComputeTimeDelta),
             record_id,
-            trigger_event_timestamp,
-            source_event_timestamp,
+            &trigger_event_timestamp.to_bits(),
+            &source_event_timestamp.to_bits(),
         )
         .await?;
 
-        let constant_bits = TS::truncate_from(attribution_window_seconds.get());
+        let attribution_window_bits = BitDecomposed::decompose(TS::BITS, |i| {
+            Replicated::share_known_value(
+                &ctx,
+                Boolean::truncate_from((attribution_window_seconds.get() >> i) & 0x1),
+            )
+        });
 
         let time_delta_gt_attribution_window = compare_gt(
             ctx.narrow(&WindowStep::CompareTimeDeltaToAttributionWindow),
             record_id,
             &time_delta_bits,
-            &Replicated::<TS>::new(constant_bits, constant_bits),
+            &attribution_window_bits,
         )
         .await?;
         Ok(time_delta_gt_attribution_window.not())
@@ -921,7 +925,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
                         ctx, input_rows, None, &histogram,
                     )
                     .await
@@ -975,7 +979,7 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, BA5, 32>(
+                    attribute_cap_aggregate::<BA5, BA3, BA16, BA20, 5, 32>(
                         ctx,
                         input_rows,
                         NonZeroU32::new(ATTRIBUTION_WINDOW_SECONDS),
@@ -1066,9 +1070,14 @@ pub mod tests {
 
             let result: Vec<_> = world
                 .semi_honest(records.into_iter(), |ctx, input_rows| async move {
-                    attribute_cap_aggregate::<BA8, BA3, BA8, BA20, SaturatingSumType, 256>(
-                        ctx, input_rows, None, &HISTOGRAM,
-                    )
+                    attribute_cap_aggregate::<
+                        BA8,
+                        BA3,
+                        BA8,
+                        BA20,
+                        { SaturatingSumType::BITS as usize },
+                        256,
+                    >(ctx, input_rows, None, &HISTOGRAM)
                     .await
                     .unwrap()
                 })

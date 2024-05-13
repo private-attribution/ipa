@@ -22,8 +22,6 @@ pub enum Error {
     #[error("bad path: {0}")]
     BadPathString(#[source] BoxError),
     #[error(transparent)]
-    BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
-    #[error(transparent)]
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
     #[error("query id not found: {}", .0.as_ref())]
     QueryIdNotFound(QueryId),
@@ -151,7 +149,6 @@ impl IntoResponse for Error {
             | Self::HyperHttpPassthrough(_)
             | Self::FailedHttpRequest { .. }
             | Self::InvalidUri(_)
-            | Self::BodyAlreadyExtracted(_)
             | Self::MissingExtension(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
             Self::Application { code, .. } => code,

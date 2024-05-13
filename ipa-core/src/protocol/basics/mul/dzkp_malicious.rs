@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{mul::semi_honest::multiplication_protocol, MultiplyZeroPositions, SecureMul},
+        basics::{mul::semi_honest::multiplication_protocol, SecureMul},
         context::{
             dzkp_field::DZKPCompatibleField, dzkp_validator::Segment, Context, DZKPContext,
             DZKPUpgradedMaliciousContext,
@@ -32,7 +32,6 @@ pub async fn multiply<'a, F, const N: usize>(
     record_id: RecordId,
     a: &Replicated<F, N>,
     b: &Replicated<F, N>,
-    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F, N>, Error>
 where
     F: Field + DZKPCompatibleField<N>,
@@ -42,7 +41,7 @@ where
         .prss()
         .generate::<(<F as Vectorizable<N>>::Array, _), _>(record_id);
 
-    let z = multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right, zeros).await?;
+    let z = multiplication_protocol(&ctx, record_id, a, b, &prss_left, &prss_right).await?;
 
     // create segment
     let segment = Segment::from_entries(
@@ -71,12 +70,11 @@ impl<'a, F: Field + DZKPCompatibleField<N>, const N: usize>
         rhs: &Self,
         ctx: DZKPUpgradedMaliciousContext<'a>,
         record_id: RecordId,
-        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self, Error>
     where
         DZKPUpgradedMaliciousContext<'a>: 'fut,
     {
-        multiply(ctx, record_id, self, rhs, zeros_at).await
+        multiply(ctx, record_id, self, rhs).await
     }
 }
 

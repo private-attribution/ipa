@@ -48,14 +48,8 @@ where
 {
     let r_sharing: Replicated<F> = ctx.prss().generate(record_id);
 
-    let rv_share = semi_honest_multiply(
-        ctx.narrow(&Step::MultiplyWithR),
-        record_id,
-        &r_sharing,
-        v,
-        ZeroPositions::NONE,
-    )
-    .await?;
+    let rv_share =
+        semi_honest_multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
     let rv = F::from_array(
         &rv_share
             .reveal(ctx.narrow(&Step::RevealR), record_id)

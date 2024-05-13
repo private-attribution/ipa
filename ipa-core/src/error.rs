@@ -71,6 +71,8 @@ pub enum Error {
     ContextUnsafe(String),
     #[error("DZKP Validation failed")]
     DZKPValidationFailed,
+    #[error("Inconsistent shares")]
+    InconsistentShares,
 }
 
 impl Default for Error {

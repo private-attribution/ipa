@@ -1,17 +1,23 @@
-use axum::{routing::get, Extension, Router};
+use axum::{extract::Path, routing::get, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
     helpers::{BodyStream, Transport},
-    net::{http_serde, server::Error, HttpTransport},
+    net::{
+        http_serde::{self, query::results::Request},
+        server::Error,
+        HttpTransport,
+    },
+    protocol::QueryId,
     sync::Arc,
 };
 
 /// Handles the completion of the query by blocking the sender until query is completed.
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    req: http_serde::query::results::Request,
+    Path(query_id): Path<QueryId>,
 ) -> Result<Vec<u8>, Error> {
+    let req = Request { query_id };
     // TODO: we may be able to stream the response
     let transport = Transport::clone_ref(&*transport);
     match transport.dispatch(req, BodyStream::empty()).await {
@@ -29,8 +35,8 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 #[cfg(all(test, unit_test))]
 mod tests {
 
-    use axum::{http::Request, Extension};
-    use hyper::StatusCode;
+    use axum::http::uri::{Authority, Scheme};
+    use hyper::{Body, StatusCode};
 
     use crate::{
         ff::Fp31,
@@ -41,11 +47,7 @@ mod tests {
         },
         net::{
             http_serde,
-            server::handlers::query::{
-                results::handler,
-                test_helpers::{assert_req_fails_with, IntoFailingReq},
-            },
-            test::TestServer,
+            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
         },
         protocol::QueryId,
         query::ProtocolResult,
@@ -60,40 +62,35 @@ mod tests {
         ))]);
         let expected_query_id = QueryId;
         let raw_results = expected_results.to_vec();
-        let test_server = TestServer::builder()
-            .with_request_handler(make_owned_handler(
-                move |addr: Addr<HelperIdentity>, _: BodyStream| {
-                    let raw_results = raw_results.clone();
-                    async move {
-                        let RouteId::CompleteQuery = addr.route else {
-                            panic!("unexpected call");
-                        };
-                        let results = Box::new(raw_results.clone()) as Box<dyn ProtocolResult>;
-                        assert_eq!(addr.query_id, Some(expected_query_id));
-                        Ok(HelperResponse::from(results))
-                    }
-                },
-            ))
-            .build()
-            .await;
+        let req_handler = make_owned_handler(move |addr: Addr<HelperIdentity>, _: BodyStream| {
+            let raw_results = raw_results.clone();
+            async move {
+                let RouteId::CompleteQuery = addr.route else {
+                    panic!("unexpected call");
+                };
+                let results = Box::new(raw_results.clone()) as Box<dyn ProtocolResult>;
+                assert_eq!(addr.query_id, Some(expected_query_id));
+                Ok(HelperResponse::from(results))
+            }
+        });
         let req = http_serde::query::results::Request::new(QueryId);
-        let results = handler(Extension(test_server.transport), req.clone())
-            .await
+        let req = req
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
-        assert_eq!(results, expected_results.to_bytes());
+        let resp_body = assert_success_with(req, req_handler).await;
+        assert_eq!(resp_body, expected_results.to_bytes());
     }
 
     struct OverrideReq {
         query_id: String,
     }
 
-    impl IntoFailingReq for OverrideReq {
-        fn into_req(self, port: u16) -> Request<hyper::Body> {
+    impl From<OverrideReq> for hyper::Request<Body> {
+        fn from(val: OverrideReq) -> Self {
             let uri = format!(
-                "http://localhost:{}{}/{}/complete",
-                port,
+                "http://localhost{}/{}/complete",
                 http_serde::query::BASE_AXUM_PATH,
-                self.query_id
+                val.query_id
             );
             hyper::Request::get(uri).body(hyper::Body::empty()).unwrap()
         }
@@ -105,6 +102,6 @@ mod tests {
             query_id: "not-a-query-id".into(),
         };
 
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::BAD_REQUEST).await;
     }
 }

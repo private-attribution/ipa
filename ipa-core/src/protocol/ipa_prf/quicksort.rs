@@ -5,7 +5,7 @@ use futures::stream::{self, repeat, StreamExt, TryStreamExt};
 
 use crate::{
     error::{Error, LengthError, UnwrapInfallible},
-    ff::{boolean::Boolean, ArrayAccess, ArrayBuild, CustomArray, Expand},
+    ff::{boolean::Boolean, CustomArray, Expand},
     helpers::stream::{process_stream_by_chunks, ChunkBuffer, TryFlattenItersExt},
     protocol::{
         basics::Reveal,
@@ -25,8 +25,7 @@ use crate::{
 
 impl<K> ChunkBuffer<SORT_CHUNK> for (Vec<AdditiveShare<K>>, Vec<AdditiveShare<K>>)
 where
-    K: SharedValue + CustomArray<Element = Boolean>,
-    AdditiveShare<K>: ArrayAccess + ArrayBuild<Input = AdditiveShare<Boolean>>,
+    K: SharedValue,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
@@ -126,7 +125,6 @@ where
     F: Fn(&S) -> &AdditiveShare<K> + Sync + Send + Copy,
     K: SharedValue + CustomArray<Element = Boolean>,
     <Boolean as Vectorizable<SORT_CHUNK>>::Array: Expand<Input = Boolean>,
-    AdditiveShare<K>: ArrayAccess + ArrayBuild<Input = AdditiveShare<Boolean>>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
         for<'a> TransposeFrom<&'a [AdditiveShare<K>; SORT_CHUNK], Error = Infallible>,
     BitDecomposed<AdditiveShare<Boolean, SORT_CHUNK>>:
@@ -179,7 +177,7 @@ where
                     async move {
                         // Compare the current element against pivot and reveal the result.
                         let comparison =
-                            compare_gt::<_, _, _, _, SORT_CHUNK>(cmp_ctx, record_id, &k, &pivot)
+                            compare_gt::<_, SORT_CHUNK>(cmp_ctx, record_id, &k, &pivot)
                                 .await?
                                 .reveal(rvl_ctx, record_id) // reveal outcome of comparison
                                 .await?;

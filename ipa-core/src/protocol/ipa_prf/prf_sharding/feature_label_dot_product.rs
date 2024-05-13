@@ -1,34 +1,37 @@
-use std::iter::{self, zip};
+use std::{
+    convert::Infallible,
+    iter::{self, zip},
+};
 
-use futures::{stream, TryStreamExt};
+use futures::stream;
 use futures_util::{future::try_join, stream::unfold, Stream, StreamExt};
 
 use crate::{
-    error::{Error, LengthError},
-    ff::{boolean::Boolean, CustomArray, Field, U128Conversions},
-    helpers::stream::TryFlattenItersExt,
+    error::{Error, LengthError, UnwrapInfallible},
+    ff::{boolean::Boolean, CustomArray, Expand, Field, U128Conversions},
+    helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
-        basics::{select, BooleanArrayMul, BooleanProtocols, SecureMul, ShareKnownValue},
-        boolean::or::or,
+        basics::{SecureMul, ShareKnownValue},
+        boolean::{and::bool_and, or::or},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::{
             aggregation::aggregate_values,
             prf_sharding::step::{FeatureLabelDotProductStep as Step, UserNthRowStep},
         },
-        RecordId,
+        BooleanProtocols, RecordId,
     },
     secret_sharing::{
         replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
-        BitDecomposed, FieldSimd, FieldVectorizable, SharedValue, TransposeFrom,
+        BitDecomposed, FieldSimd, SharedValue, TransposeFrom, Vectorizable,
     },
     seq_join::{seq_join, SeqJoin},
     sharding::NotSharded,
 };
 
-pub struct PrfShardedIpaInputRow<FV: SharedValue + CustomArray<Element = Boolean>> {
+pub struct PrfShardedIpaInputRow<FV: SharedValue, const B: usize> {
     prf_of_match_key: u64,
     is_trigger_bit: Replicated<Boolean>,
-    feature_vector: Replicated<FV>,
+    feature_vector: [Replicated<FV>; B],
 }
 
 struct InputsRequiredFromPrevRow {
@@ -53,15 +56,19 @@ impl InputsRequiredFromPrevRow {
     /// - Outputs
     ///     - If a user has `N` input rows, they will generate `N-1` output rows. (The first row cannot possibly contribute any value to the output)
     ///     - Each output row is a vector, either the feature vector or zeroes.
-    pub async fn compute_row_with_previous<'ctx, FV>(
+    pub async fn compute_row_with_previous<'ctx, FV, const B: usize>(
         &mut self,
         ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
         record_id: RecordId,
-        input_row: &PrfShardedIpaInputRow<FV>,
-    ) -> Result<Replicated<FV>, Error>
+        input_row: &PrfShardedIpaInputRow<FV, B>,
+    ) -> Result<BitDecomposed<Replicated<Boolean, B>>, Error>
     where
-        FV: SharedValue + CustomArray<Element = Boolean>,
-        Replicated<FV>: BooleanArrayMul,
+        Boolean: FieldSimd<B>,
+        Replicated<Boolean, B>:
+            BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+        FV: SharedValue,
+        BitDecomposed<Replicated<Boolean, B>>:
+            for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -96,19 +103,26 @@ impl InputsRequiredFromPrevRow {
         )
         .await?;
 
-        let capped_attributed_feature_vector = select(
-            ctx.narrow(&Step::ComputedCappedFeatureVector),
+        let condition = Replicated::new_arr(
+            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.left()),
+            <Boolean as Vectorizable<B>>::Array::expand(&capped_label.right()),
+        );
+        let mut bit_decomposed_output = BitDecomposed::new(iter::empty());
+        bit_decomposed_output
+            .transpose_from(&input_row.feature_vector)
+            .unwrap_infallible();
+        let capped_attributed_feature_vector = bool_and(
+            ctx,
             record_id,
-            &capped_label,
-            &input_row.feature_vector,
-            &Replicated::<FV>::ZERO,
+            &bit_decomposed_output,
+            repeat_n(&condition, FV::BITS.try_into().unwrap()),
         )
-        .await?;
+        .await;
 
         self.ever_encountered_a_trigger_event = ever_encountered_a_trigger_event;
         self.is_saturated = updated_is_saturated;
 
-        Ok(capped_attributed_feature_vector)
+        capped_attributed_feature_vector
     }
 }
 
@@ -135,13 +149,13 @@ where
 /// Takes an input stream of `PrfShardedIpaInputRecordRow` which is assumed to have all records with a given PRF adjacent
 /// and converts it into a stream of vectors of `PrfShardedIpaInputRecordRow` having the same PRF.
 ///
-fn chunk_rows_by_user<FV, IS>(
+fn chunk_rows_by_user<FV, IS, const B: usize>(
     input_stream: IS,
-    first_row: PrfShardedIpaInputRow<FV>,
-) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV>>>
+    first_row: PrfShardedIpaInputRow<FV, B>,
+) -> impl Stream<Item = Vec<PrfShardedIpaInputRow<FV, B>>>
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
-    IS: Stream<Item = PrfShardedIpaInputRow<FV>> + Unpin,
+    FV: SharedValue,
+    IS: Stream<Item = PrfShardedIpaInputRow<FV, B>> + Unpin,
 {
     unfold(Some((input_stream, first_row)), |state| async move {
         let (mut s, last_row) = state?;
@@ -193,23 +207,22 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn compute_feature_label_dot_product<'ctx, FV, OV, const B: usize>(
+pub async fn compute_feature_label_dot_product<'ctx, TV, HV, const B: usize>(
     sh_ctx: UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>,
-    input_rows: Vec<PrfShardedIpaInputRow<FV>>,
+    input_rows: Vec<PrfShardedIpaInputRow<TV, B>>,
     users_having_n_records: &[usize],
-) -> Result<Vec<Replicated<OV>>, Error>
+) -> Result<[Replicated<HV>; B], Error>
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
-    OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
-    Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
-    Replicated<FV>: BooleanArrayMul,
+    Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
-    Vec<Replicated<OV>>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    TV: SharedValue,
+    HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<TV>; B], Error = Infallible>,
+    Vec<Replicated<HV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
-    assert_eq!(<FV as SharedValue>::BITS, u32::try_from(B).unwrap());
-
     // Get the validator and context to use for Boolean multiplication operations
     let binary_m_ctx = sh_ctx.narrow(&Step::BinaryValidator);
 
@@ -223,7 +236,7 @@ where
     // Chunk the incoming stream of records into stream of vectors of records with the same PRF
     let mut input_stream = stream::iter(input_rows);
     let Some(first_row) = input_stream.next().await else {
-        return Ok(vec![]);
+        return Ok([Replicated::<HV>::ZERO; B]);
     };
     let rows_chunked_by_user = chunk_rows_by_user(input_stream, first_row);
 
@@ -246,25 +259,29 @@ where
             });
 
     // Execute all of the async futures (sequentially), and flatten the result
+    // The call to `try_flatten_iters` only serves to eliminate the "Option" wrapping, and filter out `None` elements
     let flattened_stream = Box::pin(
-        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results))
-            .try_flatten_iters()
-            .map_ok(|value| {
-                BitDecomposed::new(iter::once(Replicated::new_arr(value.left(), value.right())))
-            }),
+        seq_join(sh_ctx.active_work(), stream::iter(chunked_user_results)).try_flatten_iters(),
     );
 
-    aggregate_values::<_, B>(binary_m_ctx, flattened_stream, num_outputs).await
+    let vec_of_shares =
+        aggregate_values::<HV, B>(binary_m_ctx, flattened_stream, num_outputs).await?;
+
+    Ok(vec_of_shares.try_into().unwrap())
 }
 
-async fn evaluate_per_user_attribution_circuit<FV>(
-    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'_, NotSharded, Boolean>>,
+async fn evaluate_per_user_attribution_circuit<'ctx, FV, const B: usize>(
+    ctx_for_row_number: Vec<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
     record_id: RecordId,
-    rows_for_user: Vec<PrfShardedIpaInputRow<FV>>,
-) -> Result<Option<Replicated<FV>>, Error>
+    rows_for_user: Vec<PrfShardedIpaInputRow<FV, B>>,
+) -> Result<Option<BitDecomposed<Replicated<Boolean, B>>>, Error>
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<FV>: BooleanArrayMul,
+    Boolean: FieldSimd<B>,
+    Replicated<Boolean, B>:
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
+    FV: SharedValue,
+    BitDecomposed<Replicated<Boolean, B>>:
+        for<'a> TransposeFrom<&'a [Replicated<FV>; B], Error = Infallible>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {
@@ -277,15 +294,16 @@ where
     // Since compute_row_with_previous ensures there will be *at most* a single non-zero contribution
     // from each user, we can just add all of the outputs together for any given user.
     // There is no need for any carries since we are always adding zero to the single contribution.
-    let mut output = Replicated::<FV>::ZERO;
+    let mut output = BitDecomposed::new(repeat_n(Replicated::ZERO, FV::BITS.try_into().unwrap()));
+
     // skip the first row as it requires no multiplications
     // no context was created for the first row
     for (row, ctx) in zip(rows_for_user.iter().skip(1), ctx_for_row_number.into_iter()) {
         let capped_attribution_outputs = prev_row_inputs
-            .compute_row_with_previous(ctx, record_id, row)
+            .compute_row_with_previous::<FV, B>(ctx, record_id, row)
             .await?;
 
-        output += capped_attribution_outputs;
+        zip(output.iter_mut(), capped_attribution_outputs).for_each(|(x, y)| *x += y);
     }
 
     Ok(Some(output))
@@ -295,11 +313,11 @@ where
 /// Upon encountering the first row of data from a new user (as distinguished by a different OPRF of the match key)
 /// this function encapsulates the variables that must be initialized. No communication is required for this first row.
 ///
-fn initialize_new_device_attribution_variables<FV>(
-    input_row: &PrfShardedIpaInputRow<FV>,
+fn initialize_new_device_attribution_variables<FV, const B: usize>(
+    input_row: &PrfShardedIpaInputRow<FV, B>,
 ) -> InputsRequiredFromPrevRow
 where
-    FV: SharedValue + CustomArray<Element = Boolean>,
+    FV: SharedValue,
 {
     InputsRequiredFromPrevRow {
         ever_encountered_a_trigger_event: input_row.is_trigger_bit.clone(),
@@ -309,11 +327,15 @@ where
 
 #[cfg(all(test, unit_test))]
 pub mod tests {
+    use std::iter::zip;
+
+    use rand::thread_rng;
+
     use crate::{
         ff::{
             boolean::Boolean,
-            boolean_array::{BA32, BA8},
-            CustomArray, Field, U128Conversions,
+            boolean_array::{BA16, BA8},
+            Field, U128Conversions,
         },
         protocol::ipa_prf::prf_sharding::feature_label_dot_product::{
             compute_feature_label_dot_product, PrfShardedIpaInputRow,
@@ -326,17 +348,17 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    struct PreShardedAndSortedOPRFTestInput<FV: CustomArray<Element = Boolean>> {
+    struct PreShardedAndSortedOPRFTestInput<FV, const B: usize> {
         prf_of_match_key: u64,
         is_trigger_bit: Boolean,
-        feature_vector: FV,
+        feature_vector: [FV; B],
     }
 
     fn test_input(
         prf_of_match_key: u64,
         is_trigger: bool,
-        feature_vector: u32,
-    ) -> PreShardedAndSortedOPRFTestInput<BA32> {
+        feature_vector: [u8; 32],
+    ) -> PreShardedAndSortedOPRFTestInput<BA8, 32> {
         let is_trigger_bit = if is_trigger {
             Boolean::ONE
         } else {
@@ -346,15 +368,16 @@ pub mod tests {
         PreShardedAndSortedOPRFTestInput {
             prf_of_match_key,
             is_trigger_bit,
-            feature_vector: BA32::truncate_from(feature_vector),
+            feature_vector: feature_vector.map(BA8::truncate_from),
         }
     }
 
-    impl<FV> IntoShares<PrfShardedIpaInputRow<FV>> for PreShardedAndSortedOPRFTestInput<FV>
+    impl<FV, const B: usize> IntoShares<PrfShardedIpaInputRow<FV, B>>
+        for PreShardedAndSortedOPRFTestInput<FV, B>
     where
-        FV: SharedValue + CustomArray<Element = Boolean> + IntoShares<Replicated<FV>>,
+        FV: SharedValue + IntoShares<Replicated<FV>>,
     {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV>; 3] {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [PrfShardedIpaInputRow<FV, B>; 3] {
             let PreShardedAndSortedOPRFTestInput {
                 prf_of_match_key,
                 is_trigger_bit,
@@ -386,58 +409,65 @@ pub mod tests {
         }
     }
 
+    const ZERO_FEATURES: [u8; 32] = [0; 32];
+
     #[test]
     fn semi_honest() {
         run(|| async move {
             let world = TestWorld::default();
 
-            let records: Vec<PreShardedAndSortedOPRFTestInput<BA32>> = vec![
+            let mut rng = thread_rng();
+            let attributed_features: [[u8; 32]; 3] =
+                [[rng.gen(); 32], [rng.gen(); 32], [rng.gen(); 32]];
+
+            let records: Vec<PreShardedAndSortedOPRFTestInput<BA8, 32>> = vec![
                 /* First User */
-                test_input(123, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(123, false, 0b1101_0100_1111_0001_0111_0010_1010_1011), // this source DOES receive attribution
-                test_input(123, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
-                test_input(123, false, 0b0110_1101_0001_0100_1011_0100_1010_1001), // this source does not receive attribution (capped)
+                test_input(123, true, ZERO_FEATURES), // trigger
+                test_input(123, false, attributed_features[0]), // this source DOES receive attribution
+                test_input(123, true, ZERO_FEATURES),           // trigger
+                test_input(123, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Second User */
-                test_input(234, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(234, false, 0b0001_1010_0011_0111_0110_0010_1111_0000), // this source DOES receive attribution
+                test_input(234, true, ZERO_FEATURES), // trigger
+                test_input(234, false, attributed_features[1]), // this source DOES receive attribution
                 /* Third User */
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000), // trigger
-                test_input(345, false, 0b0111_0101_0001_0000_0111_0100_0101_0011), // this source DOES receive attribution
-                test_input(345, false, 0b1001_1000_1011_1101_0100_0110_0001_0100), // this source does not receive attribution (capped)
-                test_input(345, true, 0b0000_0000_0000_0000_0000_0000_0000_0000),  // trigger
-                test_input(345, false, 0b1000_1001_0100_0011_0111_0010_0000_1101), // this source does not receive attribution (capped)
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, true, ZERO_FEATURES), // trigger
+                test_input(345, false, attributed_features[2]), // this source DOES receive attribution
+                test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
+                test_input(345, true, ZERO_FEATURES),    // trigger
+                test_input(345, false, [rng.gen(); 32]), // this source does not receive attribution (capped)
                 /* Fourth User */
-                test_input(456, true, 0b1010_1111_0011_0101_1011_1110_0100_0011), // this source does NOT receive any attribution because this user has no trigger events
+                test_input(456, false, [rng.gen(); 32]), // this source does NOT receive any attribution because this user has no trigger events
             ];
 
-            let mut expected: [u128; 32] = [
-                //     1101_0100_1111_0001_0111_0010_1010_1011
-                //     0001_1010_0011_0111_0110_0010_1111_0000
-                // +   0111_0101_0001_0000_0111_0100_0101_0011
-                // -------------------------------------------
-                //     1213_1211_1123_0112_0332_0120_2222_1022
-                1, 2, 1, 3, 1, 2, 1, 1, 1, 1, 2, 3, 0, 1, 1, 2, 0, 3, 3, 2, 0, 1, 2, 0, 2, 2, 2, 2,
-                1, 0, 2, 2,
-            ];
-            expected.reverse(); // convert to little-endian order
+            let expected: [u128; 32] =
+                attributed_features
+                    .into_iter()
+                    .fold([0_u128; 32], |mut acc, x| {
+                        zip(acc.iter_mut(), x).for_each(|(a, b)| *a += u128::from(b));
+                        acc
+                    });
 
-            let users_having_n_records = vec![3, 3, 2, 2, 1, 1, 1, 1];
+            let users_having_n_records = vec![4, 3, 2, 2, 1, 1, 1, 1];
 
-            let result: Vec<BA8> = world
+            let result = world
                 .upgraded_semi_honest(records.into_iter(), |ctx, input_rows| {
                     let h = users_having_n_records.as_slice();
                     async move {
-                        compute_feature_label_dot_product::<BA32, BA8, 32>(ctx, input_rows, h)
+                        compute_feature_label_dot_product::<BA8, BA16, 32>(ctx, input_rows, h)
                             .await
                             .unwrap()
                     }
                 })
                 .await
-                .reconstruct();
-            assert_eq!(result, &expected);
+                .reconstruct()
+                .iter()
+                .map(U128Conversions::as_u128)
+                .collect::<Vec<_>>();
+
+            assert_eq!(&result, &expected);
         });
     }
 }

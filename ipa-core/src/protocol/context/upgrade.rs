@@ -1,17 +1,15 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3};
+use futures::future::try_join;
 use ipa_step::{Step, StepNarrow};
 
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::ZeroPositions,
         boolean::step::BitOpStep,
         context::{step::UpgradeTripleStep, UpgradedContext},
-        modulus_conversion::BitConversionTriple,
         Gate, NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
@@ -95,35 +93,6 @@ where
 }
 
 #[async_trait]
-impl<'a, C, F>
-    UpgradeToMalicious<'a, BitConversionTriple<Replicated<F>>, BitConversionTriple<C::Share>>
-    for UpgradeContext<'a, C, F, RecordId>
-where
-    C: UpgradedContext<F>,
-    F: ExtendableField,
-{
-    async fn upgrade(
-        self,
-        input: BitConversionTriple<Replicated<F>>,
-    ) -> Result<BitConversionTriple<C::Share>, Error> {
-        let [v0, v1, v2] = input.0;
-        let (t0, t1, t2) = try_join3(
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple0)
-                .upgrade_one(self.record_binding, v0, ZeroPositions::Pvzz),
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple1)
-                .upgrade_one(self.record_binding, v1, ZeroPositions::Pzvz),
-            self.ctx
-                .narrow(&UpgradeTripleStep::UpgradeBitTriple2)
-                .upgrade_one(self.record_binding, v2, ZeroPositions::Pzzv),
-        )
-        .await?;
-        Ok(BitConversionTriple([t0, t1, t2]))
-    }
-}
-
-#[async_trait]
 impl<'a, C, F> UpgradeToMalicious<'a, (), ()> for UpgradeContext<'a, C, F, NoRecord>
 where
     C: UpgradedContext<F>,
@@ -189,9 +158,7 @@ where
     F: ExtendableField,
 {
     async fn upgrade(self, input: Replicated<F>) -> Result<C::Share, Error> {
-        self.ctx
-            .upgrade_one(self.record_binding, input, ZeroPositions::Pvvv)
-            .await
+        self.ctx.upgrade_one(self.record_binding, input).await
     }
 }
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
@@ -238,13 +205,7 @@ where
 // that's not currently required.
 #[cfg(test)]
 impl<'a, C: UpgradedContext<F>, F: ExtendableField> UpgradeContext<'a, C, F, NoRecord> {
-    pub(super) async fn upgrade_sparse(
-        self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<C::Share, Error> {
-        self.ctx
-            .upgrade_one(RecordId::from(0u32), input, zeros_at)
-            .await
+    pub(super) async fn upgrade_sparse(self, input: Replicated<F>) -> Result<C::Share, Error> {
+        self.ctx.upgrade_one(RecordId::from(0u32), input).await
     }
 }

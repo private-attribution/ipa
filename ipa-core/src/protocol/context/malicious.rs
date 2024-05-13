@@ -13,7 +13,7 @@ use crate::{
     protocol::{
         basics::{
             mul::{semi_honest_multiply, step::MaliciousMultiplyStep::RandomnessForValidation},
-            ShareKnownValue, ZeroPositions,
+            ShareKnownValue,
         },
         context::{
             dzkp_malicious::DZKPUpgraded,
@@ -147,8 +147,8 @@ impl<'a> UpgradableContext for Context<'a> {
     type DZKPUpgradedContext = DZKPUpgraded<'a>;
     type DZKPValidator = MaliciousDZKPValidator<'a>;
 
-    fn dzkp_validator(self, chunk_size: usize) -> Self::DZKPValidator {
-        MaliciousDZKPValidator::new(self, chunk_size)
+    fn dzkp_validator(self, multiplication_amount: usize) -> Self::DZKPValidator {
+        MaliciousDZKPValidator::new(self, multiplication_amount)
     }
 }
 
@@ -225,7 +225,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         //
         // This code is drawn from:
@@ -247,7 +246,6 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
             record_id,
             &induced_share,
             &self.inner.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
         )
         .await?;
         let m = MaliciousReplicated::new(x, rx);
@@ -258,18 +256,14 @@ impl<'a, F: ExtendableField> UpgradedContext<F> for Upgraded<'a, F> {
     }
 
     #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
         use crate::protocol::{
             context::{step::UpgradeStep, upgrade::UpgradeContext},
             NoRecord,
         };
 
         UpgradeContext::new(self.narrow(&UpgradeStep), NoRecord)
-            .upgrade_sparse(input, zeros_at)
+            .upgrade_sparse(input)
             .await
     }
 }

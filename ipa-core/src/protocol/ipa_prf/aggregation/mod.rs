@@ -132,7 +132,7 @@ where
     HV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<N> + FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Replicated<BK>: BooleanArrayMul,
     Replicated<TV>: BooleanArrayMul,
     BitDecomposed<Replicated<Boolean, N>>:
@@ -229,7 +229,7 @@ where
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B>,
     Replicated<Boolean, B>:
-        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, Boolean, B>,
+        BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Vec<Replicated<OV>>:
         for<'a> TransposeFrom<&'a BitDecomposed<Replicated<Boolean, B>>, Error = LengthError>,
 {
@@ -261,7 +261,7 @@ where
                             if a.len() < usize::try_from(OV::BITS).unwrap() {
                                 // If we have enough output bits, add and keep the carry.
                                 let (mut sum, carry) =
-                                    integer_add::<_, _, _, _, B>(ctx, record_id, &a, &b).await?;
+                                    integer_add::<_, B>(ctx, record_id, &a, &b).await?;
                                 sum.push(carry);
                                 Ok(sum)
                             } else {

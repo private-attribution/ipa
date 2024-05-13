@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::{
     rand::{thread_rng, Rng},
     secret_sharing::BitDecomposed,
@@ -71,6 +73,16 @@ where
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [BitDecomposed<T>; 3] {
         vec_shares(self, rng).map(BitDecomposed::new)
+    }
+}
+
+impl<U, T, const N: usize> IntoShares<[T; N]> for [U; N]
+where
+    U: IntoShares<T>,
+    T: Debug,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [[T; N]; 3] {
+        vec_shares(self, rng).map(|x| x.try_into().unwrap())
     }
 }
 

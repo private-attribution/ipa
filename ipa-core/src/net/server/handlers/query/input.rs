@@ -1,21 +1,32 @@
-use axum::{routing::post, Extension, Router};
+use axum::{extract::Path, routing::post, Extension, Router};
 use hyper::StatusCode;
 
 use crate::{
-    helpers::{routing::RouteId, Transport},
+    helpers::{query::QueryInput, routing::RouteId, Transport},
     net::{http_serde, Error, HttpTransport},
+    protocol::QueryId,
     sync::Arc,
 };
 
+#[cfg(feature = "real-world-infra")]
+type WrappedBodyStream = crate::helpers::WrappedAxumBodyStream;
+#[cfg(feature = "in-memory-infra")]
+type WrappedBodyStream = crate::helpers::WrappedBoxBodyStream;
+
 async fn handler(
     transport: Extension<Arc<HttpTransport>>,
-    req: http_serde::query::input::Request,
+    Path(query_id): Path<QueryId>,
+    input_stream: WrappedBodyStream,
 ) -> Result<(), Error> {
+    let query_input = QueryInput {
+        query_id,
+        input_stream,
+    };
     let transport = Transport::clone_ref(&*transport);
     let _ = transport
         .dispatch(
-            (RouteId::QueryInput, req.query_input.query_id),
-            req.query_input.input_stream,
+            (RouteId::QueryInput, query_input.query_id),
+            query_input.input_stream,
         )
         .await
         .map_err(|e| Error::application(StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -31,8 +42,7 @@ pub fn router(transport: Arc<HttpTransport>) -> Router {
 
 #[cfg(all(test, unit_test))]
 mod tests {
-
-    use axum::{http::Request, Extension};
+    use axum::http::uri::{Authority, Scheme};
     use hyper::{Body, StatusCode};
     use tokio::runtime::Handle;
 
@@ -42,11 +52,7 @@ mod tests {
         },
         net::{
             http_serde,
-            server::handlers::query::{
-                input::handler,
-                test_helpers::{assert_req_fails_with, IntoFailingReq},
-            },
-            test::TestServer,
+            server::handlers::query::test_helpers::{assert_fails_with, assert_success_with},
         },
         protocol::QueryId,
     };
@@ -55,6 +61,10 @@ mod tests {
     async fn input_test() {
         let expected_query_id = QueryId;
         let expected_input = &[4u8; 4];
+        let req = http_serde::query::input::Request::new(QueryInput {
+            query_id: expected_query_id,
+            input_stream: expected_input.to_vec().into(),
+        });
         let req_handler = make_owned_handler(move |addr, data| async move {
             let RouteId::QueryInput = addr.route else {
                 panic!("unexpected call");
@@ -70,18 +80,10 @@ mod tests {
 
             Ok(HelperResponse::ok())
         });
-
-        let test_server = TestServer::builder()
-            .with_request_handler(req_handler)
-            .build()
-            .await;
-        let req = http_serde::query::input::Request::new(QueryInput {
-            query_id: expected_query_id,
-            input_stream: expected_input.to_vec().into(),
-        });
-        handler(Extension(test_server.transport), req)
-            .await
+        let req = req
+            .try_into_http_request(Scheme::HTTP, Authority::from_static("localhost"))
             .unwrap();
+        assert_success_with(req, req_handler).await;
     }
 
     struct OverrideReq {
@@ -89,16 +91,15 @@ mod tests {
         input_stream: Vec<u8>,
     }
 
-    impl IntoFailingReq for OverrideReq {
-        fn into_req(self, port: u16) -> Request<Body> {
+    impl From<OverrideReq> for hyper::Request<Body> {
+        fn from(val: OverrideReq) -> Self {
             let uri = format!(
-                "http://localhost:{}{}/{}/input",
-                port,
+                "http://localhost{}/{}/input",
                 http_serde::query::BASE_AXUM_PATH,
-                self.query_id
+                val.query_id
             );
             hyper::Request::post(uri)
-                .body(hyper::Body::from(self.input_stream))
+                .body(hyper::Body::from(val.input_stream))
                 .unwrap()
         }
     }
@@ -118,6 +119,6 @@ mod tests {
             query_id: "not_a_query_id".into(),
             ..Default::default()
         };
-        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_fails_with(req.into(), StatusCode::BAD_REQUEST).await;
     }
 }
