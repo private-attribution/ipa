@@ -1,10 +1,7 @@
-#[cfg(feature = "descriptive-gate")]
-use std::sync::Arc;
 use std::{
     cmp,
     collections::HashMap,
     fmt::Debug,
-    sync::{Mutex, Weak},
 };
 
 use async_trait::async_trait;

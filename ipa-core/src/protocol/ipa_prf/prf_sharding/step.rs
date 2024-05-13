@@ -73,8 +73,6 @@ pub(crate) enum FeatureLabelDotProductStep {
     DidSourceReceiveAttribution,
     ComputeSaturatingSum,
     IsAttributedSourceAndPrevRowNotSaturated,
-    ComputedCappedFeatureVector,
-    ModulusConvertFeatureVectorBits,
 }
 
 #[derive(CompactStep)]

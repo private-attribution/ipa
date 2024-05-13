@@ -38,14 +38,10 @@ pub enum DeadCodeStep {
     GreaterThanConstant,
     #[step(child = crate::protocol::boolean::step::ComparisonStep)]
     Comparison,
-    #[step(child = crate::protocol::boolean::random_bits_generator::fallback_step::FallbackStep)]
-    RandomBitFallback,
     #[step(child = crate::protocol::boolean::step::SolvedBitsStep)]
     SolvedBits,
     #[step(child = crate::protocol::context::step::UpgradeStep)]
     UpgradeShare,
-    #[step(child = crate::protocol::context::step::UpgradeTripleStep)]
-    UpgradeBitTriple,
     #[step(child = crate::protocol::context::step::MaliciousProtocolStep)]
     MaliciousProtocol,
     #[step(child = crate::protocol::context::step::ValidateStep)]
@@ -56,8 +52,6 @@ pub enum DeadCodeStep {
     SaturatedSubtraction,
     #[step(child = crate::protocol::ipa_prf::prf_sharding::step::FeatureLabelDotProductStep)]
     FeatureLabelDotProduct,
-    #[step(child = crate::protocol::modulus_conversion::step::ConvertSharesStep)]
-    ConvertShares,
     #[step(child = crate::protocol::ipa_prf::aggregation::step::AggregationStep)]
     Aggregate,
     #[step(child = crate::protocol::context::step::ZeroKnowledgeProofValidateStep)]

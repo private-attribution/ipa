@@ -29,6 +29,7 @@ use crate::{
         ipa_prf::{AGG_CHUNK, PRF_CHUNK},
     },
     secret_sharing::{
+        replicated::malicious::{AdditiveShare as MaliciousReplicated, ExtendableField},
         replicated::semi_honest::AdditiveShare, FieldSimd, SecretSharing, SharedValue, Vectorizable,
     },
     sharding::ShardBinding,

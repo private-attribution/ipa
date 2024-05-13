@@ -9,7 +9,7 @@ use crate::{
     ff::Field,
     protocol::{
         boolean::step::BitOpStep,
-        context::{step::UpgradeTripleStep, UpgradedContext},
+        context::{UpgradedContext},
         Gate, NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{

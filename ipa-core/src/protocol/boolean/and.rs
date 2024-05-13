@@ -3,7 +3,7 @@ use std::iter::zip;
 use crate::{
     error::Error,
     ff::boolean::Boolean,
-    protocol::{basics::SecureMul, boolean::BitOpStep, context::Context, RecordId},
+    protocol::{basics::SecureMul, boolean::step::BitOpStep, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 

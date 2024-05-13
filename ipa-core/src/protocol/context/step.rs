@@ -5,13 +5,6 @@ use ipa_step_derive::CompactStep;
 #[step(name = "upgrade")]
 pub(crate) struct UpgradeStep;
 
-#[derive(CompactStep)]
-pub(crate) enum UpgradeTripleStep {
-    UpgradeBitTriple0,
-    UpgradeBitTriple1,
-    UpgradeBitTriple2,
-}
-
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(CompactStep)]

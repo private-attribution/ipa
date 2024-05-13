@@ -14,6 +14,7 @@ use crate::{
         ReplicatedSecretSharing,
     },
 };
+use crate::protocol::basics::mul::step::MaliciousMultiplyStep;
 
 ///
 /// Implementation drawn from:
