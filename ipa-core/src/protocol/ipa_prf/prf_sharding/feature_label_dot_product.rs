@@ -13,7 +13,7 @@ use crate::{
     helpers::{repeat_n, stream::TryFlattenItersExt},
     protocol::{
         basics::{SecureMul, ShareKnownValue},
-        boolean::{and::bool_and, or::or},
+        boolean::{and::bool_and_9_bit, or::or},
         context::{Context, UpgradedSemiHonestContext},
         ipa_prf::aggregation::aggregate_values,
         BooleanProtocols, RecordId,
@@ -109,7 +109,7 @@ impl InputsRequiredFromPrevRow {
         bit_decomposed_output
             .transpose_from(&input_row.feature_vector)
             .unwrap_infallible();
-        let capped_attributed_feature_vector = bool_and(
+        let capped_attributed_feature_vector = bool_and_9_bit(
             ctx,
             record_id,
             &bit_decomposed_output,
