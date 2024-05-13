@@ -5,16 +5,13 @@ use crate::{
     error::Error,
     ff::boolean::Boolean,
     helpers::repeat_n,
-    protocol::{
-        basics::SecureMul, boolean::and::bool_and, context::Context,
-        ipa_prf::prf_sharding::BinaryTreeDepthStep, RecordId,
-    },
+    protocol::{basics::SecureMul, boolean::and::bool_and, context::Context, RecordId},
     secret_sharing::{replicated::semi_honest::AdditiveShare, BitDecomposed, FieldSimd},
 };
 
 #[derive(Step)]
 pub enum BucketStep {
-    #[dynamic(256)]
+    #[dynamic(512)]
     Bit(usize),
 }
 
@@ -106,20 +103,23 @@ where
     }
 
     let mut row_contribution = vec![value; breakdown_count];
+    // There are half as many contexts as breakdown keys
+    // This is because the final iteration does a `step_by(2)` and the result
+    // affects the values stored in two adjacent buckets
 
-    for (tree_depth, bit_of_bdkey) in bd_key.iter().enumerate().rev() {
+    let mut multiplication_channel = 0;
+
+    for bit_of_bdkey in bd_key.iter().rev() {
         let span = step >> 1;
         if !robust && span > breakdown_count {
             step = span;
             continue;
         }
 
-        let depth_c = ctx.narrow(&BinaryTreeDepthStep::from(tree_depth));
-
         let contributions = ctx
             .parallel_join((0..breakdown_count).step_by(step).enumerate().filter_map(
                 |(i, tree_index)| {
-                    let bucket_c = depth_c.narrow(&BucketStep::from(i));
+                    let bucket_c = ctx.narrow(&BucketStep::from(multiplication_channel + i));
 
                     let index_contribution = &row_contribution[tree_index];
 
@@ -134,6 +134,7 @@ where
                 },
             ))
             .await?;
+        multiplication_channel += contributions.len();
 
         for (index, bdbit_contribution) in contributions.into_iter().enumerate() {
             let left_index = index * step;
