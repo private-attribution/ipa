@@ -103,10 +103,14 @@ where
     }
 
     let mut row_contribution = vec![value; breakdown_count];
-    // There are half as many contexts as breakdown keys
-    // This is because the final iteration does a `step_by(2)` and the result
-    // affects the values stored in two adjacent buckets
 
+    // To move a value to one of 2^bd_key_bits buckets requires 2^bd_key_bits - 1 multiplications
+    // They happen in a tree like fashion:
+    // 1 multiplication for the first bit
+    // 2 for the second bit
+    // 4 for the 3rd bit
+    // And so on. Simply ordering them sequentially is a functional way
+    // of enumerating them without creating more step transitions than necessary
     let mut multiplication_channel = 0;
 
     for bit_of_bdkey in bd_key.iter().rev() {
