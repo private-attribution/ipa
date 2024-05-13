@@ -14,7 +14,7 @@ use std::ops::Not;
 #[cfg(feature = "descriptive-gate")]
 pub use check_zero::check_zero;
 pub use if_else::{if_else, select};
-pub use mul::{BooleanArrayMul, MultiplyZeroPositions, SecureMul, ZeroPositions};
+pub use mul::{BooleanArrayMul, SecureMul};
 pub use reshare::Reshare;
 pub use reveal::{partial_reveal, reveal, Reveal};
 pub use share_known_value::ShareKnownValue;

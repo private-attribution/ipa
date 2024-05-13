@@ -38,7 +38,6 @@ use crate::{
         ShardReceivingEnd, TotalRecords,
     },
     protocol::{
-        basics::ZeroPositions,
         context::dzkp_validator::{DZKPValidator, Segment},
         prss::{Endpoint as PrssEndpoint, SharedRandomness},
         step::{Gate, Step, StepNarrow},
@@ -140,7 +139,6 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
-        zeros_at: ZeroPositions,
     ) -> Result<Self::Share, Error>;
 
     /// Upgrade an input using this context.
@@ -192,11 +190,7 @@ pub trait UpgradedContext<F: ExtendableField>: Context {
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
     #[cfg(test)]
-    async fn upgrade_sparse(
-        &self,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<Self::Share, Error>;
+    async fn upgrade_sparse(&self, input: Replicated<F>) -> Result<Self::Share, Error>;
 }
 
 pub trait SpecialAccessToUpgradedContext<F: ExtendableField>: UpgradedContext<F> {
