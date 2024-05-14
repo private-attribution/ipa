@@ -335,6 +335,7 @@ where
         let plaintext_mk = open_in_place(key_registry, self.encap_key_mk(), &mut ct_mk, &info)?;
         let mut ct_btt: GenericArray<u8, CTBTTLength<BK, TV, TS>> =
             GenericArray::from_slice(self.btt_ciphertext()).clone();
+
         let plaintext_btt = open_in_place(key_registry, self.encap_key_btt(), &mut ct_btt, &info)?;
 
         Ok(OprfReport::<BK, TV, TS> {
@@ -529,9 +530,11 @@ mod test {
     use super::*;
     use crate::{
         ff::boolean_array::{BA20, BA3, BA8},
+        hpke::{Deserializable, IpaPrivateKey, IpaPublicKey},
         report,
         report::EventType::{Source, Trigger},
         secret_sharing::replicated::{semi_honest::AdditiveShare, ReplicatedSecretSharing},
+        test_fixture::Reconstruct,
     };
 
     #[test]
@@ -630,5 +633,162 @@ mod test {
             .err()
             .unwrap();
         assert!(matches!(err, InvalidReportError::NonAsciiString(_)));
+    }
+
+    struct RawReport {
+        event_type: EventType,
+        epoch: u16,
+        site_domain: String,
+        matchkey: u128,
+        trigger_value: u128,
+        breakdown_key: u128,
+        timestamp: u128,
+    }
+
+    fn decrypt_report(
+        pk: Vec<u8>,
+        sk: Vec<u8>,
+        encrypted_report_bytes: Vec<u8>,
+        expected: &RawReport,
+    ) -> OprfReport<BA8, BA3, BA20> {
+        let key_registry1 = KeyRegistry::from_keys([KeyPair::from((
+            IpaPrivateKey::from_bytes(&sk).unwrap(),
+            IpaPublicKey::from_bytes(&pk).unwrap(),
+        ))]);
+
+        let enc_report =
+            EncryptedOprfReport::from_bytes(encrypted_report_bytes.as_slice()).unwrap();
+        let dec_report: OprfReport<BA8, BA3, BA20> = enc_report.decrypt(&key_registry1).unwrap();
+
+        assert_eq!(dec_report.event_type, expected.event_type);
+        assert_eq!(dec_report.epoch, expected.epoch);
+        assert_eq!(dec_report.site_domain, expected.site_domain);
+        return dec_report;
+    }
+
+    fn validate_blobs(
+        enc_report_bytes1: Vec<u8>,
+        enc_report_bytes2: Vec<u8>,
+        enc_report_bytes3: Vec<u8>,
+        expected: &RawReport,
+    ) {
+        let pk = [
+            hex::decode("92a6fb666c37c008defd74abf3204ebea685742eab8347b08e2f7c759893947a")
+                .unwrap(),
+            hex::decode("cfdbaaff16b30aa8a4ab07eaad2cdd80458208a1317aefbb807e46dce596617e")
+                .unwrap(),
+            hex::decode("b900be35da06106a83ed73c33f733e03e4ea5888b7ea4c912ab270b0b0f8381e")
+                .unwrap(),
+        ];
+        let sk = [
+            hex::decode("53d58e022981f2edbf55fec1b45dbabd08a3442cb7b7c598839de5d7a5888bff")
+                .unwrap(),
+            hex::decode("3a0a993a3cfc7e8d381addac586f37de50c2a14b1a6356d71e94ca2afaeb2569")
+                .unwrap(),
+            hex::decode("1fb5c5274bf85fbe6c7935684ef05499f6cfb89ac21640c28330135cc0e8a0f7")
+                .unwrap(),
+        ];
+
+        let dec_report1: OprfReport<BA8, BA3, BA20> =
+            decrypt_report(pk[0].clone(), sk[0].clone(), enc_report_bytes1, &expected);
+
+        let dec_report2: OprfReport<BA8, BA3, BA20> =
+            decrypt_report(pk[1].clone(), sk[1].clone(), enc_report_bytes2, &expected);
+
+        let dec_report3: OprfReport<BA8, BA3, BA20> =
+            decrypt_report(pk[2].clone(), sk[2].clone(), enc_report_bytes3, &expected);
+
+        assert_eq!(
+            [
+                dec_report1.match_key,
+                dec_report2.match_key,
+                dec_report3.match_key
+            ]
+            .reconstruct(),
+            expected.matchkey
+        );
+        assert_eq!(
+            [
+                dec_report1.breakdown_key,
+                dec_report2.breakdown_key,
+                dec_report3.breakdown_key
+            ]
+            .reconstruct(),
+            expected.breakdown_key
+        );
+        assert_eq!(
+            [
+                dec_report1.trigger_value,
+                dec_report2.trigger_value,
+                dec_report3.trigger_value
+            ]
+            .reconstruct(),
+            expected.trigger_value
+        );
+        assert_eq!(
+            [
+                dec_report1.timestamp,
+                dec_report2.timestamp,
+                dec_report3.timestamp
+            ]
+            .reconstruct(),
+            expected.timestamp
+        );
+    }
+
+    #[test]
+    fn check_compatibility_impressionmk_with_ios_encryption() {
+        let enc_report_bytes1 = hex::decode("12854879d86ef277cd70806a7f6bad269877adc95ee107380381caf15b841a7e995e414c63a9d82f834796cdd6c40529189fca82720714d24200d8a916a1e090b123f27eaf24f047f3930a77e5bcd33eeb823b73b0e9546c59d3d6e69383c74ae72b79645698fe1422f83886bd3cbca9fbb63f7019e2139191dd000000007777772e6d6574612e636f6d").unwrap();
+        let enc_report_bytes2 = hex::decode("1d85741b3edf3f49e8ed5824b8ea0ed156301fb6d450fc30ad76785fc3b281775937d0275efc237d3e3ac92e22cf60ebd8dc09a41abaa20c0a7ee9e5e1c736708c01dd65f592e5683f8ca0e23f8bfcd3a7736335cc5bec95beceb6474abb816b01f9adf7cc12c344c1538bb84c98b089b24733790032e70c7406000000007777772e6d6574612e636f6d").unwrap();
+        let enc_report_bytes3 = hex::decode("545f9df229a16c70497dd1f93ac75bef8ad33e836bb20f2ff37297bd814a091389d85db9007e7b95231a3e5a0055ae59dc56d431849c0aaf5e01e66c8e6b7888bf299f66907861798097aba96aae193d59b7fcafd5655e745f4b4ae51631c6342e36ee3b6f1682385b46295b7ce0128af02f6828cba562bf0c12000000007777772e6d6574612e636f6d").unwrap();
+
+        assert_eq!(enc_report_bytes1.len(), 138);
+        assert_eq!(enc_report_bytes2.len(), 138);
+        assert_eq!(enc_report_bytes3.len(), 138);
+
+        let expected = RawReport {
+            event_type: EventType::Source,
+            epoch: 0,
+            site_domain: String::from("www.meta.com"),
+            matchkey: 1,
+            trigger_value: 0,
+            breakdown_key: 45,
+            timestamp: 456,
+        };
+
+        validate_blobs(
+            enc_report_bytes1,
+            enc_report_bytes2,
+            enc_report_bytes3,
+            &expected,
+        );
+    }
+
+    #[test]
+    fn check_compatibility_conversion_with_ios_encryption() {
+        let enc_report_bytes1 = hex::decode("741cd5012df1cf8f337258066a55c408d1052297af27a35bdef571773215ad7cbd367eab689145a24ad9666a12731a221ff5548cc7591a5ce50da4dcde203cc614175759ef230641adac977187143471b512f1c8fd95eafeb53602d90a69a6411f3af9cb44e02417f6f27b7162f08bff009e82b1c2c2aaaf156f010000007777772e6162632e636f6d").unwrap();
+        let enc_report_bytes2 = hex::decode("effd53a97a3df4020d717409a9905210510932d894aa70430d324f2048e0b768e7f69660861ff5e73c64d71547c2245f0120957b51925bb9dfbda319ec04b79139467438e647f2b384995af9c66eab0a7943c9ee7a4238c08f5aa52ca460936a89b7ea07a171ff6e3c247ae1d30a43be78b46db7f638050a8fcf010000007777772e6162632e636f6d").unwrap();
+        let enc_report_bytes3 = hex::decode("e708bd1d032ea399964e2f1e2dfe3145203cfc079f519f00e8e789db412f297c9d02e00cc38c3dd3d3cff2771d3811c70b1f37b334402216ca664f224e34900c641edb48469bcf1f09f34fd2a7775d886e5a770e6c6d2089595c87300c87962c3481aec4b4bc1f3f4f3944c3143e590e1e2c87d2cbd91eabe6be010000007777772e6162632e636f6d").unwrap();
+
+        assert_eq!(enc_report_bytes1.len(), 137);
+        assert_eq!(enc_report_bytes2.len(), 137);
+        assert_eq!(enc_report_bytes3.len(), 137);
+
+        let expected = RawReport {
+            event_type: EventType::Trigger,
+            epoch: 0,
+            site_domain: String::from("www.abc.com"),
+            matchkey: 1,
+            trigger_value: 5,
+            breakdown_key: 0,
+            timestamp: 123,
+        };
+
+        validate_blobs(
+            enc_report_bytes1,
+            enc_report_bytes2,
+            enc_report_bytes3,
+            &expected,
+        );
     }
 }
