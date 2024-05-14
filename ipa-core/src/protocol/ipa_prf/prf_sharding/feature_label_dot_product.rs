@@ -59,7 +59,7 @@ impl InputsRequiredFromPrevRow {
     ) -> Result<Replicated<FV>, Error>
     where
         FV: SharedValue + CustomArray<Element = Boolean>,
-        Replicated<FV>: BooleanArrayMul,
+        Replicated<FV>: BooleanArrayMul<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>>,
     {
         let share_of_one = Replicated::share_known_value(&ctx, Boolean::ONE);
         let is_source_event = &share_of_one - &input_row.is_trigger_bit;
@@ -222,7 +222,7 @@ where
     FV: SharedValue + CustomArray<Element = Boolean>,
     OV: SharedValue + U128Conversions + CustomArray<Element = Boolean>,
     Boolean: FieldSimd<B> + FieldVectorizable<B, ArrayAlias = FV>,
-    Replicated<FV>: BooleanArrayMul,
+    for<'a> Replicated<FV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
     Replicated<Boolean, B>:
         BooleanProtocols<UpgradedSemiHonestContext<'ctx, NotSharded, Boolean>, B>,
     Vec<Replicated<OV>>:
@@ -284,7 +284,7 @@ async fn evaluate_per_user_attribution_circuit<FV>(
 ) -> Result<Option<Replicated<FV>>, Error>
 where
     FV: SharedValue + CustomArray<Element = Boolean>,
-    Replicated<FV>: BooleanArrayMul,
+    for<'a> Replicated<FV>: BooleanArrayMul<UpgradedSemiHonestContext<'a, NotSharded, Boolean>>,
 {
     assert!(!rows_for_user.is_empty());
     if rows_for_user.len() == 1 {

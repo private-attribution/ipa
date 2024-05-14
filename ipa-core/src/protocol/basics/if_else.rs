@@ -73,7 +73,7 @@ pub async fn select<C, B>(
 ) -> Result<B, Error>
 where
     C: Context,
-    B: Clone + BooleanArrayMul,
+    B: Clone + BooleanArrayMul<C>,
 {
     let false_value = B::Vectorized::from(false_value.clone());
     let true_value = B::Vectorized::from(true_value.clone());

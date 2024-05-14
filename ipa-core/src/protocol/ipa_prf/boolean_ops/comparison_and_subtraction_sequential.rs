@@ -110,7 +110,7 @@ pub async fn integer_sat_sub<S>(
 ) -> Result<AdditiveShare<S>, Error>
 where
     S: SharedValue + CustomArray<Element = Boolean>,
-    AdditiveShare<S>: BooleanArrayMul,
+    for<'a> AdditiveShare<S>: BooleanArrayMul<SemiHonestContext<'a>>,
 {
     use crate::ff::ArrayAccess;
 
