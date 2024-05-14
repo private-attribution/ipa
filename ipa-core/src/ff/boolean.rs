@@ -234,7 +234,7 @@ mod test {
     use rand::{thread_rng, Rng};
     use typenum::U1;
 
-    use crate::ff::{ArrayAccess, boolean::Boolean, Serializable};
+    use crate::ff::{boolean::Boolean, ArrayAccess, Serializable};
 
     impl Arbitrary for Boolean {
         type Parameters = <bool as Arbitrary>::Parameters;
@@ -275,7 +275,7 @@ mod test {
         assert_ne!(a, !a);
     }
 
-    /// test ArrayAccess for Boolean
+    /// test `ArrayAccess` for Boolean
     #[test]
     fn test_array_access() {
         let mut b = Boolean::from(true);
